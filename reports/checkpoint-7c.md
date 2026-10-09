@@ -30,7 +30,7 @@ A spot a trade opens now takes the best free agent at a position the team gave u
 - All 42 exact trades that open his spot: QB 21 (Smith → Willis), TE 7 (Barner → Hockenson or Freiermuth), WR 6 (Washington both), RB 8 (Washington → Holani, Kenny Gainwell or Kendre Miller).
 - The partners' spots fill the same way, so their chance to accept moves by a point or less on every card but two: #2 52.1% → 49.6%, #6 37.1% → 34.3%. 14 cards (13 before); the top 10 holds the same trades.
 
-## Prizes: his $2,000 / $1,600 / $900, weekly $0 (shares 44 / 36 / 20)
+## Prizes: his $2,000 / $1,600 / $900, the top 3 only (shares 44 / 36 / 20)
 - **3rd place in his league:** the two semifinal losers play for it in week 17. A fresh import reads it from ESPN's consolation-ladder setting (on): "3rd-place game: Yes: the two semifinal losers play for 3rd." with the line "Our reading of ESPN's consolation-ladder setting: its playoff schedule doesn't list a 3rd-place game yet." (⚠️ one league's evidence: the test league's 2025 playoffs, where the semifinal losers played for 3rd in the final round.) The Oct 4 dump predates the reading and assumes the game, the same rule.
 - **His odds** (Oct 4 dump, every team after its pickups): playoffs 60.2%, **1st 10.6%, 2nd 8.3%, 3rd 11.2%**, top 3 30.1%. Live today (Oct 8, week 5): 47.0%, 6.2%, 5.6%, 7.1%, top 3 18.9%.
 - **His B₃: 3.98** (4.94 under "Only the champion"); the playoff-week weight 1.06× (1.98×): 2nd pays 80% of 1st, so reaching the final matters more than winning it. Live today: 3.61 and 0.81×.

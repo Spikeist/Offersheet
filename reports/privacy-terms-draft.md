@@ -1,10 +1,26 @@
-# Privacy policy and terms of use: final text for Checkpoint 7c
+# Privacy policy and terms of use: final text for Checkpoint 7d
 
-Written for the planner (who can't open the app) and Parker. Below is the full text of `/privacy`, `/terms`, `/feedback` and the footer, exactly as the app renders them today, generated from the pages themselves on 2026-10-08 (a throwaway script renders the components to text). The planner read the Checkpoint 7b text and approved it with small edits (reply to Checkpoint 7b, section 3); this is the text with those edits. Checkpoint 7b's own notes follow them.
+Written for the planner (who can't open the app) and Parker. Below is the full text of `/privacy`, `/terms`, `/feedback` and the footer, exactly as the app renders them today, generated from the pages themselves on 2026-10-09 (a throwaway script renders the components to text). The planner approved Checkpoint 7c's text (reply to Checkpoint 7c) and asked for two more changes, which come first; Checkpoint 7c's notes and Checkpoint 7b's (both approved) follow them.
 
 **Not legal advice.** Parker should read both before launch.
 
-## What changed at Checkpoint 7c
+## What changed at Checkpoint 7d
+
+The planner's two changes (reply to Checkpoint 7c), each quoted as the pages render it. Neither needs a switch: both rest on this checkpoint's own code, and `src/app/pages.test.ts` ties each to it.
+
+- **DynastyProcess's license** (terms, "Where the data comes from"; the reply's "Also", security finding 10: a saved import keeps its players' ID pairs, DynastyProcess's links among them, in the user's browser, so its license is credited where users can see it): the data line now reads: "League data comes from ESPN and Sleeper, projections and stats from Sleeper and ESPN, trade values from FantasyCalc (Offer Sheet uses them in its own numbers and doesn't show them), player ID maps from DynastyProcess (shared under the GPL-3.0 license), and the NFL schedule from ESPN." It said: "League data comes from ESPN and Sleeper, projections and stats from Sleeper and ESPN, trade values from FantasyCalc (Offer Sheet uses them in its own numbers and doesn't show them), player ID maps from DynastyProcess, and the NFL schedule from ESPN." The footer's credit "DynastyProcess" now links to its data repository, https://github.com/dynastyprocess/data (`rel="noopener"`, in a new tab), where the map and its license are; the credits' words are as before. The full GPL review still comes before any downloadable version.
+- **Export** (the feedback page; answer 1: "export only what the user saw and entered"): "“Export feedback”, also on the Settings page, downloads what you saw and entered: each trade, the numbers on its card, your outcome, the version you sent and your notes." For a browser that doesn't share copies: "“Export feedback” on the Settings page downloads what you saw and entered: each trade, the numbers on its card, your outcome, the version you sent and your notes." It said: "“Export feedback”, also on the Settings page, downloads what you've saved as a file, notes included. It leaves out the trade-value comparisons behind Offer Sheet's estimates." (and the same after "“Export feedback” on the Settings page"). The file holds the trade, the numbers on its card (Helps you, Helps them, the chance they accept, Overall and the odds lines), the outcome, the version sent and the notes, and nothing else the model used. The anonymous copies keep everything, as before, so the privacy policy's list of what a copy holds doesn't change.
+- ⚠️ **Your rights, in practice.** The export no longer carries the random code that links a record to its anonymous copies (it isn't something the user saw), so a request to find or delete someone's copies is matched by the trades, the days and the card's numbers in their export file, not by that code. The privacy policy's "Only your browser, and a file you export, can tell which copies are yours" still holds that way. (Checkpoint 7c's choice below describes the code.)
+- **Word counts.** The privacy policy didn't change: its detailed part is still 1,273 words (the cap is 1,300) and the short version 288. The terms gain 5 words, 557 in all (not capped).
+- **"Last updated"** stays October 13, 2026 on both pages: Checkpoint 7d deploys at launch if it's approved in time (the planner's plan), before the pages go public. ⚠️ If Checkpoint 7c launches and 7d follows after launch, the terms' date moves to the day 7d deploys (their data line changed); the feedback page has no date.
+
+## Choices made at Checkpoint 7d (for the planner)
+
+- **The footer's link.** `rel="noopener"` and a new tab, like FantasyCalc's, and no `referrerpolicy` of its own: the site's Referrer-Policy, same-origin, already sends another site no referrer. It stays inline in the credits' sentence, so it isn't a 44 px button (WCAG's inline exception, which check:browser applies).
+- **Not linked in the terms.** The terms name the license in the planner's words; the footer, on the same page, links the repository.
+- **No switch.** The footer's link is the credit itself. For the export, a test builds a record with distinctive model numbers and checks that none of them, nor its random code or trade key, reaches the export file, and that its note does.
+
+## What changed at Checkpoint 7c (approved)
 
 The planner's edits (reply to Checkpoint 7b, section 3), each quoted as the pages render it. Three of them rest on this checkpoint's own work, so each sits behind a switch, as Checkpoint 7b's sentences did: the daily levels (question 4), and the prizes and "Helps them" (sections 6 and 7, which don't block launch). Each shows only once its code is in the app, and `src/app/pages.test.ts` fails, both ways, while a switch and the code disagree. A test also turns each switch on alone and checks that it changes only its own words.
 
@@ -12,7 +28,7 @@ The planner's edits (reply to Checkpoint 7b, section 3), each quoted as the page
 - **Daily levels** (privacy, "Our server's copies"; question 4; switch `dailyLevels`, **on**: the daily snapshot cron saves them): the archive sentence now reads: "We also keep public data, Sleeper's pre-game projections, its daily rest-of-season projections in standard scoring formats, and FantasyCalc's daily lists for the league formats in use, up to 2 seasons, to measure how accurate our numbers are. It's never shown and says nothing about any league or person beyond which formats were in use each day." It said: "We also keep public data, Sleeper's pre-game projections and FantasyCalc's daily lists for the league formats in use, up to 2 seasons, to measure how accurate our numbers are. It's never shown and says nothing about any league or person beyond which formats were in use each day." The levels are Sleeper's own rest-of-season projections in its standard, half-PPR and PPR scoring, one record a day: never a league's scoring, our blended projections or FantasyCalc's values, and nothing about the formats in use. They're kept like the rest of the archive, two seasons from their day, so the second sentence holds as it was.
 - **Prizes** (privacy, "Anonymous feedback"; section 6; switch `prizeShares`, **on**: the anonymous copy holds the league's prize split): "how you weigh the title against the playoffs" becomes "how your league splits its prizes (as shares, never amounts)". The sentence now reads: "It holds what you pressed and which version you sent; the platform, season and week; your league's format (teams, league type, main scoring settings, lineup and playoff spots) and how your league splits its prizes (as shares, never amounts); the players as ID numbers with positions; Offer Sheet's numbers for the trade and what they came from; a random code that links later changes to the same record; and the date it arrived." What the copy holds: under "Several prizes" only, each prize's share of the season's prizes in whole percents adding up to 100 (Parker's $2,000 / $1,600 / $900 go as 44 / 36 / 20), next to the setting itself, at the top and for the version sent; never the amounts typed, which stay in the browser. The server's schema refuses anything else (`src/server/feedbackSink.ts` PrizesSchema: amounts, finer shares, a split under another setting, or "Several prizes" without its split). Copies from before keep their setting, an older version's "Top finishers too" included.
 - **Helps them** (terms, "Estimates, not promises"; section 7; switch `helpsThem`, **on**: the Trade Finder has its "Helps both" sort, and the cards and the Trade Analyzer show the "Helps them" score): the list of estimates now reads: "The numbers Offer Sheet works out are estimates: projections, playoff and title odds, “Helps you”, “Helps them”, “Chance they accept” and “Overall”." It said: "The numbers Offer Sheet works out are estimates: projections, playoff and title odds, “Helps you”, “Chance they accept” and “Overall”."
-- **Export** (the feedback page; question 5, which came with the export change): "“Export feedback”, also on the Settings page, downloads what you've saved as a file, notes included. It leaves out the trade-value comparisons behind Offer Sheet's estimates." It said: "“Export feedback”, also on the Settings page, downloads everything you've saved, notes included, as a file." For a browser that doesn't share copies: "“Export feedback” on the Settings page downloads what you've saved as a file, notes included. It leaves out the trade-value comparisons behind Offer Sheet's estimates."
+- **Export** (the feedback page; question 5, which came with the export change): "“Export feedback”, also on the Settings page, downloads what you've saved as a file, notes included. It leaves out the trade-value comparisons behind Offer Sheet's estimates." It said: "“Export feedback”, also on the Settings page, downloads everything you've saved, notes included, as a file." For a browser that doesn't share copies: "“Export feedback” on the Settings page downloads what you've saved as a file, notes included. It leaves out the trade-value comparisons behind Offer Sheet's estimates." (Checkpoint 7d changed both again: above.)
 - **Word cap: 1,300** (section 3). The detailed part is 1,273 words as the app shows it today, and 1,273 with every switch on, the most it can be (1,249 at Checkpoint 7b). The rights line adds 14 words, the levels 8, and the prize words 2 more than the words they replace. The terms aren't capped. The short version is 288 words, as before.
 - **"Last updated"** stays October 13, 2026 on both pages: they go public at launch, so edits made before it keep the launch date.
 
@@ -29,12 +45,12 @@ Switches on today (`src/lib/site.ts` POLICY_FEATURES): `browserReads`, `anonymou
 - **FantasyCalc's condition (5.4): done.** No value number or comparison is left in the app, and the "never shown" sentences are on (`POLICY_FEATURES.fantasyCalcHidden`, since 2026-10-05).
 - **Upstash** is in US East (us-east-1) with backups off: done (Parker checked backups in Upstash's console on 2026-10-05; `reports/beta-infrastructure.md`).
 - **The iPhone sentence** is checked on a real iPhone if Parker has one; until then it says "may".
-- **"Last updated": done.** `PRIVACY_LAST_UPDATED` and `TERMS_LAST_UPDATED` are October 13, 2026, the launch day Parker set on 2026-10-07. Checkpoint 7c's edits come before launch, so they keep it.
+- **"Last updated": done.** `PRIVACY_LAST_UPDATED` and `TERMS_LAST_UPDATED` are October 13, 2026, the launch day Parker set on 2026-10-07. Checkpoint 7c's and 7d's edits come before launch, so they keep it (⚠️ unless 7d deploys after launch: above).
 - **"Up to 12 months": done.** Each day's feedback list goes 365 days after that day began (`src/server/feedbackSink.ts` feedbackDayTtlMs), so no copy is kept longer than 12 months; `src/app/pages.test.ts` checks the rule.
 - **"Up to 2 seasons" for the archive: done**, the daily levels included: a day's levels go two seasons after that day began, like its FantasyCalc lists (`src/server/snapshots.ts` dayRetainMs). ⚠️ Local copies: `npm run snapshot:pull` deletes the FantasyCalc lists of days past the store's rule, since they show which formats were in use; the pre-game projections and the levels it copies to Parker's computer aren't deleted. They're public data about players and name no league, format or person.
-- **Old raw feedback downloads** (`data-local/feedback-server/`, from `feedback:pull`): there were none on this PC on 2026-10-08. `npm run feedback:report` says so if any turn up, and they should be deleted.
-- **Vercel's own cookies:** the cookie line covers Offer Sheet's own code. Vercel sets cookies of its own on protected previews (`_vercel_jwt`), and when a firewall rule challenges a visitor (`_vcrcs`). The launch's firewall rules never challenge (a rate limit on `/api/*` that answers 429, and rules that deny, which set no cookie), so the line holds.
-- **CLAUDE.md: done.** §14 gives the switches, the rights line and the 1,300-word cap, §16 the cap, and §19 the archive's daily levels.
+- **Old raw feedback downloads** (`data-local/feedback-server/`, from `feedback:pull`): there were none on this PC on 2026-10-09. `npm run feedback:report` says so if any turn up, and they should be deleted.
+- **Vercel's own cookies:** the cookie line covers Offer Sheet's own code. Vercel sets cookies of its own on protected previews (`_vercel_jwt`), and when a firewall rule challenges a visitor (`_vcrcs`). The launch's three firewall rules never challenge (one that denies cross-site API requests, a rate limit on `/api/*` that answers 429, and one that denies the image optimizer; denying sets no cookie), so the line holds.
+- **CLAUDE.md: done.** §14 gives the switches, the rights line and the 1,300-word cap, §16 the cap, and §19 the archive's daily levels; since Checkpoint 7d, §14 the footer's DynastyProcess link, the terms' license line and the export sentence, and §19 the credit.
 
 ## Checkpoint 7b's notes (approved)
 
@@ -189,7 +205,7 @@ The numbers Offer Sheet works out are estimates: projections, playoff and title 
 
 ### Where the data comes from
 
-League data comes from ESPN and Sleeper, projections and stats from Sleeper and ESPN, trade values from FantasyCalc (Offer Sheet uses them in its own numbers and doesn't show them), player ID maps from DynastyProcess, and the NFL schedule from ESPN. ESPN's league data comes through an unofficial interface that ESPN doesn't support, so it can change or stop working at any time. Each of these services has its own terms, and your ESPN and Sleeper accounts stay under theirs.
+League data comes from ESPN and Sleeper, projections and stats from Sleeper and ESPN, trade values from FantasyCalc (Offer Sheet uses them in its own numbers and doesn't show them), player ID maps from DynastyProcess (shared under the GPL-3.0 license), and the NFL schedule from ESPN. ESPN's league data comes through an unofficial interface that ESPN doesn't support, so it can change or stop working at any time. Each of these services has its own terms, and your ESPN and Sleeper accounts stay under theirs.
 
 ### Not affiliated
 
@@ -235,7 +251,7 @@ Each trade idea on the Trade Finder and the Trade Analyzer has buttons for what 
 - Unless you turn it off, an anonymous copy also goes to Offer Sheet, to help improve it: what you pressed, the players as ID numbers, your league's format and Offer Sheet's numbers for the trade. Never your league's ID, names or usernames.
 - A note you type with a report stays in this browser. It's never sent.
 - To stop sending copies, turn off “Share anonymous feedback” on the Settings page. That choice is saved in this browser.
-- “Export feedback”, also on the Settings page, downloads what you've saved as a file, notes included. It leaves out the trade-value comparisons behind Offer Sheet's estimates.
+- “Export feedback”, also on the Settings page, downloads what you saw and entered: each trade, the numbers on its card, your outcome, the version you sent and your notes.
 
 The privacy policy lists what's sent and how long it's kept.
 
@@ -245,15 +261,15 @@ A bug, a league that imported wrong, or an idea: get in touch.
 
 Contact: offersheet.app@gmail.com
 
-## Footer (every page)
+## Footer (every page; its links to other sites shown as links)
 
 - Feedback
 - Privacy
 - Terms
 
-Trade values: FantasyCalc
+Trade values: [FantasyCalc](https://fantasycalc.com)
 
-Projections and stats: Sleeper and ESPN · Player IDs: DynastyProcess · NFL schedule: ESPN
+Projections and stats: Sleeper and ESPN · Player IDs: [DynastyProcess](https://github.com/dynastyprocess/data) · NFL schedule: ESPN
 
 Offer Sheet is a free, independent beta. It is not affiliated with or endorsed by ESPN, Sleeper, Yahoo, Fleaflicker, MyFantasyLeague, Fantrax, FantasyCalc, DynastyProcess or the NFL.
 

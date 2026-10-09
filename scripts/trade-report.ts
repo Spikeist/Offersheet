@@ -14,8 +14,9 @@
  *   npm run trade:report -- --live                 Parker's ESPN league through the public-link path and the app's caches
  *   npm run trade:report -- --live --cookies       use the .env.local ESPN cookies (also with USE_ENV_COOKIES=1)
  *   npm run trade:report -- --out <file>           write the report there instead of reports/trade-report.md
- *   npm run trade:report -- --prizes 2000,1600,900,0   the league's prizes (1st, 2nd, 3rd, the weekly high score, the most
- *                                                  points; blank or 0 not paid; scripts/lib/runMode.ts prizesArg): "Several
+ *   npm run trade:report -- --prizes 2000,1600,900   the league's prizes (1st, 2nd, 3rd, the weekly high score, the most
+ *                                                  points; blank, 0 or left off not paid: Parker's league pays only the
+ *                                                  top 3; scripts/lib/runMode.ts prizesArg): "Several
  *                                                  prizes" on them in sections 2, 3 and 10 (Checkpoint 7c); the console
  *                                                  says how it read them first (prizesReadLine, prizesSplitLine)
  *
@@ -77,6 +78,9 @@
  *    Checkpoint 7c: counts.simFinal holds the "Helps both" extras' final runs too (search.ts finalistsOf), so the section
  *    counts final runs, the finalists and the extras apart (finalRunsText; SearchGap.extra), and sections 8 and 9 read the
  *    finalists the ranking picked (rankedFinals: an extra listed as a finalist there was one only the second list ranks).
+ *    Checkpoint 7d: counts.exact holds the helps-both lane's exact trades too (search.ts helpsBothLaneOf, SearchState.lane),
+ *    so the section says how many came from it (exactText), the re-screening rebuilds the lane and checks it's the search's
+ *    (SearchGap.reproduces.lane), and the named trade's funnel says when it came through the lane (SearchGap.lane).
  * 5. The minimum-chance filter (change 10): from the one search, runRefilter at every option of
  *    config.ranking.minChanceOptions: the cards, the qualifying finalists, the ones the minimum hides, `few`, the time it
  *    took, and whether the search's own minimum reproduces its list (filterRows).
@@ -126,6 +130,23 @@
  *    spread, of the totals and of the stages Helps them doesn't touch alone: measuredRunsText, UNTOUCHED_STAGES; review of
  *    the report track, HBR-1). Under the split, section 2's one search shows its own parts the same way. The console
  *    summary gives the split's counts and the extra under section 1's setting (helpsBothSummary; HBR-3).
+ *    Checkpoint 7d (planner reply to Checkpoint 7c, answer 2; the lead's "trade-report section 10 counts the lane"): the
+ *    helps-both lane under each setting, read off each search's state (laneCounts: the screened trades on which both lineups
+ *    gain, those the shortlist and its companions held, the lane, its lean companions, the legal ones, and of those the ones
+ *    that help both on the screening run, the finalists the ranking picked, the extras, those that help both on the final
+ *    run, and the cards of each list), the same counts as above for the same search without the lane
+ *    (TradeSearchOptions.helpsBothLane false: under section 1's setting the last of section 4's runs paired with one, under
+ *    the split section 2's search again on its context), how many Overall cards the search without it doesn't show, what
+ *    else it changes on the Finder (laneShown; review of the lane, LANE-1 and LANE-2: the Plan B boxes and offer-first steps
+ *    of the cards both show, the "Helps both" list's cards each way, the extras without it that get no final run with it
+ *    (none since the lead's fix: search.ts finalistsOf widens the extras' room by one for each lane trade), and the
+ *    "checked N closely" and "Left out on purpose" counts), and
+ *    what the lane costs (laneCost), measured like the extra above: each timed run of section 4 is followed by the same
+ *    search without the lane on its own context (timedSearches' pairedNoLane, after the one without Helps them), the lane's
+ *    exact evaluations and screening simulations are read off each run's own progress (laneParts), and the rest (the final
+ *    simulation, ranking and steps: more extras' final runs, a bigger Plan B pool and second list) is those stages with the
+ *    lane less without, warm only; under the split, section 2's one search's parts and its total against the search
+ *    without the lane (one run each).
  *
  * Phase 7b (planner reply to Checkpoint 7a, §6.1): the settings line names the playoff weeks' weight ω every ROS(T) of the
  * search reads, set automatically from my odds under my goal (league.ts step 5c; league-report's playoffWeightSummary: the
@@ -159,7 +180,7 @@ import type { BaseRateSource, FaMove, HelpsCalibration, LeagueModel, SeasonOdds,
 import { neutralThrowIns } from "@/engine/market";
 import type { InjuryStatus, LeagueSnapshot } from "@/engine/model";
 import { eliteIds, perceivedPackage, teamPremiums } from "@/engine/premium";
-import { atMostWaiverCredit, buildPools, leanCompanions, partnerCandidates, runRefilter, runTradeSearch, searchStateOf, shortlistOf, type SearchState } from "@/engine/search";
+import { atMostWaiverCredit, buildPools, helpsBothLaneOf, leanCompanions, partnerCandidates, runRefilter, runTradeSearch, searchStateOf, shortlistOf, type SearchState } from "@/engine/search";
 import { prizePeriods, type Reward } from "@/engine/reward";
 import { buildSimSetup, pickupSeasonModel } from "@/engine/season";
 import { GOALS, PROTECT_VALUE_LEVELS, defaultTradeSettings, normalizeTradeSettings, type Goal, type PrizeAmounts, type TradeSettings } from "@/engine/settings";
@@ -431,6 +452,48 @@ export function helpsBothParts(ticks: readonly Tick[], start: number, state: Pic
 }
 
 /**
+ * What the helps-both lane costs inside one search (section 10; Checkpoint 7d, planner reply to Checkpoint 7c, answer 2), read
+ * off its own yields: the search evaluates the lane's trades and their lean companions last (SearchState.lane), with an
+ * "exact" yield after each trade chosen, so their exact evaluations are the time from the yield before the first of them to
+ * the last; it simulates the exact trades in that order, a "simScreen" yield after every config.search.yieldEverySims of them
+ * (and after the last; the partners' calibration runs before them yield at 0 done), so their screening simulations are the
+ * time from where the lane's legal trades begin, ⚠️ a batch's time shared out evenly among its trades where they begin
+ * inside one. Null without a state (a search stopped before ranking).
+ */
+export interface LaneParts {
+  /** The lane's trades and companions chosen (an illegal one is evaluated too, and found illegal). */
+  exact: { count: number; ms: number };
+  /** The legal ones, simulated. */
+  simScreen: { count: number; ms: number };
+}
+
+export function laneParts(ticks: readonly Tick[], start: number, state: Pick<SearchState, "lane" | "exactByKey"> | null): LaneParts | null {
+  if (!state) return null;
+  const at = (i: number): number => (i >= 0 ? (ticks[i] as Tick).t : start);
+  const chosen = state.lane.trades.length + state.lane.companions.length;
+  const legal = [...state.lane.trades, ...state.lane.companions].filter((k) => state.exactByKey.has(k)).length;
+  const exact = { count: chosen, ms: 0 };
+  const exactAt = ticks.flatMap((k, i) => (k.stage === "exact" ? [i] : []));
+  if (chosen > 0 && exactAt.length >= chosen) {
+    const first = exactAt.length - chosen;
+    const before = first > 0 ? (exactAt[first - 1] as number) : (exactAt[0] as number) - 1;
+    exact.ms = at(exactAt.at(-1) as number) - at(before);
+  }
+  const simScreen = { count: legal, ms: 0 };
+  const simsAt = ticks.flatMap((k, i) => (k.stage === "simScreen" && k.done > 0 ? [i] : []));
+  const n = simsAt.length ? (ticks[simsAt.at(-1) as number] as Tick).done : 0;
+  const from = n - legal;
+  let prev = 0;
+  for (const i of simsAt) {
+    const d = (ticks[i] as Tick).done;
+    const mine = d - Math.max(prev, from);
+    if (legal > 0 && mine > 0 && d > prev) simScreen.ms += (at(i) - at(i - 1)) * (mine / (d - prev));
+    prev = d;
+  }
+  return { exact, simScreen };
+}
+
+/**
  * The search without "Helps them" (section 10; ⚠️ ours, the engine test's way: search.helpsBoth.test.ts, "the Overall list is
  * what it is without the second list"): before the search, every team's calibration run is set to none in the context's memo
  * (evaluate.ts SimState.partners), so no partner's scale is known: no calibration run, Helps them unknown on every trade, no
@@ -454,6 +517,8 @@ export interface RuntimeRun {
   signature: string;
   /** Section 10: the run's "Helps both" parts, read off its own progress (helpsBothParts); null when it stopped before ranking. */
   parts: HelpsBothParts | null;
+  /** Section 10 (Checkpoint 7d): the run's helps-both lane parts, read off its own progress (laneParts); null when it stopped before ranking. */
+  lane: LaneParts | null;
 }
 
 export interface Runtime {
@@ -499,17 +564,29 @@ function runtimeOf(all: readonly RuntimeRun[], warmups: number): Runtime {
   };
 }
 
-/** One search on its own context, timed, with its progress kept on the clock for its "Helps both" parts (helpsBothParts: a timestamp a yield, next to nothing against a search). */
-function timedRun(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: SearchRunOptions & { exhaustive?: boolean; helpsThem?: boolean }): { ctx: TradeContext; result: TradeSearchResult; run: RuntimeRun } {
+/**
+ * One search on its own context, timed, with its progress kept on the clock for its "Helps both" parts and its lane parts
+ * (helpsBothParts, laneParts: a timestamp a yield, next to nothing against a search). `lane` false: without the helps-both
+ * lane (TradeSearchOptions.helpsBothLane, Checkpoint 7d).
+ */
+function timedRun(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: SearchRunOptions & { exhaustive?: boolean; helpsThem?: boolean; lane?: boolean }): { ctx: TradeContext; result: TradeSearchResult; run: RuntimeRun } {
   const { clock } = opts;
   const t0 = clock();
   const ctx = buildTradeContext(snapshot, inputs, { now: opts.now, clock, settings: opts.settings, ...(opts.scenarios !== undefined ? { scenarios: opts.scenarios } : {}) });
   if (opts.helpsThem === false) withoutHelpsThem(ctx);
   const ticks: Tick[] = [];
   const start = clock();
-  const result = runTradeSearch(ctx, { clock, settings: opts.settings, ...(opts.exhaustive === false ? { exhaustive: false } : {}) }, (p) => ticks.push({ t: clock(), stage: p.stage, done: p.done }));
+  const result = runTradeSearch(ctx, { clock, settings: opts.settings, ...(opts.exhaustive === false ? { exhaustive: false } : {}), ...(opts.lane === false ? { helpsBothLane: false } : {}) }, (p) => ticks.push({ t: clock(), stage: p.stage, done: p.done }));
   const total = clock() - t0;
-  return { ctx, result, run: { context: { ...ctx.timings }, search: { ...result.timings }, total, signature: signatureOf(result), parts: helpsBothParts(ticks, start, searchStateOf(result)) } };
+  const state = searchStateOf(result);
+  return { ctx, result, run: { context: { ...ctx.timings }, search: { ...result.timings }, total, signature: signatureOf(result), parts: helpsBothParts(ticks, start, state), lane: laneParts(ticks, start, state) } };
+}
+
+/** A set of runs that ran beside the timed ones (timedSearches' pairedWithout and pairedNoLane): the last one's context and result, and the set's runtime. */
+export interface PairedRuns {
+  ctx: TradeContext;
+  result: TradeSearchResult;
+  runtime: Runtime;
 }
 
 /**
@@ -517,30 +594,46 @@ function timedRun(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: SearchRun
  * false: without "Helps them", withoutHelpsThem); the last run's context and result. `pairedWithout` (section 10): after each
  * timed run, the same search without "Helps them" on its own context, so each pair runs side by side in the process (⚠️ run
  * as a set afterwards, they came out faster on stages Helps them doesn't touch, screening and exact evaluation, as the JIT
- * kept warming up: 388 ms against 496 ms on the test league's screening); its runs come back as `without`.
+ * kept warming up: 388 ms against 496 ms on the test league's screening); its runs come back as `without`. `pairedNoLane`
+ * (section 10, Checkpoint 7d): after that, the same search without the helps-both lane on its own context (its runs:
+ * `noLane`).
  */
 export function timedSearches(
   snapshot: LeagueSnapshot,
   inputs: ModelInputs,
-  opts: SearchRunOptions & { exhaustive?: boolean; helpsThem?: boolean; pairedWithout?: boolean },
-): { ctx: TradeContext; result: TradeSearchResult; runtime: Runtime; without: { ctx: TradeContext; result: TradeSearchResult; runtime: Runtime } | null } {
+  opts: SearchRunOptions & { exhaustive?: boolean; helpsThem?: boolean; pairedWithout?: boolean; pairedNoLane?: boolean },
+): { ctx: TradeContext; result: TradeSearchResult; runtime: Runtime; without: PairedRuns | null; noLane: PairedRuns | null } {
   const all: RuntimeRun[] = [];
   const paired: RuntimeRun[] = [];
+  const pairedNoLane: RuntimeRun[] = [];
   let last: { ctx: TradeContext; result: TradeSearchResult } | null = null;
   let lastWithout: { ctx: TradeContext; result: TradeSearchResult } | null = null;
+  let lastNoLane: { ctx: TradeContext; result: TradeSearchResult } | null = null;
   const warmups = Math.max(0, Math.floor(opts.warmups));
   const total = warmups + Math.max(1, Math.floor(opts.runs));
   for (let i = 0; i < total; i++) {
     const r = timedRun(snapshot, inputs, opts);
     all.push(r.run);
     last = { ctx: r.ctx, result: r.result };
-    if (!opts.pairedWithout || i < warmups) continue;
-    const w = timedRun(snapshot, inputs, { ...opts, helpsThem: false });
-    paired.push(w.run);
-    lastWithout = { ctx: w.ctx, result: w.result };
+    if (i < warmups) continue;
+    if (opts.pairedWithout) {
+      const w = timedRun(snapshot, inputs, { ...opts, helpsThem: false });
+      paired.push(w.run);
+      lastWithout = { ctx: w.ctx, result: w.result };
+    }
+    if (opts.pairedNoLane) {
+      const w = timedRun(snapshot, inputs, { ...opts, lane: false });
+      pairedNoLane.push(w.run);
+      lastNoLane = { ctx: w.ctx, result: w.result };
+    }
   }
   const done = last as { ctx: TradeContext; result: TradeSearchResult };
-  return { ...done, runtime: runtimeOf(all, warmups), without: lastWithout ? { ...lastWithout, runtime: runtimeOf(paired, 0) } : null };
+  return {
+    ...done,
+    runtime: runtimeOf(all, warmups),
+    without: lastWithout ? { ...lastWithout, runtime: runtimeOf(paired, 0) } : null,
+    noLane: lastNoLane ? { ...lastNoLane, runtime: runtimeOf(pairedNoLane, 0) } : null,
+  };
 }
 
 /** The League model's build time (as the League page builds it): the first build in the process and the median of the timed ones; the last build. */
@@ -621,6 +714,8 @@ export interface GoalCompare {
   result: TradeSearchResult;
   /** Section 10: with a clock, the other search's "Helps both" parts read off its own progress (helpsBothParts; its total in result.timings); else null. */
   parts: HelpsBothParts | null;
+  /** Section 10 (Checkpoint 7d): with a clock, the other search's helps-both lane parts read off its own progress (laneParts); else null. */
+  lane: LaneParts | null;
   /** The union of both top TOP_DETAIL lists: the default goal's order first, then the other's extras in its order. */
   rows: GoalRow[];
   /** Trades in both top lists, and in both top GOAL_TOP. */
@@ -663,6 +758,7 @@ export function goalCompare(ctx: TradeContext, main: TradeSearchResult, settings
     omega: { title: tradeInternals(ctx).model.playoffWeight, other: tradeInternals(other.ctx).model.playoffWeight },
     result,
     parts: clock ? helpsBothParts(ticks, start, searchStateOf(result)) : null,
+    lane: clock ? laneParts(ticks, start, searchStateOf(result)) : null,
     rows,
     common: inBoth(top),
     commonTop: inBoth(Math.min(GOAL_TOP, top)),
@@ -766,10 +862,12 @@ export interface SearchGap {
   /** Its rank in that partner's keep (the window, the dominance pruning, the best keptPerPartner), and the keep's size. */
   kept: { rank: number; of: number } | null;
   /**
-   * In the exactEvaluationMax shortlist over every partner; evaluated exactly (legal); a finalist the ranking picked; a "Helps
-   * both" extra (a final run only that list ranks: SearchState.helpsBothExtras, Checkpoint 7c); its card's place.
+   * In the exactEvaluationMax shortlist over every partner; in the helps-both lane or among its lean companions (Checkpoint
+   * 7d: SearchState.lane); evaluated exactly (legal); a finalist the ranking picked; a "Helps both" extra (a final run only
+   * that list ranks: SearchState.helpsBothExtras, Checkpoint 7c); its card's place.
    */
   shortlisted: boolean;
+  lane: boolean;
   exact: boolean;
   finalist: boolean;
   extra: boolean;
@@ -782,10 +880,12 @@ export interface SearchGap {
   /**
    * The re-screening reproduces the search (its rules can't have drifted from the report's reading of them): the screens per
    * partner add up to TradeSearchResult.counts.screened, and every trade the search evaluated exactly is in the shortlist
-   * rebuilt here (search.shortlistOf with search.atMostWaiverCredit, the search's own call) or among its lean companions
-   * (search.leanCompanions on that shortlist, as the search calls it). Null when nothing was screened.
+   * rebuilt here (search.shortlistOf with search.atMostWaiverCredit, the search's own call), among its lean companions
+   * (search.leanCompanions on that shortlist, as the search calls it) or, since Checkpoint 7d, in the helps-both lane or
+   * among its lean companions (search.helpsBothLaneOf and leanCompanions, as the search calls them); `lane`: that lane and
+   * its companions are the search's own (SearchState.lane), in its order. Null when nothing was screened.
    */
-  reproduces: { counts: boolean; shortlist: boolean } | null;
+  reproduces: { counts: boolean; shortlist: boolean; lane: boolean } | null;
   /** The legal candidates the beams alone screen, over every partner (their keys). */
   beamsKeys: number;
   /** What only the exhaustive candidates reach (keys the beams alone never screen): exact trades, final runs (the extras too), cards. */
@@ -822,7 +922,7 @@ export function searchGap(ctx: TradeContext, result: TradeSearchResult, settings
   else if (holder(wilson) !== result.myTeamId) missing = `${GAP_TRADE.give[0]} isn't on your roster in this data`;
   else if (!partnerId || partnerId === result.myTeamId || gets.some((id) => holder(id) !== partnerId)) missing = `${GAP_TRADE.get.join(" and ")} aren't on the same other team in this data`;
   const trade = missing ? null : { partnerId: partnerId as string, give: [wilson as string], get: gets as string[], key: proposalKey({ partnerId: partnerId as string, give: asPlayers([wilson as string]), get: asPlayers(gets as string[]) }) };
-  const empty: SearchGap = { trade, missing, screened: null, beams: false, inWindow: null, kept: null, shortlisted: false, exact: false, finalist: false, extra: false, card: null, evaluation: null, bestSameFamily: null, perPartner: [], reproduces: null, beamsKeys: 0, onlyExhaustive: { exact: 0, finalRuns: 0, cards: 0 } };
+  const empty: SearchGap = { trade, missing, screened: null, beams: false, inWindow: null, kept: null, shortlisted: false, lane: false, exact: false, finalist: false, extra: false, card: null, evaluation: null, bestSameFamily: null, perPartner: [], reproduces: null, beamsKeys: 0, onlyExhaustive: { exact: 0, finalRuns: 0, cards: 0 } };
   if (I.blocked || !I.me || !state) return empty;
   const pools = buildPools(I, settings, null);
   if (pools.stop) return empty;
@@ -848,11 +948,24 @@ export function searchGap(ctx: TradeContext, result: TradeSearchResult, settings
     });
   }
   const only = (keys: readonly string[]) => keys.filter((k) => !beamsKeys.has(k)).length;
-  const shortlist = shortlistOf(lists, atMostWaiverCredit(I));
+  const cheap = atMostWaiverCredit(I);
+  const shortlist = shortlistOf(lists, cheap);
   const shortKeys = new Set(shortlist.map((x) => x.key));
-  // The search evaluates the shortlist's lean companions too (search.leanCompanions, its own call on that shortlist).
-  const evaluated = new Set([...shortKeys, ...drain(leanCompanions(I, shortlist, lists, pools)).map((x) => x.key)]);
-  const reproduces = { counts: perPartner.reduce((n, p) => n + p.exhaustive, 0) === result.counts.screened, shortlist: exactKeys.every((k) => evaluated.has(k)) };
+  // The search evaluates the shortlist's lean companions too (search.leanCompanions, its own call on that shortlist), then
+  // (Checkpoint 7d) the helps-both lane past them and its own companions (search.helpsBothLaneOf; the lane's size as the
+  // search ran it: none when it ran without the lane).
+  const companions = drain(leanCompanions(I, shortlist, lists, pools)).map((x) => x.key);
+  const taken = new Set([...shortKeys, ...companions]);
+  const lane = helpsBothLaneOf(lists, taken, cheap, state.lane.trades.length ? config.search.helpsBothLane : 0).trades;
+  const laneCompanions = drain(leanCompanions(I, lane, lists, pools, { screened: 0 }, taken)).map((x) => x.key);
+  const laneKeys = new Set([...lane.map((x) => x.key), ...laneCompanions]);
+  const evaluated = new Set([...taken, ...laneKeys]);
+  const sameKeys = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((k, i) => k === b[i]);
+  const reproduces = {
+    counts: perPartner.reduce((n, p) => n + p.exhaustive, 0) === result.counts.screened,
+    shortlist: exactKeys.every((k) => evaluated.has(k)),
+    lane: sameKeys(lane.map((x) => x.key), state.lane.trades) && sameKeys(laneCompanions, state.lane.companions),
+  };
   const out: SearchGap = { ...empty, perPartner, reproduces, beamsKeys: beamsKeys.size, onlyExhaustive: { exact: only(exactKeys), finalRuns: only(finalKeys), cards: only(result.trades.map((t) => t.key)) } };
   if (!trade) return out;
   const at = pools.partners.findIndex((p) => p.id === trade.partnerId);
@@ -872,6 +985,7 @@ export function searchGap(ctx: TradeContext, result: TradeSearchResult, settings
     inWindow: screened ? Number.isFinite(screened.gPartner) && screened.gPartner >= gLo - EPS && screened.gPartner <= gHi + EPS : null,
     kept: k >= 0 ? { rank: k + 1, of: kept.length } : null,
     shortlisted: shortKeys.has(trade.key),
+    lane: laneKeys.has(trade.key),
     exact: state.exactByKey.has(trade.key),
     finalist: finalKeys.includes(trade.key) && !state.helpsBothExtras.includes(trade.key),
     extra: state.helpsBothExtras.includes(trade.key),
@@ -900,6 +1014,18 @@ export function finalRunsText(result: TradeSearchResult): string {
   const n = result.counts.simFinal;
   const extras = searchStateOf(result)?.helpsBothExtras.length ?? 0;
   return extras ? `${n} final runs (${n - extras} finalists and ${extras} "Helps both" extra${extras === 1 ? "" : "s"}: section 10)` : `${n} finalists`;
+}
+
+/**
+ * A search's exact trades in words (section 4): since Checkpoint 7d counts.exact holds the helps-both lane's legal trades
+ * and lean companions too (SearchState.lane; planner reply to Checkpoint 7c, answer 2), so "248 exact (45 from the helps-both
+ * lane: section 10)"; "203 exact" without any.
+ */
+export function exactText(result: TradeSearchResult): string {
+  const n = result.counts.exact;
+  const st = searchStateOf(result);
+  const lane = st ? [...st.lane.trades, ...st.lane.companions].filter((k) => st.exactByKey.has(k)).length : 0;
+  return lane ? `${n} exact (${lane} from the helps-both lane: section 10)` : `${n} exact`;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1480,16 +1606,18 @@ export function openSpotSection(snapshot: LeagueSnapshot, inputs: ModelInputs, c
 export const HELPS_BOTH_SHOWN = 5;
 
 /**
- * One search's trades that help both teams at each stage (section 10; benefit.helpsBoth: Helps you above 0 and Helps them at
- * least config.benefit.helpsThemMin, both as printed), read off its state: the exact trades on their screening numbers (the
+ * One search's trades that help both teams at each stage (section 10; benefit.helpsBoth: Helps you and Helps them each at
+ * least config.benefit.helpsThemMin, as printed: planner reply to Checkpoint 7c, answer 5, where Checkpoint 7c read "Helps
+ * you above 0"), read off its state: the exact trades on their screening numbers (the
  * run the extras are chosen on), the extras (search.ts finalistsOf: the first config.search.helpsBothFinalists by B among
  * those that help both and that the §10 guards don't hide, the ones the ranking hadn't picked already), the finalists the
  * ranking picked and the extras on their final numbers, the Overall cards, and the "Helps both" list.
  */
 export interface HelpsBothCounts {
   /**
-   * The exact trades on the screening run: Helps you above 0 (as printed), the partner's B above 0, Helps them at least the
-   * minimum, both (helpsBoth), and of those the ones the §10 guards don't hide (the extras' pool).
+   * The exact trades on the screening run: Helps you at least the minimum (as printed; above 0 until answer 5), the partner's B
+   * above 0, Helps them at least the minimum, both (helpsBoth), and of those the ones the §10 guards don't hide (the extras'
+   * pool).
    */
   exact: { total: number; helpsYou: number; theirB: number; helpsThem: number; both: number; shown: number };
   /** The pool's first helpsBothFinalists, how many of those the ranking had already picked, the extras, and the extras that still help both on the final run. */
@@ -1524,7 +1652,7 @@ export function helpsBothCounts(result: TradeSearchResult): HelpsBothCounts | nu
   return {
     exact: {
       total: screen.length,
-      helpsYou: screen.filter((c) => finite(c.tradeScore) && c.tradeScore > 0).length,
+      helpsYou: screen.filter((c) => finite(c.tradeScore) && c.tradeScore >= min).length,
       theirB: screen.filter((c) => finite(c.them?.b) && (c.them?.b as number) > 0).length,
       helpsThem: screen.filter((c) => finite(c.them?.helps) && (c.them?.helps as number) >= min).length,
       both: screen.filter((c) => helpsBoth(c)).length,
@@ -1636,6 +1764,180 @@ export function measuredRunsText(c: Pick<HelpsBothCost, "with" | "measured">): s
   return `The runs without it measured ${ms(m.without)} (median)${against}${noise}, so the totals without are section 4's less the three parts.`;
 }
 
+/**
+ * One search's helps-both lane (section 10; Checkpoint 7d, planner reply to Checkpoint 7c, answer 2; search.ts
+ * helpsBothLaneOf), read off its state: the screened trades past screening's rules on which both lineups gain, those the
+ * shortlist and its lean companions held, the lane, its lean companions and how many of them (both) were legal; then of
+ * those, the ones that help both on the screening run, the finalists the ranking picked, the extras, the finalists and
+ * extras that help both on their final numbers, and the cards of each list.
+ */
+export interface LaneCounts {
+  qualifying: number;
+  onShortlist: number;
+  trades: number;
+  companions: number;
+  exact: number;
+  screenBoth: number;
+  finalists: number;
+  extras: number;
+  finalBoth: number;
+  list: number;
+  overall: number;
+}
+
+/** A search's LaneCounts; null when it stopped before ranking. */
+export function laneCounts(result: TradeSearchResult): LaneCounts | null {
+  const st = searchStateOf(result);
+  if (!st) return null;
+  const fromLane = new Set([...st.lane.trades, ...st.lane.companions]);
+  const legal = [...fromLane].filter((k) => st.exactByKey.has(k));
+  const extras = new Set(st.helpsBothExtras);
+  const finals = st.finals.filter((f) => fromLane.has(f.key));
+  return {
+    qualifying: st.lane.qualifying,
+    onShortlist: st.lane.onShortlist,
+    trades: st.lane.trades.length,
+    companions: st.lane.companions.length,
+    exact: legal.length,
+    screenBoth: legal.filter((k) => {
+      const c = st.versions.get(k)?.screen;
+      return c !== undefined && helpsBoth(c);
+    }).length,
+    finalists: finals.filter((f) => !extras.has(f.key)).length,
+    extras: finals.filter((f) => extras.has(f.key)).length,
+    finalBoth: finals.filter((f) => helpsBoth(f)).length,
+    list: (result.helpsBoth?.trades ?? []).filter((t) => fromLane.has(t.key)).length,
+    overall: result.trades.filter((t) => fromLane.has(t.key)).length,
+  };
+}
+
+/** The Overall cards of `on` that `off` doesn't show (section 10: with the lane against without it), by key. */
+export function cardsNotIn(on: TradeSearchResult, off: TradeSearchResult): number {
+  return keysNotIn(on.trades, off.trades);
+}
+
+/** The trades of `a` that `b` doesn't hold, by key. */
+const keysNotIn = (a: readonly { key: string }[], b: readonly { key: string }[]): number => {
+  const keys = new Set(b.map((t) => t.key));
+  return a.filter((t) => !keys.has(t.key)).length;
+};
+
+/** The Finder's "Left out on purpose" counts (TradeSearchResult.hidden): ideas that wouldn't help you, that give up much more trade value, under the minimum chance. */
+export interface LeftOut {
+  benefit: number;
+  market: number;
+  chance: number;
+}
+
+/**
+ * What else the lane changes on the Finder (section 10; review of the lane, LANE-1: cardsNotIn reads card keys only), with
+ * the lane (`on`) against the same search without it (`off`): the Overall cards both show, and of them those whose Plan B box
+ * and those whose offer-first step differ (by key); the "Helps both" list's cards with the lane that the list without it
+ * doesn't show (`added`), the other way (`dropped`), and its cards with the lane; the "Helps both" extras without the lane that
+ * get no final run with it, and of them those on that list without it (review of the lane, LANE-2: as first built, the plain
+ * top config.search.helpsBothFinalists by B, chosen without the minimum chance, the lane's long shots could take a likelier
+ * trade's place; since the lead's fix each lane trade widens the extras' room by one, search.ts finalistsOf, so this reads
+ * 0, a guard; none when either search stopped before ranking); and the Finder's "checked N closely" (counts.exact) and
+ * "Left out on purpose" counts, without and with.
+ */
+export interface LaneShown {
+  shared: { cards: number; box: number; step: number };
+  list: { added: number; dropped: number; cards: number };
+  extrasLost: { count: number; listed: number };
+  exact: { without: number; with: number };
+  leftOut: { without: LeftOut; with: LeftOut };
+}
+
+export function laneShown(on: TradeSearchResult, off: TradeSearchResult): LaneShown {
+  const offBy = new Map(off.trades.map((t) => [t.key, t]));
+  const shared = { cards: 0, box: 0, step: 0 };
+  for (const t of on.trades) {
+    const o = offBy.get(t.key);
+    if (!o) continue;
+    shared.cards++;
+    if ((t.planB?.key ?? null) !== (o.planB?.key ?? null)) shared.box++;
+    if ((t.steps?.offerFirst.key ?? null) !== (o.steps?.offerFirst.key ?? null)) shared.step++;
+  }
+  const listOn = on.helpsBoth?.trades ?? [];
+  const listOff = off.helpsBoth?.trades ?? [];
+  const stOn = searchStateOf(on);
+  const stOff = searchStateOf(off);
+  const finalsOn = new Set((stOn?.finals ?? []).map((f) => f.key));
+  const listedOff = new Set(listOff.map((t) => t.key));
+  const lost = stOn && stOff ? stOff.helpsBothExtras.filter((k) => !finalsOn.has(k)) : [];
+  const leftOut = (r: TradeSearchResult): LeftOut => ({ benefit: r.hidden.byBenefit, market: r.hidden.byMarket, chance: r.hidden.byChance ?? 0 });
+  return {
+    shared,
+    list: { added: keysNotIn(listOn, listOff), dropped: keysNotIn(listOff, listOn), cards: listOn.length },
+    extrasLost: { count: lost.length, listed: lost.filter((k) => listedOff.has(k)).length },
+    exact: { without: off.counts.exact, with: on.counts.exact },
+    leftOut: { without: leftOut(off), with: leftOut(on) },
+  };
+}
+
+/**
+ * What the helps-both lane costs (section 10; the file header): section 4's runs (`main`, the app's search: its first run
+ * the only cold search in the process) against the same search without the lane (`noLane`: one warm run right after each of
+ * the timed ones, each on its own context: timedSearches' pairedNoLane).
+ */
+export interface LaneCost {
+  /** The lane's exact evaluations and its trades' screening simulations, each read off its run's progress (laneParts): the cold run's, and the median of the timed runs'. */
+  exact: { count: number; cold: number | null; warm: number | null };
+  simScreen: { count: number; cold: number | null; warm: number | null };
+  /** The rest, warm only: the final simulation, ranking and steps stages with the lane less without, medians (more extras' final runs, a bigger Plan B pool and second list; ⚠️ a difference of medians). */
+  rest: number | null;
+  /** The three parts (cold: the cold run's own lane parts and the warm rest, ⚠️). */
+  extra: { cold: number | null; warm: number | null };
+  /** The search's total with the lane (section 4's cold run and warm median), and the runs without it as measured: their median and the largest spread of the search totals within either set (null without 2 timed runs in a set). */
+  with: { cold: number | null; warm: number | null };
+  measured: { without: number | null; spread: number | null };
+}
+
+/** The stages the lane's rest is read from (search.ts: the extras' final runs, Plan B's pool and the second list come after the screening simulation). */
+export const LANE_REST_STAGES = ["simFinal", "rank", "steps"] as const;
+
+export function laneCost(main: Runtime, noLane: Runtime): LaneCost {
+  const warm = (rows: readonly RuntimeRun[], f: (r: RuntimeRun) => number | null | undefined): number | null => {
+    const xs = rows.map(f).filter(finite);
+    return xs.length ? median(xs) : null;
+  };
+  const spreadOf = (rows: readonly RuntimeRun[]): number | null => {
+    const xs = rows.map((r) => r.search.total).filter(finite);
+    return xs.length >= 2 ? Math.max(...xs) - Math.min(...xs) : null;
+  };
+  const rest = (r: RuntimeRun): number | null => (LANE_REST_STAGES.every((k) => finite(r.search[k])) ? LANE_REST_STAGES.reduce((acc, k) => acc + (r.search[k] as number), 0) : null);
+  const withRest = warm(main.runs, rest);
+  const withoutRest = warm(noLane.runs, rest);
+  const cold = main.cold.lane;
+  const exact = { count: cold?.exact.count ?? 0, cold: cold?.exact.ms ?? null, warm: warm(main.runs, (r) => r.lane?.exact.ms) };
+  const simScreen = { count: cold?.simScreen.count ?? 0, cold: cold?.simScreen.ms ?? null, warm: warm(main.runs, (r) => r.lane?.simScreen.ms) };
+  const restMs = finite(withRest) && finite(withoutRest) ? withRest - withoutRest : null;
+  const sum = (xs: readonly (number | null)[]): number | null => (xs.every(finite) ? xs.reduce((s: number, x) => s + (x as number), 0) : null);
+  const spreads = [spreadOf(main.runs), spreadOf(noLane.runs)].filter(finite);
+  return {
+    exact,
+    simScreen,
+    rest: restMs,
+    extra: { cold: sum([exact.cold, simScreen.cold, restMs]), warm: sum([exact.warm, simScreen.warm, restMs]) },
+    with: { cold: finite(main.cold.search.total) ? (main.cold.search.total as number) : null, warm: warm(main.runs, (r) => r.search.total) },
+    measured: { without: warm(noLane.runs, (r) => r.search.total), spread: spreads.length ? Math.max(...spreads) : null },
+  };
+}
+
+/** Section 10's helps-both lane (the file header): its counts and the counts without it under each setting, the Overall cards it changes, what else it changes on the Finder, and what it costs. */
+export interface LaneSection {
+  counts: { title: LaneCounts | null; other: LaneCounts | null };
+  /** HelpsBothCounts for the same search without the lane: section 4's last paired run (title), the split's search again (other). */
+  before: { title: HelpsBothCounts | null; other: HelpsBothCounts | null };
+  /** The Overall cards with the lane that the search without it doesn't show. */
+  differs: { title: number; other: number };
+  /** What else it changes on the Finder (laneShown: the boxes and steps of the cards both show, the "Helps both" list's cards, the extras it pushes out, the exact and left-out counts). */
+  shown: { title: LaneShown; other: LaneShown };
+  cost: LaneCost;
+  /** Under the split: section 2's one search's lane parts and total, and the search without the lane's total on the same context (one warm run each); null without a clock. */
+  split: { parts: LaneParts | null; with: number | null; without: number | null } | null;
+}
+
 /** Section 10 (the file header). */
 export interface HelpsBothSection {
   /** Each setting's search: section 1's (the default goal) and section 2's (the split, on its own context). */
@@ -1653,10 +1955,21 @@ export interface HelpsBothSection {
    * whether it helps both (such a card offers first, and gets a box, only versions that help both too).
    */
   differs: { key: string; helpsBoth: boolean }[];
+  /** Checkpoint 7d: the helps-both lane (LaneSection). */
+  lane: LaneSection;
 }
 
-/** Section 10: the counts under each setting, the split's scales, and the extra runtime against the search without Helps them. */
-export function helpsBothSection(main: { result: TradeSearchResult; runtime: Runtime }, goals: GoalCompare, without: { ctx: TradeContext; result: TradeSearchResult; runtime: Runtime }): HelpsBothSection {
+/**
+ * The searches without the helps-both lane that section 10 reads (Checkpoint 7d): section 4's runs paired with one each
+ * (timedSearches' pairedNoLane), and the split's search again on its context (`split`, with its total when timed).
+ */
+export interface NoLaneRuns {
+  paired: PairedRuns;
+  split: { result: TradeSearchResult; total: number | null };
+}
+
+/** Section 10: the counts under each setting, the split's scales, and the extra runtime against the search without Helps them; the lane's against the search without it. */
+export function helpsBothSection(main: { result: TradeSearchResult; runtime: Runtime }, goals: GoalCompare, without: { ctx: TradeContext; result: TradeSearchResult; runtime: Runtime }, noLane: NoLaneRuns): HelpsBothSection {
   const split = searchStateOf(goals.result);
   const I = split?.I ?? null;
   const scales = I ? I.teams.filter((t) => t.id !== I.me?.id).map((t) => ({ teamId: t.id, scale: partnerScaleOf(I, t, goals.reward) })) : [];
@@ -1677,6 +1990,14 @@ export function helpsBothSection(main: { result: TradeSearchResult; runtime: Run
       calibrated: [...(memo?.values() ?? [])].filter((x) => x !== null).length,
     },
     differs,
+    lane: {
+      counts: { title: laneCounts(main.result), other: laneCounts(goals.result) },
+      before: { title: helpsBothCounts(noLane.paired.result), other: helpsBothCounts(noLane.split.result) },
+      differs: { title: cardsNotIn(main.result, noLane.paired.result), other: cardsNotIn(goals.result, noLane.split.result) },
+      shown: { title: laneShown(main.result, noLane.paired.result), other: laneShown(goals.result, noLane.split.result) },
+      cost: laneCost(main.runtime, noLane.paired.runtime),
+      split: goals.lane ? { parts: goals.lane, with: finite(goals.result.timings.total) ? (goals.result.timings.total as number) : null, without: noLane.split.total } : null,
+    },
   };
 }
 
@@ -1759,8 +2080,9 @@ export function buildTradeReport(input: LeagueSnapshot, inputs: ModelInputs, opt
   };
   const league = leagueBuilds(snapshot, inputs, runOpts);
   lap("league");
-  // Section 4's runs, each timed one followed by the same search without "Helps them" (section 10; withoutHelpsThem).
-  const { ctx, result, runtime, without: paired } = timedSearches(snapshot, inputs, { ...runOpts, pairedWithout: true });
+  // Section 4's runs, each timed one followed by the same search without "Helps them" (section 10; withoutHelpsThem) and,
+  // since Checkpoint 7d, without the helps-both lane.
+  const { ctx, result, runtime, without: paired, noLane: pairedNoLane } = timedSearches(snapshot, inputs, { ...runOpts, pairedWithout: true, pairedNoLane: true });
   const without = paired as NonNullable<typeof paired>;
   lap("searches");
   const beams = timedSearches(snapshot, inputs, { ...runOpts, warmups: 0, exhaustive: false });
@@ -1772,6 +2094,11 @@ export function buildTradeReport(input: LeagueSnapshot, inputs: ModelInputs, opt
   const prizesCtx = buildTradeContext(snapshot, inputs, { now, settings: prizesSettings, ...sc });
   const goals = goalCompare(ctx, result, settings, { ctx: prizesCtx, settings: prizesSettings }, TOP_DETAIL, clock);
   lap("goals");
+  // Section 10 (Checkpoint 7d): the split's search without the helps-both lane, on a context of its own built the same way
+  // (a context's memos are warm after a search: on section 2's own its partners' calibration runs would be free), timed.
+  const splitNoLaneCtx = buildTradeContext(snapshot, inputs, { now, settings: prizesSettings, ...sc });
+  const splitNoLane = runTradeSearch(splitNoLaneCtx, { settings: prizesSettings, helpsBothLane: false, clock });
+  lap("lane");
   // Section 3: each goal's B₃ off the context the app builds under that goal (its own ω; helpsScaleSection), "Several
   // prizes" section 2's.
   const scale = helpsScaleSection(snapshot, league.model, ctx, settings, (goal) => (goal === COMPARE_GOAL ? prizesCtx : buildTradeContext(snapshot, inputs, { now, settings: { ...settings, goal }, ...sc })), opts.prizes);
@@ -1792,8 +2119,12 @@ export function buildTradeReport(input: LeagueSnapshot, inputs: ModelInputs, opt
   // Section 9: Checkpoint 7b's rule for the roster spot a trade opens, on its own context and search, against this one.
   const openSpots = openSpotSection(snapshot, inputs, ctx, result, settings, { now, ...sc });
   lap("open spots");
-  // Section 10: "Helps both" under each setting, the split's scales, and the extra runtime.
-  const helpsBoth = helpsBothSection({ result, runtime }, goals, without);
+  // Section 10: "Helps both" under each setting, the split's scales, and the extra runtime; the helps-both lane's against the
+  // searches without it.
+  const helpsBoth = helpsBothSection({ result, runtime }, goals, without, {
+    paired: pairedNoLane as NonNullable<typeof pairedNoLane>,
+    split: { result: splitNoLane, total: finite(splitNoLane.timings.total) ? (splitNoLane.timings.total as number) : null },
+  });
   lap("helps both");
   timing.total = clock() - start;
   const report: Omit<TradeReport, "doc"> = { snapshot, pre4c, settings, prizes: opts.prizes ?? null, ctx, result, model: league.model, league: { cold: league.cold, warm: league.warm }, runtime, beams: { result: beams.result, runtime: beams.runtime }, goals, scale, gap, filter, blend, odds, anchors, premiumAnchors, neutral, kickoff, pickupWeeks: weeks, openSpots, helpsBoth, timing };
@@ -1836,7 +2167,7 @@ function renderHeader(L: string[], snapshot: LeagueSnapshot, inputs: ModelInputs
   const s = r.settings;
   const model = r.model;
   const me = r.result.myTeamId;
-  L.push("# Trade search: Parker's ESPN league (Checkpoint 7c)", "");
+  L.push("# Trade search: Parker's ESPN league (Checkpoint 7d)", "");
   L.push(
     `Generated by \`${opts.command ?? commandText("trade:report", [opts.mode === "live" ? "--live" : null])}\` on ${(opts.generatedAt ?? opts.now).toISOString().slice(0, 10)} through the real engine, as the app's Web Workers run it. Team, owner and league names are placeholders (you are Team ${me ?? "–"}); NFL player names are public.`,
     "",
@@ -2063,7 +2394,7 @@ function renderGap(L: string[], snapshot: LeagueSnapshot, r: Report, teamName: (
   const bc = r.beams.result.counts;
   L.push("## 4. The search gap", "");
   L.push(
-    `Planner change 1: every 1-for-2 and 2-for-1 from the give and get pools and every 2-for-2 from the first ${config.search.exhaustive.twoForTwoTop} of each, on top of the beams; ${config.search.finalists} finalists. **Screened**: ${thousands(c.screened)} (the beams alone: ${thousands(bc.screened)}); ${c.exact} exact, ${finalRunsText(r.result)}, ${r.result.trades.length} cards (the beams alone: ${bc.exact} exact, ${finalRunsText(r.beams.result)}, ${r.beams.result.trades.length} cards).`,
+    `Planner change 1: every 1-for-2 and 2-for-1 from the give and get pools and every 2-for-2 from the first ${config.search.exhaustive.twoForTwoTop} of each, on top of the beams; ${config.search.finalists} finalists. **Screened**: ${thousands(c.screened)} (the beams alone: ${thousands(bc.screened)}); ${exactText(r.result)}, ${finalRunsText(r.result)}, ${r.result.trades.length} cards (the beams alone: ${exactText(r.beams.result)}, ${finalRunsText(r.beams.result)}, ${r.beams.result.trades.length} cards).`,
     "",
   );
   if (!g.trade) L.push(`**${GAP_TRADE.give.join(" + ")} → ${GAP_TRADE.get.join(" + ")}**: ${g.missing ?? "not available"}.`, "");
@@ -2073,7 +2404,7 @@ function renderGap(L: string[], snapshot: LeagueSnapshot, r: Report, teamName: (
       g.screened ? `screened #${g.screened.rank} of ${thousands(g.screened.of)} ${teamName(g.trade.partnerId)} candidates by the objective (${fmt(g.screened.objective, 2)})` : "never screened",
       g.inWindow === null ? null : g.inWindow ? "inside the g window" : "outside the g window",
       g.kept ? `kept #${g.kept.rank} of ${g.kept.of} for that partner` : "not kept",
-      g.exact ? "evaluated exactly" : g.shortlisted ? "shortlisted but illegal" : "not in the exact 200",
+      g.exact ? (g.lane && !g.shortlisted ? "evaluated exactly, from the helps-both lane (section 10)" : "evaluated exactly") : g.shortlisted ? "shortlisted but illegal" : g.lane ? "in the helps-both lane but illegal" : `not in the exact ${config.search.exactEvaluationMax} nor the helps-both lane`,
       g.finalist ? "a finalist" : g.extra ? `not a finalist, but a "Helps both" extra (a final run only that list ranks: section 10)` : "not a finalist",
       g.card ? `**card #${g.card}**` : "not a card",
     ].filter((x): x is string => x !== null);
@@ -2083,7 +2414,7 @@ function renderGap(L: string[], snapshot: LeagueSnapshot, r: Report, teamName: (
     );
   }
   L.push(
-    `Only the exhaustive candidates reach (the beams alone never screen them): ${g.onlyExhaustive.exact} of ${c.exact} exact trades, ${g.onlyExhaustive.finalRuns} of the ${c.simFinal} final runs, ${g.onlyExhaustive.cards} of ${r.result.trades.length} cards.${g.reproduces ? ` The per-partner counts come from screening every partner again on the search's own context: they add up to the search's ${thousands(c.screened)} ${mark(g.reproduces.counts)}, and every trade it evaluated exactly is in the rebuilt shortlist or among its lean companions ${mark(g.reproduces.shortlist)}.` : ""}`,
+    `Only the exhaustive candidates reach (the beams alone never screen them): ${g.onlyExhaustive.exact} of ${c.exact} exact trades, ${g.onlyExhaustive.finalRuns} of the ${c.simFinal} final runs, ${g.onlyExhaustive.cards} of ${r.result.trades.length} cards.${g.reproduces ? ` The per-partner counts come from screening every partner again on the search's own context: they add up to the search's ${thousands(c.screened)} ${mark(g.reproduces.counts)}, every trade it evaluated exactly is in the rebuilt shortlist, among its lean companions or in the rebuilt helps-both lane with its own ${mark(g.reproduces.shortlist)}, and that lane is the search's ${mark(g.reproduces.lane)}.` : ""}`,
     "",
   );
   if (g.perPartner.length) {
@@ -2092,7 +2423,7 @@ function renderGap(L: string[], snapshot: LeagueSnapshot, r: Report, teamName: (
     const sum = (f: (p: PartnerCounts) => number) => g.perPartner.reduce((s, p) => s + f(p), 0);
     L.push(`| **all** | **${thousands(sum((p) => p.exhaustive))}** | ${thousands(sum((p) => p.beams))} | ${sum((p) => p.exact)} | ${sum((p) => p.finalRuns)} | ${sum((p) => p.cards)} |`, "");
   }
-  L.push(`**Runtime** (Node ${process.version}, each run with its own context; cold = the first search in the process, after the League model's own timed builds; each timed run is followed by section 10's run without "Helps them"; the browser's worker is timed by \`npm run check:browser -- --live\`). ${r.runtime.sameEveryRun && r.beams.runtime.sameEveryRun ? "Every run returned the same trades with the same numbers ✅." : "❌ The runs did not all return the same trades."} The League model alone: ${ms(r.league.cold)} cold, ${ms(r.league.warm)} warm.`, "");
+  L.push(`**Runtime** (Node ${process.version}, each run with its own context; cold = the first search in the process, after the League model's own timed builds; each timed run is followed by section 10's runs without "Helps them" and without the helps-both lane; the browser's worker is timed by \`npm run check:browser -- --live\`). ${r.runtime.sameEveryRun && r.beams.runtime.sameEveryRun ? "Every run returned the same trades with the same numbers ✅." : "❌ The runs did not all return the same trades."} The League model alone: ${ms(r.league.cold)} cold, ${ms(r.league.warm)} warm.`, "");
   stagesTable(L, r.runtime, r.beams.runtime);
 }
 
@@ -2218,7 +2549,7 @@ function renderOther(L: string[], snapshot: LeagueSnapshot, r: Report, teamName:
       `- **Week ${w.week} against ${teamName(w.opponentId)}**: your win chance ${pctPlain(w.asStands, 0)} as rosters stand, ${pctPlain(w.withPickups, 0)} with every team's pickups. Projected that week, as rosters stand → with pickups: you ${fmt(w.mine.stand)} → ${fmt(w.mine.pickups)} (your pickups: ${moves(w.myMoves)}), ${teamName(w.opponentId)} ${fmt(w.theirs.stand)} → ${fmt(w.theirs.pickups)} (its pickups: ${moves(w.theirMoves)}).`,
     );
   }
-  L.push("", `This report took ${ms(r.timing.total)} (the searches ${ms(r.timing.searches)}, section 10's runs without "Helps them" among them, the beams alone ${ms(r.timing.beams)}, the "${GOAL_WORDS[r.goals.goal]}" search ${ms(r.timing.goals)}, the search gap's re-screening ${ms(r.timing.gap)}, section 9's Checkpoint 7b search and evaluations ${ms(r.timing["open spots"])}, section 10's scales ${ms(r.timing["helps both"])}).`, "");
+  L.push("", `This report took ${ms(r.timing.total)} (the searches ${ms(r.timing.searches)}, section 10's runs without "Helps them" and without the helps-both lane among them, the beams alone ${ms(r.timing.beams)}, the "${GOAL_WORDS[r.goals.goal]}" search ${ms(r.timing.goals)} and again without the lane ${ms(r.timing.lane)}, the search gap's re-screening ${ms(r.timing.gap)}, section 9's Checkpoint 7b search and evaluations ${ms(r.timing["open spots"])}, section 10's scales ${ms(r.timing["helps both"])}).`, "");
 }
 
 /** A trade's card number under each rule ("#12 → #12", "– → #3"), and "(a finalist)" when it's a finalist but not a card now. */
@@ -2311,10 +2642,16 @@ export function helpsThemScaleWords(leagueType: LeagueType): string {
  * the exact trades that help both on the screening run, the list's cards, judged on their final numbers, and those of them
  * that are extras), then the extra runtime, named with the setting it was measured under (section 4's runs: section 1's).
  */
-export function helpsBothSummary(h: Pick<HelpsBothSection, "counts" | "cost">, measuredUnder: Goal): string {
+export function helpsBothSummary(h: Pick<HelpsBothSection, "counts" | "cost"> & { lane?: Pick<LaneSection, "counts" | "before" | "cost"> }, measuredUnder: Goal): string {
   const c = h.counts.other;
   const counts = c ? `${c.exact.both} of ${c.exact.total} exact trades help${c.exact.both === 1 ? "s" : ""} both on the screening run, the list shows ${c.list.trades.length} (${c.fromExtras} from the extras)` : "no trade counted as helping both (the search stopped before ranking)";
-  return `${counts}; Helps both costs ${msChange(h.cost.extra.warm)} a search warm (${GOAL_WORDS[measuredUnder]}, section 4's runs)`;
+  // Checkpoint 7d: the helps-both lane under the split (its legal trades and companions, the list without it), and its cost.
+  const lc = h.lane?.counts.other;
+  const before = h.lane?.before.other;
+  const n = before?.list.trades.length;
+  const lane = lc ? `; the helps-both lane adds ${lc.exact} exact trade${lc.exact === 1 ? "" : "s"}, ${lc.list} on the list (${n === undefined ? "–" : `${n} card${n === 1 ? "" : "s"} without the lane`})` : "";
+  const laneCost = h.lane ? `, the lane ${msChange(h.lane.cost.extra.warm)}` : "";
+  return `${counts}${lane}; Helps both costs ${msChange(h.cost.extra.warm)} a search warm${laneCost} (${GOAL_WORDS[measuredUnder]}, section 4's runs)`;
 }
 
 /**
@@ -2329,14 +2666,14 @@ function renderHelpsBoth(L: string[], snapshot: LeagueSnapshot, inputs: ModelInp
   const top = Math.max(0, Math.floor(config.search.helpsBothFinalists));
   L.push("## 10. Helps both", "");
   L.push(
-    `Planner reply to Checkpoint 7b, §7: "Helps them" is the partner's Helps you from the same runs (${helpsThemScaleWords(snapshot.settings.leagueType)}), and a trade helps both when its Helps you, as printed, is above 0 and its Helps them at least ${min}. The "Helps both" sort shows only those, by Helps you, under the chance filter and the variety caps. The first ${top} by B among the screening run's trades that help both and aren't hidden get the final run (those the ranking hadn't picked: the extras), are checked again on it and are ranked on that list only, so it shows only trades exact evaluation saw. Each column is the app's search under that setting (sections 1 and 2):`,
+    `Planner reply to Checkpoint 7b, §7: "Helps them" is the partner's Helps you from the same runs (${helpsThemScaleWords(snapshot.settings.leagueType)}), and a trade helps both when its Helps you and its Helps them, as printed, are each at least ${min} (planner reply to Checkpoint 7c, answer 5: Helps you above 0 before). The "Helps both" sort shows only those, by Helps you, under the chance filter and the variety caps. The first ${top} by B among the screening run's trades that help both and aren't hidden get the final run (those the ranking hadn't picked: the extras), are checked again on it and are ranked on that list only, so it shows only trades exact evaluation saw. Each column is the app's search under that setting (sections 1 and 2):`,
     "",
   );
   const cell = (c: HelpsBothCounts | null, f: (c: HelpsBothCounts) => string) => (c ? f(c) : "–");
   const row = (label: string, f: (c: HelpsBothCounts) => string) => L.push(`| ${label} | ${cell(h.counts.title, f)} | ${cell(h.counts.other, f)} |`);
   const dropped = (d: HelpsBothList["dropped"]) => d.partnerCap + d.core + d.filler + d.givenPlayer;
   L.push(`| Trades that help both | ${main} | ${other} (the split) |`, "|---|---|---|");
-  row(`Exact trades, screening run: Helps you above 0 · their B above 0 · Helps them ${min}+ · both (not hidden)`, (c) => `${c.exact.helpsYou} · ${c.exact.theirB} · ${c.exact.helpsThem} · ${c.exact.both} (${c.exact.shown}) of ${c.exact.total}`);
+  row(`Exact trades, screening run: Helps you ${min}+ · their B above 0 · Helps them ${min}+ · both (not hidden)`, (c) => `${c.exact.helpsYou} · ${c.exact.theirB} · ${c.exact.helpsThem} · ${c.exact.both} (${c.exact.shown}) of ${c.exact.total}`);
   row(`The extras: the first ${top} not hidden · already finalists · extras · still helping both on the final run`, (c) => `${c.pool} · ${c.picked} · ${c.extras} · ${c.stillBoth}`);
   row("Finalists the ranking picked, on the final run", (c) => `${c.finalists.both} of ${c.finalists.total}`);
   row(`Overall cards (their "Helps both" tag)`, (c) => `${c.cards.both} of ${c.cards.total}`);
@@ -2388,6 +2725,67 @@ function renderHelpsBoth(L: string[], snapshot: LeagueSnapshot, inputs: ModelInp
   L.push(`| **The extra: the three parts** | ${c.extra.cold === null ? "–" : `≈ ${msChange(c.extra.cold)} ⚠️`} | ${c.extra.warm === null ? "–" : `${msChange(c.extra.warm)}${finite(c.without.warm) && c.without.warm > 0 ? ` (${signed((100 * c.extra.warm) / c.without.warm, 1)}%)` : ""}`} |`);
   L.push(`| Search total with "Helps them" (the app: section 4's) | ${ms(c.with.cold)} | ${ms(c.with.warm)} |`);
   L.push(`| Search total without (with, less the extra: ⚠️ derived) | ${ms(c.without.cold)} | ${ms(c.without.warm)} |`, "");
+  renderLane(L, r, main, other);
+}
+
+/** "5 (5) of 203": the exact trades that help both on the screening run (not hidden) of all exact trades; "–" unknown. */
+const exactBothText = (c: HelpsBothCounts | null): string => (c ? `${c.exact.both} (${c.exact.shown}) of ${c.exact.total}` : "–");
+
+/**
+ * Section 10's helps-both lane (Checkpoint 7d; the file header): its counts and the counts without it under each setting,
+ * the Overall cards it changes and what else it changes on the Finder (laneShown), then what it costs, measured under section
+ * 1's setting (section 4's runs against those without the lane), and under the split section 2's search against one without
+ * it.
+ */
+function renderLane(L: string[], r: Report, main: string, other: string): void {
+  const s = r.helpsBoth.lane;
+  const cs = config.search;
+  L.push(
+    `**The helps-both lane** (Checkpoint 7d; planner reply to Checkpoint 7c, answer 2): up to ${cs.helpsBothLane} screened trades that the shortlist and its lean companions don't hold, on which both lineups gain on the fast method (my ΔROS and their ΔLineup_P above 0, after screening's rules: the g window and the dominance pruning), best screening objective first, are evaluated exactly too, each with its own lean companion, then go through the same screening simulation, finalist rules and extras as every other exact trade. Each column is the app's search under that setting against the same search without the lane (under "${main}" the last of section 4's runs paired with one; under "${other}" section 2's search against one on a context of its own):`,
+    "",
+  );
+  const cell = (c: LaneCounts | null, f: (c: LaneCounts) => string) => (c ? f(c) : "–");
+  const row = (label: string, f: (c: LaneCounts) => string) => L.push(`| ${label} | ${cell(s.counts.title, f)} | ${cell(s.counts.other, f)} |`);
+  const move = (label: string, f: (c: HelpsBothCounts | null) => string) => L.push(`| ${label} | ${f(s.before.title)} → ${f(r.helpsBoth.counts.title)} | ${f(s.before.other)} → ${f(r.helpsBoth.counts.other)} |`);
+  L.push(`| The helps-both lane | ${main} | ${other} (the split) |`, "|---|---|---|");
+  row("Screened trades both lineups gain on · already on the shortlist or among its companions · the lane · its lean companions · legal", (c) => `${c.qualifying} · ${c.onShortlist} · ${c.trades} · ${c.companions} · ${c.exact}`);
+  row(`From the lane: help both on the screening run · finalists the ranking picked · extras · help both on the final run · on the "Helps both" list · on the Overall list`, (c) => `${c.screenBoth} · ${c.finalists} · ${c.extras} · ${c.finalBoth} · ${c.list} · ${c.overall}`);
+  move("Without the lane → with it: exact trades that help both on the screening run (not hidden)", exactBothText);
+  move("… the extras (still helping both on the final run)", (c) => (c ? `${c.extras} (${c.stillBoth})` : "–"));
+  move("… finalists the ranking picked that help both", (c) => (c ? `${c.finalists.both} of ${c.finalists.total}` : "–"));
+  move(`… Overall cards (their "Helps both" tag)`, (c) => (c ? `${c.cards.both} of ${c.cards.total}` : "–"));
+  move(`**… the "Helps both" list's cards**`, (c) => (c ? `**${c.list.trades.length}**` : "–"));
+  L.push(`| Overall cards the search without the lane doesn't show | ${s.differs.title} of ${r.result.trades.length} | ${s.differs.other} of ${r.goals.result.trades.length} |`);
+  // What else it changes on the Finder (laneShown; review of the lane, LANE-1 and LANE-2).
+  const shown = (label: string, f: (x: LaneShown) => string) => L.push(`| ${label} | ${f(s.shown.title)} | ${f(s.shown.other)} |`);
+  const leftOutText = (x: LeftOut) => `${x.benefit} · ${x.market} · ${x.chance}`;
+  shown("Overall cards both show with a different Plan B box · a different offer-first step", (x) => `${x.shared.box} · ${x.shared.step} of ${x.shared.cards}`);
+  shown(`"Helps both" cards the search without the lane doesn't show · its cards this list doesn't show`, (x) => `${x.list.added} · ${x.list.dropped} of ${x.list.cards}`);
+  shown(`"Helps both" extras without the lane that get no final run with it · of them on its list`, (x) => `${x.extrasLost.count} · ${x.extrasLost.listed}`);
+  shown(`The Finder's "checked N closely", without → with`, (x) => `${x.exact.without} → ${x.exact.with}`);
+  shown(`The Finder's "Left out on purpose": ideas that wouldn't help you · that give up much more trade value · under the minimum chance, without → with`, (x) => `${leftOutText(x.leftOut.without)} → ${leftOutText(x.leftOut.with)}`);
+  L.push("");
+
+  const c = s.cost;
+  const sp = s.split;
+  const measured = finite(c.measured.without)
+    ? ` The runs without it measured ${ms(c.measured.without)} (median)${finite(c.with.warm) ? `, ${underOver(c.measured.without - c.with.warm)} section 4's ${ms(c.with.warm)}` : ""}${finite(c.measured.spread) ? `; each set's search totals spread over up to ${ms(c.measured.spread)} from run to run` : ", from one timed run a set (no spread from run to run)"}.`
+    : "";
+  const splitText =
+    sp && sp.parts
+      ? ` Under "${other}", section 2's one search (warm, ${ms(sp.with)}): the lane's exact evaluations ${ms(sp.parts.exact.ms)} and screening simulations ${ms(sp.parts.simScreen.ms)}; the search without the lane, on a context of its own, ${ms(sp.without)}${finite(sp.with) && finite(sp.without) ? ` (${msChange(sp.with - sp.without)} with it, one run each)` : ""}.`
+      : "";
+  L.push(
+    `**What the lane costs** (⚠️ ours: under "${main}", section 4's runs, each timed one followed by the same search without the lane on its own context, after the one without "Helps them"). Its exact evaluations and screening simulations are read off each run's own progress (⚠️ a batch of ${cs.yieldEverySims} simulations' time shared out evenly where the lane's begin inside one); the rest, the final simulation, ranking and steps with the lane less without (more extras' final runs, a bigger Plan B pool and second list), is warm only (the cold extra adds the warm figure).${measured}${splitText}`,
+    "",
+  );
+  L.push(`| | Cold | Warm (median of ${r.runtime.runs.length}) |`, "|---|---|---|");
+  L.push(`| The lane's exact evaluations (${c.exact.count}: its trades and their lean companions) | ${ms(c.exact.cold)} | ${ms(c.exact.warm)} |`);
+  L.push(`| Their screening simulations (${c.simScreen.count}, the legal ones) | ${ms(c.simScreen.cold)} | ${ms(c.simScreen.warm)} |`);
+  L.push(`| The rest: final simulation, ranking and steps, with the lane less without | – | ${msSigned(c.rest)} |`);
+  L.push(`| **The lane's extra: the three parts** | ${c.extra.cold === null ? "–" : `≈ ${msChange(c.extra.cold)} ⚠️`} | ${c.extra.warm === null ? "–" : `${msChange(c.extra.warm)}${finite(c.with.warm) && finite(c.extra.warm) && c.with.warm - c.extra.warm > 0 ? ` (${signed((100 * c.extra.warm) / (c.with.warm - c.extra.warm), 1)}%)` : ""}`} |`);
+  L.push(`| Search total with the lane (the app: section 4's) | ${ms(c.with.cold)} | ${ms(c.with.warm)} |`);
+  L.push(`| Search total without the lane (measured) | – | ${ms(c.measured.without)} |`, "");
 }
 
 // ---------------------------------------------------------------------------------------------

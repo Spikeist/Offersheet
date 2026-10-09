@@ -9,7 +9,13 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// The real withRoute (the app's own answer to a cross-site request) imports server-only modules.
+vi.mock("server-only", () => ({}));
+
+import { withRoute } from "@/app/api/_lib/route";
+import { createMemoryLimiter } from "@/server/rateLimit";
 import { contentSecurityPolicy } from "../next.config";
 import { APP_PAGES } from "./check-browser/contracts";
 import { gitBlobId, nodeCopyFs, type CopyFs, type GitRun } from "./lib/cleanCopy";
@@ -19,12 +25,20 @@ import {
   allowedVercelCall,
   checkpointVerdict,
   cronProblems,
+  CROSS_SITE,
+  CROSS_SITE_NAVIGATION,
+  CROSS_SITE_PAGE,
+  CROSS_SITE_PATH,
+  CROSS_SITE_RULE,
+  crossSitePageProblems,
+  crossSiteRuleProblems,
   dryDeployArgs,
   ENV_LIST_ARGS,
   HEALTH_TRIES,
   healthVerdict,
   IMAGE_PATHS,
   imageRuleProblems,
+  isAppCrossSiteRefusal,
   LIVE_COMMAND,
   liveDeployArgs,
   lockedNextVersion,
@@ -45,6 +59,7 @@ import {
   robotsProblems,
   rollbackSteps,
   runProdDeploy,
+  SAME_ORIGIN,
   STANDARD_PROTECTIONS,
   tagPolicy,
   uploadMatchesCopy,
@@ -134,6 +149,8 @@ describe("the command line", () => {
       expect(parseProdArgs(["checkpoint-7c"], env)).toMatchObject({ error: expect.stringContaining(`the "--" before the options was left out or dropped. Nothing ran. Write it as: ${LIVE_COMMAND}`) });
     }
     expect(parseProdArgs([], { npm_config_offline: "true", npm_config_tag: "latest" })).toEqual(base); // npm's own settings of other names don't matter
+    // The command spelled out names no fixed tag: the launch tag is checkpoint-7d once approved, else checkpoint-7c.
+    expect(LIVE_COMMAND).toBe("npm run prod:deploy -- --live --checkpoint <the approved tag>");
   });
 });
 
@@ -466,6 +483,70 @@ describe("the production domain after the deploy", () => {
   });
 });
 
+describe("the firewall's cross-site rule (planner reply to Checkpoint 7c, answer 4)", () => {
+  const DENIED = { status: 403, body: "Forbidden" };
+  const LANDING_404 = { status: 404, body: "Not Found" };
+  const HEALTH_200 = { status: 200, body: JSON.stringify({ status: "ok", environment: "production", region: "iad1", store: "shared", storeReason: null, storeCheck: { ok: true, setMs: 2, getMs: 1, delMs: 1 }, storeCheckAgeS: 0 }) };
+  const APP_REFUSAL = { status: 403, body: JSON.stringify({ error: { code: "BAD_ORIGIN", message: "This request didn't come from Offer Sheet, so we ignored it." } }) };
+
+  it("passes when the cross-site ask gets the firewall's 403 and the same-origin one gets through: anything but 403 before the deploy, the health check's 200 after", () => {
+    expect([CROSS_SITE_RULE, CROSS_SITE_PATH, CROSS_SITE, SAME_ORIGIN]).toEqual(["Deny cross-site API requests", "/api/health", { "sec-fetch-site": "cross-site" }, { "sec-fetch-site": "same-origin" }]);
+    expect(crossSiteRuleProblems(DENIED, LANDING_404, false)).toEqual([]);
+    expect(crossSiteRuleProblems(DENIED, HEALTH_200, false)).toEqual([]); // production already serves the app (a later deploy)
+    expect(crossSiteRuleProblems(DENIED, HEALTH_200, true)).toEqual([]);
+    expect(crossSiteRuleProblems({ status: 403, body: "<html>Forbidden</html>" }, HEALTH_200, true)).toEqual([]);
+  });
+
+  it("a cross-site ask that isn't denied fails, naming the rule and where to add it, before the deploy and after", () => {
+    const fix = `add the "${CROSS_SITE_RULE}" firewall rule, first, above "API rate limit", and publish it now (Vercel → offersheet → Firewall; reports/beta-infrastructure.md, Launch-day step 2)`;
+    expect(crossSiteRuleProblems(LANDING_404, LANDING_404, false)).toEqual([`/api/health with Sec-Fetch-Site: cross-site answered 404, not 403: ${fix}`]);
+    expect(crossSiteRuleProblems({ status: 0, body: "" }, LANDING_404, false)).toEqual([`/api/health with Sec-Fetch-Site: cross-site answered nothing, not 403: ${fix}`]);
+    expect(crossSiteRuleProblems({ status: 429, body: "" }, HEALTH_200, true)).toEqual([`/api/health with Sec-Fetch-Site: cross-site answered 429, not 403: ${fix}`]);
+  });
+
+  it("the app's own 403 (BAD_ORIGIN) isn't the firewall's: the request got past the rate limit's count, so it fails", () => {
+    expect(isAppCrossSiteRefusal(APP_REFUSAL.status, APP_REFUSAL.body)).toBe(true);
+    expect(isAppCrossSiteRefusal(403, "Forbidden")).toBe(false);
+    expect(isAppCrossSiteRefusal(403, '{"error":{"code":"RATE_LIMITED"}}')).toBe(false);
+    expect(isAppCrossSiteRefusal(400, APP_REFUSAL.body)).toBe(false);
+    expect(crossSiteRuleProblems(APP_REFUSAL, HEALTH_200, true)).toEqual([
+      `/api/health with Sec-Fetch-Site: cross-site got the app's own 403 (BAD_ORIGIN), not the firewall's: it passed the firewall, so the rate limit counts it. Add the "${CROSS_SITE_RULE}" firewall rule, first, above "API rate limit", and publish it now (Vercel → offersheet → Firewall; reports/beta-infrastructure.md, Launch-day step 2)`,
+    ]);
+  });
+
+  it("the same-origin ask must get through: a 403 means the rule catches the app's own requests; no answer, or after the deploy anything but the health check, fails", () => {
+    expect(crossSiteRuleProblems(DENIED, DENIED, false)).toEqual([`/api/health with Sec-Fetch-Site: same-origin answered 403: a firewall rule denies the app's own requests too ("${CROSS_SITE_RULE}" must match the header sec-fetch-site equals cross-site, nothing else; Vercel → offersheet → Firewall; reports/beta-infrastructure.md, Launch-day step 2)`]);
+    expect(crossSiteRuleProblems(DENIED, { status: 0, body: "" }, false)).toEqual(["/api/health with Sec-Fetch-Site: same-origin answered nothing: couldn't confirm the app's own requests get through"]);
+    expect(crossSiteRuleProblems(DENIED, LANDING_404, true)).toEqual(["/api/health with Sec-Fetch-Site: same-origin answered 404, not the health check's 200: the app's own requests must get through"]);
+    expect(crossSiteRuleProblems(DENIED, { status: 200, body: "<html>the landing page</html>" }, true)).toHaveLength(1);
+    // Both wrong: each is named.
+    expect(crossSiteRuleProblems(LANDING_404, DENIED, false)).toHaveLength(2);
+  });
+
+  it("a page opened from another site must open: a 403 means the rule lost its /api/ path condition (review of the policy-deploy track, PD-1)", () => {
+    expect([CROSS_SITE_PAGE, CROSS_SITE_NAVIGATION]).toEqual(["/", { "sec-fetch-site": "cross-site", "sec-fetch-dest": "document", "sec-fetch-user": "?1" }]);
+    // Before the app serves, anything but a 403 or no answer (the landing page's 200, a redirect, a 404); after it, the page's 200.
+    for (const status of [200, 302, 404]) expect(crossSitePageProblems(status, false), String(status)).toEqual([]);
+    expect(crossSitePageProblems(200, true)).toEqual([]);
+    const fix = `/ opened from another site (Sec-Fetch-Site: cross-site) answered 403: a firewall rule denies every page reached from another site (a search result, a link in a post). Its cross-site condition ("${CROSS_SITE_RULE}", or the third OR group of "Block image optimizer") must also require Request Path starts with /api/ (Vercel → offersheet → Firewall; reports/beta-infrastructure.md, Launch-day step 2)`;
+    expect(crossSitePageProblems(403, false)).toEqual([fix]);
+    expect(crossSitePageProblems(403, true)).toEqual([fix]);
+    expect(crossSitePageProblems(0, false)).toEqual(["/ opened from another site (Sec-Fetch-Site: cross-site) answered nothing: couldn't confirm pages reached from other sites open"]);
+    expect(crossSitePageProblems(500, true)).toEqual(["/ opened from another site (Sec-Fetch-Site: cross-site) answered 500, not 200: pages reached from other sites must open"]);
+  });
+
+  it("the real withRoute's answer to another site's request reads as the app's refusal, never as the firewall's 403; the app's own pages' request gets the handler's answer", async () => {
+    const route = withRoute("health", async () => new Response(HEALTH_200.body, { status: 200, headers: { "content-type": "application/json" } }), { limiter: createMemoryLimiter(), env: {} });
+    const refused = await route(new Request(`${PRODUCTION_ORIGIN}${CROSS_SITE_PATH}`, { headers: CROSS_SITE }));
+    const refusal = { status: refused.status, body: await refused.text() };
+    expect(refusal.status).toBe(403);
+    expect(isAppCrossSiteRefusal(refusal.status, refusal.body)).toBe(true);
+    expect(crossSiteRuleProblems(refusal, HEALTH_200, true).join(" ")).toContain("got the app's own 403 (BAD_ORIGIN), not the firewall's");
+    const own = await route(new Request(`${PRODUCTION_ORIGIN}${CROSS_SITE_PATH}`, { headers: SAME_ORIGIN }));
+    expect(crossSiteRuleProblems(DENIED, { status: own.status, body: await own.text() }, true)).toEqual([]);
+  });
+});
+
 describe("the rollback steps", () => {
   it("name the deployment production served before, with the dashboard first and the CLI from the home folder", () => {
     expect(rollbackSteps("offersheet-dtgsgk03x-team.vercel.app")).toBe(
@@ -607,6 +688,14 @@ interface RunOptions {
   web?: Record<string, () => Response>;
   /** The same, only once the deploy happened. */
   webAfter?: Record<string, () => Response>;
+  /**
+   * The firewall's "Deny cross-site API requests" rule (the project's, so in front of every deployment): "on" (default)
+   * denies /api/ requests with Sec-Fetch-Site: cross-site; "off" lets them through to whatever the domain serves (the
+   * app's own BAD_ORIGIN 403 once it serves the app); "broad" denies every /api/ request that sends the header; "noPath"
+   * is the rule without its path condition, which denies every cross-site request, pages opened from another site
+   * included (review of the policy-deploy track, PD-1).
+   */
+  crossSiteRule?: "on" | "off" | "broad" | "noPath";
   /** The fake CLI changes .env.local on this command (`vercel link` once wrote into it). */
   touchEnvOn?: string;
   /** The fake CLI throws on this command. */
@@ -645,17 +734,31 @@ async function run(o: RunOptions) {
     return { status: 1, stdout: "", stderr: "unknown", timedOut: false };
   };
   const web: string[] = [];
-  const fetchFake = async (url: string): Promise<Response> => {
+  /** Every web request with the Sec-Fetch-Site it sent (null: none, as the script's other requests). */
+  const asked: Array<{ url: string; site: string | null }> = [];
+  const fetchFake = async (url: string, init?: RequestInit): Promise<Response> => {
     web.push(url);
+    const site = new Headers(init?.headers).get("sec-fetch-site");
+    asked.push({ url, site });
     const u = new URL(url);
+    // The cross-site rule is the project's firewall's: it answers first, in front of whatever deployment the domain serves.
+    const rule = o.crossSiteRule ?? "on";
+    const api = u.pathname.startsWith("/api/");
+    const denied = rule === "noPath" ? site === "cross-site" : api && site !== null && (rule === "broad" || (rule === "on" && site === "cross-site"));
+    if (u.host !== NEW_DEPLOYMENT && denied) return new Response("Forbidden", { status: 403 });
     const key = u.host === NEW_DEPLOYMENT ? NEW_DEPLOYMENT : `${u.pathname}${u.search}`;
     const special = (state.deployed ? o.webAfter?.[key] : undefined) ?? o.web?.[key];
     if (special) return special();
     if (u.host === NEW_DEPLOYMENT) return new Response(null, { status: 401 });
     // The firewall rule is the project's: it answers for whatever deployment the domain serves.
     if (u.pathname === "/_next/image" || u.pathname === "/_vercel/image") return new Response("Forbidden", { status: 403 });
+    // The app, once the domain serves it, refuses another site's request itself (withRoute's BAD_ORIGIN), uncounted.
+    if (state.deployed && u.pathname.startsWith("/api/") && site === "cross-site") {
+      return new Response(JSON.stringify({ error: { code: "BAD_ORIGIN", message: "This request didn't come from Offer Sheet, so we ignored it." } }), { status: 403, headers: { "content-type": "application/json" } });
+    }
     if (u.pathname === "/api/health") {
-      state.healthAsked++;
+      // Counted once the deploy happened (a request before it meets the landing page).
+      if (state.deployed) state.healthAsked++;
       // A live run's first ask still meets the deployment from before (the domain switching).
       const ready = state.deployed && (o.deployed === true || state.healthAsked > 1);
       return ready ? new Response(JSON.stringify(HEALTHY), { status: 200, headers: { "content-type": "application/json" } }) : new Response("Not Found", { status: 404 });
@@ -710,11 +813,19 @@ async function run(o: RunOptions) {
   // Never, in any run: a value of a variable, a call this script never makes.
   expect(text).not.toMatch(/VALUE-OF-|PLAIN-VALUE-NEVER-PRINTED|made-up/);
   for (const c of calls) expect(allowedVercelCall(c.args, parsed.live), c.args.join(" ")).toBe(true);
-  return { outcome, lines, text, calls, web, copies, leaks, sleeps, imported, gitCalls: repo.calls };
+  return { outcome, lines, text, calls, web, asked, copies, leaks, sleeps, imported, gitCalls: repo.calls };
 }
 
 const prodCalls = (calls: Call[]) => calls.filter((c) => c.args.includes("--prod"));
 const IMAGE_URLS = IMAGE_PATHS.map((p) => `${PRODUCTION_ORIGIN}${p}`);
+const HEALTH_URL = `${PRODUCTION_ORIGIN}/api/health`;
+/** The health check's own asks (no Sec-Fetch-Site), and the cross-site rule's (with it), in order. */
+const healthAsks = (asked: ReadonlyArray<{ url: string; site: string | null }>) => asked.filter((a) => a.url === HEALTH_URL && a.site === null);
+const ruleAsks = (asked: ReadonlyArray<{ url: string; site: string | null }>) => asked.filter((a) => a.site !== null).map((a) => `${a.url.replace(PRODUCTION_ORIGIN, "")} ${a.site}`);
+/** Step 11's asks: /api/health cross-site and same-origin, then the home page opened from another site (PD-1). */
+const RULE_ASKS = ["/api/health cross-site", "/api/health same-origin", "/ cross-site"];
+const RULE_OK_BEFORE = `✅ Cross-site API requests: /api/health with Sec-Fetch-Site: cross-site answers 403 (the firewall's "${CROSS_SITE_RULE}" rule); with same-origin, 404, not denied; / opened from another site, 200, not denied (the deployment production serves now)`;
+const RULE_OK_AFTER = `✅ Cross-site API requests: /api/health with Sec-Fetch-Site: cross-site answers 403 (the firewall's "${CROSS_SITE_RULE}" rule); with same-origin, 200 (the app's health check); / opened from another site, 200 (the app's home page)`;
 
 describe("a dry run (no --live): every check, nothing uploaded", () => {
   it("passes on a good tag: the copy, the tag's own policy and pages, Vercel's read-only answers, the domain; deploy only with --dry, in the copy; the copy removed; the rollback steps shown", async () => {
@@ -733,8 +844,11 @@ describe("a dry run (no --live): every check, nothing uploaded", () => {
     expect(r.leaks).toEqual([{ files: expect.arrayContaining(["src/app/page.tsx", "package.json", "vercel.json", ".vercelignore"]), base: r.copies[0] }]);
     expect(r.leaks[0]?.files).toHaveLength(COPY_COUNT);
     expect(r.leaks[0]?.files.some((f) => f.startsWith("fixtures/") || f.startsWith("reports/"))).toBe(false);
-    // Only the domain's home page and the image optimizer's two paths were asked, once each.
-    expect(r.web).toEqual([`${PRODUCTION_ORIGIN}/`, ...IMAGE_URLS]);
+    // Only the domain's home page, the image optimizer's two paths and the cross-site rule's three asks (the home page
+    // again, now opened from another site), once each.
+    expect(r.web).toEqual([`${PRODUCTION_ORIGIN}/`, ...IMAGE_URLS, HEALTH_URL, HEALTH_URL, `${PRODUCTION_ORIGIN}/`]);
+    expect(ruleAsks(r.asked)).toEqual(RULE_ASKS);
+    expect(r.text).toContain(RULE_OK_BEFORE);
     expect(r.text).toContain("✅ What: checkpoint-7c, commit c7c7c7c (committed 2026-10-11 06:26 UTC), an annotated tag, the newest checkpoint");
     expect(r.text).toContain(`✅ Clean copy: ${COPY_COUNT} files`);
     expect(r.text).toContain("✅ What the checks after the deploy expect: the tag's own Content-Security-Policy (its next.config.ts) and its 10 app pages (APP_PAGES)");
@@ -796,6 +910,39 @@ describe("a dry run (no --live): every check, nothing uploaded", () => {
     expect(existsSync(r.copies[0] as string)).toBe(false);
   });
 
+  it("a cross-site rule not there yet fails its line, naming the rule (planner reply to Checkpoint 7c, answer 4); the others still run", async () => {
+    const r = await run({ argv: ["--checkpoint", "checkpoint-7c"], crossSiteRule: "off" });
+    expect(r.outcome).toMatchObject({ ok: false, uploaded: false, failures: 1, warnings: 0 });
+    expect(prodCalls(r.calls)).toEqual([]);
+    expect(r.text).toContain("❌ Cross-site API requests: see below");
+    expect(r.text).toContain(`/api/health with Sec-Fetch-Site: cross-site answered 404, not 403: add the "${CROSS_SITE_RULE}" firewall rule, first, above "API rate limit", and publish it now (Vercel → offersheet → Firewall; reports/beta-infrastructure.md, Launch-day step 2)`);
+    expect(r.text).toContain("✅ Rollback target"); // the steps after it still ran
+    expect(r.text).toContain("Dry run: 1 check(s) to fix before the go (❌ above). Nothing was uploaded.");
+  });
+
+  it("a cross-site rule without its /api/ path condition fails its line: it would deny every page opened from another site (review of the policy-deploy track, PD-1)", async () => {
+    const r = await run({ argv: ["--checkpoint", "checkpoint-7c"], crossSiteRule: "noPath" });
+    expect(r.outcome).toMatchObject({ ok: false, uploaded: false, failures: 1, warnings: 0 });
+    expect(prodCalls(r.calls)).toEqual([]);
+    expect(ruleAsks(r.asked)).toEqual(RULE_ASKS);
+    expect(r.text).toContain("❌ Cross-site API requests: see below");
+    // The /api/ asks alone pass (403 cross-site, not denied same-origin): only the page tells the two rules apart.
+    expect(r.text).not.toContain("/api/health with Sec-Fetch-Site");
+    expect(r.text).toContain(`/ opened from another site (Sec-Fetch-Site: cross-site) answered 403: a firewall rule denies every page reached from another site (a search result, a link in a post). Its cross-site condition ("${CROSS_SITE_RULE}", or the third OR group of "Block image optimizer") must also require Request Path starts with /api/`);
+    // A typed address (no Sec-Fetch-Site), as step 9 and the phone check ask, still opens: only the header shows it.
+    expect(r.text).toContain(`✅ The production domain: ${PRODUCTION_ORIGIN}/ answers 200 to an anonymous visitor`);
+    expect(r.text).toContain("Dry run: 1 check(s) to fix before the go (❌ above). Nothing was uploaded.");
+  });
+
+  it("with the app already on the domain (a later deploy), the app's own 403 for a cross-site request doesn't pass for the firewall's", async () => {
+    const r = await run({ argv: ["--checkpoint", "checkpoint-7c"], crossSiteRule: "off", deployed: true });
+    expect(r.outcome).toMatchObject({ ok: false, failures: 1 });
+    expect(r.text).toContain("/api/health with Sec-Fetch-Site: cross-site got the app's own 403 (BAD_ORIGIN), not the firewall's: it passed the firewall, so the rate limit counts it.");
+    const fine = await run({ argv: ["--checkpoint", "checkpoint-7c"], deployed: true });
+    expect(fine.outcome).toMatchObject({ ok: true, failures: 0 });
+    expect(fine.text).toContain(`✅ Cross-site API requests: /api/health with Sec-Fetch-Site: cross-site answers 403 (the firewall's "${CROSS_SITE_RULE}" rule); with same-origin, 200, not denied; / opened from another site, 200, not denied (the deployment production serves now)`);
+  });
+
   it("names the Standard setting Vercel gives, under either name (deploy-6), and the production domain named as the rollback target only warns (deploy-2)", async () => {
     const r = await run({ argv: ["--checkpoint", "checkpoint-7c"], protection: "prod_deployment_urls_and_all_previews", productionUrl: "offersheet.vercel.app" });
     expect(r.outcome).toMatchObject({ ok: true, warnings: 1, rollbackTarget: null });
@@ -818,10 +965,13 @@ describe("a live run (--live --checkpoint): one deploy, only after every check p
     expect(r.calls.indexOf(prod[0] as Call)).toBe(r.calls.length - 1);
     expect(r.calls.map((c) => c.args[0])).toEqual(["deploy", "project", "env", "api", "deploy"]);
     // Health asked until the domain served the new deployment (404 first), with one wait between.
-    expect(r.web.filter((u) => u.endsWith("/api/health"))).toHaveLength(2);
+    expect(healthAsks(r.asked)).toHaveLength(2);
     expect(r.sleeps).toEqual([10_000]);
-    // The image optimizer asked before the upload and after it.
+    // The image optimizer and the cross-site rule asked before the upload and after it.
     for (const u of IMAGE_URLS) expect(r.web.filter((w) => w === u)).toHaveLength(2);
+    expect(ruleAsks(r.asked)).toEqual([...RULE_ASKS, ...RULE_ASKS]);
+    expect(r.text).toContain(RULE_OK_BEFORE);
+    expect(r.text).toContain(RULE_OK_AFTER);
     expect(r.web).toEqual(expect.arrayContaining([`${PRODUCTION_ORIGIN}/privacy`, `${PRODUCTION_ORIGIN}/robots.txt`, `${PRODUCTION_ORIGIN}/api/cron/snapshot`, `https://${NEW_DEPLOYMENT}`]));
     expect(r.text).toContain(`✅ Deploy: ${NEW_DEPLOYMENT}, built and given the production domain (checkpoint-7c, commit c7c7c7c)`);
     expect(r.text).toContain("✅ Health: production, the shared store (set 2.1 ms, get 1 ms, del 0.9 ms), region iad1");
@@ -833,7 +983,8 @@ describe("a live run (--live --checkpoint): one deploy, only after every check p
     expect(r.text.endsWith(`\n${rollbackSteps(LANDING)}`)).toBe(true);
   });
 
-  it("any failing check blocks the upload, each named on its own line (deploy-1)", async () => {
+  // Many runs of the whole script (about 0.75 s alone): under the full suite's load it once took over 5 s.
+  it("any failing check blocks the upload, each named on its own line (deploy-1)", { timeout: 60_000 }, async () => {
     const live = ["--live", "--checkpoint", "checkpoint-7c"];
     const cases: Array<{ o: RunOptions; line: string }> = [
       { o: { argv: live, env: [...PROD_ENV, "ESPN_SWID"] }, line: "❌ Production's variables (names only)" },
@@ -856,6 +1007,11 @@ describe("a live run (--live --checkpoint): one deploy, only after every check p
       { o: { argv: live, systemEnvs: false }, line: "❌ Vercel's own variables: not exposed to the app" },
       // The firewall rule isn't there (or not published) yet.
       { o: { argv: live, web: { [IMAGE_PATHS[0]]: () => new Response("png", { status: 200 }) } }, line: "❌ The image optimizer: open on the production domain" },
+      // The cross-site rule isn't there yet, or it denies the app's own requests too (planner reply to Checkpoint 7c, answer 4),
+      // or, without its /api/ path condition, every page opened from another site (PD-1).
+      { o: { argv: live, crossSiteRule: "off" }, line: `/api/health with Sec-Fetch-Site: cross-site answered 404, not 403: add the "${CROSS_SITE_RULE}" firewall rule` },
+      { o: { argv: live, crossSiteRule: "broad" }, line: "/api/health with Sec-Fetch-Site: same-origin answered 403: a firewall rule denies the app's own requests too" },
+      { o: { argv: live, crossSiteRule: "noPath" }, line: "/ opened from another site (Sec-Fetch-Site: cross-site) answered 403: a firewall rule denies every page reached from another site" },
       // The tag's own policy can't be known.
       { o: { argv: live, files: { ...REPO_FILES, "next.config.ts": "const nextConfig = {};\nexport default nextConfig;\n" } }, line: "the tag's own Content-Security-Policy: its next.config.ts gives no contentSecurityPolicy" },
     ];
@@ -908,8 +1064,10 @@ describe("a live run (--live --checkpoint): one deploy, only after every check p
   it("a domain that never switches is said (after a rollback, Vercel stops assigning it), and the other checks don't run", async () => {
     const r = await run({ argv: ["--live", "--checkpoint", "checkpoint-7c"], web: { "/api/health": () => new Response("Not Found", { status: 404 }) } });
     expect(r.outcome).toMatchObject({ ok: false, uploaded: true });
-    expect(r.web.filter((u) => u.endsWith("/api/health"))).toHaveLength(HEALTH_TRIES);
+    expect(healthAsks(r.asked)).toHaveLength(HEALTH_TRIES);
     expect(r.sleeps).toHaveLength(HEALTH_TRIES - 1);
+    // The cross-site rule was asked before the upload only.
+    expect(ruleAsks(r.asked)).toEqual(RULE_ASKS);
     expect(r.text).toContain("Undo Rollback in the dashboard");
     expect(r.text).toContain("ask again in a minute with --verify");
     expect(r.web.some((u) => u.endsWith("/robots.txt"))).toBe(false);
@@ -937,8 +1095,10 @@ describe("--verify: the checks of the production domain again, no deploy (deploy
     expect(r.sleeps).toEqual([]);
     expect(r.leaks).toEqual([]);
     expect(r.imported).toHaveLength(1);
-    expect(r.web.filter((u) => u.endsWith("/api/health"))).toHaveLength(1);
+    expect(healthAsks(r.asked)).toHaveLength(1);
     expect(r.web).toEqual(expect.arrayContaining([...APP_PAGES.map((p) => `${PRODUCTION_ORIGIN}${p}`), ...IMAGE_URLS, `${PRODUCTION_ORIGIN}/robots.txt`, `${PRODUCTION_ORIGIN}/api/cron/snapshot`]));
+    expect(ruleAsks(r.asked)).toEqual(RULE_ASKS);
+    expect(r.text).toContain(RULE_OK_AFTER);
     expect(r.web.some((u) => u.includes(NEW_DEPLOYMENT))).toBe(false);
     expect(r.text).toContain("✅ What: checkpoint-7c, commit c7c7c7c (committed 2026-10-11 06:26 UTC): production is checked against it");
     expect(r.text).not.toContain("What the build needs");
@@ -961,6 +1121,7 @@ describe("--verify: the checks of the production domain again, no deploy (deploy
     expect(r.sleeps).toEqual([]);
     expect(r.text).toContain(`❌ Health: ${PRODUCTION_ORIGIN} doesn't serve the app (no /api/health)`);
     expect(r.web.some((u) => u.endsWith("/robots.txt"))).toBe(false);
+    expect(ruleAsks(r.asked)).toEqual([]);
     expect(r.text).toContain("Verify: 1 check(s) failed (❌ above). Nothing was deployed: decide whether to roll back.");
     expect(r.text).toContain(rollbackSteps(null));
   });
@@ -969,6 +1130,23 @@ describe("--verify: the checks of the production domain again, no deploy (deploy
     const r = await run({ argv: ["--verify", "--checkpoint", "checkpoint-7c"], deployed: true, web: { [IMAGE_PATHS[0]]: () => new Response("png", { status: 200 }) } });
     expect(r.outcome).toMatchObject({ ok: false, failures: 1 });
     expect(r.text).toContain("❌ The image optimizer: open");
+  });
+
+  it("the cross-site rule again: missing, the app's own 403 fails it; too broad, the app's own requests denied fail it (planner reply to Checkpoint 7c, answer 4)", async () => {
+    const missing = await run({ argv: ["--verify", "--checkpoint", "checkpoint-7c"], deployed: true, crossSiteRule: "off" });
+    expect(missing.outcome).toMatchObject({ ok: false, failures: 1 });
+    expect(missing.text).toContain("❌ Cross-site API requests: see below");
+    expect(missing.text).toContain("got the app's own 403 (BAD_ORIGIN), not the firewall's");
+    const broad = await run({ argv: ["--verify", "--checkpoint", "checkpoint-7c"], deployed: true, crossSiteRule: "broad" });
+    expect(broad.outcome).toMatchObject({ ok: false, failures: 1 });
+    expect(broad.text).toContain("/api/health with Sec-Fetch-Site: same-origin answered 403: a firewall rule denies the app's own requests too");
+    expect(broad.text).toContain("✅ Health"); // the health check sends no Sec-Fetch-Site, as no script does
+    // Without its /api/ path condition (PD-1): the API asks pass, the page opened from another site doesn't, and the
+    // app's pages, asked as a typed address asks them (no Sec-Fetch-Site), still pass.
+    const noPath = await run({ argv: ["--verify", "--checkpoint", "checkpoint-7c"], deployed: true, crossSiteRule: "noPath" });
+    expect(noPath.outcome).toMatchObject({ ok: false, failures: 1 });
+    expect(noPath.text).toContain("/ opened from another site (Sec-Fetch-Site: cross-site) answered 403: a firewall rule denies every page reached from another site");
+    expect(noPath.text).toContain("✅ Pages: all 10 answer 200");
   });
 });
 

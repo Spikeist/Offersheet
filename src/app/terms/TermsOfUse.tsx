@@ -26,7 +26,11 @@ export const TERMS_LAST_UPDATED = "October 13, 2026";
  *   - the sources and their terms: ESPN's API is unofficial (CLAUDE.md §2.2, §19), Sleeper's is free for non-commercial
  *     use, FantasyCalc's values are non-commercial and credited with a link (§2.9), DynastyProcess's ID map is GPL-3.0 and
  *     stays on the server; the NFL schedule is ESPN's (src/data/nflSchedule.ts nflScheduleUrl: the app downloads nothing
- *     from nflverse, review PG-2);
+ *     from nflverse, review PG-2). Since Checkpoint 7d the data line names the map's license, in the planner's words
+ *     ("player ID maps from DynastyProcess (shared under the GPL-3.0 license)": planner reply to Checkpoint 7c, "Also"):
+ *     a saved import keeps its players' ID pairs, DynastyProcess's links among them, in the user's browser (security
+ *     finding 10), so the license is credited where users can see it, here and in the footer's link to the repository
+ *     (src/components/SiteFooter.tsx). The full GPL review still comes before any downloadable version (CLAUDE.md §19);
  *   - feedback: with `features.anonymousFeedback` (track FB) an anonymous copy with an opt-out (the privacy page lists the
  *     fields); without it it stays in the browser (src/lib/feedbackStore.ts), and the words say so (review PG-1);
  *   - saved leagues stay until removed or until the browser clears them (the privacy page says when; review PG-7);
@@ -62,9 +66,9 @@ export function TermsOfUse({ features }: { features: PolicyFeatures }) {
         <h2 className="text-lg font-extrabold">Where the data comes from</h2>
         <p className="mt-2 text-sm leading-relaxed">
           League data comes from ESPN and Sleeper, projections and stats from Sleeper and ESPN, trade values from FantasyCalc
-          {features.fantasyCalcHidden ? " (Offer Sheet uses them in its own numbers and doesn't show them)" : null}, player ID maps from DynastyProcess, and the NFL
-          schedule from ESPN. ESPN&apos;s league data comes through an unofficial interface that ESPN doesn&apos;t support, so it can change or stop working at any
-          time. Each of these services has its own terms, and your ESPN and Sleeper accounts stay under theirs.
+          {features.fantasyCalcHidden ? " (Offer Sheet uses them in its own numbers and doesn't show them)" : null}, player ID maps from DynastyProcess (shared under
+          the GPL-3.0 license), and the NFL schedule from ESPN. ESPN&apos;s league data comes through an unofficial interface that ESPN doesn&apos;t support, so it
+          can change or stop working at any time. Each of these services has its own terms, and your ESPN and Sleeper accounts stay under theirs.
         </p>
       </Card>
 

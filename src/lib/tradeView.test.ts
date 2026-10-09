@@ -26,9 +26,10 @@ import { FIXTURE_B3, planBFixture } from "@/engine/tradeTestFixtures";
 import type { InjuryTag, PartnerNumbers, TradeEvaluation, TradeStep } from "@/engine/tradeModel";
 import { MODEL_SOURCES } from "@/server/modelInputs";
 import { GLOOP_PREMIUM, SNOOT_PREMIUM, evaluation, searchResult, step, steppedFull, steppedOffer, tradeSnapshot } from "@/components/trades/testFixtures";
-import { applyFeedback } from "./feedbackStore";
+import { applyFeedback, parseFeedbackShown } from "./feedbackStore";
 import {
   ANALYZER_MAX_PER_SIDE,
+  cardPress,
   HARDER_TO_GET_TAG,
   HELPS_BOTH_EMPTY_TITLE,
   HELPS_BOTH_SORT_NOTE,
@@ -2158,8 +2159,11 @@ describe("Checkpoint 7c: “Helps both” and “Helps them” (planner reply to
     expect(overall.cards.some((c) => !helpsBoth(c.evaluation))).toBe(true);
     for (const c of overall.cards) {
       expect(c.helpsBothTag !== null, c.key).toBe(helpsBoth(c.evaluation));
-      // Every simulated card has the partner's line (Helps them 0 when it costs them).
-      expect(c.them, c.key).not.toBeNull();
+      // Checkpoint 7d (planner reply to Checkpoint 7c, answer 3): a Finder card shows the partner's line exactly when it's
+      // tagged; every simulated card has the partner's numbers, which the Analyzer's card shows whatever they are.
+      expect(c.them !== null, c.key).toBe(c.helpsBothTag !== null);
+      expect(c.evaluation.them?.helps, c.key).toEqual(expect.any(Number));
+      expect(buildAnalysisView({ evaluation: c.evaluation, illegal: null, notes: [] }, league.snapshot).card?.them, c.key).not.toBeNull();
     }
   });
 
@@ -2168,6 +2172,158 @@ describe("Checkpoint 7c: “Helps both” and “Helps them” (planner reply to
     const theirLongTerm = theirLongTermFact(withThem(evaluation(), 24, { bFuture: 2.4, lambda: 0.5 }));
     const words = [c.them?.text ?? "", c.helpsBothTag?.title ?? "", HELPS_THEM_TITLE, HELPS_BOTH_SORT_NOTE, HELPS_BOTH_EMPTY_TITLE, helpsBothFewText(2, true) ?? "", `${theirLongTerm?.label}: ${theirLongTerm?.value}`].join(" ");
     for (const jargon of [" EV ", "σ", "V*", "g_mkt", "B_P", "B₃", "NaN", "undefined", "null", "λ"]) expect(words).not.toContain(jargon);
+  });
+});
+
+describe("Checkpoint 7d: the partner's line on a Trade Finder card only when it helps both; the Analyzer's always (planner reply to Checkpoint 7c, answer 3)", () => {
+  const them = (helps: number | null, over: Partial<PartnerNumbers> = {}): PartnerNumbers => ({
+    b: helps === null ? null : helps / 10,
+    bWin: helps === null ? null : helps / 10,
+    bFuture: null,
+    lambda: null,
+    b3: helps === null ? null : 4,
+    helps,
+    dPO: 0.04,
+    dCH: 0.009,
+    dPrizes: titleDeltas(0.009),
+    before: { pPlayoffs: 0.41, pTitle: 0.06, prizes: { first: 0.06, second: null, third: null, weeklyHigh: 0, pointsLeader: 0 } },
+    ...over,
+  });
+  const withThem = (e: TradeEvaluation, helps: number | null, over: Partial<PartnerNumbers> = {}): TradeEvaluation => ({ ...e, them: them(helps, over) });
+  const MIN = config.benefit.helpsThemMin;
+
+  it("a Finder card that helps both shows its tag and the partner's line; one that doesn't, neither, in every sort", () => {
+    const tagged = withThem(evaluation({ key: "t", b: 6 }), 30);
+    const short = withThem(evaluation({ key: "s", b: 5, give: ["105"] }), MIN - 1);
+    const costs = withThem(evaluation({ key: "c", b: 4, give: ["104"] }), 0);
+    // Helps them 40 on a card that barely helps me (Helps you under the bar, planner reply to Checkpoint 7c, answer 5): no tag, no line.
+    const barely = withThem(evaluation({ key: "b", b: 0.05, give: ["103"] }), 40);
+    expect((barely.tradeScore ?? 0) < MIN).toBe(true);
+    const result = searchResult([tagged, short, costs, barely], { helpsBoth: { trades: [tagged], qualifying: 1, byChance: 0, lowerWouldAdd: false, dropped: { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 } } });
+    for (const sort of SORT_OPTIONS.map((o) => o.value)) {
+      const view = buildFinderView({ result, sort, snapshot, partnerId: null });
+      for (const c of view.cards) {
+        expect(c.them !== null, `${sort}: ${c.key}`).toBe(c.key === "t");
+        expect(c.helpsBothTag !== null, `${sort}: ${c.key}`).toBe(c.key === "t");
+      }
+      expect(view.cards.find((c) => c.key === "t")?.them?.text, sort).toBe("Helps them 30 · Their title odds 6.0% → 6.9% · Their playoff odds 41% → 45%");
+    }
+  });
+
+  it("the Analyzer's card shows the partner's line whatever it is, “Helps them 0” when the trade costs them", () => {
+    for (const [e, text] of [
+      [withThem(evaluation(), 0), "Helps them 0 · Their title odds 6.0% → 6.9% · Their playoff odds 41% → 45%"],
+      [withThem(evaluation(), MIN - 1), `Helps them ${MIN - 1} · Their title odds 6.0% → 6.9% · Their playoff odds 41% → 45%`],
+      [withThem(evaluation(), 30), "Helps them 30 · Their title odds 6.0% → 6.9% · Their playoff odds 41% → 45%"],
+    ] as const) {
+      expect(buildAnalysisView({ evaluation: e, illegal: null, notes: [] }, snapshot).card?.them?.text).toBe(text);
+    }
+    // Without the partner's numbers, or without a Helps them, still none.
+    expect(buildAnalysisView({ evaluation: evaluation(), illegal: null, notes: [] }, snapshot).card?.them).toBeNull();
+    expect(buildAnalysisView({ evaluation: withThem(evaluation(), null), illegal: null, notes: [] }, snapshot).card?.them).toBeNull();
+    // buildTradeCard's own default is the Analyzer's (the line whenever it has numbers); the Finder's rule is asked for.
+    expect(buildTradeCard(withThem(evaluation(), 0), { snapshot }).them).not.toBeNull();
+    expect(buildTradeCard(withThem(evaluation(), 0), { snapshot, partnerLine: "helpsBoth" }).them).toBeNull();
+    expect(buildTradeCard(withThem(evaluation(), 0), { snapshot, partnerLine: "always" }).them).not.toBeNull();
+  });
+
+  it("“Their long-term value” goes with the partner's line: on a dynasty Finder card that doesn't help both, neither shows", () => {
+    const dynasty = { ...snapshot, settings: { ...snapshot.settings, leagueType: "dynasty" as const } };
+    const scale = config.benefit.bFutureScale;
+    const untagged = withThem(evaluation({ key: "u" }), 4, { bFuture: 0.06 * scale, lambda: 0.5 });
+    const tagged = withThem(evaluation({ key: "t" }), 30, { bFuture: 0.06 * scale, lambda: 0.5 });
+    const view = buildFinderView({ result: searchResult([untagged, tagged]), sort: "overall", snapshot: dynasty, partnerId: null });
+    const byKey = (k: string) => view.cards.find((c) => c.key === k);
+    expect(fact(byKey("u") as ReturnType<typeof card>, "Their long-term value")).toBeUndefined();
+    expect(fact(byKey("t") as ReturnType<typeof card>, "Their long-term value")).toBe("Up");
+    // The Analyzer's card shows both for the untagged trade.
+    const analyzed = buildAnalysisView({ evaluation: untagged, illegal: null, notes: [] }, dynasty).card;
+    expect(analyzed?.them?.text).toMatch(/^Helps them 4 · /);
+    expect(fact(analyzed as ReturnType<typeof card>, "Their long-term value")).toBe("Up");
+    // "Their lineup" stays on every card (Phase 4's fact).
+    expect(fact(byKey("u") as ReturnType<typeof card>, "Their lineup")).toBeDefined();
+  });
+
+  it("never on a Plan B box or a step, in either page", () => {
+    const planB = planBFixture({ partnerId: "2", give: ["105"], get: ["203"] });
+    const withBox = withThem(evaluation({ key: "p", planB }), 30);
+    const view = buildFinderView({ result: searchResult([withBox]), sort: "overall", snapshot, partnerId: null });
+    const box = view.cards[0]?.planB;
+    expect(box).not.toBeNull();
+    expect(JSON.stringify(box)).not.toContain("Helps them");
+    const stepped = { ...steppedFull(), them: them(30) };
+    const steps = buildAnalysisView({ evaluation: stepped, illegal: null, notes: [] }, snapshot).card?.steps;
+    expect(steps).not.toBeNull();
+    expect(JSON.stringify(steps)).not.toContain("Helps them");
+  });
+});
+
+describe("Checkpoint 7d: what a card prints, for its feedback and the export (planner reply to Checkpoint 7c, answer 1)", () => {
+  const withThem = (e: TradeEvaluation, helps: number): TradeEvaluation => ({
+    ...e,
+    them: { b: helps / 10, bWin: helps / 10, bFuture: null, lambda: null, b3: 4, helps, dPO: 0.04, dCH: 0.009, dPrizes: titleDeltas(0.009), before: { pPlayoffs: 0.41, pTitle: 0.06, prizes: { first: 0.06, second: 0.1, third: 0.12, weeklyHigh: 0, pointsLeader: 0 } } },
+  });
+
+  it("is the card's own words: its three numbers, the label, the chance it goes through, my odds and weekly lines, and the partner's line when it shows", () => {
+    const e = withThem(evaluation({ pAccept: 0.4, pComplete: 0.2, dCH: 0.013, dPO: 0.04, detail: { vetoRisk: true, winChance: [{ week: 9, before: 0.68, after: 0.64 }] } }), 24);
+    const c = buildTradeCard(e, { snapshot: tradeSnapshot({ tradeReview: "league_vote" }), baseline: { pPlayoffs: 0.65, pTitle: 0.121 } });
+    expect(c.shown).toEqual({
+      helps: c.numbers.helps.value,
+      chance: "40%",
+      label: e.acceptLabel,
+      through: "about 20%",
+      overall: c.numbers.overall.value,
+      odds: ["Title odds 12.1% → 13.4%", "Playoff odds 65% → 69%"],
+      weekly: "Win chance by week: Week 9: 68% → 64%",
+      helpsThem: "24",
+      theirOdds: ["Their title odds 6.0% → 6.9%", "Their playoff odds 41% → 45%"],
+    });
+    // On the Finder a card that doesn't help both shows no partner's line, so its feedback keeps none either.
+    const finder = buildFinderView({ result: searchResult([withThem(evaluation({ key: "x" }), 4)]), sort: "overall", snapshot, partnerId: null });
+    expect(finder.cards[0]?.shown).not.toHaveProperty("helpsThem");
+    expect(finder.cards[0]?.shown).not.toHaveProperty("theirOdds");
+    // The Analyzer's card for the same trade shows it, "4".
+    expect(buildAnalysisView({ evaluation: withThem(evaluation({ key: "x" }), 4), illegal: null, notes: [] }, snapshot).card?.shown.helpsThem).toBe("4");
+  });
+
+  it("every card's printed words pass the record's check whole (feedbackStore.ts parseFeedbackShown): a veto, “<5%”, unscored, odds unknown or without a “before”, the top-3 line, the weekly line", () => {
+    const PARKER: Reward = { goal: "prizes", shares: { first: 4 / 9, second: 16 / 45, third: 1 / 5, weeklyHigh: 0, pointsLeader: 0 }, periods: 14, empty: false };
+    const cases: [string, ReturnType<typeof buildTradeCard>][] = [
+      ["plain", buildTradeCard(evaluation(), { snapshot })],
+      ["odds", buildTradeCard(evaluation({ dCH: 0.013, dPO: 0.04 }), { snapshot, baseline: { pPlayoffs: 0.65, pTitle: 0.121 } })],
+      ["veto under 5%", buildTradeCard(evaluation({ pAccept: 0.08, pComplete: 0.04, detail: { vetoRisk: true } }), { snapshot: tradeSnapshot({ tradeReview: "league_vote" }) })],
+      ["long shot", buildTradeCard(evaluation({ pAccept: 0.03, pComplete: 0.03 }), { snapshot })],
+      ["not scored", buildTradeCard(evaluation({ b: null }), { snapshot })],
+      ["doesn't help", buildTradeCard(evaluation({ b: -1 }), { snapshot })],
+      ["odds unknown", buildTradeCard({ ...evaluation(), dCH: null, dPO: null }, { snapshot, baseline: { pPlayoffs: 0.65, pTitle: 0.121 } })],
+      ["edges", buildTradeCard(evaluation({ dCH: 0.0003, dPO: 0.001 }), { snapshot, baseline: { pPlayoffs: 0.996, pTitle: 0.0001 } })],
+      [
+        "top 3",
+        buildTradeCard(withThem({ ...evaluation({ dCH: 0.007, dPO: 0.03 }), dPrizes: { first: 0.007, second: 0.006, third: 0.007, weeklyHigh: null, pointsLeader: 0 } }, 24), {
+          snapshot,
+          baseline: { pPlayoffs: 0.6, pTitle: 0.105, prizes: { first: 0.105, second: 0.09, third: 0.105, weeklyHigh: 0, pointsLeader: 0 } },
+          reward: PARKER,
+        }),
+      ],
+      ["weekly", buildTradeCard(evaluation({ detail: { winChance: [3, 6, 9, 12, 13].map((week, i) => ({ week, before: 0.5, after: 0.5 + (i % 2 ? 0.05 : -0.06) })) } }), { snapshot })],
+      ["Helps them 0", buildTradeCard(withThem(evaluation(), 0), { snapshot })],
+    ];
+    for (const [name, c] of cases) expect(parseFeedbackShown(c.shown), name).toEqual(c.shown);
+    expect(cases.find(([n]) => n === "top 3")?.[1].shown.odds).toEqual(["Title odds 10.5% → 11.2%", "Top 3 odds 30% → 32%", "Playoff odds 60% → 63%"]);
+    expect(cases.find(([n]) => n === "veto under 5%")?.[1].shown).toMatchObject({ chance: "10%", through: "under 5%" });
+    expect(cases.find(([n]) => n === "long shot")?.[1].shown).toMatchObject({ chance: "<5%", label: "Long shot" });
+    expect(cases.find(([n]) => n === "not scored")?.[1].shown).toMatchObject({ helps: "—", overall: "—" });
+    expect(cases.find(([n]) => n === "odds unknown")?.[1].shown.odds).toEqual(["Title odds unknown", "Playoff odds unknown"]);
+    expect(cases.find(([n]) => n === "plain")?.[1].shown.odds).toEqual(["Title odds +1 percentage point", "Playoff odds +3 percentage points"]);
+  });
+
+  it("goes with every press on the card (cardPress), which a new record keeps (its first press's)", () => {
+    const c = buildTradeCard(evaluation(), { snapshot });
+    const change = cardPress({ outcome: "sent" }, c);
+    expect(change).toEqual({ outcome: "sent", shown: c.shown });
+    const [record] = applyFeedback([], { leagueKey: "espn:1a2b3c4d", evaluation: c.evaluation, change, at: "2026-10-01T18:00:00.000Z" });
+    expect(record?.shown).toEqual(c.shown);
+    expect(cardPress({ report: { reason: "other" } }, c)).toEqual({ report: { reason: "other" }, shown: c.shown });
   });
 });
 

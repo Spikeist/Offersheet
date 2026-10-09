@@ -53,8 +53,8 @@
 - Stable copy: `npm run stable` (http://127.0.0.1:3000; serves `checkpoint-7b` since 2026-10-07, its first run reinstalling and rebuilding); development: `npm run dev` (http://127.0.0.1:3001)
 - Protected preview: `npm run preview:deploy -- --live` (previews only; refuses production, uncommitted files and leaks)
 - The beta's infrastructure, limits, free-tier arithmetic and the launch-day steps: `reports/beta-infrastructure.md`
-- Trade search on Parker's league (top 10, B₃ and ω per goal, his prizes, open roster spots, Helps both): `reports/trade-report.md` (`npm run trade:report -- --dump data-local/parker-league-4c --team 3 --prizes 2000,1600,900,0`; `--live` fetches the league instead)
-- League model, season odds, the automatic playoff weight and his places under his prizes: `reports/league-report.md` (`npm run league:report -- --dump data-local/parker-league-4c --team 3 --prizes 2000,1600,900,0`)
+- Trade search on Parker's league (top 10, B₃ and ω per goal, his prizes, open roster spots, Helps both): `reports/trade-report.md` (`npm run trade:report -- --dump data-local/parker-league-4c --team 3 --prizes 2000,1600,900`; `--live` fetches the league instead)
+- League model, season odds, the automatic playoff weight and his places under his prizes: `reports/league-report.md` (`npm run league:report -- --dump data-local/parker-league-4c --team 3 --prizes 2000,1600,900`)
 - Production deploy (only after the go): `npm run prod:deploy` (a dry run; read-only), then `npm run prod:deploy -- --live --checkpoint checkpoint-7c`
 - Production browser check: `npm run build`, then `npm run check:browser -- --live --team 3`
 - The shared store's readers, read-only (`READONLY_STORE_URL` and `READONLY_STORE_TOKEN` typed into .env.local by hand; add `--env production` after launch, except for `snapshot:pull`, which reads production by default): `npm run beta:log -- --live`, `npm run usage:report -- --live`, `npm run feedback:report -- --live`, `npm run snapshot:pull -- --live`

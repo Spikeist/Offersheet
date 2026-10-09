@@ -30,7 +30,7 @@
  *   The bar is config.search.steps.minAcceptGain (5 points), the steps' own "if they say no" bar: the planner calls
  *   Plan B the cards' "try again" step (answer 2), so both "if they say no" versions must clear the same bar. null
  *   turns the rule off (a report switch: the planner's rules as first read);
- * - ⚠️ when the card helps both teams (benefit.ts helpsBoth: its "Helps both" tag, Helps you above 0 and Helps them at least
+ * - ⚠️ when the card helps both teams (benefit.ts helpsBoth: its "Helps both" tag, Helps you and Helps them each at least
  *   config.benefit.helpsThemMin, both as printed), it helps both too (Checkpoint 7c, ours: review of the "Helps both" engine
  *   track, finding HB-4; planner reply to Checkpoint 7b, §7). A box shows no "Helps them" line (the lead's call), so the
  *   "try again" under a card tagged "Helps both" must never be a trade that doesn't help them: on Parker's league under his

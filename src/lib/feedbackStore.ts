@@ -4,8 +4,9 @@
  * Report button (Doesn't help me · They'd never accept · Player info is wrong · League settings look wrong ·
  * Other, with an optional note) save a record under FEEDBACK_STORAGE_KEY in localStorage, together with the
  * trade's model inputs and scores. The Settings page's "Export feedback" downloads them as JSON
- * (feedbackExportText), and `npm run feedback:summary -- <file>` (scripts/feedback-summary.ts) summarizes an
- * export by reason, by outcome and by model part.
+ * (feedbackExportText; version 3 since Checkpoint 7d: what the user saw and entered, never the model's numbers), and
+ * `npm run feedback:summary -- <file>` (scripts/feedback-summary.ts) summarizes an export by reason, by outcome and by
+ * version.
  *
  * The rules:
  * - One record per trade idea: (leagueKey, tradeKey), where leagueKey is settingsStore.ts's short hash of the
@@ -58,37 +59,46 @@
  *   split with any other goal is dropped (recordReward). A version's split is its own when the card gives one, else (⚠️
  *   ours) its press's, like its week: the card and the press's basis come from the same search or evaluation (the pages'
  *   share context reads the engine's reward). An older version's "balanced" stays as recorded (FEEDBACK_GOALS).
+ * - Checkpoint 7d (planner reply to Checkpoint 7c, answer 1: the export holds "only what the user saw and entered"):
+ *   `shown`, what the card printed when the record was made (FeedbackShown: its three numbers, Helps them when the card
+ *   showed the partner's line, its odds lines and weekly line, each as the card's own text, never a model number), from
+ *   the press that made the record (FeedbackChange.shown: tradeView.ts TradeCardView.shown, which the card's presses carry).
+ *   Like the numbers it's the first press's; a record made before (or by a press that carried none) has none, and the export
+ *   works its three numbers out from the record's own with the card's formatting (exportedShownOf). Only texts in
+ *   the card's printed forms are kept (parseFeedbackShown), so no raw number can ride in it.
  *
  * Privacy: a record holds no names, no league id and nothing about anyone's account: player ids (canonical:
  * Sleeper's), the platform's team id of the partner, the league's short hash, the model's numbers and features (with the
  * season, week and goal they were computed for, and under "Several prizes" the prize split as whole percents, never the
- * amounts), which version was sent (its key: the same team and player ids), the
+ * amounts), what the card printed, which version was sent (its key: the same team and player ids), the
  * time of each press and its random share id. The note is the user's own words (trimmed, at most FEEDBACK_NOTE_MAX
  * characters).
  * The short hash isn't anonymous (an ESPN league id is a small number: hashing every possible id finds it in
  * seconds, and the record id made from it gives it away the same way), so the export, a file meant to be
- * shared, numbers the leagues instead and makes each record id again from that number (feedbackExport). The share id
- * stays in the export (it's random, and it lets Phase 6 tell an exported record from its anonymous copy).
- * The export also leaves out the value ratios (planner reply to Checkpoint 7b, Q5; EXPORT_LEFT_OUT, FEEDBACK_EXPORT_VERSION
- * 2): the comparisons of trade values behind the estimates (g_mkt for both sides, the partner's perceived g, his trades'
- * average g) and the acceptance logit z, a linear function of g. Users can open the file, and Offer Sheet never shows
- * FantasyCalc's values or a comparison of them (planner reply to Checkpoint 7a, 5.4). ⚠️ That takes the ratios out of the
- * file's fields, not out of reach: the numbers it keeps (the raw P_accept, B) give them back to a reader who works at it
- * (EXPORT_LEFT_OUT says how; closing that is a planner call). The records in this browser keep them, and so do the
+ * shared, numbers the leagues instead (feedbackExport). Since Checkpoint 7d the export holds only what the user
+ * saw and entered (the trade, the card's printed numbers and lines, the outcome, the version sent with its printed chance,
+ * the reason and the note, and the days of its first press and of its latest outcome and report): no model number (B, B₃, P_accept, P_complete, g, the features, ΔPO,
+ * ΔCH, ΔPPW), no basis or version inputs, no share id, trade key or record id, so no value ratio can be worked back out of
+ * it (planner reply to Checkpoint 7c, answer 1; version 2, planner reply to Checkpoint 7b, Q5, left out only the ratios'
+ * own fields, and its raw P_accept and B gave them back). The records in this browser keep everything, and so do the
  * anonymous copies made from them (internal, needed for calibration).
  * The anonymous copy (Phase 7a) is built from a record by src/lib/feedbackShare.ts, which leaves out everything above
- * that could identify a league or a person: the short hash, the record id, the partner's team id, the times and the note.
+ * that could identify a league or a person: the short hash, the record id, the partner's team id, the times and the note
+ * (and, since Checkpoint 7d, what the card printed: the copy's own fields are unchanged).
  *
  * Reading never throws and never trusts the stored value (bad JSON or another shape counts as no feedback, and
  * a malformed record is skipped); writing reports failure in plain English. Pure functions over an injected
  * storage (like importStore.ts); the pages' hooks are in src/components/settings/useFeedback.ts.
  */
+import { acceptanceLabel } from "@/engine/acceptance";
 import type { HelpsScale } from "@/engine/benefit";
+import { config } from "@/engine/config";
 import { fmix32, hash32 } from "@/engine/rng";
 import { PRIZE_KEYS } from "@/engine/settings";
 import { FEEDBACK_GOALS, type FeedbackGoal, type FeedbackPrizes } from "./feedbackEvent";
 import type { AcceptanceFeatures, TradeAsset, TradeEvaluation, TradeProposal } from "@/engine/tradeModel";
 import type { SaveResult, StorageLike } from "./importStore";
+import { acceptText, printedScore, throughText } from "./printed";
 
 export const FEEDBACK_STORAGE_KEY = "offersheet:feedback:v1";
 /** Records kept: the most recently touched (L12). */
@@ -232,6 +242,89 @@ function basisOf(x: unknown): FeedbackBasis | undefined {
   return { season: x.season, week: x.week, ...recordReward(x.goal, x.prizes) };
 }
 
+/**
+ * What a trade card printed when the record was made (the header, Checkpoint 7d; planner reply to Checkpoint 7c, answer 1:
+ * "the numbers on its card: Helps you, Helps them, the chance they accept, Overall and the odds lines"): each field the
+ * card's own text (src/lib/tradeView.ts TradeCardView.shown), never a model number. The export holds it as it is
+ * (feedbackExport); for a record without it, the export works out the three numbers alone (exportedShownOf).
+ */
+export interface FeedbackShown {
+  /** Helps you as printed: "57", "0" (a trade that doesn't help), "—" (not scored). */
+  helps: string;
+  /** The chance they accept as printed: "45%", "<5%"; "—" when there's none to print. */
+  chance: string;
+  /** Its label (config.acceptance.labels: "Long shot", "Possible", "Decent", "Likely"). */
+  label?: string;
+  /** When the league's review could veto it and that printed differently, the chance it goes through: "about 20%", "under 5%". */
+  through?: string;
+  /** Overall as printed. */
+  overall: string;
+  /** My odds lines as printed, "<label> <value>": "Title odds 12.1% → 13.4%", "Top 3 odds 30% → 32%", "Playoff odds 65% → 69%". */
+  odds?: string[];
+  /** The weekly line as printed: "Win chance by week: Week 9: 68% → 64% · Week 13: 42% → 55%". */
+  weekly?: string;
+  /** Helps them as printed, only when the card showed the partner's line (planner reply to Checkpoint 7c, answer 3). */
+  helpsThem?: string;
+  /** Their odds on that line, "<label> <value>": "Their title odds 6.0% → 6.9%", "Their playoff odds 41% → 45%". */
+  theirOdds?: string[];
+}
+
+/** A 0–100 score as a card prints it (Helps you, Overall, Helps them): a whole number, or "—" when it wasn't scored. */
+const PRINTED_SCORE = /^(?:\d{1,3}|—)$/;
+/** A chance as a card prints it ("45%", "<5%"), or "—". */
+const PRINTED_CHANCE = /^(?:<?\d{1,3}%|—)$/;
+/** The chance it goes through, as printed ("about 20%", "under 5%"). */
+const PRINTED_THROUGH = /^(?:about|under) \d{1,3}%$/;
+/** An odds value as printed: "12.1% → 13.4%" ("<1%", ">99.9%" at the edges), "+4.1 percentage points", "no change", "unknown". */
+const ODDS_VALUE = String.raw`(?:unknown|no change|[+−]\d{1,3}(?:\.\d)? percentage points?|[<>]?\d{1,3}(?:\.\d)?% → [<>]?\d{1,3}(?:\.\d)?%)`;
+/** One of my odds lines as printed. */
+const PRINTED_MY_ODDS = new RegExp(`^(?:Title|Top [23]|Playoff) odds ${ODDS_VALUE}$`);
+/** One of the partner's odds as printed. */
+const PRINTED_THEIR_ODDS = new RegExp(`^Their (?:title|top [23]|playoff) odds ${ODDS_VALUE}$`);
+/** The weekly line as printed (tradeView.ts weeklyLine). */
+const WEEK_MOVE = String.raw`Week \d{1,2}: [<>]?\d{1,3}% → [<>]?\d{1,3}%`;
+const PRINTED_WEEKLY = new RegExp(`^Win chance by week: ${WEEK_MOVE}(?: · ${WEEK_MOVE}){0,7}$`);
+/** At most this many odds lines a side (title, top-N, playoffs). */
+const SHOWN_ODDS_MAX = 3;
+
+const printed = (x: unknown, re: RegExp): x is string => typeof x === "string" && x.length <= 300 && re.test(x);
+
+/** Whether a value is a chance they accept as a card prints it ("45%", "<5%", "—"): the export's version line reads it too. */
+export const isPrintedChance = (x: unknown): x is string => printed(x, PRINTED_CHANCE);
+
+/** Whether a value is the chance a trade goes through as a card prints it ("about 20%", "under 5%"). */
+export const isPrintedThrough = (x: unknown): x is string => printed(x, PRINTED_THROUGH);
+
+/** A list of printed lines, all of them in the form (`re`) and at most SHOWN_ODDS_MAX; else undefined. */
+function printedLines(x: unknown, re: RegExp): string[] | undefined {
+  if (!Array.isArray(x) || x.length > SHOWN_ODDS_MAX || !x.every((l) => printed(l, re))) return undefined;
+  return [...(x as string[])];
+}
+
+/**
+ * What a card printed, as a record keeps it (FeedbackShown), from a press's or a stored value: only texts in the card's
+ * printed forms (a score "57" or "—", a chance "45%" or "<5%", a label of config.acceptance.labels, "about 20%", the odds and
+ * weekly lines as tradeView.ts words them), so no raw number can ride in it. A part that isn't in its form is left out (the
+ * partner's score and their odds go together); undefined when Helps you, the chance or Overall isn't, or it isn't an object.
+ */
+export function parseFeedbackShown(x: unknown): FeedbackShown | undefined {
+  if (!isRecordLike(x) || !printed(x.helps, PRINTED_SCORE) || !printed(x.chance, PRINTED_CHANCE) || !printed(x.overall, PRINTED_SCORE)) return undefined;
+  const labels: readonly string[] = config.acceptance.labels.map((l) => l.label);
+  const odds = printedLines(x.odds, PRINTED_MY_ODDS);
+  const theirOdds = printedLines(x.theirOdds, PRINTED_THEIR_ODDS);
+  const them = printed(x.helpsThem, PRINTED_SCORE) && theirOdds ? { helpsThem: x.helpsThem, theirOdds } : {};
+  return {
+    helps: x.helps,
+    chance: x.chance,
+    ...(typeof x.label === "string" && labels.includes(x.label) ? { label: x.label } : {}),
+    ...(printed(x.through, PRINTED_THROUGH) ? { through: x.through } : {}),
+    overall: x.overall,
+    ...(odds ? { odds } : {}),
+    ...(printed(x.weekly, PRINTED_WEEKLY) ? { weekly: x.weekly } : {}),
+    ...them,
+  };
+}
+
 /** The part of Offer Sheet a report points at (§11 "How the data is used"). */
 export type ModelPart = "acceptance" | "benefit" | "adapters" | "review";
 
@@ -301,6 +394,11 @@ export interface FeedbackRecord {
    * press that made the record; absent on a record made before, or by a press that passed none.
    */
   basis?: FeedbackBasis;
+  /**
+   * Checkpoint 7d: what the card printed when the record was made (the header: its numbers, odds and weekly lines, and the
+   * partner's line when it showed), from the press that made it; absent on a record made before, or by a press that passed none.
+   */
+  shown?: FeedbackShown;
   outcome?: { kind: FeedbackOutcome; at: string };
   /** Which version was sent (the header), with the outcome only; absent = unknown. */
   version?: FeedbackVersion;
@@ -321,11 +419,14 @@ export type FeedbackEvaluation = Pick<TradeEvaluation, "key" | "proposal" | "fea
  * recorded with it; without it, a version already recorded stays). Phase 7a: `rid`, the share id the record takes when
  * it has none yet (the header; a share id it already has is never replaced), and `basis`, what the card's numbers were
  * computed from (a new record keeps it; a version this press records keeps its week). The pages' presses carry both
- * (src/components/settings/useFeedback.ts saveFeedbackPress); without them a new record has neither.
+ * (src/components/settings/useFeedback.ts saveFeedbackPress); without them a new record has neither. Checkpoint 7d:
+ * `shown`, what the card printed (a new record keeps it, as parseFeedbackShown reads it), which the card's own presses
+ * carry (src/components/trades/TradeCard.tsx, tradeView.ts cardPress).
  */
 export type FeedbackChange = ({ outcome: FeedbackOutcome | null; sent?: FeedbackSent | undefined } | { report: { reason: FeedbackReason; note?: string | undefined } | null }) & {
   rid?: string | undefined;
   basis?: FeedbackBasis | undefined;
+  shown?: FeedbackShown | undefined;
 };
 
 /**
@@ -416,7 +517,8 @@ function withPressPrizes(inputs: unknown, basis: FeedbackBasis | undefined): unk
  * updated, moved to the newest end, removed once it holds neither an outcome nor a report, and the list cut
  * to the newest FEEDBACK_MAX_RECORDS. Clearing what isn't there changes nothing. A record without a share id takes the
  * change's (FeedbackChange.rid; one it has is kept); a new record keeps the change's basis (FeedbackChange.basis: an
- * existing record keeps its own, or none, since its numbers are its first press's), and a version the change records
+ * existing record keeps its own, or none, since its numbers are its first press's) and (Checkpoint 7d) what its card printed
+ * (FeedbackChange.shown, as parseFeedbackShown reads it; likewise its first press's), and a version the change records
  * keeps the change's week with its inputs. Pure: `records` isn't changed.
  */
 export function applyFeedback(
@@ -430,6 +532,7 @@ export function applyFeedback(
   if (!existing && clearing) return [...records];
   const rid = existing?.rid ?? (isShareId(change.rid) ? change.rid : undefined);
   const basis = basisOf(change.basis);
+  const shown = existing ? undefined : parseFeedbackShown(change.shown);
   const next: FeedbackRecord = existing
     ? { ...existing, ...(rid ? { rid } : {}) }
     : {
@@ -442,6 +545,7 @@ export function applyFeedback(
         numbers: feedbackNumbers(evaluation),
         features: feedbackFeatures(evaluation.features),
         ...(basis ? { basis } : {}),
+        ...(shown ? { shown } : {}),
       };
   if ("outcome" in change) {
     if (change.outcome === null) {
@@ -497,12 +601,48 @@ function parseAsset(x: unknown): TradeAsset | null {
   return null;
 }
 
-function parseProposal(x: unknown): TradeProposal | null {
-  if (!isRecordLike(x) || !isText(x.partnerId) || !Array.isArray(x.give) || !Array.isArray(x.get)) return null;
-  const give = x.give.map(parseAsset);
-  const get = x.get.map(parseAsset);
-  if (give.some((a) => a === null) || get.some((a) => a === null)) return null;
-  return { partnerId: x.partnerId, give: give as TradeAsset[], get: get as TradeAsset[] };
+/** One side of a trade as a record holds it (players and picks, each checked), or null when it isn't one. */
+export function parseFeedbackAssets(x: unknown): TradeAsset[] | null {
+  if (!Array.isArray(x)) return null;
+  const out = x.map(parseAsset);
+  return out.some((a) => a === null) ? null : (out as TradeAsset[]);
+}
+
+/**
+ * A trade's key read back into a proposal (TradeEvaluation.key, evaluate.ts proposalKey: "<partner>|give:<ids>|get:<ids>",
+ * each side's assets sorted, a pick as "pick:<season>:<round>:<original team>"; the test fixtures' "<partner>|<ids>|<ids>"
+ * too), for naming a recorded version the card no longer shows (tradeView.ts CardFeedback.versionWords), its players in the
+ * anonymous copy (feedbackShare.ts) and in the export (exportedVersionOf); null when it isn't one. Here since Checkpoint 7d
+ * (tradeView.ts re-exports it).
+ */
+export function proposalFromKey(key: string | null | undefined): TradeProposal | null {
+  if (typeof key !== "string") return null;
+  const parts = key.split("|");
+  if (parts.length !== 3) return null;
+  const [partnerId = "", give = "", get = ""] = parts;
+  if (!partnerId) return null;
+  const side = (text: string, prefix: string): TradeAsset[] | null => {
+    const list = text.startsWith(prefix) ? text.slice(prefix.length) : text;
+    if (!list) return [];
+    const out: TradeAsset[] = [];
+    for (const id of list.split(",")) {
+      if (!id) return null;
+      const pick = /^pick:(\d+):(\d+):(.+)$/.exec(id);
+      out.push(pick ? { kind: "pick", season: Number(pick[1]), round: Number(pick[2]), originalTeamId: pick[3] ?? "" } : { kind: "player", id });
+    }
+    return out;
+  };
+  const g = side(give, "give:");
+  const r = side(get, "get:");
+  return g && r && g.length + r.length > 0 ? { partnerId, give: g, get: r } : null;
+}
+
+/** A trade as a record holds it (the partner's team id, the players and picks each side), or null when it isn't one. */
+export function parseFeedbackProposal(x: unknown): TradeProposal | null {
+  if (!isRecordLike(x) || !isText(x.partnerId)) return null;
+  const give = parseFeedbackAssets(x.give);
+  const get = parseFeedbackAssets(x.get);
+  return give && get ? { partnerId: x.partnerId, give, get } : null;
 }
 
 function parseNumbers(x: unknown): FeedbackNumbers | null {
@@ -515,11 +655,14 @@ function parseNumbers(x: unknown): FeedbackNumbers | null {
 /** One stored or exported record, checked field by field; null when it isn't one. */
 export function parseFeedbackRecord(x: unknown): FeedbackRecord | null {
   if (!isRecordLike(x) || !isText(x.id) || !isText(x.savedAt) || !isText(x.leagueKey) || !isText(x.tradeKey)) return null;
-  const proposal = parseProposal(x.proposal);
+  const proposal = parseFeedbackProposal(x.proposal);
   const numbers = parseNumbers(x.numbers);
   if (!proposal || !numbers || !isRecordLike(x.features)) return null;
   // Phase 7a's basis; one that isn't readable is left out (the copies read the league data on screen instead).
   const basis = basisOf(x.basis);
+  // Checkpoint 7d's printed numbers; ones that aren't in the card's printed forms are left out (the export works the three
+  // numbers out instead).
+  const shown = parseFeedbackShown(x.shown);
   const record: FeedbackRecord = {
     id: x.id,
     // Phase 7a's share id; one that isn't one is left out (the record's next press gives it a new one).
@@ -531,6 +674,7 @@ export function parseFeedbackRecord(x: unknown): FeedbackRecord | null {
     numbers,
     features: feedbackFeatures(x.features),
     ...(basis ? { basis } : {}),
+    ...(shown ? { shown } : {}),
   };
   const o = x.outcome;
   if (o !== undefined) {
@@ -556,10 +700,11 @@ export function parseFeedbackRecord(x: unknown): FeedbackRecord | null {
 }
 
 /**
- * Records from a list (the stored value, or an export's `records`): malformed ones skipped, and of two records
- * for the same trade idea only the later one kept; the newest `cap` when given.
+ * Records from a list (the stored value, or an older export's `records`): malformed ones skipped, and of two records
+ * for the same trade idea only the later one kept; the newest `cap` when given (none: every one, as an export of several
+ * leagues holds; parseFeedbackExport reads files of versions 1 and 2 this way).
  */
-function recordsFrom(list: readonly unknown[], cap?: number): FeedbackRecord[] {
+export function parseFeedbackRecords(list: readonly unknown[], cap?: number): FeedbackRecord[] {
   // From the newest end, so the later copy of a duplicate is the one kept, at its own (later) place.
   const seen = new Set<string>();
   const out: FeedbackRecord[] = [];
@@ -584,7 +729,7 @@ export function parseFeedback(raw: string | null | undefined): FeedbackRecord[] 
   } catch {
     return [];
   }
-  return Array.isArray(data) ? recordsFrom(data, FEEDBACK_MAX_RECORDS) : [];
+  return Array.isArray(data) ? parseFeedbackRecords(data, FEEDBACK_MAX_RECORDS) : [];
 }
 
 /**
@@ -592,7 +737,7 @@ export function parseFeedback(raw: string | null | undefined): FeedbackRecord[] 
  * skipped, one per trade idea, the newest FEEDBACK_MAX_RECORDS; [] for anything that isn't a list. Never throws.
  */
 export function feedbackRecordsFrom(list: unknown): FeedbackRecord[] {
-  return Array.isArray(list) ? recordsFrom(list, FEEDBACK_MAX_RECORDS) : [];
+  return Array.isArray(list) ? parseFeedbackRecords(list, FEEDBACK_MAX_RECORDS) : [];
 }
 
 /** The latest time a record says it was pressed (made, outcome, report), in ms; 0 when none can be read. */
@@ -661,97 +806,182 @@ export function clearFeedback(storage: StorageLike): SaveResult {
 
 // ---------------------------------------------------------------------------------------------
 // Export
+//
+// The file the Settings page's "Export feedback" downloads (src/components/settings/useFeedback.ts downloadFeedback), and
+// reading one back (`npm run feedback:summary`, scripts/feedback-summary.ts).
+//
+// Version 3 (Checkpoint 7d; planner reply to Checkpoint 7c, answer 1: "export only what the user saw and entered: the trade;
+// the numbers on its card: Helps you, Helps them, the chance they accept, Overall and the odds lines; the outcome, the version
+// sent and the notes. Leave out everything else the model used, so no value ratio can be worked back out. The anonymous server
+// copies keep everything, as before."). Each record (FeedbackExportEntry), field by field:
+//   league    the league as the file numbers it ("league-1", "league-2", … in the order the leagues first appear: the short
+//             hash leads back to an ESPN league id by hashing every possible one, the header)
+//   madeOn    the UTC day the record was made, its first press ("2026-10-01"; ⚠️ ours: when the user acted, to the day, as the
+//             file's name gives its own day)
+//   trade     the partner's team id and the players given and received, as the record holds them
+//   shown     the card's numbers and lines as printed (FeedbackShown): Helps you, the chance they accept with its label (and the
+//             chance it goes through when the league's review could veto it and that printed differently), Overall, my odds
+//             lines and weekly line, and Helps them with their odds when the card showed the partner's line. ⚠️ Ours: a record
+//             made before Checkpoint 7d kept none, so its three numbers are worked out from its own with the card's formatting
+//             (src/lib/printed.ts printedScore, acceptText, throughText; the label, the engine's acceptanceLabel), which prints
+//             exactly what its card did, and its lines are left out (they weren't kept): exportedShownOf
+//   outcome   the latest outcome pressed, with its UTC day
+//   version   with the outcome, the version sent: which one, its players (read from its key, FeedbackRecord.versionKey) and its
+//             chance as its line showed it (from the estimate the record keeps for it, versionAccept, with the card's
+//             formatting: the step's, Plan B's and the card's own lines print exactly that), and the chance it goes through
+//             when that printed differently: exportedVersionOf
+//   report    the report's reason, the note (the user's own words) and its UTC day
+// Never: B, B₃, the raw P_accept or P_complete, g_mkt, the acceptance features, ΔPO, ΔCH or ΔPPW, the basis, the version's
+// inputs, the share id, a trade key or a record id (made from the trade key and the first press's time to the millisecond, an
+// id would give that time back). Every number in the file is one a card printed (whole scores, percents rounded as the card
+// rounds them, the title odds to a tenth), and every printed text is checked against the card's forms (parseFeedbackShown), so
+// no value ratio can be worked back out of it (feedbackStore.test.ts: two records whose model numbers differ but print the
+// same export the same, byte for byte). The records in this browser keep everything, and so do the anonymous copies made from
+// them (src/lib/feedbackShare.ts: unchanged). Versions 1 (Phase 4: every record as stored) and 2 (planner reply to Checkpoint
+// 7b, Q5: the value ratios' own fields left out, though its raw P_accept and B gave them back) still read (parseFeedbackExport).
 
 export const FEEDBACK_EXPORT_KIND = "offersheet-trade-feedback";
 
 /**
- * The export file's format: 2 since the planner's reply to Checkpoint 7b, Q5, whose records leave out the value ratios
- * (EXPORT_LEFT_OUT); 1 carried them. parseFeedbackExport reads either.
+ * The export file's format: 3 since Checkpoint 7d (what the user saw and entered: the section's header); 2 left out the value
+ * ratios' fields (planner reply to Checkpoint 7b, Q5); 1 held every record as stored. parseFeedbackExport reads all three.
  */
-export const FEEDBACK_EXPORT_VERSION = 2;
+export const FEEDBACK_EXPORT_VERSION = 3;
 
-/**
- * What the export leaves out of each record (the header; planner reply to Checkpoint 7b, Q5: "Leave them out of the export
- * file users download, since users can open it"), the keys themselves, not nulls: the trade-value comparisons behind the
- * estimates, all made from FantasyCalc's values (numbers.gMine and gPartner, g_mkt for me and for the partner; features.g,
- * the partner's perceived g with the star premium; features.hist, the average g of his past trades) and features.z, the
- * acceptance logit, a linear function of g. The same in the sent version's inputs (versionInputs.gPartner, and g, hist and
- * z in its features).
- * ⚠️ What stays (the lead's list: B, P_accept and P_complete, Offer Sheet's own estimates) still gives the ratios back to a
- * reader who works at it, so this hides the fields, not the numbers (review of the change):
- * - Inside its clamp [0.02, 0.85], P_accept is σ(z), so the raw P_accept (numbers.pAccept, and versionAccept.pAccept for the
- *   sent version) gives z back; z less the kept features' terms (n, h, c, a, ctx, hot, urg, with the β's the bundle ships)
- *   gives the partner's perceived g from the file alone, exactly when he has no valued past trades (hist's term 0), else
- *   mixed with hist. Rounding P_accept to the printed 5% wouldn't close it: g still comes back within a few hundredths.
- * - B gives g_mkt(me) back to anyone who knows κ, the user who downloads the file included: in a redraft league, B less
- *   B_win (from ΔPO, ΔCH and the goal, all in the file) is the market term, (B₃ / 3) × κ × clamp(g_mkt(me)), and κ is one of
- *   the three levels of "Protect my trade value". In dynasty and keeper leagues it gives λ × 40 × ΔDyn / MyDynTotal, the
- *   long-term value change as a share of the roster's, to anyone who knows λ (the Win now ↔ Future setting).
- * Only leaving out P_accept, P_complete and versionAccept too (or the kept features) would close it: a planner call
- * (Checkpoint 7c). feedbackStore.test.ts works both routes back from an exported file, so closing one changes a test.
- */
-export const EXPORT_LEFT_OUT = { numbers: ["gMine", "gPartner"], features: ["g", "hist", "z"], versionInputs: ["gPartner"] } as const;
+/** How the export names a league: "league-1", "league-2", … (numbers that mean something only inside the file). */
+export const EXPORT_LEAGUE_PREFIX = "league-";
 
-/** A record's acceptance features as the export holds them (EXPORT_LEFT_OUT.features left out). */
-export type ExportedFeedbackFeatures = Omit<FeedbackFeatures, (typeof EXPORT_LEFT_OUT.features)[number]>;
+/** The version sent, as the export holds it (the section's header). */
+export interface ExportedVersion {
+  kind: FeedbackVersion;
+  /** Its players, read from its key (FeedbackRecord.versionKey); absent when the record kept no key. */
+  give?: TradeAsset[];
+  get?: TradeAsset[];
+  /** Its chance they accept as its line printed it ("35%", "<5%"); absent when the record kept no estimate for it. */
+  chance?: string;
+  /** The chance it goes through, when the league's review could veto it and that printed differently ("about 20%"). */
+  through?: string;
+}
 
-/** The sent version's inputs as the export holds them (EXPORT_LEFT_OUT.versionInputs and the features' left out). */
-export type ExportedVersionInputs = Omit<VersionInputs, (typeof EXPORT_LEFT_OUT.versionInputs)[number] | "features"> & { features: ExportedFeedbackFeatures | null };
+/** One record as the export holds it (the section's header): what the user saw and entered, nothing else the model used. */
+export interface FeedbackExportEntry {
+  /** "league-1", … */
+  league: string;
+  /** The UTC day the record was made (its first press): "2026-10-01". */
+  madeOn?: string;
+  /** The partner's team id and the players given and received, as the record holds them. */
+  trade: TradeProposal;
+  /** The card's numbers and lines as printed. */
+  shown: FeedbackShown;
+  outcome?: { kind: FeedbackOutcome; on?: string };
+  /** With the outcome: the version sent. */
+  version?: ExportedVersion;
+  report?: { reason: FeedbackReason; note?: string; on?: string };
+}
 
-/** A record as the export holds it: its league numbered, its id made again (feedbackExport), the value ratios left out. */
-export type ExportedFeedbackRecord = Omit<FeedbackRecord, "numbers" | "features" | "versionInputs"> & {
-  numbers: Omit<FeedbackNumbers, (typeof EXPORT_LEFT_OUT.numbers)[number]>;
-  features: ExportedFeedbackFeatures;
-  versionInputs?: ExportedVersionInputs;
-};
-
-/** The exported file: the records (leagues numbered, value ratios left out: feedbackExport) with what they are and when they were exported. */
+/** The exported file: the records (FeedbackExportEntry) with what they are and when they were exported. */
 export interface FeedbackExport {
   kind: typeof FEEDBACK_EXPORT_KIND;
   version: typeof FEEDBACK_EXPORT_VERSION;
   exportedAt: string;
   count: number;
-  records: ExportedFeedbackRecord[];
+  records: FeedbackExportEntry[];
 }
 
-/** `obj` without `keys` (the keys gone, not set to undefined; the others in their order). Pure: `obj` isn't changed. */
-function without<T extends object, K extends keyof T>(obj: T, keys: readonly K[]): Omit<T, K> {
-  const out: Partial<T> = { ...obj };
-  for (const k of keys) delete out[k];
-  return out as Omit<T, K>;
+/** A day as the export says it. */
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** A league as the export names it. */
+const EXPORT_LEAGUE = new RegExp(`^${EXPORT_LEAGUE_PREFIX}\\d{1,6}$`);
+
+/** The UTC day of a press's time (ISO): "2026-10-01"; undefined when it isn't a time. */
+export function dayOf(at: string | null | undefined): string | undefined {
+  if (typeof at !== "string" || !at) return undefined;
+  const ms = Date.parse(at);
+  return Number.isFinite(ms) ? new Date(ms).toISOString().slice(0, 10) : undefined;
 }
 
-/** A record without its value ratios (EXPORT_LEFT_OUT), every other field as stored and in its place. Pure. */
-function withoutValueRatios(r: FeedbackRecord): ExportedFeedbackRecord {
-  const out: ExportedFeedbackRecord = { ...r, numbers: without(r.numbers, EXPORT_LEFT_OUT.numbers), features: without(r.features, EXPORT_LEFT_OUT.features) };
-  const v = r.versionInputs;
-  // Replaces the stored inputs in their place (the spread above copied them as stored).
-  if (v) out.versionInputs = { ...without(v, EXPORT_LEFT_OUT.versionInputs), features: v.features ? without(v.features, EXPORT_LEFT_OUT.features) : null };
-  return out;
-}
-
-/** How the export names a league: "league-1", "league-2", … (numbers that mean something only inside the file). */
-export const EXPORT_LEAGUE_PREFIX = "league-";
+/** No number at all: what a record that kept none of its card's numbers shows (the record's own checks never let one be). */
+const NOTHING_PRINTED: FeedbackShown = { helps: "—", chance: "—", overall: "—" };
 
 /**
- * The export: the records with what they are and when they were exported. Each league's key (settingsStore.ts
- * leagueKey) becomes a number that means something only inside the file ("league-1", "league-2", … in the order
- * the leagues first appear), and each record id is made again from that number, since the key, and an id made
- * from it, lead back to an ESPN league id by hashing every possible one (see the header). The value ratios are left out
- * (EXPORT_LEFT_OUT; planner reply to Checkpoint 7b, Q5). What the summary needs survives: which records share a league,
- * and one record per trade idea. Pure: `records` isn't changed (the browser's records, and the anonymous copies made from
- * them, keep the ratios).
+ * What a record's card printed, as the export holds it (the section's header): the record's own `shown` (checked again), else,
+ * for a record made before Checkpoint 7d, its three numbers worked out from its own with the card's formatting: Helps you and
+ * Overall as printedScore prints them, the chance they accept as acceptText prints it with its label (acceptanceLabel, the
+ * engine's own), the chance it goes through when that printed differently (throughText); no lines.
  */
-export function feedbackExport(records: readonly FeedbackRecord[], exportedAt: string): FeedbackExport {
+export function exportedShownOf(r: Pick<FeedbackRecord, "shown" | "numbers">): FeedbackShown {
+  const own = parseFeedbackShown(r.shown);
+  if (own) return own;
+  const n = r.numbers;
+  const p = n.pAccept;
+  const through = p !== null && n.pComplete !== null ? throughText(p, n.pComplete) : null;
+  const worked = {
+    helps: printedScore(n.tradeScore, n.b),
+    chance: p !== null ? acceptText(p) : "—",
+    ...(p !== null ? { label: acceptanceLabel(p) } : {}),
+    ...(through ? { through } : {}),
+    overall: printedScore(n.overall, n.b),
+  };
+  return parseFeedbackShown(worked) ?? NOTHING_PRINTED;
+}
+
+/**
+ * The version sent, as the export holds it (the section's header), or undefined without an outcome or a version: which one,
+ * its players read from its key, and its chance as its line printed it (acceptText, throughText on the estimate the record
+ * keeps for it, FeedbackRecord.versionAccept).
+ */
+export function exportedVersionOf(r: Pick<FeedbackRecord, "outcome" | "version" | "versionKey" | "versionAccept">): ExportedVersion | undefined {
+  if (!r.outcome || !r.version) return undefined;
+  const players = proposalFromKey(r.versionKey);
+  const p = r.versionAccept?.pAccept ?? null;
+  const c = r.versionAccept?.pComplete ?? null;
+  const through = p !== null && c !== null ? throughText(p, c) : null;
+  return {
+    kind: r.version,
+    ...(players ? { give: players.give.map(copyAsset), get: players.get.map(copyAsset) } : {}),
+    ...(p !== null ? { chance: acceptText(p) } : {}),
+    ...(through ? { through } : {}),
+  };
+}
+
+/** One record as the export holds it (the section's header), its league named `league`. Pure: the record isn't changed. */
+export function feedbackExportEntryOf(r: FeedbackRecord, league: string): FeedbackExportEntry {
+  const madeOn = dayOf(r.savedAt);
+  const version = exportedVersionOf(r);
+  const outcomeOn = dayOf(r.outcome?.at);
+  const reportOn = dayOf(r.report?.at);
+  const note = cleanNote(r.report?.note);
+  return {
+    league,
+    ...(madeOn ? { madeOn } : {}),
+    trade: copyProposal(r.proposal),
+    shown: exportedShownOf(r),
+    ...(r.outcome ? { outcome: { kind: r.outcome.kind, ...(outcomeOn ? { on: outcomeOn } : {}) } } : {}),
+    ...(version ? { version } : {}),
+    ...(r.report ? { report: { reason: r.report.reason, ...(note ? { note } : {}), ...(reportOn ? { on: reportOn } : {}) } } : {}),
+  };
+}
+
+/** The records as the export holds them, each league numbered in the order it first appears (the section's header). */
+function exportEntriesOf(records: readonly FeedbackRecord[]): FeedbackExportEntry[] {
   const leagues = new Map<string, string>();
-  const out = records.map((r) => {
+  return records.map((r) => {
     let league = leagues.get(r.leagueKey);
     if (league === undefined) {
       league = `${EXPORT_LEAGUE_PREFIX}${leagues.size + 1}`;
       leagues.set(r.leagueKey, league);
     }
-    return { ...withoutValueRatios(r), leagueKey: league, id: recordId(league, r.tradeKey, r.savedAt) };
+    return feedbackExportEntryOf(r, league);
   });
+}
+
+/**
+ * The export (version 3: the section's header): the records as FeedbackExportEntry holds them, with what they are and when they
+ * were exported. Pure: `records` isn't changed (the browser's records, and the anonymous copies made from them, keep everything).
+ */
+export function feedbackExport(records: readonly FeedbackRecord[], exportedAt: string): FeedbackExport {
+  const out = exportEntriesOf(records);
   return { kind: FEEDBACK_EXPORT_KIND, version: FEEDBACK_EXPORT_VERSION, exportedAt, count: out.length, records: out };
 }
 
@@ -766,19 +996,70 @@ export function feedbackExportFileName(exportedAt: string): string {
   return `offersheet-feedback-${day}.json`;
 }
 
+/** `{ [key]: day }` when `x` is a day as the export says it, else nothing. */
+function dayFieldAs<K extends string>(key: K, x: unknown): Partial<Record<K, string>> {
+  return typeof x === "string" && DAY.test(x) ? ({ [key]: x } as Partial<Record<K, string>>) : {};
+}
+
+/** A version-3 version, checked field by field; undefined when it isn't one. Its players come in pairs (both sides or neither). */
+function parseExportedVersion(x: unknown): ExportedVersion | undefined {
+  if (!isRecordLike(x) || !(FEEDBACK_VERSIONS as readonly unknown[]).includes(x.kind)) return undefined;
+  const give = parseFeedbackAssets(x.give);
+  const get = parseFeedbackAssets(x.get);
+  return {
+    kind: x.kind as FeedbackVersion,
+    ...(give && get ? { give, get } : {}),
+    ...(isPrintedChance(x.chance) ? { chance: x.chance } : {}),
+    ...(isPrintedThrough(x.through) ? { through: x.through } : {}),
+  };
+}
+
 /**
- * The records in an exported file (feedbackExportText's format, either version, or a bare list of records such as the
- * stored value); null when the text isn't JSON or holds neither. A record from an export of version 2 reads the value
- * ratios it leaves out (EXPORT_LEFT_OUT) as null: unknown, like any number that wasn't finite.
+ * One record of a version-3 file, checked field by field (the section's header: the league's number, the days, the trade, the
+ * card's printed numbers and lines, an outcome, version and report of the app's own kinds, a note cut as a record's is);
+ * anything else in it is left out, and null when it isn't one (no league, trade or printed numbers, or neither an outcome nor
+ * a report). A version comes with an outcome only.
  */
-export function parseFeedbackExport(text: string): FeedbackRecord[] | null {
+export function parseFeedbackExportEntry(x: unknown): FeedbackExportEntry | null {
+  if (!isRecordLike(x) || typeof x.league !== "string" || !EXPORT_LEAGUE.test(x.league)) return null;
+  const trade = parseFeedbackProposal(x.trade);
+  const shown = parseFeedbackShown(x.shown);
+  if (!trade || !shown) return null;
+  const o = x.outcome;
+  const outcome = isRecordLike(o) && (FEEDBACK_OUTCOMES as readonly unknown[]).includes(o.kind) ? { kind: o.kind as FeedbackOutcome, ...dayFieldAs("on", o.on) } : undefined;
+  const r = x.report;
+  const note = isRecordLike(r) && typeof r.note === "string" ? cleanNote(r.note) : undefined;
+  const report = isRecordLike(r) && (FEEDBACK_REASONS as readonly unknown[]).includes(r.reason) ? { reason: r.reason as FeedbackReason, ...(note ? { note } : {}), ...dayFieldAs("on", r.on) } : undefined;
+  if (!outcome && !report) return null;
+  const version = outcome ? parseExportedVersion(x.version) : undefined;
+  return {
+    league: x.league,
+    ...dayFieldAs("madeOn", x.madeOn),
+    trade,
+    shown,
+    ...(outcome ? { outcome } : {}),
+    ...(version ? { version } : {}),
+    ...(report ? { report } : {}),
+  };
+}
+
+/**
+ * The records in an exported file as version 3 holds them (the section's header): a file of version 3, each record checked
+ * (parseFeedbackExportEntry; one that isn't one is skipped); of version 1 or 2, or a bare list of records such as the stored
+ * value, each record read (parseFeedbackRecords: one per trade idea) and turned into what version 3 holds, its leagues numbered
+ * again in the order they appear; null when the text isn't JSON or holds none of these (a version this code doesn't know too).
+ */
+export function parseFeedbackExport(text: string): FeedbackExportEntry[] | null {
   let data: unknown;
   try {
     data = JSON.parse(text);
   } catch {
     return null;
   }
-  if (Array.isArray(data)) return recordsFrom(data);
-  if (isRecordLike(data) && Array.isArray(data.records)) return recordsFrom(data.records);
+  if (Array.isArray(data)) return exportEntriesOf(parseFeedbackRecords(data));
+  if (!isRecordLike(data) || !Array.isArray(data.records)) return null;
+  if (data.version === FEEDBACK_EXPORT_VERSION) return data.records.flatMap((x) => parseFeedbackExportEntry(x) ?? []);
+  if (data.version === undefined || data.version === 1 || data.version === 2) return exportEntriesOf(parseFeedbackRecords(data.records));
   return null;
 }
+

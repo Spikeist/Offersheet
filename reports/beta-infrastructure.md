@@ -1,7 +1,8 @@
 # The beta's infrastructure: cache, limits, budgets and the free tiers (Checkpoints 7a and 7b)
 
-Written for the planner and Parker at Checkpoint 7a, updated for Checkpoint 7b (`reports/planner-reply-7a.md`). Production
-stays off until Parker's "go". Numbers: `npm run measure:cache`, `measure:upload` and `load:test` (`reports/load-test.md`),
+Written for the planner and Parker at Checkpoint 7a, updated for Checkpoint 7b (`reports/planner-reply-7a.md`) and for the
+launch since (Checkpoint 7d: the third firewall rule, `reports/planner-reply-7c.md`, answer 4). Production stays off until
+Parker's "go". Numbers: `npm run measure:cache`, `measure:upload` and `load:test` (`reports/load-test.md`),
 the offline route drivers (an i9 desktop; ⚠️ Vercel's CPUs may be slower) and `src/server/limits.ts`. CLAUDE.md Section 3
 is the reference; this is the summary with the arithmetic.
 
@@ -63,17 +64,38 @@ checked Upstash's console on 2026-10-05).
   `images.unoptimized` (the 7b preview, 2026-10-07: `?url=/apple-icon.png&w=32` gave the same 348-byte PNG on both
   paths and `w=64` a 605-byte one on `/_vercel/image`; `w=33` on `/_next/image` and `icon.svg` on `/_vercel/image`
   got 400).
-  Hobby allows 3 custom rules; these are 2 of them. The steps: "Launch-day steps" below.
-- **⚠️ The firewall counts what the app refuses** (Checkpoint 7c's review of the limit; `reports/security-review.md`,
+  Hobby allows 3 custom rules; these are 2 of them, and the third denies cross-site API requests (next bullet). The
+  steps: "Launch-day steps" below.
+- **A third rule denies cross-site API requests, first** (required since the planner's reply to Checkpoint 7c, answer 4:
+  "deny `/api/` requests whose `Sec-Fetch-Site` header is `cross-site`. Put it before the rate-limit rule so those
+  requests don't count toward a visitor's limit."; Checkpoint 7c's review of the limit, `reports/security-review.md`,
   finding 15): `withRoute` refuses a cross-site request before counting it (BAD_ORIGIN; `route.test.ts`: "another
-  site's `<img>` GETs can't lock a visitor out"), but the firewall counts it first, so a page on another site could
-  make a visitor's browser send 80 requests to `/api/health` and lock that visitor out of `/api` for up to 10 minutes.
-  A third custom rule above the rate limit stops them at the edge: if *Request Path* starts with `/api/` AND *Request
-  Header* `sec-fetch-site` equals `cross-site`, then *Deny* (⚠️ that a rule above it keeps them out of the rate
-  limit's count is read from Vercel's rule order, not tried). Browsers always send `Sec-Fetch-Site`; the cron, `vercel
-  curl`, `prod:deploy`'s checks and other scripts send none, so they're unaffected, and the app's own pages ask
-  `/api` same-origin. Hobby's 3 custom rules would then all be used. A planner question at Checkpoint 7c; the
-  launch-day steps carry it as optional (step 2).
+  site's `<img>` GETs can't lock a visitor out"), but the firewall's rate limit counts it first, so without the rule a
+  page on another site could make a visitor's browser send 80 requests to `/api/health` and lock that visitor out of
+  `/api` for up to 10 minutes. The rule, "Deny cross-site API requests": if *Request Path* starts with `/api/` AND
+  *Request Header* `sec-fetch-site` equals `cross-site`, then *Deny*, first in the list, above "API rate limit" (then
+  "Block image optimizer").
+  - **The order** (the planner: "Check that Vercel applies the rules in that order"; Vercel's docs, read by the lead on
+    2026-10-09): "Deny: Blocks the request and no further rules are evaluated." (Rule Configuration Reference, updated
+    2025-04-21) and "You also have the ability to re-order the precedence of each custom rule." (WAF Custom Rules,
+    updated 2026-09-10). So a Deny placed above the rate limit ends a cross-site request before the rate limit sees it
+    (✅ Vercel's docs; ⚠️ not tried live: only a visitor past 80 requests could show it).
+  - **Room on Hobby:** "Hobby projects can have up to 3 total custom firewall rules" (WAF Rate Limiting, updated
+    2026-08-28), the rate limit among them: the three rules use all three. **If Vercel refuses a third rule anyway,**
+    the cross-site condition becomes a third OR group of "Block image optimizer" (*Request Path* starts with `/api/` AND
+    *Request Header* `sec-fetch-site` equals `cross-site`), and that rule then moves above "API rate limit".
+  - **Who it touches:** current browsers send `Sec-Fetch-Site` on every request (⚠️ an old browser that sends none
+    passes the rule and is counted, as before it); the app's own pages ask `/api` same-origin, a typed address says
+    none, and the cron, `vercel curl`, the store-reading scripts and `prod:deploy`'s other requests send none, so the
+    rule touches none of them. A link on another site (a search result, a post) opens a page with `cross-site` too:
+    the path condition is what leaves pages alone.
+  - **The check** (the planner: "a request with that header gets 403, and the app still works"): `npm run prod:deploy`
+    asks `/api/health` on the production domain with `Sec-Fetch-Site: cross-site` (403 expected) and with `same-origin`
+    (not denied: the landing page's 404 before the deploy, the health check's 200 after), and `/` opened from another
+    site (not denied: the landing page's 200 before, the app's 200 after; a 403 there means the rule lost its path
+    condition, review of the policy-deploy track, PD-1), in the dry run, before a live upload, after it, and with
+    `--verify`. The app answers a cross-site request with a 403 of its own (BAD_ORIGIN), but only after the rate limit
+    counted it, so the check tells the two apart by the app's JSON and fails on the app's.
 
 ## Health check, usage counters and the snapshot cron (7b)
 
@@ -173,61 +195,84 @@ Parker does steps 1–4 and then gives the go; no deployment reaches production 
 through `npm run prod:deploy` (planner reply to Checkpoint 7b, §2; CLAUDE.md §16 and §19). Every command is PowerShell,
 one per line, in the project folder. (Upstash, the protection check and the phone were Checkpoint 7a's steps.)
 
+**The tag:** `checkpoint-7d` once Parker approves Checkpoint 7d (the planner, reply to Checkpoint 7c: "If 7d is approved
+in time, production deploys `checkpoint-7d` instead"); if it isn't approved by Tuesday, `checkpoint-7c`, written in its
+place in steps 4 and 5. The script refuses any tag but the newest checkpoint, so a wrong one stops at its first line.
+
 1. **Production's secrets** (PowerShell, one per line; each makes a random value and gives it to Vercel without
    showing it):
    ```
    npm run vercel:secret -- --live --env production
    npm run vercel:secret -- --live --name CRON_SECRET
    ```
-2. **The firewall rules, in one sitting** (Vercel → offersheet → Firewall → Configure → New Rule, once per rule; then
-   review and publish the changes):
-   - **"API rate limit":** if *Request Path* starts with `/api/`, then *Rate Limit*: fixed window, 10 minutes, 80
-     requests, keyed by IP; over the limit, *Too Many Requests (429)*. Not *Deny* (a 403, which the app shows as
-     "Something went wrong on our side") and never *Challenge* (it sets Vercel's `_vcrcs` cookie, which the privacy
-     page's cookie line doesn't cover).
-   - **"Block image optimizer":** if *Request Path* starts with `/_next/image`, OR *Request Path* starts with
-     `/_vercel/image`, then *Deny*. The app doesn't use Vercel's image optimizer (`reports/security-review.md`,
-     finding 8).
-   - **Optional, only if the planner says yes at Checkpoint 7c: "Deny cross-site API requests"**, placed above "API
-     rate limit": if *Request Path* starts with `/api/` AND *Request Header* `sec-fetch-site` equals `cross-site`, then
-     *Deny* (finding 15: so another site can't use up a visitor's 80).
+2. **The firewall rules, in one sitting, in this order** (Vercel → offersheet → Firewall → Configure → New Rule, once per
+   rule; then review and publish the changes). Vercel applies the rules in their order and a Deny stops the rest (its
+   docs, quoted above), so if it lists them otherwise, drag them into this order before publishing:
+   1. **"Deny cross-site API requests"** (first; planner reply to Checkpoint 7c, answer 4; `reports/security-review.md`,
+      finding 15): if *Request Path* starts with `/api/` AND *Request Header* `sec-fetch-site` equals `cross-site`, then
+      *Deny*. First, so another site's requests are denied before the rate limit counts them toward a visitor's 80. Both
+      conditions, in one group: without the path one, the rule would deny every page opened from a link on another site.
+   2. **"API rate limit":** if *Request Path* starts with `/api/`, then *Rate Limit*: fixed window, 10 minutes, 80
+      requests, keyed by IP; over the limit, *Too Many Requests (429)*. Not *Deny* (a 403, which the app shows as
+      "Something went wrong on our side") and never *Challenge* (it sets Vercel's `_vcrcs` cookie, which the privacy
+      page's cookie line doesn't cover).
+   3. **"Block image optimizer":** if *Request Path* starts with `/_next/image`, OR *Request Path* starts with
+      `/_vercel/image`, then *Deny*. The app doesn't use Vercel's image optimizer (`reports/security-review.md`,
+      finding 8).
+
+   **If Vercel refuses a third rule** (Hobby allows 3 custom rules, the rate limit among them, so it shouldn't): add the
+   cross-site condition to "Block image optimizer" as a third OR group with both conditions (*Request Path* starts with
+   `/api/` AND *Request Header* `sec-fetch-site` equals `cross-site`), and move that rule above "API rate limit". The
+   checks below read either setup the same way.
+
+   **The check** (the planner: "a request with that header gets 403, and the app still works"): step 4's dry run asks
+   `/api/health` on the production domain with `Sec-Fetch-Site: cross-site` (it must get the firewall's 403) and with
+   `same-origin` (it must not be denied: the landing page answers 404), on its "Cross-site API requests" line, and on
+   the same line the home page as a link on another site opens it (it must not be denied: a 403 there means the
+   cross-site condition lost its `/api/` path condition, which would turn away everyone arriving from a search result or
+   a post); step 5 asks all three again once the app serves (the same-origin one then gets the health check's 200), and
+   step 6 shows the app working on a phone (a typed address, which sends no `Sec-Fetch-Site`). ⚠️ The order itself
+   isn't asked: only a visitor past 80 requests could show it (Vercel's docs above say a Deny ends the list).
 3. **Next:** on the latest 16.3.x patch. `npm view next@16.3 version` lists every 16.3 release; the last one must be
    16.3.8, the version the lock file pins (step 4's "Next" line asks the same). A newer 16.3 patch means stop: it needs a
-   commit and a new approved tag, so launch on `checkpoint-7c` with the patch next, or wait for the new tag's approval. A
+   commit and a new approved tag, so launch on the approved tag with the patch next, or wait for the new tag's approval. A
    newer minor (16.4 and up) isn't a patch and doesn't stop the launch. (Not `npm outdated next`: with the exact pin its
    "Wanted" is always 16.3.8, and its "Latest" is npm's newest release of any line, so it can't tell whether a 16.3 patch
    exists.)
 4. **The dry run** (it uploads nothing):
    ```
-   npm run prod:deploy -- --checkpoint checkpoint-7c
+   npm run prod:deploy -- --checkpoint checkpoint-7d
    ```
-   It checks that `checkpoint-7c` is an annotated tag and the newest checkpoint, exports it into a clean copy (every file
-   byte for byte the tag), and runs every check: the build's files and `vercel.json`; what the checks after the deploy
-   will compare production with, read from the tag itself (its own Content-Security-Policy and its app pages); Vercel's
-   own dry run in the copy (exactly the copy's files, nothing private); the leak check over the copy; Deployment
-   Protection (Standard: the line names the setting Vercel reports); Production's variables by name (`SESSION_SECRET`
-   and `CRON_SECRET` from step 1, the store's from Checkpoint 7a, none that must not be there); the production domain;
-   `/_next/image` and `/_vercel/image` answering 403 there already (step 2's rule, published); the rollback target (the
-   deployment production serves now: the landing page, `offersheet-dtgsgk03x-parker-daniels.vercel.app` on 2026-10-07)
-   and Next's newest patch. Every line must be ✅ (⚠️ lines are notes). It ends with the rollback steps.
+   It checks that the tag is annotated and the newest checkpoint, exports it into a clean copy (every file byte for byte
+   the tag), and runs every check: the build's files and `vercel.json`; what the checks after the deploy will compare
+   production with, read from the tag itself (its own Content-Security-Policy and its app pages); Vercel's own dry run in
+   the copy (exactly the copy's files, nothing private); the leak check over the copy; Deployment Protection (Standard:
+   the line names the setting Vercel reports, `all_except_custom_domains` at Checkpoint 7c's dry run); Production's
+   variables by name (`SESSION_SECRET` and `CRON_SECRET` from step 1, the store's from Checkpoint 7a, none that must not
+   be there); the production domain; `/_next/image` and `/_vercel/image` answering 403 there already, and the cross-site
+   check (step 2's rules, published); the rollback target (the deployment production serves now: the landing page,
+   `offersheet-dtgsgk03x-parker-daniels.vercel.app` on 2026-10-07) and Next's newest patch. Every line must be ✅ (⚠️
+   lines are notes). It ends with the rollback steps.
 
 **Parker writes "go."**
 
 5. **The deploy:**
    ```
-   npm run prod:deploy -- --live --checkpoint checkpoint-7c
+   npm run prod:deploy -- --live --checkpoint checkpoint-7d
    ```
    It repeats every check and uploads only when all pass: the copy goes up with `vercel deploy --prod` and Vercel builds
    it (about 2–3 minutes; a build that fails never takes the domain). Then it checks https://offersheet.vercel.app:
    `/api/health` shows production and the shared store; the 10 app pages answer 200 with the tag's own
    Content-Security-Policy, the footer's FantasyCalc link and nothing loaded from another site; robots.txt names the
    production sitemap; the cron route answers 401 without its secret; `/_next/image` and `/_vercel/image` answer 403
-   (step 2's rule); `.env.local` is unchanged. It ends by printing the rollback steps.
+   ("Block image optimizer"); a cross-site `/api/health` gets the firewall's 403, a same-origin one the health check's
+   200, and the home page opened from another site the app's 200; `.env.local` is unchanged. It ends by printing the
+   rollback steps.
 
    If a check after the deploy fails, or the domain takes longer than a minute to switch, ask it again without
    deploying (no Vercel CLI, nothing uploaded):
    ```
-   npm run prod:deploy -- --verify --checkpoint checkpoint-7c
+   npm run prod:deploy -- --verify --checkpoint checkpoint-7d
    ```
    Never run `--live` a second time to check: Hobby's Instant Rollback reaches only the previous production deployment,
    so a second deploy would leave no way back to the landing page.

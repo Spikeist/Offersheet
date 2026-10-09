@@ -18,6 +18,11 @@
  * were computed from (FeedbackChange.basis: the season, week and goal of the share context), which a new record keeps with
  * them. Without a share context (a caller that passes none) a press is saved and nothing is sent.
  *
+ * Checkpoint 7d (planner reply to Checkpoint 7c, answer 1): a press from a card also carries what the card prints
+ * (FeedbackChange.shown, added by the card: tradeView.ts cardPress), which a new record keeps for the export
+ * (feedbackStore.ts feedbackExport: what the user saw and entered, never the model's numbers); the anonymous copy is built as before
+ * and holds none of it.
+ *
  * Two presses on one card can overlap (a quick double click: the second lands before the first's save settles; review
  * FB-R1). So each press reads the record when it's made, from what the page holds once the store is loaded (the same
  * state the store's own step applies the press to), and its copy is built from the record as this press alone left it
@@ -160,7 +165,7 @@ export function setFeedbackSharing(on: boolean): SaveResult {
   return setSharing(on);
 }
 
-/** Downloads the records as a JSON file (the Settings page's "Export feedback"). */
+/** Downloads the records as a JSON file (the Settings page's "Export feedback": feedbackStore.ts feedbackExportText, version 3). */
 export function downloadFeedback(records: readonly FeedbackRecord[], now: Date = new Date()): void {
   const exportedAt = now.toISOString();
   const blob = new Blob([feedbackExportText(records, exportedAt)], { type: "application/json" });

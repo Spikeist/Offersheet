@@ -79,11 +79,17 @@
  *   (settingsPrizeChecks).
  * - "Helps both" (§7; contracts.ts decides): the card step's four sorts (Helps you, Chance they accept, Helps both, then
  *   Overall, the page left in its default order) never search again; in every sort the "Helps both" tag is on exactly the
- *   cards that help both teams as printed (Helps you above 0, Helps them at least config.benefit.helpsThemMin); the "Helps
- *   both" sort shows only those, by Helps you, its status line saying how many ("Found 2 trade ideas that help both teams.",
- *   "No trades help both teams right now."); every card's partner's line names their odds in the format of mine (with
- *   cardOddsChecks, so under "Several prizes" too); the Analyzer's card shows the Trade Finder's card's "Helps them" and tag.
- *   FINDER_DONE reads every status the Finder's done state can show, whatever sort a remembered Finder opens in.
+ *   cards that help both teams as printed (Helps you and Helps them each at least config.benefit.helpsThemMin since Checkpoint
+ *   7d, planner reply to Checkpoint 7c, answer 5); the "Helps both" sort shows only those, by Helps you, its status line saying
+ *   how many ("Found 2 trade ideas that help both teams.", "No trades help both teams right now."); every card's partner's line
+ *   names their odds in the format of mine (with cardOddsChecks, so under "Several prizes" too). FINDER_DONE reads every status
+ *   the Finder's done state can show, whatever sort a remembered Finder opens in.
+ *
+ * Checkpoint 7d (planner reply to Checkpoint 7c; contracts.ts decides): answer 3, in every sort a Trade Finder card shows the
+ * partner's line exactly when it's tagged "Helps both", never in an "If they say no, try:" box (finderPartnerLineProblems), and
+ * the Analyzer's card shows it whatever it is, the same number as the Finder's card when that one showed it, with the same tag
+ * (analyzerPartnerLineProblems); "Also", step "DynastyProcess link" with the public pages: every app page's server HTML
+ * credits DynastyProcess in its footer with a link to its data repository (dynastyProcessLinkIssues).
  * - The odds lines on every Trade Finder card (and Plan B box) and the Analyzer's card, and my odds on the League page:
  *   "Top 3 odds" (or "Top 2 odds") exactly when the tab's saved settings pay 3rd (2nd) place under "Several prizes"
  *   (tradeView.ts topPlacesOf on them). The League, Trade Finder and Analyzer steps run in a fresh browser, under "Only the
@@ -146,6 +152,11 @@ import {
   fantasyCalcLinksInHtml,
   freshnessLineOk,
   headlineTopProblems,
+  analyzerPartnerLineProblems,
+  DYNASTYPROCESS_DATA_URL,
+  dynastyProcessLinkIssues,
+  dynastyProcessLinksInHtml,
+  finderPartnerLineProblems,
   helpsBothListProblems,
   helpsBothStatusOk,
   helpsBothTagProblems,
@@ -188,6 +199,8 @@ export interface CardInfo {
   theirOdds: string[] | null;
   /** The "Helps both" tag shows with the card's heading. */
   helpsBothTag: boolean;
+  /** Checkpoint 7d: the card's "If they say no, try:" box shows a partner's line (it never may). */
+  planBHelpsThem: boolean;
   analyzerHref: string | null;
   /** The card's Analyzer link opens the card's own trade (its key's partner and players). */
   linkIsOwnTrade: boolean;
@@ -1223,12 +1236,16 @@ export async function cardStep(ctx: StepContext): Promise<void> {
 
   // The sorts: each reorders the ideas from the highest down (sortInversions), and none starts a new search. Checkpoint 7c
   // (planner reply to Checkpoint 7b, §7): in every sort the "Helps both" tag shows on exactly the cards that help both teams
-  // as printed (Helps you above 0, Helps them at least config.benefit.helpsThemMin), and the "Helps both" sort shows only
-  // those, by Helps you, its status line saying how many.
+  // as printed (since Checkpoint 7d, planner reply to Checkpoint 7c, answer 5: Helps you and Helps them each at least
+  // config.benefit.helpsThemMin), and the "Helps both" sort shows only those, by Helps you, its status line saying how many.
+  // Checkpoint 7d (answer 3): in every sort a card shows the partner's line exactly when it's tagged, and never in an "If they
+  // say no, try:" box (finderPartnerLineProblems).
   const from = await mark(page);
   const inversions: string[] = [];
   const min = config.benefit.helpsThemMin;
   const tagProblems = new Set<string>();
+  const lineProblems = new Set<string>();
+  let lines = 0;
   let both: { cards: CardInfo[]; status: string } | null = null;
   for (const sort of SORTS) {
     const shown = await page.run<{ cards: CardInfo[]; status: string }>(
@@ -1237,6 +1254,8 @@ export async function cardStep(ctx: StepContext): Promise<void> {
     );
     inversions.push(...sortInversions(sort.label, shown.cards, sort.value));
     for (const p of helpsBothTagProblems(shown.cards, min, (i) => `${sort.label}: idea ${i + 1}`)) tagProblems.add(p);
+    for (const p of finderPartnerLineProblems(shown.cards, (i) => `${sort.label}: idea ${i + 1}`)) lineProblems.add(p);
+    lines += shown.cards.filter((c) => c.helpsThem !== null).length;
     if (sort.value === "helpsBoth") both = shown;
   }
   const searched = await page.run<boolean>(`return eventsSince(${from}).some((e) => e.pb !== null);`);
@@ -1247,11 +1266,18 @@ export async function cardStep(ctx: StepContext): Promise<void> {
     report.check(
       step,
       problems.length === 0,
-      `“Helps both” shows ${pl(both.cards.length, "idea")} that help both teams, each tagged with Helps them ${min} or more, and the tag is on exactly those cards in every sort`,
+      `“Helps both” shows ${pl(both.cards.length, "idea")} that help both teams, each tagged with Helps you and Helps them ${min} or more, and the tag is on exactly those cards in every sort`,
       `“Helps both” or its tag reads otherwise`,
       problems,
     );
   }
+  report.check(
+    step,
+    lineProblems.size === 0,
+    `in every sort the partner's line shows only with the “Helps both” tag (${pl(lines, "card")} showed it across the ${pl(SORTS.length, "sort")}), never in an “If they say no, try:” box`,
+    "the partner's line shows on a card that doesn't help both, or is missing from one that does",
+    [...lineProblems],
+  );
 
   const first = `document.querySelector("article")`;
   // This league's feedback records in the league store (an expression for an async body: inPage.ts savedFeedback).
@@ -1370,14 +1396,17 @@ export async function analyzerStep(ctx: StepContext): Promise<void> {
       `its numbers differ from the Trade Finder's card`,
       [`Trade Finder: ${card.helps} · ${card.accept} · ${card.overall}`, `Analyzer: ${shown.helps} · ${shown.accept} · ${shown.overall}`],
     );
-    // Checkpoint 7c (planner reply to Checkpoint 7b, §7: "The Analyzer shows the same"): the partner's score and the tag.
+    // Checkpoint 7c (planner reply to Checkpoint 7b, §7: "The Analyzer shows the same"): the partner's score and the tag. Since
+    // Checkpoint 7d (planner reply to Checkpoint 7c, answer 3: "The Analyzer always shows them, including when the trade hurts
+    // the other team") its card shows the partner's line whatever it is, the Trade Finder's card only with the tag.
     const them = (c: CardInfo) => `${c.helpsThem === null ? "no “Helps them” line" : `Helps them ${c.helpsThem}`}${c.helpsBothTag ? ", tagged “Helps both”" : ""}`;
+    const lineProblems = analyzerPartnerLineProblems(shown, card);
     report.check(
       step,
-      shown.helpsThem === card.helpsThem && shown.helpsBothTag === card.helpsBothTag,
-      `the same partner's score as the Trade Finder's card (${them(shown)})`,
-      "its partner's score or tag differs from the Trade Finder's card",
-      [`Trade Finder: ${them(card)}`, `Analyzer: ${them(shown)}`],
+      lineProblems.length === 0,
+      `its card shows the partner's line (${them(shown)}), the Trade Finder's card ${card.helpsThem === null ? "none, untagged" : "the same"}`,
+      "its partner's line or tag isn't as the Trade Finder's card calls for",
+      [`Trade Finder: ${them(card)}`, `Analyzer: ${them(shown)}`, ...lineProblems],
     );
     // Both sides first (the tag check counts under "You give"), then the tags.
     const sideless = sidelessCards([shown]);
@@ -2373,12 +2402,16 @@ export { APP_PAGES };
  * server-rendered HTML, not loaded by JavaScript, not hidden): each app page read straight from the server (a plain HTTP
  * GET, never the browser, so no script has run) has a link to https://fantasycalc.com in its footer, and every link to
  * FantasyCalc in it has rel exactly "noopener" and referrerpolicy "origin" (contracts.ts fantasyCalcLinksInHtml). The
- * pages need no league: the footer is the root layout's.
+ * pages need no league: the footer is the root layout's. Checkpoint 7d (planner reply to Checkpoint 7c, "Also": "Link
+ * “DynastyProcess” in the footer to its data repository"), step "DynastyProcess link" from the same HTML: each page's footer
+ * links "DynastyProcess" to https://github.com/dynastyprocess/data with rel "noopener" (contracts.ts dynastyProcessLinkIssues).
  */
 export async function fantasyCalcHtmlStep(ctx: StepContext): Promise<void> {
   const step = "FantasyCalc links";
+  const dpStep = "DynastyProcess link";
   ctx.page.step = step;
   const problems: string[] = [];
+  const dpProblems: string[] = [];
   let links = 0;
   for (const pathname of APP_PAGES) {
     try {
@@ -2386,13 +2419,17 @@ export async function fantasyCalcHtmlStep(ctx: StepContext): Promise<void> {
       const html = await res.text();
       if (!res.ok) {
         problems.push(`${pathname}: HTTP ${res.status}`);
+        dpProblems.push(`${pathname}: HTTP ${res.status}`);
         continue;
       }
       const found = fantasyCalcLinksInHtml(html);
       links += found.length;
       problems.push(...fantasyCalcLinkIssues(found, { requireFooter: true }).map((p) => `${pathname}: ${p}`));
+      dpProblems.push(...dynastyProcessLinkIssues(dynastyProcessLinksInHtml(html)).map((p) => `${pathname}: ${p}`));
     } catch (err) {
-      problems.push(`${pathname}: ${err instanceof Error ? err.name : "the request failed"}`);
+      const why = `${pathname}: ${err instanceof Error ? err.name : "the request failed"}`;
+      problems.push(why);
+      dpProblems.push(why);
     }
   }
   ctx.report.note(step, "linksInServerHtml", links);
@@ -2402,6 +2439,13 @@ export async function fantasyCalcHtmlStep(ctx: StepContext): Promise<void> {
     `the server's HTML of every app page (${APP_PAGES.join(", ")}) links to fantasycalc.com from its footer before any script runs, every FantasyCalc link with rel "noopener" and referrerpolicy "origin"`,
     `${pl(problems.length, "problem")} with the FantasyCalc links in the pages' server HTML`,
     problems,
+  );
+  ctx.report.check(
+    dpStep,
+    dpProblems.length === 0,
+    `the server's HTML of every app page credits DynastyProcess in its footer with a link to ${DYNASTYPROCESS_DATA_URL} (rel "noopener") before any script runs`,
+    `${pl(dpProblems.length, "problem")} with the footer's DynastyProcess link in the pages' server HTML`,
+    dpProblems,
   );
 }
 

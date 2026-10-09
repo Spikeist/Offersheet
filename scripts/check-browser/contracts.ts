@@ -28,6 +28,12 @@
  * cardHelpsBoth), the "Helps both" list holding only those (helpsBothListProblems) with its status line
  * (helpsBothStatusOk), and the partner's line's odds in the format of mine (oddsLabelProblems with `whose` "theirs").
  *
+ * Planner reply to Checkpoint 7c (Checkpoint 7d): "Helps both" needs Helps you of at least the bar too (answer 5:
+ * cardHelpsBoth); a Trade Finder card shows the partner's line exactly when it's tagged, never on an "If they say no, try:" box
+ * (answer 3: finderPartnerLineProblems), and the Analyzer's card shows it whatever it is (analyzerPartnerLineProblems); every
+ * app page's footer links "DynastyProcess" to its data repository (dynastyProcessLinksInHtml, dynastyProcessLinkIssues, on the
+ * server's own HTML like FantasyCalc's).
+ *
  * Every text these rules read was cleaned of the league's names in the page first (report.ts's rules), so a team named
  * "BIG_DAWGS" or "Squad 4000" is never taken for a code or a value.
  */
@@ -250,9 +256,24 @@ function hides(name: string, attrs: Map<string, string | null>): string | null {
  * repeats the markup as data, which isn't a link. React writes every end tag, so the open elements are a plain stack.
  */
 export function fantasyCalcLinksInHtml(html: string): FantasyCalcLink[] {
+  return linksInHtml(html, isFantasyCalcHref).map((l) => ({ href: l.href, rel: l.rel, referrerPolicy: l.referrerPolicy, inFooter: l.inFooter, hiddenBy: l.hiddenBy }));
+}
+
+/** A link in a page's server HTML (linksInHtml): FantasyCalcLink's fields, and the words it shows (tags left out, entities read). */
+export interface HtmlLink extends FantasyCalcLink {
+  text: string;
+}
+
+/**
+ * Every link in a page's server HTML whose address `wanted` takes (pure; fantasyCalcLinksInHtml's reading, and since
+ * Checkpoint 7d DynastyProcess's): each with its rel and referrerpolicy, whether a <footer> holds it, what hides it if
+ * anything, and its words. Comments, scripts and styles are left out first; React writes every end tag, so the open
+ * elements are a plain stack, and a link's words run to its own end tag (links don't nest).
+ */
+export function linksInHtml(html: string, wanted: (href: string | null | undefined) => boolean): HtmlLink[] {
   const markup = html.replace(/<!--[\s\S]*?-->/g, "").replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "");
   const open: Array<{ name: string; hides: string | null }> = [];
-  const links: FantasyCalcLink[] = [];
+  const links: HtmlLink[] = [];
   for (const m of markup.matchAll(TAG)) {
     const name = (m[2] as string).toLowerCase();
     if (m[1]) {
@@ -262,18 +283,59 @@ export function fantasyCalcLinksInHtml(html: string): FantasyCalcLink[] {
     }
     const attrs = attributesOf(m[3] ?? "");
     const self = { name, hides: hides(name, attrs) };
-    if (name === "a" && isFantasyCalcHref(attrs.get("href"))) {
+    if (name === "a" && wanted(attrs.get("href"))) {
+      const from = m.index + m[0].length;
+      const end = markup.indexOf("</a", from);
+      const inner = end >= 0 ? markup.slice(from, end) : "";
       links.push({
         href: (attrs.get("href") ?? "").trim(),
         rel: attrs.get("rel") ?? null,
         referrerPolicy: attrs.get("referrerpolicy") ?? null,
         inFooter: open.some((e) => e.name === "footer"),
         hiddenBy: [...open, self].find((e) => e.hides)?.hides ?? null,
+        text: decodeEntities(inner.replace(/<[^>]*>/g, " ")).replace(/\s+/g, " ").trim(),
       });
     }
     if (!VOID.has(name) && !m[4]) open.push(self);
   }
   return links;
+}
+
+/**
+ * DynastyProcess's data repository, where the footer's "DynastyProcess" credit links (Checkpoint 7d; planner reply to
+ * Checkpoint 7c, "Also": "Link “DynastyProcess” in the footer to its data repository": its ID pairs reach the browser, so its
+ * GPL-3.0 license is credited where users can see it).
+ */
+export const DYNASTYPROCESS_DATA_URL = "https://github.com/dynastyprocess/data";
+
+/** An address on DynastyProcess's GitHub, any repository of theirs (so a link that strays from the data repository is still checked). */
+export function isDynastyProcessHref(href: string | null | undefined): boolean {
+  return typeof href === "string" && /^https?:\/\/(?:www\.)?github\.com\/dynastyprocess(?:[/?#]|$)/i.test(href.trim());
+}
+
+/** Every link to DynastyProcess in a page's server HTML (pure; linksInHtml). */
+export function dynastyProcessLinksInHtml(html: string): HtmlLink[] {
+  return linksInHtml(html, isDynastyProcessHref);
+}
+
+/**
+ * What's wrong with a page's DynastyProcess credit (pure; the lead's decisions for Checkpoint 7d): its footer has a link that
+ * reads "DynastyProcess", shown without JavaScript, to exactly DYNASTYPROCESS_DATA_URL, with rel exactly "noopener" (⚠️ the
+ * lead's, like the other outbound links: the site's Referrer-Policy same-origin already sends no referrer). Each footer link
+ * to DynastyProcess is checked; one elsewhere doesn't stand in for the footer's.
+ */
+export function dynastyProcessLinkIssues(links: readonly HtmlLink[]): string[] {
+  const footer = links.filter((l) => l.inFooter);
+  if (!footer.length) return ["no link to DynastyProcess's data in the footer"];
+  return footer.flatMap((l, i) => {
+    const which = `the footer's DynastyProcess link${footer.length > 1 ? ` ${i + 1}` : ""}`;
+    const out: string[] = [];
+    if (l.href !== DYNASTYPROCESS_DATA_URL) out.push(`${which} goes to ${l.href}, not ${DYNASTYPROCESS_DATA_URL}`);
+    if ((l.rel ?? "").trim() !== "noopener") out.push(`${which}: rel ${l.rel === null ? "is missing" : `is "${l.rel}"`}, not exactly "noopener"`);
+    if (l.text !== "DynastyProcess") out.push(`${which} reads "${l.text}", not "DynastyProcess"`);
+    if (l.hiddenBy) out.push(`${which} is hidden without JavaScript (inside ${l.hiddenBy})`);
+    return out;
+  });
 }
 
 /**
@@ -493,6 +555,8 @@ export interface HelpsBothCardRead {
   helpsThem: string | null;
   /** The "Helps both" tag shows with the card's heading. */
   helpsBothTag: boolean;
+  /** Checkpoint 7d: the card's "If they say no, try:" box shows a partner's line of its own (it never may); absent: no box read. */
+  planBHelpsThem?: boolean;
 }
 
 /** A printed score as a number (pure): "39" → 39; "—", text or nothing → null. */
@@ -502,13 +566,45 @@ function printedScore(v: string | null): number | null {
 
 /**
  * Whether a card helps both teams on the numbers it prints (pure; benefit.ts helpsBoth, the lead's call: on the printed
- * scores): Helps you above 0 and Helps them at least `min` (config.benefit.helpsThemMin, which the steps pass: this file
- * imports nothing).
+ * scores): Helps you and Helps them each at least `min` (config.benefit.helpsThemMin, which the steps pass: this file
+ * imports nothing; Helps you since Checkpoint 7d, planner reply to Checkpoint 7c, answer 5: "the same bar as Helps them").
+ * ⚠️ Since answer 3 a Trade Finder card shows Helps them only when it helps both, so there a card without the partner's line
+ * reads as not helping both, whatever its own numbers: finderPartnerLineProblems holds the line and the tag together.
  */
 export function cardHelpsBoth(card: Pick<HelpsBothCardRead, "helps" | "helpsThem">, min: number): boolean {
   const mine = printedScore(card.helps);
   const theirs = printedScore(card.helpsThem);
-  return mine !== null && mine > 0 && theirs !== null && theirs >= min;
+  return mine !== null && mine >= min && theirs !== null && theirs >= min;
+}
+
+/**
+ * The partner's line on the Trade Finder's cards (pure; Checkpoint 7d, planner reply to Checkpoint 7c, answer 3: "show “Helps
+ * them” and their odds only on cards that help both"; tradeView.ts CardContext.partnerLine): a card shows it exactly when it
+ * carries the "Helps both" tag, and an "If they say no, try:" box never shows one (Checkpoint 7c's rule: a box carries no
+ * partner's numbers). Each card that reads otherwise, in words (`where` names it).
+ */
+export function finderPartnerLineProblems(cards: ReadonlyArray<HelpsBothCardRead>, where: (i: number) => string = (i) => `idea ${i + 1}`): string[] {
+  return cards.flatMap((c, i) => {
+    const out: string[] = [];
+    if (c.helpsThem !== null && !c.helpsBothTag) out.push(`${where(i)} shows “Helps them ${c.helpsThem}” without the “Helps both” tag`);
+    if (c.helpsThem === null && c.helpsBothTag) out.push(`${where(i)} is tagged “Helps both” without the partner's line`);
+    if (c.planBHelpsThem) out.push(`${where(i)}'s “If they say no, try:” shows a partner's line`);
+    return out;
+  });
+}
+
+/**
+ * The partner's line on the Trade Analyzer's card (pure; Checkpoint 7d, planner reply to Checkpoint 7c, answer 3: "The Analyzer
+ * always shows them, including when the trade hurts the other team"): it shows Helps them (a whole number, "0" when the trade
+ * costs them); when the Trade Finder's card for the same trade showed the line too, the same number; and the same tag as that
+ * card. Each way it reads otherwise, in words.
+ */
+export function analyzerPartnerLineProblems(analyzer: HelpsBothCardRead, finder: Pick<HelpsBothCardRead, "helpsThem" | "helpsBothTag"> | null): string[] {
+  const out: string[] = [];
+  if (printedScore(analyzer.helpsThem) === null) out.push(analyzer.helpsThem === null ? "the Analyzer's card has no partner's line" : `the Analyzer's card reads “Helps them ${analyzer.helpsThem}”`);
+  if (finder && finder.helpsThem !== null && analyzer.helpsThem !== finder.helpsThem) out.push(`the Analyzer's card reads Helps them ${analyzer.helpsThem ?? "none"}, the Trade Finder's ${finder.helpsThem}`);
+  if (finder && analyzer.helpsBothTag !== finder.helpsBothTag) out.push(`the Analyzer's card is ${analyzer.helpsBothTag ? "" : "not "}tagged “Helps both”, the Trade Finder's ${finder.helpsBothTag ? "is" : "isn't"}`);
+  return out;
 }
 
 /**

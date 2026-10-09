@@ -17,8 +17,11 @@ export function feedbackDescription(features: PolicyFeatures): string {
  * unless "Share anonymous feedback" is off in Settings (src/lib/feedbackShare.ts; the privacy page lists its fields), and
  * a note typed with a report never leaves the browser; without it (today) nothing is sent, and the words say so (review
  * PG-1). Nothing typed here by the public is stored on a server: anything else goes to the contact line (src/lib/site.ts).
- * "Export feedback" downloads the saved presses without the value ratios behind the estimates, and both branches say so
- * (planner reply to Checkpoint 7b, Q5: keep the export sentence accurate; feedbackStore.ts EXPORT_LEFT_OUT).
+ * "Export feedback" downloads only what the user saw and entered, and both branches say so in the same words after their
+ * own lead-in (planner reply to Checkpoint 7c, answer 1: "export only what the user saw and entered: the trade; the numbers
+ * on its card …; the outcome, the version sent and the notes"; src/lib/feedbackStore.ts, the export's version 3; until
+ * then, planner reply to Checkpoint 7b, Q5, it said what it left out: "the trade-value comparisons behind Offer Sheet's
+ * estimates"). pages.test.ts ties the words to the export itself: a record's model numbers never reach the file.
  */
 export function FeedbackGuide({ features }: { features: PolicyFeatures }) {
   const shared = features.anonymousFeedback;
@@ -57,8 +60,8 @@ export function FeedbackGuide({ features }: { features: PolicyFeatures }) {
                 . That choice is saved in this browser.
               </li>
               <li>
-                &ldquo;Export feedback&rdquo;, also on the Settings page, downloads what you&apos;ve saved as a file, notes included. It leaves out the
-                trade-value comparisons behind Offer Sheet&apos;s estimates.
+                &ldquo;Export feedback&rdquo;, also on the Settings page, downloads what you saw and entered: each trade, the numbers on its card, your
+                outcome, the version you sent and your notes.
               </li>
             </>
           ) : (
@@ -69,8 +72,7 @@ export function FeedbackGuide({ features }: { features: PolicyFeatures }) {
                 <Link href="/settings" className="font-semibold underline underline-offset-2">
                   Settings page
                 </Link>{" "}
-                downloads what you&apos;ve saved as a file, notes included. It leaves out the trade-value comparisons behind Offer Sheet&apos;s
-                estimates.
+                downloads what you saw and entered: each trade, the numbers on its card, your outcome, the version you sent and your notes.
               </li>
             </>
           )}

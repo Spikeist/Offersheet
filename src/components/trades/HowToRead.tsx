@@ -54,7 +54,9 @@
  * league type (review of the "Helps both" UI, helps-both-ui-1: no trade value in a redraft league; their roster's long-term
  * value in a dynasty or keeper league, weighed by their own playoff odds, never by the user's Win now ↔ Future setting), when
  * a card is tagged "Helps both" (config.benefit.helpsThemMin) and what the "Helps both" sort shows (helpsThemWords), on both
- * pages.
+ * pages. Checkpoint 7d (planner reply to Checkpoint 7c, answers 3 and 5): a trade idea shows Helps them only when it helps
+ * both teams, the Analyzer's card always ("then it reads 0" when the trade costs them), and the tag needs the bar on both
+ * scores.
  * A native <details>, closed at first; its summary is a 44 px target.
  */
 import type { HelpsScale } from "@/engine/benefit";
@@ -146,7 +148,7 @@ export interface HelpsThemWordsOptions {
   leagueType?: LeagueSettings["leagueType"] | undefined;
   /** Dynasty and keeper leagues: long-term values loaded (ValueFacts.longTermOn), so Helps them counts their roster's long-term value too. */
   longTermOn?: boolean | undefined;
-  /** The least Helps them of a card tagged "Helps both" (config.benefit.helpsThemMin). */
+  /** The least Helps you and Helps them of a card tagged "Helps both" (config.benefit.helpsThemMin). */
   min?: number | undefined;
 }
 
@@ -170,17 +172,25 @@ export function helpsThemValueWords(leagueType: LeagueSettings["leagueType"] = "
  * "Helps them" and "Helps both" in words, after the paragraph's bold "Helps them" (Checkpoint 7c; planner reply to Checkpoint
  * 7b, §7: "How to read explains Helps them and the sort in plain words"): the planner's tooltip (src/lib/tradeView.ts
  * HELPS_THEM_TITLE, said here for a phone, which can't hover), where the card shows it, what it counts by league type
- * (helpsThemValueWords), when a card is tagged "Helps both" (config.benefit.helpsThemMin) and what the "Helps both" sort shows
- * (the Trade Finder's; the Analyzer names it).
+ * (helpsThemValueWords), when a card is tagged "Helps both" and what the "Helps both" sort shows (the Trade Finder's; the
+ * Analyzer names it). Checkpoint 7d: a trade idea shows it only when it helps both teams, the Analyzer's card always, "Helps
+ * them 0" too (planner reply to Checkpoint 7c, answer 3), and "Helps both" needs at least config.benefit.helpsThemMin on both
+ * scores (answer 5).
  */
 export function helpsThemWords(page: HowToReadPage, opts: HelpsThemWordsOptions = {}): string {
   const min = opts.min ?? config.benefit.helpsThemMin;
-  const where = page === "analyzer" ? "The card shows it" : "Each card shows it";
-  const sort = page === "analyzer" ? `the Trade Finder's “${HELPS_BOTH_TAG}” sort shows such trades` : `the “${HELPS_BOTH_TAG}” sort shows only those`;
+  const both = `at least ${min} on both Helps you and ${HELPS_THEM_LABEL}`;
+  const where =
+    page === "analyzer"
+      ? "The card shows it with their odds before and after the trade, even when the trade costs them (then it reads 0); the Trade Finder shows it only on trade ideas that help both teams."
+      : `A trade idea shows it, with their odds before and after the trade, only when it helps both teams: when it scores ${both}.`;
+  const tagged =
+    page === "analyzer"
+      ? `A trade that scores ${both} is tagged “${HELPS_BOTH_TAG}”, and the Trade Finder's “${HELPS_BOTH_TAG}” sort shows such trades, sorted by how much they help you.`
+      : `Such an idea is tagged “${HELPS_BOTH_TAG}”, and the “${HELPS_BOTH_TAG}” sort shows only those, sorted by how much they help you.`;
   return (
     "(0–100) uses the same scale as Helps you, from their side. Both teams can gain when each fills the other's weak spot. Helps you already counts the cost of making them stronger. " +
-    `${where} with their odds before and after the trade. ${helpsThemValueWords(opts.leagueType, opts.longTermOn !== false)} ` +
-    `A trade that helps you and scores at least ${min} on ${HELPS_THEM_LABEL} is tagged “${HELPS_BOTH_TAG}”, and ${sort}, sorted by how much they help you.`
+    `${where} ${helpsThemValueWords(opts.leagueType, opts.longTermOn !== false)} ${tagged}`
   );
 }
 

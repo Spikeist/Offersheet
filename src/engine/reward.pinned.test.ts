@@ -120,7 +120,10 @@ describe("“Only the champion” and “Making the playoffs”: HEAD's numbers 
         const mine = model.odds?.teams.find((t) => t.teamId === model.myTeamId);
         expect({ pPlayoffs: mine?.pPlayoffs, pTitle: mine?.pTitle }).toEqual(want.headline);
         const ctx = buildTradeContext(snapshot, inputs, { now: TEST_NOW, scenarios: 0, settings });
-        const result = runTradeSearch(ctx, { settings });
+        // Without Checkpoint 7d's helps-both lane (search.ts), which came after HEAD: its trades go through the same finalist
+        // rules as every exact trade, so it moves the cards (smallLeague(11): 10 cards with it under "Only the champion" and 11
+        // under "Making the playoffs", 7 without), not the reward's numbers.
+        const result = runTradeSearch(ctx, { settings, helpsBothLane: false });
         expect(result.helpsScale?.b3).toBe(want.b3);
         expect(result.trades.map((t): Card => [t.key, t.b as number, t.tradeScore as number, t.pComplete, t.overall as number])).toEqual(want.cards);
       });

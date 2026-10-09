@@ -3,7 +3,7 @@ import { tradePackage } from "./benefit";
 import { config } from "./config";
 import { NO_TEAM_NOTE, assetValue, buildTradeContext, evaluateExact, simCounts, simulateTrade, tradeInternals, type ExactTrade, type TeamState } from "./evaluate";
 import { assetId, rankTrades } from "./rank";
-import { atMostWaiverCredit, buildPools, finalistsOf, partnerCandidates, rankCaps, runTradeSearch, searchStateOf, shortlistOf, tradeSearch, type SearchState, type TradeSearchOptions } from "./search";
+import { atMostWaiverCredit, buildPools, finalistsOf, helpsBothLaneOf, leanCompanions, partnerCandidates, rankCaps, runTradeSearch, searchStateOf, shortlistOf, tradeSearch, type SearchState, type TradeSearchOptions } from "./search";
 import { defaultTradeSettings, type TradeSettings } from "./settings";
 import { TEST_NOW } from "./testLeague";
 import { handLeague, smallLeague, withWaiverStash } from "./trade.testing";
@@ -76,10 +76,15 @@ describe("the trade search (§12; M6–M8)", { timeout: 60_000 }, () => {
     const c = result.counts;
     expect(c.screened).toBeGreaterThanOrEqual(c.exact);
     expect(c.exact).toBeGreaterThan(0);
-    // The shortlist (at most exactEvaluationMax) and its lean companions on top, at most one per shortlisted trade (Phase 4c).
-    const companions = (searchStateOf(result) as SearchState).companions.length;
+    // The shortlist (at most exactEvaluationMax) and its lean companions on top, at most one per shortlisted trade (Phase 4c);
+    // then (Checkpoint 7d) the helps-both lane, at most helpsBothLane, and its own lean companions, at most one per lane trade.
+    const st = searchStateOf(result) as SearchState;
+    const companions = st.companions.length;
     expect(companions).toBeGreaterThan(0);
-    expect(c.exact).toBeLessThanOrEqual(config.search.exactEvaluationMax + companions);
+    expect(st.lane.trades.length).toBeGreaterThan(0);
+    expect(st.lane.trades.length).toBeLessThanOrEqual(config.search.helpsBothLane);
+    expect(st.lane.companions.length).toBeLessThanOrEqual(st.lane.trades.length);
+    expect(c.exact).toBeLessThanOrEqual(config.search.exactEvaluationMax + companions + st.lane.trades.length + st.lane.companions.length);
     expect(companions).toBeLessThanOrEqual(config.search.exactEvaluationMax);
     expect(c.simScreen).toBe(c.exact);
     // The finalists, and on top of them (Checkpoint 7c, planner reply to Checkpoint 7b, §7) the "Helps both" extras.
@@ -288,16 +293,25 @@ describe("B's market term in both of the search's simulations: every player at m
 
   it("the screening simulation reads the same floored g: every exact trade's screening B, and the finalists they pick", () => {
     const r = run();
-    // The exact trades, rebuilt as the search builds them.
+    // The exact trades, rebuilt as the search builds them: the shortlist and its lean companions, then (Checkpoint 7d) the
+    // helps-both lane and its own.
     const pools = buildPools(HI, settings, "4");
-    const perPartner = pools.partners.map((p) => {
-      const h = pools.get.get(p.id) as { pool: string[]; forced: string[] };
-      const it = partnerCandidates(HI, p, { give: pools.give, forcedGive: pools.forcedGive, get: h.pool, forcedGet: h.forced }, settings.maxPerSide, { screened: 0 });
+    const drain = <T>(it: Generator<void, T, void>): T => {
       let next = it.next();
       while (!next.done) next = it.next();
       return next.value;
+    };
+    const perPartner = pools.partners.map((p) => {
+      const h = pools.get.get(p.id) as { pool: string[]; forced: string[] };
+      return drain(partnerCandidates(HI, p, { give: pools.give, forcedGive: pools.forcedGive, get: h.pool, forcedGet: h.forced }, settings.maxPerSide, { screened: 0 }));
     });
-    const exact = shortlistOf(perPartner, atMostWaiverCredit(HI)).flatMap((s) => {
+    const cheap = atMostWaiverCredit(HI);
+    const shortlist = shortlistOf(perPartner, cheap);
+    const companions = drain(leanCompanions(HI, shortlist, perPartner, pools));
+    const taken = new Set([...shortlist, ...companions].map((s) => s.key));
+    const lane = helpsBothLaneOf(perPartner, taken, cheap).trades;
+    const chosen = [...shortlist, ...companions, ...lane, ...drain(leanCompanions(HI, lane, perPartner, pools, { screened: 0 }, taken))];
+    const exact = chosen.flatMap((s) => {
       const x = evaluateExact(HI, { partnerId: s.partnerId, give: s.give.map((id) => ({ kind: "player", id })), get: s.get.map((id) => ({ kind: "player", id })) }, settings.maxPerSide);
       return "illegal" in x ? [] : [x];
     });

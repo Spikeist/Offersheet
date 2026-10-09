@@ -180,6 +180,34 @@ describe("the anonymous copy of a record", () => {
     } satisfies FeedbackEvent);
   });
 
+  it("is the same copy, byte for byte, as before Checkpoint 7d: what the card printed (the export's numbers) never reaches it (planner reply to Checkpoint 7c, answer 1: “The anonymous server copies keep everything, as before.”)", () => {
+    // A Plan B sent (its players and estimate), a report with a note, under "Only the champion" in week 12. GOLDEN is the
+    // copy Checkpoint 7c's code (6de49a0) builds for this record, compared byte for byte when Checkpoint 7d was built.
+    const GOLDEN =
+      '{"v":1,"rid":"Zm9vYmFyYmF6cXV4MTIzNA","kind":"report","outcome":"sent","reason":"other","version":"planB","platform":"espn","season":2026,"week":12,"format":{"numTeams":4,"leagueType":"redraft","ppr":0.5,"passTd":4,"tep":0,"superflex":false,"slots":{"QB":1,"RB":2,"WR":1,"RB/WR/TE":1,"DEF":1},"playoffTeams":2},"goal":"title","trade":{"give":[{"id":"106","pos":"WR"}],"get":[{"id":"204","pos":"RB"}]},"numbers":{"helps":50,"chance":40,"overall":25,"b":4.21235,"b3":6,"pAccept":0.42,"pComplete":0.42,"dPO":0.04,"dCH":0.02,"dPPW":2.6,"gMine":-0.03,"gPartner":-0.08},"features":{"g":-0.0812346,"n":0.42,"h":1,"c":1,"a":1,"hist":null,"ctx":0,"hot":0.15,"urg":0,"z":-0.31},"versionTrade":{"give":[{"id":"105","pos":"WR"},{"id":"108","pos":"TE"}],"get":[{"id":"205","pos":"WR"}]},"versionAccept":{"pAccept":0.33,"pComplete":0.16},"versionInputs":{"features":{"g":-0.0812346,"n":0.42,"h":1,"c":1,"a":1,"hist":null,"ctx":0,"hot":0.15,"urg":0,"z":-0.31},"gPartner":-0.08,"b":2.5,"b3":6,"helpsReason":null,"goal":"title","week":12}}';
+    const sent = { version: "planB" as const, key: "2|give:105,108|get:205", pAccept: 0.33, pComplete: 0.16, inputs: { features: FEATURES, gPartner: -0.08, b: 2.5, goal: "title" as const, b3: 6, helpsReason: null } };
+    const basis = { season: 2026, week: 12, goal: "title" as const };
+    const shown = {
+      helps: "50",
+      chance: "40%",
+      label: "Decent",
+      overall: "25",
+      odds: ["Title odds 9.0% → 9.4%", "Playoff odds 62% → 64%"],
+      weekly: "Win chance by week: Week 13: 42% → 55%",
+      helpsThem: "24",
+      theirOdds: ["Their title odds 6.0% → 6.9%", "Their playoff odds 41% → 45%"],
+    };
+    const plain = recordAfter({ outcome: "sent", sent, basis }, { report: { reason: "other", note: "Asked twice." }, basis }) as FeedbackRecord;
+    const printed = recordAfter({ outcome: "sent", sent, basis, shown }, { report: { reason: "other", note: "Asked twice." }, basis, shown }) as FeedbackRecord;
+    expect(printed.shown).toEqual(shown);
+    expect(plain).not.toHaveProperty("shown");
+    const copy = (record: FeedbackRecord) => JSON.stringify(feedbackEventOf({ record, kind: "report", context: context("title") }));
+    expect(copy(plain)).toBe(GOLDEN);
+    expect(copy(printed)).toBe(GOLDEN);
+    // Nothing the card printed rides in it, the note neither.
+    for (const text of ["shown", "40%", "Title odds", "Helps them", "helpsThem", "Asked twice"]) expect(copy(printed), text).not.toContain(text);
+  });
+
   it("pairs each set of numbers with the week and goal they were computed for, not the ones on screen at a later press (review FB-R6)", () => {
     // Week 12 under "Only the champion": Report. A week later, the cards searched again under "Several prizes": Sent, with the
     // version's inputs (tradeView.ts writes the goal alone: the press's basis gives them its split, Checkpoint 7c). The

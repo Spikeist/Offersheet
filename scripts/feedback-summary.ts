@@ -1,8 +1,9 @@
 /**
  * Summarizes exported trade feedback (CLAUDE.md §11 "Feedback on every suggestion": "A script summarizes reports
  * by reason and by model part"; Phase 4 lead decision L12). Input: the file the Settings page's "Export feedback"
- * downloads (src/lib/feedbackStore.ts feedbackExportText), or a bare list of records. Offline: no network, no
- * .env.local.
+ * downloads (src/lib/feedbackStore.ts feedbackExportText: version 3 since Checkpoint 7d, what the user saw and entered), an older export
+ * (versions 1 and 2) or a bare list of records, each read as version 3 holds them (parseFeedbackExport). Offline: no network,
+ * no .env.local.
  *
  *   npm run feedback:summary -- <file>            the summary, as text
  *   npm run feedback:summary -- <file> --json     the same numbers as JSON
@@ -10,36 +11,36 @@
  *                                                 leaguemates, so they're left out unless asked for, and never
  *                                                 belong in a checkpoint report
  *
- * What it reports:
- * - Totals: trade ideas with feedback, leagues (an export numbers them, league-1, league-2, …; a bare list keys
- *   them by their short hash), with an outcome, with a report, with a note.
+ * What it reports (Checkpoint 7d, the lead's reading of the planner's reply to Checkpoint 7c, answer 1: by reason, outcome,
+ * version and the printed numbers, the only numbers a version-3 file holds):
+ * - Totals: trade ideas with feedback, leagues (an export numbers them, league-1, league-2, …), with an outcome, with a
+ *   report, with a note.
  * - By outcome: each trade idea's latest outcome (Sent, Accepted, Rejected, Countered).
- * - By version sent (planner reply to Checkpoint 4, change 6 and answer 8; FeedbackRecord.version): each latest outcome
- *   by the version of the trade idea that was sent (the first offer, the full trade, or "If they say no, try:"), and
- *   "Unknown" for records without one (made before Phase 4b); per version, how many sent the card's own trade
- *   (sentCardTrade: the record's numbers and features are the sent trade's only then; review of track F: "full" is the
- *   card's own trade on a plain card, but the card plus its throw-in when the card is the first offer). ⚠️ Records keep
- *   only the sent version's estimate, not its features (a TradeStep carries only its acceptance terms and a PlanB no model
- *   inputs at all: a question for the lead).
- * - By reason: how many reports gave each Report reason, and the average numbers and acceptance features
- *   (§11's n, h, c, a, ctx, hot and urg) of those trade ideas as the card showed them: what the model saw when people
- *   said it was wrong. Not the value ratios (both sides' g_mkt, the perceived g, hist and the logit z): an export leaves
- *   them out since the planner's reply to Checkpoint 7b, Q5 (feedbackStore.ts EXPORT_LEFT_OUT), so there's nothing to
- *   average (the anonymous copies keep them, for Phase 6's refit).
+ * - By version sent (planner reply to Checkpoint 4, change 6 and answer 8): each latest outcome by the version of the trade
+ *   idea that was sent (the first offer, the full trade, or "If they say no, try:"), and "Unknown" for records without one
+ *   (made before Phase 4b); per version, how many sent the card's own trade (sentCardTrade: the version's players are the
+ *   card's, or none were kept; review of track F: "full" is the card's own trade on a plain card, but the card plus its
+ *   throw-in when the card is the first offer).
+ * - By reason: how many reports gave each Report reason, and the averages of the numbers their cards printed: Helps you,
+ *   Helps them (where the card showed the partner's line), the chance they accept, Overall. The model's own numbers and its
+ *   acceptance features aren't in a version-3 file (an older file read as version 3 leaves them out too); the anonymous
+ *   copies keep them, for Phase 6's refit (scripts/feedback-report.ts reads those).
  * - By model part (§11 "How the data is used"): the acceptance model (refit: "They'd never accept" reports and
  *   Rejected outcomes), benefit and projections ("Doesn't help me": review those cases), the data import
  *   (wrong player info or league settings: the adapters' bug queue), and read by hand ("Other").
- * - Acceptance calibration: trade ideas binned by the predicted P_accept (the sent version's, as its line on the card
- *   showed it, when the record has one: the prediction the user acted on; else the card's own), on the card's own bins
- *   and labels (config.acceptance.labels: Long shot under 15%, Possible, Decent, Likely from 55%), against what happened:
- *   decided = Accepted + Rejected, the observed acceptance rate next to the mean prediction, and per bin the
- *   Countered outcomes, the ones only Sent (no answer yet) and the "They'd never accept" reports. Small bins are
- *   noise: a rate needs a few dozen decided trades before it says much.
+ * - Acceptance calibration: trade ideas binned by the chance they accept as printed (the sent version's line when the
+ *   record has one: the prediction the user acted on; else the card's), on the card's own bins and labels
+ *   (config.acceptance.labels: Long shot under 15%, Possible, Decent, Likely from 55%), against what happened: decided =
+ *   Accepted + Rejected, the observed acceptance rate next to the mean printed chance (⚠️ ours: "<5%" counts as half of 5%),
+ *   and per bin the Countered outcomes, the ones only Sent (no answer yet) and the "They'd never accept" reports. Small bins
+ *   are noise: a rate needs a few dozen decided trades before it says much. Printed chances are rounded to 5%, so a bin's
+ *   mean is too.
  * - Refit readiness: decided outcomes against config.acceptance.refitMinOutcomes (30), when §11's logistic refit
  *   of the β coefficients may run.
  */
 import { readFileSync } from "node:fs";
 import { config } from "@/engine/config";
+import type { TradeAsset } from "@/engine/tradeModel";
 import {
   FEEDBACK_OUTCOMES,
   FEEDBACK_REASONS,
@@ -50,16 +51,16 @@ import {
   REASON_MODEL_PART,
   VERSION_LABEL,
   parseFeedbackExport,
+  type FeedbackExportEntry,
   type FeedbackOutcome,
   type FeedbackReason,
-  type FeedbackRecord,
   type FeedbackVersion,
   type ModelPart,
 } from "@/lib/feedbackStore";
 import { isMainModule } from "./lib/runMode";
 
-/** The numbers and features averaged per reason, in print order (no value ratios: an export leaves them out, the file header). */
-const AVERAGED = ["b", "tradeScore", "pAccept", "pComplete", "dPPW", "n", "h", "c", "a", "ctx", "hot", "urg"] as const;
+/** The printed numbers averaged per reason, in print order (the file header). */
+const AVERAGED = ["helps", "helpsThem", "chance", "overall"] as const;
 type Averaged = (typeof AVERAGED)[number];
 
 const MODEL_PARTS: readonly ModelPart[] = ["acceptance", "benefit", "adapters", "review"];
@@ -68,13 +69,13 @@ export interface ReasonSummary {
   reason: FeedbackReason;
   label: string;
   count: number;
-  /** Average over the reports whose value is known; null when none is. */
+  /** Average over the reports whose printed value is a number; null when none is. */
   averages: Record<Averaged, number | null>;
 }
 
 export interface CalibrationBin {
   label: string;
-  /** P_accept from (inclusive) … to (exclusive; null = no upper bound). */
+  /** The printed chance from (inclusive) … to (exclusive; null = no upper bound). */
   from: number;
   to: number | null;
   /** Accepted + Rejected. */
@@ -86,7 +87,7 @@ export interface CalibrationBin {
   pending: number;
   /** "They'd never accept" reports. */
   neverAccept: number;
-  /** Mean predicted P_accept of the decided trade ideas; observed = accepted / decided. Null when none decided. */
+  /** Mean printed chance of the decided trade ideas; observed = accepted / decided. Null when none decided. */
   meanPredicted: number | null;
   observed: number | null;
 }
@@ -99,10 +100,10 @@ export interface VersionSummary {
   total: number;
   outcomes: Record<FeedbackOutcome, number>;
   /**
-   * Of `total`, the ones that sent the card's own trade (sentCardTrade): their record's numbers and features are the sent
-   * trade's. The others' are the card's, not the version sent (review of track F: "full" is the card's own trade on a
-   * plain card and when the ranked trade holds the throw-in, but the card plus its throw-in when the card is the first
-   * offer; a Plan B is never the card's).
+   * Of `total`, the ones that sent the card's own trade (sentCardTrade): the trade whose numbers the card printed. The others'
+   * printed numbers are the card's, not the version sent, but for its own chance (review of track F: "full" is the card's own
+   * trade on a plain card and when the ranked trade holds the throw-in, but the card plus its throw-in when the card is the
+   * first offer; a Plan B is never the card's).
    */
   cardOwn: number;
 }
@@ -118,20 +119,34 @@ export interface FeedbackSummary {
   byReason: ReasonSummary[];
   byModelPart: { part: ModelPart; label: string; reports: number; rejected: number }[];
   calibration: CalibrationBin[];
-  /** Trade ideas without a predicted P_accept (left out of the calibration). */
+  /** Trade ideas without a printed chance to read (left out of the calibration). */
   unpredicted: number;
   refit: { decided: number; needed: number; ready: boolean };
 }
 
-function valueOf(record: FeedbackRecord, key: Averaged): number | null {
-  const v = key in record.numbers ? record.numbers[key as keyof FeedbackRecord["numbers"]] : record.features[key as keyof FeedbackRecord["features"]];
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
+/** A score as printed ("39"), as a number; "—" (not scored) or nothing: null. */
+export function printedScore(text: string | undefined): number | null {
+  return text !== undefined && /^\d{1,3}$/.test(text) ? Number(text) : null;
 }
 
-function averages(records: readonly FeedbackRecord[]): Record<Averaged, number | null> {
+/** A chance as printed ("45%"), as a probability; "<5%" counts as half of 5% (the file header); "—" or nothing: null. */
+export function printedChance(text: string | undefined): number | null {
+  const m = text === undefined ? null : /^(<)?(\d{1,3})%$/.exec(text);
+  if (!m) return null;
+  const p = Number(m[2]) / 100;
+  return m[1] ? p / 2 : p;
+}
+
+function valueOf(entry: FeedbackExportEntry, key: Averaged): number | null {
+  const s = entry.shown;
+  if (key === "chance") return printedChance(s.chance);
+  return printedScore(key === "helps" ? s.helps : key === "helpsThem" ? s.helpsThem : s.overall);
+}
+
+function averages(entries: readonly FeedbackExportEntry[]): Record<Averaged, number | null> {
   const out = {} as Record<Averaged, number | null>;
   for (const key of AVERAGED) {
-    const xs = records.map((r) => valueOf(r, key)).filter((x): x is number => x !== null);
+    const xs = entries.map((e) => valueOf(e, key)).filter((x): x is number => x !== null);
     out[key] = xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null;
   }
   return out;
@@ -147,24 +162,28 @@ export function calibrationBins(): Pick<CalibrationBin, "label" | "from" | "to">
   });
 }
 
-/** The predicted P_accept a record's outcome answers (the file header): the sent version's when recorded, else the card's. */
-export function predictedAccept(record: FeedbackRecord): number | null {
-  const sent = record.versionAccept?.pAccept;
-  return typeof sent === "number" && Number.isFinite(sent) ? sent : record.numbers.pAccept;
+/** The printed chance a record's outcome answers (the file header): the sent version's line's when recorded, else the card's. */
+export function predictedAccept(entry: Pick<FeedbackExportEntry, "shown" | "version">): number | null {
+  return printedChance(entry.version?.chance) ?? printedChance(entry.shown.chance);
 }
+
+const assetKey = (a: TradeAsset): string => (a.kind === "player" ? `p:${a.id}` : `k:${a.season}:${a.round}:${a.originalTeamId}`);
+const sameSide = (a: readonly TradeAsset[], b: readonly TradeAsset[]): boolean => a.length === b.length && a.map(assetKey).sort().join("|") === b.map(assetKey).sort().join("|");
 
 /**
- * Whether a record's outcome is about the card's own trade, the one its numbers and features describe: no other version
- * was recorded (no version key, as a plain card's or an older record's), or the sent version's key is the card's.
+ * Whether a record's outcome is about the card's own trade, the one whose numbers the card printed: no other version's
+ * players were kept (a plain card's, or an older record's without a key), or the sent version's players are the card's.
  */
-export function sentCardTrade(record: Pick<FeedbackRecord, "tradeKey" | "versionKey">): boolean {
-  return record.versionKey === undefined || record.versionKey === record.tradeKey;
+export function sentCardTrade(entry: Pick<FeedbackExportEntry, "trade" | "version">): boolean {
+  const v = entry.version;
+  if (!v?.give || !v.get) return true;
+  return sameSide(v.give, entry.trade.give) && sameSide(v.get, entry.trade.get);
 }
 
-export function summarizeFeedback(records: readonly FeedbackRecord[]): FeedbackSummary {
-  const byOutcome = Object.fromEntries(FEEDBACK_OUTCOMES.map((o) => [o, records.filter((r) => r.outcome?.kind === o).length])) as Record<FeedbackOutcome, number>;
+export function summarizeFeedback(entries: readonly FeedbackExportEntry[]): FeedbackSummary {
+  const byOutcome = Object.fromEntries(FEEDBACK_OUTCOMES.map((o) => [o, entries.filter((r) => r.outcome?.kind === o).length])) as Record<FeedbackOutcome, number>;
   const byVersion: VersionSummary[] = [...FEEDBACK_VERSIONS, "unknown" as const].map((version) => {
-    const mine = records.filter((r) => r.outcome && (r.version ?? "unknown") === version);
+    const mine = entries.filter((r) => r.outcome && (r.version?.kind ?? "unknown") === version);
     return {
       version,
       label: version === "unknown" ? "Unknown (not recorded)" : VERSION_LABEL[version],
@@ -174,13 +193,13 @@ export function summarizeFeedback(records: readonly FeedbackRecord[]): FeedbackS
     };
   });
   const byReason = FEEDBACK_REASONS.map((reason) => {
-    const mine = records.filter((r) => r.report?.reason === reason);
+    const mine = entries.filter((r) => r.report?.reason === reason);
     return { reason, label: REASON_LABEL[reason], count: mine.length, averages: averages(mine) };
   });
   const byModelPart = MODEL_PARTS.map((part) => ({
     part,
     label: MODEL_PART_LABEL[part],
-    reports: records.filter((r) => r.report && REASON_MODEL_PART[r.report.reason] === part).length,
+    reports: entries.filter((r) => r.report && REASON_MODEL_PART[r.report.reason] === part).length,
     // §11: Rejected outcomes refit the acceptance coefficients too.
     rejected: part === "acceptance" ? byOutcome.rejected : 0,
   }));
@@ -188,13 +207,13 @@ export function summarizeFeedback(records: readonly FeedbackRecord[]): FeedbackS
   let unpredicted = 0;
   const calibration: CalibrationBin[] = calibrationBins().map((b) => ({ ...b, decided: 0, accepted: 0, rejected: 0, countered: 0, pending: 0, neverAccept: 0, meanPredicted: null, observed: null }));
   const predictedSum = new Map<CalibrationBin, number>();
-  for (const r of records) {
+  for (const r of entries) {
     const p = predictedAccept(r);
     if (p === null) {
       unpredicted++;
       continue;
     }
-    // Below the first bound can't happen (P_accept is clamped above 0); it would count in the first bin.
+    // Below the first bound can't happen (a printed chance is at least 0); it would count in the first bin.
     const bin = calibration.find((b) => p >= b.from && (b.to === null || p < b.to)) ?? calibration[0];
     if (!bin) continue;
     const kind = r.outcome?.kind;
@@ -214,11 +233,11 @@ export function summarizeFeedback(records: readonly FeedbackRecord[]): FeedbackS
 
   const decided = byOutcome.accepted + byOutcome.rejected;
   return {
-    total: records.length,
-    leagues: new Set(records.map((r) => r.leagueKey)).size,
-    withOutcome: records.filter((r) => r.outcome).length,
-    withReport: records.filter((r) => r.report).length,
-    withNote: records.filter((r) => r.report?.note).length,
+    total: entries.length,
+    leagues: new Set(entries.map((r) => r.league)).size,
+    withOutcome: entries.filter((r) => r.outcome).length,
+    withReport: entries.filter((r) => r.report).length,
+    withNote: entries.filter((r) => r.report?.note).length,
     byOutcome,
     byVersion,
     byReason,
@@ -259,32 +278,18 @@ export function formatSummary(summary: FeedbackSummary, notes?: readonly { reaso
       s.byVersion.map((v) => [v.label, v.total, ...FEEDBACK_OUTCOMES.map((o) => v.outcomes[o]), v.cardOwn]),
     ),
     "",
-    "Each trade idea with an outcome, by the version of it that was sent (asked when its card showed more than one). Unknown: records made before versions were recorded. The card's own trade: how many sent the trade the card ranked, whose numbers and features the record keeps; for the rest (a first offer without the throw-in, the throw-in added to a first offer, a Plan B) the record keeps the card's numbers, not the version's, except its estimate.",
+    "Each trade idea with an outcome, by the version of it that was sent (asked when its card showed more than one). Unknown: records made before versions were recorded. The card's own trade: how many sent the trade the card showed, whose numbers it printed; for the rest (a first offer without the throw-in, the throw-in added to a first offer, a Plan B) the calibration reads the chance that version's own line printed.",
     "",
   );
 
   lines.push("## By reason", "");
   lines.push(
     ...table(
-      ["Reason", "Reports", "B", "Helps you", "P_accept", "ΔPPW", "n", "h", "c", "a", "ctx", "hot", "urg"],
-      s.byReason.map((r) => [
-        r.label,
-        r.count,
-        num(r.averages.b),
-        num(r.averages.tradeScore, 0),
-        pct(r.averages.pAccept),
-        num(r.averages.dPPW, 1),
-        num(r.averages.n),
-        num(r.averages.h),
-        num(r.averages.c),
-        num(r.averages.a),
-        num(r.averages.ctx),
-        num(r.averages.hot),
-        num(r.averages.urg),
-      ]),
+      ["Reason", "Reports", "Helps you", "Helps them", "Chance they accept", "Overall"],
+      s.byReason.map((r) => [r.label, r.count, num(r.averages.helps, 0), num(r.averages.helpsThem, 0), pct(r.averages.chance), num(r.averages.overall, 0)]),
     ),
     "",
-    "Averages of the trade ideas each reason was given for, as their cards showed them (– = none known).",
+    "Averages of the numbers each reason's trade ideas showed on their cards (Helps them where the card showed it; – = none known).",
     "",
   );
 
@@ -300,7 +305,7 @@ export function formatSummary(summary: FeedbackSummary, notes?: readonly { reaso
   lines.push("## Acceptance calibration", "");
   lines.push(
     ...table(
-      ["Predicted P_accept", "Decided", "Accepted", "Rejected", "Observed", "Mean predicted", "Countered", "Sent, no answer", "\"Never accept\" reports"],
+      ["Chance they accept (as printed)", "Decided", "Accepted", "Rejected", "Observed", "Mean printed", "Countered", "Sent, no answer", "\"Never accept\" reports"],
       s.calibration.map((b) => [
         `${b.label} (${pct(b.from)}${b.to === null ? "+" : `–${pct(b.to)}`})`,
         b.decided,
@@ -314,8 +319,8 @@ export function formatSummary(summary: FeedbackSummary, notes?: readonly { reaso
       ]),
     ),
     "",
-    "Decided = Accepted + Rejected. A bin's observed rate means little until it holds a few dozen decided trades.",
-    ...(s.unpredicted ? [`${plural(s.unpredicted, "trade idea")} had no predicted P_accept and ${s.unpredicted === 1 ? "is" : "are"} left out.`] : []),
+    "Decided = Accepted + Rejected. A bin's observed rate means little until it holds a few dozen decided trades. The chance is the one the sent version's line printed, else the card's; “<5%” counts as half of 5%.",
+    ...(s.unpredicted ? [`${plural(s.unpredicted, "trade idea")} had no printed chance and ${s.unpredicted === 1 ? "is" : "are"} left out.`] : []),
     "",
   );
 
@@ -338,8 +343,8 @@ export function formatSummary(summary: FeedbackSummary, notes?: readonly { reaso
 }
 
 /** The notes people typed, with their reasons (oldest touched first). */
-export function feedbackNotes(records: readonly FeedbackRecord[]): { reason: FeedbackReason; note: string }[] {
-  return records.flatMap((r) => (r.report?.note ? [{ reason: r.report.reason, note: r.report.note }] : []));
+export function feedbackNotes(entries: readonly FeedbackExportEntry[]): { reason: FeedbackReason; note: string }[] {
+  return entries.flatMap((r) => (r.report?.note ? [{ reason: r.report.reason, note: r.report.note }] : []));
 }
 
 export interface SummaryArgs {
@@ -357,11 +362,11 @@ const USAGE = "Usage: npm run feedback:summary -- <exported feedback .json file>
 
 /** The whole run on a file's text: the output, or what's wrong with the input. */
 export function runSummary(text: string, args: Pick<SummaryArgs, "json" | "notes">): { ok: true; output: string } | { ok: false; error: string } {
-  const records = parseFeedbackExport(text);
-  if (records === null) return { ok: false, error: "That file isn't an Offer Sheet feedback export (Settings → Export feedback)." };
-  const summary = summarizeFeedback(records);
-  if (args.json) return { ok: true, output: `${JSON.stringify(args.notes ? { ...summary, notes: feedbackNotes(records) } : summary, null, 2)}\n` };
-  return { ok: true, output: formatSummary(summary, args.notes ? feedbackNotes(records) : undefined) };
+  const entries = parseFeedbackExport(text);
+  if (entries === null) return { ok: false, error: "That file isn't an Offer Sheet feedback export (Settings → Export feedback)." };
+  const summary = summarizeFeedback(entries);
+  if (args.json) return { ok: true, output: `${JSON.stringify(args.notes ? { ...summary, notes: feedbackNotes(entries) } : summary, null, 2)}\n` };
+  return { ok: true, output: formatSummary(summary, args.notes ? feedbackNotes(entries) : undefined) };
 }
 
 function main(): void {

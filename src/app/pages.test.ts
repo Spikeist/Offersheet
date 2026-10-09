@@ -25,6 +25,11 @@
  * name and at any depth) and helpsThem (“Helps them” among the terms' estimates, once the app has a “Helps both” sort or
  * words the score anywhere its pages are worded); the detailed part at most 1,300 words. All three are on since Checkpoint 7c's
  * sixth wave (the "Helps both" sort and the "Helps them" score turned the last one on).
+ *
+ * Checkpoint 7d (planner reply to Checkpoint 7c): the terms' data line names DynastyProcess's license ("player ID maps from
+ * DynastyProcess (shared under the GPL-3.0 license)") and the footer links its repository ("Also"; security finding 10);
+ * the feedback page says the export holds what you saw and entered (answer 1), in both branches, and a test ties those
+ * words to the export itself. No switch: both rest on this checkpoint's own code.
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -37,9 +42,9 @@ import { z } from "zod";
 vi.mock("server-only", () => ({}));
 
 import { FANTASYCALC_LINK } from "@/components/league/ValuesCredit";
-import { FOOTER_INDEPENDENT, SiteFooter } from "@/components/SiteFooter";
+import { DYNASTYPROCESS_URL, FOOTER_INDEPENDENT, SiteFooter } from "@/components/SiteFooter";
 import { config } from "@/engine/config";
-import { FEEDBACK_MAX_RECORDS } from "@/lib/feedbackStore";
+import { FEEDBACK_MAX_RECORDS, feedbackExportText, parseFeedbackRecord } from "@/lib/feedbackStore";
 import { CONTACT_EMAIL, POLICY_FEATURES, SHARE_IMAGE_ALT, SHARE_IMAGE_TAGLINE, SITE_NAME, type PolicyFeatures } from "@/lib/site";
 import { SORT_OPTIONS } from "@/lib/tradeView";
 import { createBudget, createDailyQuota, msUntilUtcMidnight } from "@/server/budget";
@@ -121,6 +126,13 @@ const ESTIMATES = "The numbers Offer Sheet works out are estimates: projections,
 const ESTIMATES_WITH_HELPS_THEM = "The numbers Offer Sheet works out are estimates: projections, playoff and title odds, “Helps you”, “Helps them”, “Chance they accept” and “Overall”.";
 /** Your rights (section 3: "on the privacy page, add this line before 'Contact'"), the planner's words. */
 const RIGHTS = "Email us to ask what we hold about you or to have it deleted.";
+/**
+ * The feedback page's export sentence (Checkpoint 7d; planner reply to Checkpoint 7c, answer 1: "export only what the user
+ * saw and entered"; the lead's words), each branch with its own lead-in.
+ */
+const EXPORT_WHAT = "downloads what you saw and entered: each trade, the numbers on its card, your outcome, the version you sent and your notes.";
+const EXPORT_SHARED = `“Export feedback”, also on the Settings page, ${EXPORT_WHAT}`;
+const EXPORT_LOCAL = `“Export feedback” on the Settings page ${EXPORT_WHAT}`;
 
 /** A page's text with these features on. */
 function page(component: typeof PrivacyPolicy | typeof TermsOfUse | typeof FeedbackGuide, features: PolicyFeatures): { html: string; text: string } {
@@ -845,8 +857,9 @@ describe("terms page (Part B, B3; Checkpoint 7b: planner reply to Checkpoint 7a,
     if (!f.helpsThem) expect(text).not.toContain("Helps them");
     expect(text).not.toContain("the trade values it shows");
     expect(text).toContain("You decide what to offer and what to accept, and those decisions are yours.");
+    // DynastyProcess's license named where users can see it (planner reply to Checkpoint 7c, "Also"; security finding 10).
     expect(text).toContain(
-      `League data comes from ESPN and Sleeper, projections and stats from Sleeper and ESPN, trade values from FantasyCalc${f.fantasyCalcHidden ? " (Offer Sheet uses them in its own numbers and doesn't show them)" : ""}, player ID maps from DynastyProcess, and the NFL schedule from ESPN.`,
+      `League data comes from ESPN and Sleeper, projections and stats from Sleeper and ESPN, trade values from FantasyCalc${f.fantasyCalcHidden ? " (Offer Sheet uses them in its own numbers and doesn't show them)" : ""}, player ID maps from DynastyProcess (shared under the GPL-3.0 license), and the NFL schedule from ESPN.`,
     );
     if (!f.fantasyCalcHidden) expect(text).not.toContain("doesn't show them");
     expect(text).toContain("ESPN's league data comes through an unofficial interface that ESPN doesn't support, so it can change or stop working at any time.");
@@ -905,6 +918,14 @@ describe("terms page (Part B, B3; Checkpoint 7b: planner reply to Checkpoint 7a,
     expect(footer).toContain("DynastyProcess");
     expect(named(terms(f).text, "affiliated with, endorsed by or sponsored by ")).toEqual(footer);
   });
+
+  it.each(ALL)("%o: DynastyProcess's GPL-3.0 license is credited where users see it: the terms name it, the footer links the repository it's in (planner reply to Checkpoint 7c, \"Also\"; security finding 10)", (f) => {
+    // The planner's words in the terms' data line (the terms' links are pinned above: the footer, on every page, links it).
+    expect(terms(f).text).toContain("player ID maps from DynastyProcess (shared under the GPL-3.0 license)");
+    const footer = renderToStaticMarkup(createElement(SiteFooter));
+    expect(links(footer).filter((l) => l.href === DYNASTYPROCESS_URL).map((l) => [l.text, /rel="noopener"/.test(l.attrs)])).toEqual([["DynastyProcess", true]]);
+    expect(DYNASTYPROCESS_URL).toBe("https://github.com/dynastyprocess/data");
+  });
 });
 
 describe("feedback page (Part B, B3)", () => {
@@ -925,10 +946,11 @@ describe("feedback page (Part B, B3)", () => {
     const { html, text } = feedback(f);
     expect(text).toContain("Here's how to record what happens to Offer Sheet's trade ideas, and how to reach us.");
     expect(text).toContain("It stays in this browser, notes included: Offer Sheet doesn't receive it.");
-    // The export leaves out the value ratios (planner reply to Checkpoint 7b, Q5: "Keep the feedback page's sentence about
-    // the export accurate"; feedbackStore.ts EXPORT_LEFT_OUT), so never "everything".
-    expect(text).toContain("“Export feedback” on the Settings page downloads what you've saved as a file, notes included. It leaves out the trade-value comparisons behind Offer Sheet's estimates.");
+    // The export holds only what the user saw and entered (planner reply to Checkpoint 7c, answer 1; the lead's words), so
+    // never "everything" (and no longer "It leaves out …", Checkpoint 7b's sentence): "the export is what you saw" below.
+    expect(text).toContain(EXPORT_LOCAL);
     expect(text).not.toContain("everything you've saved");
+    expect(text).not.toContain("trade-value comparisons");
     expect(text).toContain("The privacy policy says what's kept.");
     expect(text).not.toContain("anonymous");
     expect(links(html).map((l) => l.href)).toEqual(["/settings", "/privacy", `mailto:${CONTACT_EMAIL}`]);
@@ -940,9 +962,11 @@ describe("feedback page (Part B, B3)", () => {
     expect(text).toContain("Offer Sheet learns from what happens to its trade ideas. Here's how to tell it.");
     expect(text).toContain("A note you type with a report stays in this browser. It's never sent.");
     expect(text).toContain("To stop sending copies, turn off “Share anonymous feedback” on the Settings page");
-    // The export leaves out the value ratios the anonymous copies keep (planner reply to Checkpoint 7b, Q5).
-    expect(text).toContain("“Export feedback”, also on the Settings page, downloads what you've saved as a file, notes included. It leaves out the trade-value comparisons behind Offer Sheet's estimates.");
+    // The export holds only what the user saw and entered; the anonymous copies keep everything (planner reply to
+    // Checkpoint 7c, answer 1).
+    expect(text).toContain(EXPORT_SHARED);
     expect(text).not.toContain("everything you've saved");
+    expect(text).not.toContain("trade-value comparisons");
     expect(text).toContain("Never your league's ID, names or usernames.");
     expect(text).toContain("an anonymous copy also goes to Offer Sheet, to help improve it:");
     // Review POL-9: not "exactly" (the policy summarizes some fields).
@@ -951,6 +975,42 @@ describe("feedback page (Part B, B3)", () => {
     expect(links(html).map((l) => l.href)).toEqual(["/settings", "/privacy", `mailto:${CONTACT_EMAIL}`]);
     // Review POL-19: sharing is on unless turned off, so not "only if you want to".
     expect(feedbackDescription(f)).toBe("How to tell Offer Sheet what happened to its trade ideas, or what went wrong. The copies it gets are anonymous, and you can turn them off.");
+  });
+
+  it("the export is what the page says, what you saw and entered: a record's model numbers, share id and trade key never reach the file, its note does (planner reply to Checkpoint 7c, answer 1)", () => {
+    // A made-up record as the browser keeps it, every model number distinctive (src/lib/feedbackStore.ts FeedbackRecord). A
+    // record made before the cards' printed numbers were kept has none (`shown`): the file then holds the card's numbers
+    // worked out with its own formatting (Helps you 57, Overall 23 …), never the raw ones below.
+    const features = { g: 0.0753117, n: 0.6182773, h: 1, c: 0, a: 1, hist: 0.0337191, ctx: 0, hot: 0, urg: 0, z: -0.2711537 };
+    const stored = {
+      id: "fb-0a1b2c3d",
+      rid: "PagesTestShareId0123xA",
+      savedAt: "2026-10-09T18:30:00.000Z",
+      leagueKey: "lk-made-up-for-the-pages-test",
+      tradeKey: "tk-made-up-for-the-pages-test",
+      proposal: { partnerId: "7", give: [{ kind: "player", id: "9481" }], get: [{ kind: "player", id: "7553" }] },
+      numbers: { b: 4.3217391, tradeScore: 57, pAccept: 0.4321973, pComplete: 0.4321973, overall: 23, dPO: 0.0319171, dCH: 0.0129831, dPPW: 2.7184917, gMine: -0.0813571, gPartner: 0.0627131, b3: 7.6543191 },
+      features,
+      basis: { season: 2026, week: 5, goal: "title" },
+      outcome: { kind: "accepted", at: "2026-10-10T12:00:00.000Z" },
+      version: "full",
+      versionKey: "vk-made-up-for-the-pages-test",
+      versionAccept: { pAccept: 0.3456173, pComplete: 0.3456173 },
+      versionInputs: { features, gPartner: 0.0519371, b: 3.9821371, goal: "title", b3: 7.6543191, helpsReason: null, week: 5 },
+      report: { reason: "other", note: "A note only the pages test writes", at: "2026-10-10T12:05:00.000Z" },
+    };
+    const record = parseFeedbackRecord(stored);
+    if (!record) throw new Error("the made-up record doesn't parse");
+    const file = feedbackExportText([record], "2026-10-11T00:00:00.000Z");
+    // What the user entered is there.
+    expect(file).toContain("A note only the pages test writes");
+    // Nothing else the model used (the lead's list: B, B₃, the raw chances, g, the features, ΔPO, ΔCH, ΔPPW, the basis, the
+    // sent version's inputs, the share id and the trade keys), as a value or as a field.
+    const modelNumbers = [4.3217391, 0.4321973, 0.0319171, 0.0129831, 2.7184917, 0.0813571, 0.0627131, 7.6543191, 0.0753117, 0.6182773, 0.0337191, 0.2711537, 0.3456173, 0.0519371, 3.9821371];
+    expect(modelNumbers.map(String).filter((v) => file.includes(v))).toEqual([]);
+    expect(["PagesTestShareId0123xA", "tk-made-up-for-the-pages-test", "vk-made-up-for-the-pages-test", "lk-made-up-for-the-pages-test"].filter((v) => file.includes(v))).toEqual([]);
+    expect(['"rid"', '"tradeKey"', '"versionKey"', '"features"', '"basis"', '"versionInputs"'].filter((k) => file.includes(k))).toEqual([]);
+    expect((JSON.parse(file) as { version: number }).version).toBeGreaterThanOrEqual(3);
   });
 });
 

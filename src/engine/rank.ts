@@ -12,7 +12,7 @@
  * - "accept": P_complete, highest first, among trades with B > 0; trades with B ≤ 0 or an unknown B come after them,
  *   in the same order (§13: "Chance they accept (P_complete, among trades with B > 0)");
  * - "helpsBoth" (Checkpoint 7c; planner reply to Checkpoint 7b, §7: "only trades that help both teams, sorted by Helps you"):
- *   the trades that help both teams (benefit.helpsBoth: Helps you above 0 and Helps them at least config.benefit.helpsThemMin,
+ *   the trades that help both teams (benefit.helpsBoth: Helps you and Helps them each at least config.benefit.helpsThemMin,
  *   both as printed) first, by B, then the rest by B. A sort never drops a trade: the search's own "Helps both" list
  *   (TradeSearchResult.helpsBoth, rankTrades with order "helps" and keep, below) holds only those, and helpsBothTrades
  *   filters a list for a result without one.

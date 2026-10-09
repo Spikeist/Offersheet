@@ -578,9 +578,20 @@ export const config = {
      * exact trades by B on the screening block that help both teams (benefit.ts helpsBoth, on the printed scores) and aren't
      * hidden by default (B ≤ 0 or the market guard) get the final simulation too; the "Helps both" list checks each again on
      * its final numbers (search.ts finalistsOf), and ⚠️ only that list ranks them: the Overall list stays the finalists'. ⚠️
-     * The plain top 20 (the lead's call): no diversity caps in the choice.
+     * The plain top 20 (the lead's call): no diversity caps in the choice. Since Checkpoint 7d one more for each candidate from
+     * the helps-both lane (helpsBothLane, below; ⚠️ the lead's call, review of the lane, LANE-2), so the lane never takes a place
+     * another trade would have had.
      */
     helpsBothFinalists: 20,
+    /**
+     * Checkpoint 7d (planner reply to Checkpoint 7c, answer 2: "take them from every screened trade, not just each partner's
+     * kept 30. Add up to 40 to the exact shortlist where both lineups gain on the fast method: your ΔROS > 0 and their lineup
+     * gain > 0"): the helps-both lane, at most this many screened trades outside the shortlist and its lean companions on
+     * which both lineups gain, best screening objective first, evaluated exactly on top of them, then through the same
+     * screening simulation, finalist rules and "Helps both" extras as every other exact trade (search.ts, "The helps-both
+     * lane"; ⚠️ the lean companions they bring aren't counted in it). 0 turns the lane off.
+     */
+    helpsBothLane: 40,
     resultsShown: 25,
     /**
      * An extension step (§12) adds one player to my side, one to theirs, or one to each (a 1-for-1 becomes a 2-for-1,

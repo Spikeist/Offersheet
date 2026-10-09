@@ -1,10 +1,10 @@
 /**
  * The trade search (CLAUDE.md §12; Phase 4 wave 2 lead decisions M6–M8, M11, M14; Phase 4c's exhaustive candidates,
- * lean companions, minimum chance, pattern note and re-filtering): pools, screening with beams and exhaustive candidates,
- * exact evaluation (the shortlist and its lean companions), the screening and final simulations, then ranking and
- * explanations. Pure and deterministic: the same context and options give the same result; the only clock is the
- * optional one for timings. Every number comes from config.search, config.simulation, config.ranking and config.explain
- * (src/engine/evaluate.ts does the evaluating).
+ * lean companions, minimum chance, pattern note and re-filtering; Checkpoint 7d's helps-both lane): pools, screening with
+ * beams and exhaustive candidates, exact evaluation (the shortlist and its lean companions, then the helps-both lane and
+ * its own), the screening and final simulations, then ranking and explanations. Pure and deterministic: the same context
+ * and options give the same result; the only clock is the optional one for timings. Every number comes from
+ * config.search, config.simulation, config.ranking and config.explain (src/engine/evaluate.ts does the evaluating).
  *
  * Pools (§12 step 2; M6). Candidates are players with a model on the active rosters and, with IR returners (planner reply
  * to Checkpoint 4, change 5; league.ts step 5b, evaluate.ts rule 5), on the IRs: IR players appear in both pools.
@@ -105,6 +105,24 @@
  * Bo Nix → Jadarian Price, 29.9%, the same Helps you); the other 4 don't help me (B ≤ 0; in 3 of them the player left
  * out is one I'd receive, whose lineup value the full trade has).
  *
+ * The helps-both lane (Checkpoint 7d; planner reply to Checkpoint 7c, answer 2: "take them from every screened trade, not
+ * just each partner's kept 30. Add up to 40 to the exact shortlist where both lineups gain on the fast method: your ΔROS >
+ * 0 and their lineup gain > 0 … best screening objective first, skipping trades already on the shortlist … After that: they
+ * go through the same exact evaluation, screening simulation and finalist rules as every other trade"; at Checkpoint 7c the
+ * shortlist, chosen by my gain × the quick chance, held few trades that help the partner too, so the "Helps both" list had
+ * little to promote: "Helps both" below). From every partner's screened trades after screening's rules (legal, holding the
+ * must-include players, inside screeningGWindow and past the dominance pruning: ⚠️ ours, the lead's reading, these are
+ * screening's rules and the keep isn't one; screeningRules), the ones on which both lineups gain on the fast method
+ * (bothLineupsGain: my ΔROS, Screened.myDelta, the objective's own number, and the partner's ΔLineup_P,
+ * Screened.partnerDelta, the number the quick acceptance's n is made from, ⚠️ ours; both above 0, float noise aside) that
+ * the shortlist and its lean companions don't hold, the first config.search.helpsBothLane by the screening objective, then
+ * the key (helpsBothLaneOf). They're evaluated exactly after the shortlist and its companions, each bringing its lean
+ * version like a shortlisted trade (leanCompanions, skipping what's chosen already; ⚠️ not counted in the lane's size), and
+ * from then on they're exact trades like any other: the screening simulation, the finalists' rules (so one can be a
+ * finalist and a card on the Overall list) and the "Helps both" extras. SearchState.lane keeps their keys, their companions'
+ * and how many screened trades qualified; TradeSearchOptions.helpsBothLane false (a report switch the app never sets) or the
+ * config at 0 leaves them out.
+ *
  * Final stages (M8). Every exact trade gets the screening simulation (the screening block of seasons, screeningSims) → B
  * (λ, κ and the reward from the call's settings: lambda, "Protect my trade value" protectValue and "What does your league
  * reward?", the goal and since Checkpoint 7c its prizes, evaluate.rewardFor; evaluate.simulateTrade; Helps you and Overall on
@@ -186,10 +204,12 @@
  * you among trades that help both on the screening run. Check again on the final run that each one still helps both"):
  * every simulated trade carries its partner's numbers from the same runs (TradeEvaluation.them, evaluate.ts simulateTrade;
  * each partner's calibration run is made before the screening simulation, one partner at a time with a yield after each,
- * evaluate.partnerCalibrationOf), and a trade helps both when its Helps you, as printed, is above 0 and its Helps them, as
- * printed, at least config.benefit.helpsThemMin (benefit.helpsBoth). On top of the finalists, finalistsOf adds the first
- * config.search.helpsBothFinalists exact trades by B on the screening block (ties: EG, then the key) that help both and
- * aren't hidden by default, ⚠️ the plain top 20 (the lead's call: no caps in the choice); those that aren't finalists
+ * evaluate.partnerCalibrationOf), and a trade helps both when its Helps you and its Helps them, as printed, are each at
+ * least config.benefit.helpsThemMin (benefit.helpsBoth; planner reply to Checkpoint 7c, answer 5: Checkpoint 7c read "Helps
+ * you > 0"). On top of the finalists, finalistsOf adds the first config.search.helpsBothFinalists exact trades by B on the
+ * screening block (ties: EG, then the key) that help both and aren't hidden by default (since Checkpoint 7d the helps-both
+ * lane's among them, above, each widening the room by one: ⚠️ the lead's call, review of the lane, LANE-2, so the lane never
+ * takes another trade's place), ⚠️ the plain top 20 (the lead's call: no caps in the choice); those that aren't finalists
  * already (SearchState.helpsBothExtras) get the final simulation too and count in counts.simFinal. ⚠️ Only the second list
  * ranks them (review of the "Helps both" engine track, finding HB-5): they're simulated so that list has enough candidates,
  * and in the Overall list a trade that missed the finalists would get a second chance only because it helps the partner (on
@@ -311,6 +331,11 @@ export interface TradeSearchOptions {
    * file header, "Lean companions"), so a report can measure what they change. Default true.
    */
   leanCompanions?: boolean;
+  /**
+   * Report switch (the app never sets it): false evaluates without Checkpoint 7d's helps-both lane (the file header, "The
+   * helps-both lane"), as config.search.helpsBothLane 0 does, so a report can measure what it adds. Default true.
+   */
+  helpsBothLane?: boolean;
 }
 
 /** Gains closer than this are ties (float noise, not a tunable). */
@@ -675,20 +700,84 @@ export function dominancePruned(list: readonly Screened[], cheap: (id: string) =
 }
 
 /**
- * The trades exact evaluation takes from the screening (M7): each partner's candidates inside the screeningGWindow on
+ * Screening's rules for one partner's candidates, before the keep (M7, N11): the ones inside the screeningGWindow on
  * g_mkt(P) (a non-finite g is outside), without the dominated ones when `cheap` is given (N11: dominancePruned with my
- * players worth at most W, as the search passes it; null: no pruning, for reports that measure it), that partner's
- * best keptPerPartner, then the best exactEvaluationMax over all partners. Order: the objective, then the key.
+ * players worth at most W, as the search passes it; null: no pruning, for reports that measure it), in their order.
+ * (Legality and the must-include players hold for every candidate already: partnerCandidates.)
+ */
+export function screeningRules(list: readonly Screened[], cheap: ((id: string) => boolean) | null = null): Screened[] {
+  const [gLo, gHi] = config.search.screeningGWindow;
+  const inWindow = list.filter((x) => Number.isFinite(x.gPartner) && x.gPartner >= gLo - EPS && x.gPartner <= gHi + EPS);
+  return cheap ? dominancePruned(inWindow, cheap) : inWindow;
+}
+
+/** The shortlist from each partner's candidates past screening's rules (shortlistOf, without the rules). */
+function shortlistFrom(ruled: readonly (readonly Screened[])[]): Screened[] {
+  const shortlist: Screened[] = [];
+  for (const list of ruled) shortlist.push(...[...list].sort(byObjective).slice(0, Math.max(0, Math.floor(config.search.keptPerPartner))));
+  return shortlist.sort(byObjective).slice(0, Math.max(0, Math.floor(config.search.exactEvaluationMax)));
+}
+
+/**
+ * The trades exact evaluation takes from the screening (M7): each partner's candidates past screening's rules
+ * (screeningRules: the g window, and the dominance pruning when `cheap` is given), that partner's best keptPerPartner, then
+ * the best exactEvaluationMax over all partners. Order: the objective, then the key.
  */
 export function shortlistOf(perPartner: readonly (readonly Screened[])[], cheap: ((id: string) => boolean) | null = null): Screened[] {
-  const [gLo, gHi] = config.search.screeningGWindow;
-  const shortlist: Screened[] = [];
-  for (const list of perPartner) {
-    const inWindow = list.filter((x) => Number.isFinite(x.gPartner) && x.gPartner >= gLo - EPS && x.gPartner <= gHi + EPS);
-    const kept = (cheap ? dominancePruned(inWindow, cheap) : inWindow).sort(byObjective).slice(0, Math.max(0, Math.floor(config.search.keptPerPartner)));
-    shortlist.push(...kept);
+  return shortlistFrom(perPartner.map((list) => screeningRules(list, cheap)));
+}
+
+/**
+ * Both lineups gain on the fast method (Checkpoint 7d; the file header, "The helps-both lane"): my ΔROS (Screened.myDelta,
+ * the screening objective's own number) and the partner's ΔLineup_P (Screened.partnerDelta, the quick acceptance's), both
+ * above 0, float noise aside.
+ */
+export const bothLineupsGain = (s: Pick<Screened, "myDelta" | "partnerDelta">): boolean => s.myDelta > EPS && s.partnerDelta > EPS;
+
+/** A search's helps-both lane (the file header, "The helps-both lane"), as helpsBothLaneOf chooses it. */
+export interface HelpsBothLaneChoice {
+  /** The lane: at most `max` trades, best screening objective first (ties: the key). */
+  trades: Screened[];
+  /** Every candidate past screening's rules on which both lineups gain (bothLineupsGain), and how many of them `taken` held. */
+  qualifying: number;
+  onShortlist: number;
+}
+
+/** helpsBothLaneOf from each partner's candidates past screening's rules. */
+function laneFrom(ruled: readonly (readonly Screened[])[], taken: ReadonlySet<string>, max: number): HelpsBothLaneChoice {
+  const size = Math.max(0, Math.floor(Number.isFinite(max) ? max : 0));
+  const out: Screened[] = [];
+  let qualifying = 0;
+  let onShortlist = 0;
+  for (const list of ruled) {
+    for (const s of list) {
+      if (!bothLineupsGain(s)) continue;
+      qualifying++;
+      if (taken.has(s.key)) onShortlist++;
+      else out.push(s);
+    }
   }
-  return shortlist.sort(byObjective).slice(0, Math.max(0, Math.floor(config.search.exactEvaluationMax)));
+  return { trades: size ? out.sort(byObjective).slice(0, size) : [], qualifying, onShortlist };
+}
+
+/**
+ * The helps-both lane (Checkpoint 7d; planner reply to Checkpoint 7c, answer 2; the file header): from every partner's
+ * candidates (`perPartner`, as partnerCandidates returns them) past screening's rules (screeningRules with `cheap`, as the
+ * shortlist reads them), the ones on which both lineups gain (bothLineupsGain) and that `taken` (the shortlist and its lean
+ * companions) doesn't hold, the first `max` (config.search.helpsBothLane; 0: none) by the screening objective, then the
+ * key; with how many candidates qualified, `taken` or not. Deterministic.
+ */
+export function helpsBothLaneOf(
+  perPartner: readonly (readonly Screened[])[],
+  taken: ReadonlySet<string>,
+  cheap: ((id: string) => boolean) | null = null,
+  max: number = config.search.helpsBothLane,
+): HelpsBothLaneChoice {
+  return laneFrom(
+    perPartner.map((list) => screeningRules(list, cheap)),
+    taken,
+    max,
+  );
 }
 
 /**
@@ -780,13 +869,21 @@ export function barredFromBoxes(pool: readonly BoxBarTrade[], cards: readonly Bo
  * brought it, and its screen is legal with g_mkt(P) inside screeningGWindow: the screen from `perPartner` when the
  * candidates had it (every legal lean version, at maxPerSide 2: a 1-for-1 seed), else screened here (`tally.screened`
  * counts those; the search passes none, so counts.screened stays the candidates'). Yields after every SCREEN_BATCH
- * screens of its own. Deterministic.
+ * screens of its own. Deterministic. Checkpoint 7d: `skip`, the keys chosen for exact evaluation already (the helps-both
+ * lane's call: the shortlist and its companions), which no companion repeats.
  */
-export function* leanCompanions(I: TradeInternals, shortlist: readonly Screened[], perPartner: readonly (readonly Screened[])[], pools: Pick<Pools, "forcedGive" | "get">, tally: { screened: number } = { screened: 0 }): Generator<void, Screened[], void> {
+export function* leanCompanions(
+  I: TradeInternals,
+  shortlist: readonly Screened[],
+  perPartner: readonly (readonly Screened[])[],
+  pools: Pick<Pools, "forcedGive" | "get">,
+  tally: { screened: number } = { screened: 0 },
+  skip: ReadonlySet<string> = new Set(),
+): Generator<void, Screened[], void> {
   const [gLo, gHi] = config.search.screeningGWindow;
   const known = new Map<string, Screened>();
   for (const list of perPartner) for (const s of list) known.set(s.key, s);
-  const taken = new Set(shortlist.map((s) => s.key));
+  const taken = new Set([...skip, ...shortlist.map((s) => s.key)]);
   const out: Screened[] = [];
   let sinceYield = 0;
   for (const s of shortlist) {
@@ -858,15 +955,18 @@ const byBThenEg = (a: TradeEvaluationCore, b: TradeEvaluationCore): number => (M
  * players of mine"), then, while room is left, the best others by EG = B × P_complete (ties: the key) that aren't hidden
  * by default. ⚠️ Never the minimum chance (the file header). Then (Checkpoint 7c; planner reply to Checkpoint 7b, §7; the
  * file header's "Helps both") the first config.search.helpsBothFinalists by B (ties: EG, then the key) among the trades that
- * help both teams on these numbers (benefit.helpsBoth) and aren't hidden by default, finalists or not: those that aren't
- * finalists yet join them (`extras`, in that order; `keys` holds them too). Also the counts of the others the guards hide
- * (B ≤ 0 or unknown: by benefit; else the market guard).
+ * help both teams on these numbers (benefit.helpsBoth) and aren't hidden by default, finalists or not, the room one wider
+ * for each such trade `lane` holds (Checkpoint 7d, the helps-both lane's trades and their companions: ⚠️ the lead's call,
+ * review of the lane, LANE-2, so the lane adds to the extras and never takes a place another trade would have had): those
+ * that aren't finalists yet join them (`extras`, in that order; `keys` holds them too). Also the counts of the others the
+ * guards hide (B ≤ 0 or unknown: by benefit; else the market guard).
  */
 export function finalistsOf(
   cores: readonly TradeEvaluationCore[],
   value: (asset: TradeAsset) => number,
   onePartner = false,
   forcedGive: readonly string[] = [],
+  lane: ReadonlySet<string> = new Set<string>(),
 ): { keys: Set<string>; extras: string[]; hidden: { byBenefit: number; byMarket: number } } {
   const maxFinalists = Math.max(0, Math.floor(config.search.finalists));
   // Relaxed by one (review of track E, item 3): at 1,000 seasons the order is noisy, and the strict caps dropped trades the
@@ -878,12 +978,15 @@ export function finalistsOf(
     if (keys.size >= maxFinalists) break;
     keys.add(c.key);
   }
-  // "Helps both" (the plain top helpsBothFinalists, the lead's call: no caps in the choice).
+  // "Helps both" (the plain top helpsBothFinalists, the lead's call: no caps in the choice), chosen without the minimum
+  // chance. Since Checkpoint 7d each candidate from the helps-both lane widens the room by one (⚠️ the lead's call; review of
+  // the lane, LANE-2): as the plain top 20, the lane's long shots took a likelier trade's place (smallLeague 13 at 10%: seven
+  // lane trades under 5% as printed entered the 20, and the list went from 2 cards to 1). Every trade the 20 would hold
+  // without the lane ranks at most that many places lower with it, so it keeps its final run.
   const extras: string[] = [];
-  const both = cores
-    .filter((c) => !hiddenAt(c) && helpsBoth(c))
-    .sort(byBThenEg)
-    .slice(0, Math.max(0, Math.floor(config.search.helpsBothFinalists)));
+  const candidates = cores.filter((c) => !hiddenAt(c) && helpsBoth(c)).sort(byBThenEg);
+  const room = Math.max(0, Math.floor(config.search.helpsBothFinalists)) + candidates.filter((c) => lane.has(c.key)).length;
+  const both = candidates.slice(0, room);
   for (const c of both) {
     if (keys.has(c.key)) continue;
     keys.add(c.key);
@@ -918,6 +1021,14 @@ export interface SearchState {
    * shortlist, in their order (an illegal one among them isn't in exactByKey).
    */
   readonly companions: readonly string[];
+  /**
+   * Checkpoint 7d (the file header, "The helps-both lane"): the lane's trades (keys, in their order: by the screening
+   * objective) and the lean companions they brought (keys, in their order), evaluated exactly after the shortlist and its
+   * companions (an illegal one isn't in exactByKey); `qualifying`, the screened trades past screening's rules on which both
+   * lineups gain, and `onShortlist`, how many of those the shortlist and its companions held. Empty trades and companions
+   * with the lane off (the counts still made).
+   */
+  readonly lane: { readonly trades: readonly string[]; readonly companions: readonly string[]; readonly qualifying: number; readonly onShortlist: number };
   /** The exact trades other than the finalists that the guards hide at screening numbers (finalistsOf). */
   readonly hiddenElsewhere: { readonly byBenefit: number; readonly byMarket: number };
   /**
@@ -1310,22 +1421,29 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
     perPartner.push(r.value);
     yield { stage: "screening", done: pi + 1, total: pools.partners.length };
   }
-  // The dominance pruning (N11), then the lean companions (the file header).
-  const shortlist = shortlistOf(perPartner, atMostWaiverCredit(I));
-  let companions: Screened[] = [];
-  if (opts.leanCompanions !== false) {
-    const it = leanCompanions(I, shortlist, perPartner, pools);
+  // Screening's rules (the g window, the dominance pruning: N11), the shortlist, then the lean companions (the file header).
+  const ruled = perPartner.map((list) => screeningRules(list, atMostWaiverCredit(I)));
+  const shortlist = shortlistFrom(ruled);
+  function* companionsOf(trades: readonly Screened[], skip?: ReadonlySet<string>): Generator<TradeSearchProgress, Screened[], void> {
+    if (opts.leanCompanions === false || !trades.length) return [];
+    const it = leanCompanions(I, trades, perPartner, pools, undefined, skip);
     let r = it.next();
     while (!r.done) {
       yield { stage: "screening", done: pools.partners.length, total: pools.partners.length };
       r = it.next();
     }
-    companions = r.value;
+    return r.value;
   }
-  const chosen = [...shortlist, ...companions];
+  const companions = yield* companionsOf(shortlist);
+  // The helps-both lane (Checkpoint 7d; the file header): screened trades on which both lineups gain that the shortlist and
+  // its companions don't hold, best objective first, with their own lean companions.
+  const taken = new Set([...shortlist, ...companions].map((s) => s.key));
+  const lane = laneFrom(ruled, taken, opts.helpsBothLane === false ? 0 : config.search.helpsBothLane);
+  const laneCompanions = yield* companionsOf(lane.trades, taken);
+  const chosen = [...shortlist, ...companions, ...lane.trades, ...laneCompanions];
   mark("screening");
 
-  // Exact evaluation (§12 step 3): the shortlist and its lean companions.
+  // Exact evaluation (§12 step 3): the shortlist and its lean companions, then the helps-both lane and its own.
   const exact: ExactTrade[] = [];
   for (let i = 0; i < chosen.length; i++) {
     const s = chosen[i] as Screened;
@@ -1366,6 +1484,7 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
     value,
     onePartner,
     pools.forcedGive,
+    new Set([...lane.trades, ...laneCompanions].map((s) => s.key)),
   );
   const finalists = screened.filter((s) => finalKeys.has(s.core.key));
 
@@ -1393,6 +1512,7 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
     notes,
     counts: { ...counts },
     companions: companions.map((s) => s.key),
+    lane: { trades: lane.trades.map((s) => s.key), companions: laneCompanions.map((s) => s.key), qualifying: lane.qualifying, onShortlist: lane.onShortlist },
     hiddenElsewhere,
     helpsBothExtras,
     finals,

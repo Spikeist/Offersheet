@@ -11,7 +11,7 @@ import { config } from "./config";
 import { buildTradeContext, proposalKey, tradeInternals, type TeamState, type TradeInternals } from "./evaluate";
 import { neutralThrowIns } from "./market";
 import { planBPasses } from "./planB";
-import { atMostWaiverCredit, barredFromBoxes, buildPools, extraPlayersOf, leanCompanions, leanVersionOf, partnerCandidates, refilterSearch, runRefilter, runTradeSearch, searchStateOf, shortlistOf, type SearchState } from "./search";
+import { atMostWaiverCredit, barredFromBoxes, buildPools, extraPlayersOf, helpsBothLaneOf, leanCompanions, leanVersionOf, partnerCandidates, refilterSearch, runRefilter, runTradeSearch, searchStateOf, shortlistOf, type SearchState } from "./search";
 import { defaultTradeSettings, type TradeSettings } from "./settings";
 import { TEST_NOW } from "./testLeague";
 import { smallLeague, withWaiverStash } from "./trade.testing";
@@ -30,7 +30,11 @@ function drain<T>(it: Generator<void, T, void>): T {
   }
 }
 
-/** The search's shortlist and lean companions rebuilt from its pieces (buildPools, partnerCandidates, shortlistOf, leanCompanions). */
+/**
+ * The search's shortlist and lean companions rebuilt from its pieces (buildPools, partnerCandidates, shortlistOf,
+ * leanCompanions), and since Checkpoint 7d its helps-both lane with the lane's own companions (helpsBothLaneOf, skipping the
+ * shortlist and its companions).
+ */
 function rebuild(I: TradeInternals, settings: TradeSettings) {
   const pools = buildPools(I, settings, null);
   const lists = pools.partners.map((p) => {
@@ -40,7 +44,10 @@ function rebuild(I: TradeInternals, settings: TradeSettings) {
   const shortlist = shortlistOf(lists, atMostWaiverCredit(I));
   const tally = { screened: 0 };
   const companions = drain(leanCompanions(I, shortlist, lists, pools, tally));
-  return { pools, lists, shortlist, companions, tally };
+  const taken = new Set([...shortlist, ...companions].map((x) => x.key));
+  const lane = helpsBothLaneOf(lists, taken, atMostWaiverCredit(I)).trades;
+  const laneCompanions = drain(leanCompanions(I, lane, lists, pools, { screened: 0 }, taken));
+  return { pools, lists, shortlist, companions, tally, lane, laneCompanions };
 }
 
 // smallLeague(6), EV lineups: its search shortlists Team 2's 1006 + 1012 → 1018 (1006 worth at most W, a neutral
@@ -112,14 +119,18 @@ describe("the lean companions (search.ts)", { timeout: 60_000 }, () => {
       const I = tradeInternals(ctx);
       const r = seed === 6 ? withCompanions : runTradeSearch(ctx, { settings });
       const s = stateOf(r);
-      const { shortlist, companions, pools, lists } = rebuild(I, settings);
-      // The search's companions are the rebuilt ones, in the same order.
+      const { shortlist, companions, pools, lists, lane, laneCompanions } = rebuild(I, settings);
+      // The search's companions are the rebuilt ones, in the same order (Checkpoint 7d: the helps-both lane's apart).
       expect(s.companions, `seed ${seed}`).toEqual(companions.map((c) => c.key));
       expect(companions.length, `seed ${seed}`).toBeGreaterThan(0);
+      expect(s.lane.trades, `seed ${seed}`).toEqual(lane.map((c) => c.key));
+      expect(s.lane.companions, `seed ${seed}`).toEqual(laneCompanions.map((c) => c.key));
       const short = new Set(shortlist.map((x) => x.key));
-      // The exact trades are the shortlist and its companions, but for the illegal ones.
-      for (const k of s.exactByKey.keys()) expect(short.has(k) || s.companions.includes(k), `seed ${seed} ${k}`).toBe(true);
-      expect(r.counts.exact).toBeLessThanOrEqual(shortlist.length + companions.length);
+      // The exact trades are the shortlist and its companions, then the helps-both lane and its own, but for the illegal ones.
+      const chosen = new Set([...short, ...s.companions, ...s.lane.trades, ...s.lane.companions]);
+      for (const k of s.exactByKey.keys()) expect(chosen.has(k), `seed ${seed} ${k}`).toBe(true);
+      expect(chosen.size, `seed ${seed}`).toBe(shortlist.length + companions.length + lane.length + laneCompanions.length);
+      expect(r.counts.exact).toBeLessThanOrEqual(chosen.size);
       expect(new Set(s.companions).size).toBe(s.companions.length);
       const [gLo, gHi] = config.search.screeningGWindow;
       const leans = new Map<string, string[]>();
@@ -161,15 +172,21 @@ describe("the lean companions (search.ts)", { timeout: 60_000 }, () => {
     for (const t of forced.trades) expect(ids(t.proposal, "give")).toContain("1006");
   });
 
-  it("the report switch: leanCompanions false evaluates the shortlist alone", () => {
+  it("the report switch: leanCompanions false evaluates the shortlist alone (since Checkpoint 7d with the helps-both lane, which brings none either)", () => {
     const s = stateOf(without);
     const { shortlist } = rebuild(I6, settings);
     expect(s.companions).toEqual([]);
-    expect([...s.exactByKey.keys()].every((k) => shortlist.some((x) => x.key === k))).toBe(true);
-    expect(without.counts.exact).toBeLessThanOrEqual(config.search.exactEvaluationMax);
+    expect(s.lane.companions).toEqual([]);
+    expect([...s.exactByKey.keys()].every((k) => shortlist.some((x) => x.key === k) || s.lane.trades.includes(k))).toBe(true);
+    expect(without.counts.exact - s.lane.trades.filter((k) => s.exactByKey.has(k)).length).toBeLessThanOrEqual(config.search.exactEvaluationMax);
     // Screening is the same: the companions' screens are the candidates' own (every lean version a 1-for-1 seed here).
     expect(withCompanions.counts.screened).toBe(without.counts.screened);
-    expect(withCompanions.counts.exact).toBe(without.counts.exact + stateOf(withCompanions).companions.length);
+    // Without the lane (it's chosen outside what the shortlist and its companions hold, so it can differ between the two),
+    // exactly the companions more.
+    const lean = runTradeSearch(ctx6, { settings, helpsBothLane: false });
+    const alone = runTradeSearch(ctx6, { settings, helpsBothLane: false, leanCompanions: false });
+    expect(lean.counts.exact).toBe(alone.counts.exact + stateOf(lean).companions.length);
+    expect(stateOf(lean).companions).toEqual(stateOf(withCompanions).companions);
   });
 
   it("deterministic, and re-filtering a search with companions equals a fresh search at that minimum", () => {
@@ -182,12 +199,13 @@ describe("the lean companions (search.ts)", { timeout: 60_000 }, () => {
     expect(stateOf(r.value).companions).toEqual(stateOf(withCompanions).companions);
   });
 
-  it("progress: the exact stage counts the shortlist and its companions; the companions are found during screening", () => {
+  it("progress: the exact stage counts the shortlist and its companions (since Checkpoint 7d the helps-both lane and its own too); the companions are found during screening", () => {
     const progress: TradeSearchProgress[] = [];
     const r = runTradeSearch(ctx6, { settings }, (p) => progress.push(p));
     const exact = progress.filter((p) => p.stage === "exact");
     expect(exact.at(-1)).toEqual({ stage: "exact", done: exact.length, total: exact.length });
-    expect(exact.length).toBe(rebuild(I6, settings).shortlist.length + stateOf(r).companions.length);
+    const s = stateOf(r);
+    expect(exact.length).toBe(rebuild(I6, settings).shortlist.length + s.companions.length + s.lane.trades.length + s.lane.companions.length);
     const stages = progress.map((p) => p.stage);
     expect(stages.indexOf("exact")).toBeGreaterThan(stages.lastIndexOf("screening"));
   });

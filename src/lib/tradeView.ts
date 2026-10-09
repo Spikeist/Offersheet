@@ -175,19 +175,28 @@
  *   (HelpsBothList.lowerWouldAdd; helpsBothFewText); with none, "No trades help both teams right now" with that suggestion,
  *   ⚠️ ours: a pointer to the Overall sort when it has ideas, and what was left out (the guards' counts, the trades that help
  *   both under the minimum: HelpsBothList.byChance); no pattern note (it describes the Overall list's best ideas).
- * - Every card that helps both teams as printed (benefit.ts helpsBoth: Helps you above 0, Helps them at least
- *   config.benefit.helpsThemMin) carries the tag "Helps both" with its heading, in every sort and on the Analyzer's card
- *   (helpsBothTagOf), in words.
+ * - Every card that helps both teams as printed (benefit.ts helpsBoth: Helps you and Helps them each at least
+ *   config.benefit.helpsThemMin, Helps you since Checkpoint 7d, planner reply to Checkpoint 7c, answer 5) carries the tag
+ *   "Helps both" with its heading, in every sort and on the Analyzer's card (helpsBothTagOf), in words.
  * - After my odds and my weekly line, the partner's line, in the format of mine (themView): "Helps them 24 · Their title odds
  *   6.0% → 6.9% · Their playoff odds 41% → 45%", their top-N line between them when the league pays 2nd or 3rd place (as mine),
  *   "Helps them 0" when the trade costs them, the planner's tooltip on "Helps them" (HELPS_THEM_TITLE); before = their odds on
  *   the block the trade was simulated on (TradeEvaluation.them.before: on a card, the League page's headline odds for that
  *   team), after = before + their changes from the very runs mine came from. No weekly line for them, no line on a Plan B box
- *   or a step (they carry no partner's numbers), none without a Helps them. No FantasyCalc number anywhere in it.
+ *   or a step (they carry no partner's numbers), none without a Helps them. No FantasyCalc number anywhere in it. Checkpoint
+ *   7d (planner reply to Checkpoint 7c, answer 3: "show “Helps them” and their odds only on cards that help both. The
+ *   Analyzer always shows them, including when the trade hurts the other team."): a Trade Finder card shows it only with its
+ *   tag (CardContext.partnerLine "helpsBoth", in every sort), the Analyzer's card whenever it has the partner's numbers.
  * - In a dynasty or keeper league with long-term values, after "Their lineup", which way their roster's long-term value goes,
  *   in words ("Their long-term value: Up"; theirLongTermFact; review of the "Helps both" UI, helps-both-ui-1): Helps them counts
  *   it, weighed by their own playoff odds, so a card whose Helps them is high while their odds fall says why. How to read
- *   says what Helps them counts in each league type (HowToRead.tsx helpsThemValueWords).
+ *   says what Helps them counts in each league type (HowToRead.tsx helpsThemValueWords). ⚠️ Ours (Checkpoint 7d): only on a
+ *   card that shows the partner's line, which it explains.
+ *
+ * What a card prints, for its feedback (Checkpoint 7d; planner reply to Checkpoint 7c, answer 1: the export holds "only what
+ * the user saw and entered"): TradeCardView.shown (shownOf), its three numbers, odds lines, weekly line and partner's line as
+ * printed; every press on the card carries it (cardPress, TradeCard.tsx), the record it makes keeps it, and the export
+ * (feedbackStore.ts feedbackExport) holds it in place of the model's numbers.
  *
  * Numbers print like the League page's (src/lib/format.ts): one decimal for points per week, whole percents, a real minus
  * sign. No trade value is ever printed (the card's facts above). No jargon ("EV", "σ", "V*", "g_mkt" never appear).
@@ -228,9 +237,22 @@ import type {
   TradeSort,
   TradeStep,
 } from "@/engine/tradeModel";
-import { feedbackFor, type FeedbackOutcome, type FeedbackReason, type FeedbackRecord, type FeedbackSent, type FeedbackVersion, type HelpsReason, type VersionInputs } from "./feedbackStore";
+import {
+  feedbackFor,
+  proposalFromKey,
+  type FeedbackChange,
+  type FeedbackOutcome,
+  type FeedbackReason,
+  type FeedbackRecord,
+  type FeedbackSent,
+  type FeedbackShown,
+  type FeedbackVersion,
+  type HelpsReason,
+  type VersionInputs,
+} from "./feedbackStore";
 import { fmtNum, fmtSigned, fmtWhole, plural } from "./format";
 import { modelWarningRule } from "./notices";
+import { acceptSrText, acceptText, printedScore, throughText, underStep } from "./printed";
 import { INJURY_LABEL, PLATFORM_LABEL, posLabel } from "./labels";
 
 /** What the views read of the snapshot; currentWeek (the injury tags' week now) is optional so partial fixtures fit. */
@@ -305,8 +327,9 @@ export interface HelpsBothTagView {
 
 /**
  * The card's "Helps both" tag (planner reply to Checkpoint 7b, §7: "cards that help both get a small “Helps both” tag in every
- * sort"): on an evaluation that helps both teams as printed (benefit.ts helpsBoth: Helps you above 0, Helps them at least
- * config.benefit.helpsThemMin); null otherwise, and without the partner's numbers.
+ * sort"): on an evaluation that helps both teams as printed (benefit.ts helpsBoth: Helps you and Helps them each at least
+ * config.benefit.helpsThemMin; planner reply to Checkpoint 7c, answer 5); null otherwise, and without the partner's numbers.
+ * On a Trade Finder card the partner's line goes with it (CardContext.partnerLine; answer 3).
  */
 export function helpsBothTagOf(e: Pick<TradeEvaluation, "tradeScore" | "them">): HelpsBothTagView | null {
   if (!helpsBoth(e) || !e.them || e.them.helps === null) return null;
@@ -326,35 +349,9 @@ export function percentText(p: number): string {
   return `${Math.round(p * 100)}%`;
 }
 
-/** Under the display's step (config.acceptance.displayStep, 5%): an estimate the card prints as "<5%" (planner reply to Checkpoint 4b, answer 5). */
-function underStep(p: number): boolean {
-  return Number.isFinite(p) && p < config.acceptance.displayStep - 1e-9;
-}
-
-/**
- * An acceptance estimate as shown (§11: the nearest 5%), "<5%" for a model value under 5%: never rounded up to the step
- * (planner reply to Checkpoint 4b, answer 5). acceptance.displayAcceptance's number, which the minimum-chance filter and
- * the label read, is unchanged: only the words are.
- */
-export function acceptText(p: number): string {
-  if (underStep(p)) return `<${Math.round(config.acceptance.displayStep * 100)}%`;
-  return `${Math.round(displayAcceptance(p) * 100)}%`;
-}
-
-/** The same for screen readers: "under 5%" for "<5%", else the printed percent. */
-export function acceptSrText(p: number): string {
-  return underStep(p) ? `under ${Math.round(config.acceptance.displayStep * 100)}%` : acceptText(p);
-}
-
-/**
- * The chance a version goes through when the league's review could veto it, next to the chance they accept (the file
- * header): "about 20%" when it prints differently, "under 5%" when it prints "<5%" and the chance they accept doesn't;
- * null when both print the same (the reason that the league reviews trades says the rest).
- */
-export function throughText(pAccept: number, pComplete: number): string | null {
-  if (!Number.isFinite(pComplete) || acceptText(pComplete) === acceptText(pAccept)) return null;
-  return underStep(pComplete) ? acceptSrText(pComplete) : `about ${acceptText(pComplete)}`;
-}
+// The chance they accept as printed ("<5%" under 5%), for screen readers, and the chance it goes through (the file header):
+// src/lib/printed.ts since Checkpoint 7d, which the feedback export shares; re-exported here for the pages and scripts.
+export { acceptSrText, acceptText, throughText };
 
 /** A title chance with one decimal, as the planner writes it ("12.1%"); "<0.1%" and ">99.9%" when it only rounds there. */
 export function titleOddsText(p: number): string {
@@ -797,7 +794,9 @@ export interface TradeCardView {
   weekly: WeeklyLineView | null;
   /**
    * Checkpoint 7c (planner reply to Checkpoint 7b, §7): the partner's line after mine, "Helps them 24 · Their title odds 6.0% →
-   * 6.9% · Their playoff odds 41% → 45%" (themView); null without the partner's numbers. No weekly line for them.
+   * 6.9% · Their playoff odds 41% → 45%" (themView); null without the partner's numbers. No weekly line for them. Since
+   * Checkpoint 7d (planner reply to Checkpoint 7c, answer 3) a Trade Finder card shows it only when it helps both teams
+   * (CardContext.partnerLine "helpsBoth"); the Analyzer's card whenever the partner's numbers exist.
    */
   them: ThemView | null;
   /** The "Helps both" tag with the card's heading (helpsBothTagOf), in every sort and on the Analyzer's card; null when it doesn't help both. */
@@ -836,6 +835,12 @@ export interface TradeCardView {
   pitch: string;
   /** The Trade Analyzer, prefilled with this trade. */
   analyzerHref: string;
+  /**
+   * What the card prints, as its feedback record keeps it (Checkpoint 7d; planner reply to Checkpoint 7c, answer 1:
+   * feedbackStore.ts FeedbackShown, shownOf): its three numbers, odds lines, weekly line and, when the card shows it, the
+   * partner's line, each the card's own text. Every press on the card carries it (cardPress); the export holds it.
+   */
+  shown: FeedbackShown;
   /** The evaluation behind the card (the feedback buttons save its numbers). */
   evaluation: TradeEvaluation;
 }
@@ -888,13 +893,20 @@ export interface CardContext {
   goal?: Goal | null | undefined;
   /** The Trade Analyzer's card: with "Details" (what Helps you is worth in points a week). */
   details?: boolean | undefined;
+  /**
+   * Which cards show the partner's line (TradeCardView.them; planner reply to Checkpoint 7c, answer 3: "show “Helps them”
+   * and their odds only on cards that help both. The Analyzer always shows them, including when the trade hurts the other
+   * team."): "helpsBoth", the Trade Finder's cards, only a card that helps both teams (benefit.ts helpsBoth, the tag's
+   * rule); "always" (the default), the Trade Analyzer's card, whenever the partner's numbers exist ("Helps them 0" when the
+   * trade costs them).
+   */
+  partnerLine?: "always" | "helpsBoth" | undefined;
 }
 
-/** A 0–100 score as printed: its number; 0 for a trade that doesn't help me (B ≤ 0); "—" when B is unknown. */
+/** A 0–100 score as printed (printed.ts printedScore): its number; 0 for a trade that doesn't help me (B ≤ 0); "—" when B is unknown. */
 function scoreView(score: number | null, b: number | null): NumberView {
-  if (score !== null && Number.isFinite(score)) return { value: String(score), srText: null };
-  if (b !== null && Number.isFinite(b) && b <= 0) return { value: "0", srText: null };
-  return { value: "—", srText: "not scored: the season couldn't be simulated" };
+  const value = printedScore(score, b);
+  return { value, srText: value === "—" ? "not scored: the season couldn't be simulated" : null };
 }
 
 /**
@@ -1706,14 +1718,21 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
   if (e.flags.marketCheck) flags.push({ kind: e.flags.hiddenByMarket ? "hiddenByMarket" : "market", text: marketCheckText(e, snapshot, ctx.fantasyCalc) });
   if (e.b === null && !e.flags.hiddenByBenefit) flags.push({ kind: "noOdds", text: "Not scored: your playoff odds couldn't be worked out, so this trade has no Helps you or Overall number." });
 
+  // The partner's line (Checkpoint 7c), on a Trade Finder card only when the trade helps both teams (planner reply to
+  // Checkpoint 7c, answer 3: CardContext.partnerLine), on the Analyzer's whenever the partner's numbers exist.
+  const helpsBothTag = helpsBothTagOf(e);
+  const them = ctx.partnerLine === "helpsBoth" && !helpsBothTag ? null : themView(e, ctx.reward);
+
   // My odds before and after sit next to the three numbers (oddsViews), not among these. No trade value number (the file
   // header): long-term value in words, and the "Values: FantasyCalc" credit after them (valuesCredit).
   const facts: FactView[] = [{ label: "Your lineup", value: `${perWeek(e.dPPW)} in the regular season, ${fmtSigned(e.dPPWPlayoffs, 1)} in the playoffs` }];
   const longTerm = longTermFact(e);
   if (longTerm) facts.push(longTerm);
   facts.push({ label: "Their lineup", value: perWeek(e.partnerDeltaLineup) });
-  // What Helps them counts besides their odds in a dynasty or keeper league (Checkpoint 7c; theirLongTermFact).
-  const theirLongTerm = theirLongTermFact(e);
+  // What Helps them counts besides their odds in a dynasty or keeper league (Checkpoint 7c; theirLongTermFact), beside the
+  // partner's line only (⚠️ ours, Checkpoint 7d: it says why a Helps them reads as it does, so a Finder card without the line
+  // shows neither).
+  const theirLongTerm = them ? theirLongTermFact(e) : null;
   if (theirLongTerm) facts.push(theirLongTerm);
   // The scale's wording without the search's or the Analyzer's scale: the league type, and whether long-term values loaded.
   const scaleFallback: ScaleFallback = { leagueType: snapshot.settings.leagueType, longTermOn: !e.dynMissing };
@@ -1746,6 +1765,18 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
     return t ? { text: injuryTagText(t, end, source), tone: INJURY_TONE[t.status] } : null;
   };
 
+  const numbers: TradeCardView["numbers"] = {
+    // The scale in a tooltip (planner reply to Checkpoint 4c, A2: "63 ≈ as good as adding 3 points a week …"; the mix with
+    // long-term values: planner reply to Checkpoint 7a, §2 question 6).
+    helps: { ...scoreView(e.tradeScore, e.b), title: helpsScaleText(ctx.helpsScale, scaleFallback) },
+    accept: { value: acceptText(e.pAccept), srText: underStep(e.pAccept) ? acceptSrText(e.pAccept) : null },
+    acceptLabel: `Est. · ${e.acceptLabel}`,
+    acceptNote: through ? `Counting ${REVIEW_WORDS[snapshot.settings.tradeReview]}, ${through} it goes through.` : null,
+    overall: scoreView(e.overall, e.b),
+  };
+  const odds = oddsViews(e, ctx.baseline, ctx.reward);
+  const weekly = weeklyLine(e.detail.winChance);
+
   return {
     key: e.key,
     partnerId: e.proposal.partnerId,
@@ -1757,20 +1788,12 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
       const view = { ...assetView(a, snapshot), status: statusOf(a, "get") };
       return a.kind === "player" ? { ...view, tag: harderToGetOf(e.detail.premium?.find((f) => f.playerId === a.id)) } : view;
     }),
-    numbers: {
-      // The scale in a tooltip (planner reply to Checkpoint 4c, A2: "63 ≈ as good as adding 3 points a week …"; the mix with
-      // long-term values: planner reply to Checkpoint 7a, §2 question 6).
-      helps: { ...scoreView(e.tradeScore, e.b), title: helpsScaleText(ctx.helpsScale, scaleFallback) },
-      accept: { value: acceptText(e.pAccept), srText: underStep(e.pAccept) ? acceptSrText(e.pAccept) : null },
-      acceptLabel: `Est. · ${e.acceptLabel}`,
-      acceptNote: through ? `Counting ${REVIEW_WORDS[snapshot.settings.tradeReview]}, ${through} it goes through.` : null,
-      overall: scoreView(e.overall, e.b),
-    },
-    odds: oddsViews(e, ctx.baseline, ctx.reward),
-    weekly: weeklyLine(e.detail.winChance),
+    numbers,
+    odds,
+    weekly,
     // The partner's line and the "Helps both" tag (Checkpoint 7c, planner reply to Checkpoint 7b, §7), from the same runs as mine.
-    them: themView(e, ctx.reward),
-    helpsBothTag: helpsBothTagOf(e),
+    them,
+    helpsBothTag,
     details: ctx.details ? detailsView(e, snapshot.settings.leagueType, ctx.helpsScale) : null,
     steps: stepsView(e.steps, snapshot),
     planB: planBView(e.planB, snapshot, { cardTags: tags, knownTags: ctx.knownTags, seasonEnd: end, baseline: ctx.baseline, reward: ctx.reward }),
@@ -1786,8 +1809,48 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
     reasons: flagged.length ? e.reasons.filter((r) => !INJURED_REASON.test(r)) : [...e.reasons],
     pitch: e.pitch,
     analyzerHref: analyzerHref(e.proposal),
+    // What the card prints, for its feedback record and the export (Checkpoint 7d): its own words, never a model number.
+    shown: shownOf({ numbers, through, label: e.acceptLabel, odds, weekly, them }),
     evaluation: e,
   };
+}
+
+/**
+ * What a card prints, as its feedback record keeps it (TradeCardView.shown; Checkpoint 7d, planner reply to Checkpoint 7c,
+ * answer 1: "the numbers on its card: Helps you, Helps them, the chance they accept, Overall and the odds lines"): Helps you,
+ * the chance they accept with its label (the word alone: "Est." goes with every one), the chance it goes through when the
+ * card says it (throughText), Overall, my odds lines ("Title odds 12.1% → 13.4%"), my weekly line, and Helps them with their
+ * odds when the card shows the partner's line, each as the card prints it. feedbackStore.ts parseFeedbackShown keeps exactly
+ * these forms (tradeView.test.ts checks every card's passes whole).
+ */
+export function shownOf(card: {
+  numbers: Pick<TradeCardView["numbers"], "helps" | "accept" | "overall">;
+  through: string | null;
+  label: string;
+  odds: readonly OddsView[];
+  weekly: WeeklyLineView | null;
+  them: ThemView | null;
+}): FeedbackShown {
+  const line = (o: OddsView) => `${o.label} ${o.value}`;
+  return {
+    helps: card.numbers.helps.value,
+    chance: card.numbers.accept.value,
+    label: card.label,
+    ...(card.through ? { through: card.through } : {}),
+    overall: card.numbers.overall.value,
+    odds: card.odds.map(line),
+    ...(card.weekly ? { weekly: card.weekly.text } : {}),
+    ...(card.them ? { helpsThem: card.them.helps.value, theirOdds: card.them.odds.map(line) } : {}),
+  };
+}
+
+/**
+ * A press on a card's feedback buttons as it's saved (Checkpoint 7d): the press with what the card prints (its `shown`), so
+ * the record it makes keeps it (feedbackStore.ts applyFeedback; the export holds it). TradeCard.tsx sends every press through
+ * it.
+ */
+export function cardPress(change: FeedbackChange, card: Pick<TradeCardView, "shown">): FeedbackChange {
+  return { ...change, shown: card.shown };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2163,8 +2226,9 @@ export function buildFinderView(args: {
   // reward its B was weighed by (Checkpoint 7c: the cards' top-N odds line, the words naming the prizes).
   const helpsScale = result.helpsScale ?? null;
   const reward = result.reward ?? null;
+  // The partner's line only on the cards that help both teams (planner reply to Checkpoint 7c, answer 3), in every sort.
   const sorted = listed.map((e) =>
-    buildTradeCard(e, { snapshot, baseline, reward, lastNflWeek: args.lastNflWeek, knownTags, fantasyCalc: args.fantasyCalc, goal: args.goal, blendOn: args.blendOn, helpsScale }),
+    buildTradeCard(e, { snapshot, baseline, reward, lastNflWeek: args.lastNflWeek, knownTags, fantasyCalc: args.fantasyCalc, goal: args.goal, blendOn: args.blendOn, helpsScale, partnerLine: "helpsBoth" }),
   );
   // A Plan B that is also a card of its own says so, with that card's place in this sort (review of track F: the same
   // trade showed twice without a word).
@@ -2374,32 +2438,10 @@ export function readAnalyzerFrom(search: string | null | undefined): AnalyzerFro
 export const FROM_PLAN_B_NOTE =
   "You opened this from “If they say no, try:” on a trade idea, so it's shown as one offer, without a smaller first offer to try before it: they've just turned down a trade with the same team.";
 
-/**
- * A trade's key read back into a proposal (TradeEvaluation.key, evaluate.ts proposalKey: "<partner>|give:<ids>|get:<ids>",
- * each side's assets sorted, a pick as "pick:<season>:<round>:<original team>"; the test fixtures' "<partner>|<ids>|<ids>"
- * too), for naming a recorded version the card no longer shows (CardFeedback.versionWords); null when it isn't one.
- */
-export function proposalFromKey(key: string | null | undefined): TradeProposal | null {
-  if (typeof key !== "string") return null;
-  const parts = key.split("|");
-  if (parts.length !== 3) return null;
-  const [partnerId = "", give = "", get = ""] = parts;
-  if (!partnerId) return null;
-  const side = (text: string, prefix: string): TradeAsset[] | null => {
-    const list = text.startsWith(prefix) ? text.slice(prefix.length) : text;
-    if (!list) return [];
-    const out: TradeAsset[] = [];
-    for (const id of list.split(",")) {
-      if (!id) return null;
-      const pick = /^pick:(\d+):(\d+):(.+)$/.exec(id);
-      out.push(pick ? { kind: "pick", season: Number(pick[1]), round: Number(pick[2]), originalTeamId: pick[3] ?? "" } : { kind: "player", id });
-    }
-    return out;
-  };
-  const g = side(give, "give:");
-  const r = side(get, "get:");
-  return g && r && g.length + r.length > 0 ? { partnerId, give: g, get: r } : null;
-}
+// A trade's key read back into a proposal, for naming a recorded version the card no longer shows (CardFeedback.versionWords):
+// feedbackStore.ts proposalFromKey since Checkpoint 7d (the export reads a version's players from its key too); re-exported
+// here, where feedbackShare.ts and the tests read it.
+export { proposalFromKey };
 
 /** Another team in this league (never mine), or null. */
 export function partnerOrNull(snapshot: Pick<LeagueSnapshot, "teams">, myTeamId: string | null, id: string | null | undefined): string | null {
@@ -2565,7 +2607,7 @@ export function buildAnalysisView(
   const reward = analysis.reward ?? null;
   const card =
     analysis.evaluation && !analysis.illegal
-      ? buildTradeCard(analysis.evaluation, { snapshot, baseline, reward, lastNflWeek, fantasyCalc: opts.fantasyCalc, goal: opts.goal, blendOn: opts.blendOn, details: true, helpsScale })
+      ? buildTradeCard(analysis.evaluation, { snapshot, baseline, reward, lastNflWeek, fantasyCalc: opts.fantasyCalc, goal: opts.goal, blendOn: opts.blendOn, details: true, helpsScale, partnerLine: "always" })
       : null;
   const odds = card ? baselineLines(baseline, "analyzer", reward) : null;
   // A note the card's reasons already say isn't said twice.

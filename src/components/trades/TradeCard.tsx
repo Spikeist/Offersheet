@@ -48,14 +48,18 @@
  * after its heading (in every sort, and on the Analyzer's card; why on hover), outside the heading, so the card is still
  * named by "Trade with …" alone; and after my odds and my weekly line, the partner's line in the format of mine ("Helps
  * them 24 · Their title odds 6.0% → 6.9% · Their playoff odds 41% → 45%", each item kept on one line, the arrow read as
- * "from … to", the planner's tooltip on "Helps them"; OddsLines). A Plan B box shows neither.
+ * "from … to", the planner's tooltip on "Helps them"; OddsLines). A Plan B box shows neither. Since Checkpoint 7d (planner
+ * reply to Checkpoint 7c, answer 3) a Trade Finder card shows the partner's line only with the tag, the Analyzer's card
+ * whenever it has one (the view decides: tradeView.ts CardContext.partnerLine).
+ * Checkpoint 7d (planner reply to Checkpoint 7c, answer 1): every press on the feedback buttons carries what the card prints
+ * (tradeView.ts cardPress, TradeCardView.shown), which the record it makes keeps for the export.
  * It's an <article> named by its heading; the heading level is the page's to choose.
  */
 import Link from "next/link";
 import { Fragment, useId } from "react";
 import type { FeedbackSaveResult } from "@/lib/feedbackShare";
 import type { FeedbackChange } from "@/lib/feedbackStore";
-import type { AssetView, CardFeedback, DetailsView, HelpsBothTagView, InjuryTone, NumberView, OddsView, PlanBView, StepsView, ThemView, TradeCardView, WeeklyLineView } from "@/lib/tradeView";
+import { cardPress, type AssetView, type CardFeedback, type DetailsView, type HelpsBothTagView, type InjuryTone, type NumberView, type OddsView, type PlanBView, type StepsView, type ThemView, type TradeCardView, type WeeklyLineView } from "@/lib/tradeView";
 import { CopyButton } from "../CopyButton";
 import { HarderToGetBadge } from "../league/HarderToGetBadge";
 import { ValuesCredit } from "../league/ValuesCredit";
@@ -329,7 +333,8 @@ export interface TradeCardProps {
   feedback: CardFeedback;
   /**
    * Saves one press (the page: useFeedback.ts saveFeedbackPress); its promise says whether the browser kept it, and
-   * whether an anonymous copy is on its way (Phase 7a: the card's one-time note, FeedbackControls).
+   * whether an anonymous copy is on its way (Phase 7a: the card's one-time note, FeedbackControls). Checkpoint 7d: the press
+   * comes with what the card prints (FeedbackChange.shown; tradeView.ts cardPress).
    */
   onFeedback: (change: FeedbackChange) => FeedbackSaveResult | Promise<FeedbackSaveResult>;
   /** "Open in Analyzer" (the Finder's cards; Plan B's too). */
@@ -451,7 +456,8 @@ export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedbac
       {/* After the card's own content (review of Phase 4b: its flags read as the Plan B's when they sat under it). */}
       {card.planB ? <PlanBBox planB={card.planB} name={name} showLink={showAnalyzerLink} onOpen={onOpenAnalyzer} /> : null}
 
-      <FeedbackControls feedback={feedback} onChange={onFeedback} tradeName={name} versions={card.versions} />
+      {/* Each press carries what this card prints, for the record and the export (Checkpoint 7d: cardPress). */}
+      <FeedbackControls feedback={feedback} onChange={(change) => onFeedback(cardPress(change, card))} tradeName={name} versions={card.versions} />
     </article>
   );
 }

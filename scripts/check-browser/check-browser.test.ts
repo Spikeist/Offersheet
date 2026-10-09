@@ -40,6 +40,7 @@ import { DEFAULT_MAX_SEARCH_SECONDS, SECOND_LEAGUE, USAGE, parseArgs, resolveArg
 import { chromeArgs, chromeCandidates, devtoolsUrl, exited, findChrome, killTree, waitForDevtools } from "./chrome";
 import {
   APP_PAGES as CONTRACT_APP_PAGES,
+  analyzerPartnerLineProblems,
   attributesOf,
   BLEND_WORDS,
   bareValueNumbers,
@@ -48,9 +49,15 @@ import {
   codeTokens,
   creditProblems,
   decodeEntities,
+  DYNASTYPROCESS_DATA_URL,
+  dynastyProcessLinkIssues,
+  dynastyProcessLinksInHtml,
   fantasyCalcLinkIssues,
   fantasyCalcLinksInHtml,
+  finderPartnerLineProblems,
   foreignResourcesInHtml,
+  isDynastyProcessHref,
+  linksInHtml,
   freshnessLineOk,
   headlineTopProblems,
   helpsBothListProblems,
@@ -897,6 +904,42 @@ describe("Checkpoint 7b: FantasyCalc's links in the server's HTML (5.4)", () => 
   });
 });
 
+describe("Checkpoint 7d: every page's footer credits DynastyProcess with a link to its data (planner reply to Checkpoint 7c, “Also”)", () => {
+  const footer = (a: string) => `<!DOCTYPE html><html><body><main><p>Page</p></main><footer class="mt-12"><p>Projections and stats: Sleeper and ESPN · Player IDs: ${a} · NFL schedule: ESPN</p></footer></body></html>`;
+  const dp = `<a href="${DYNASTYPROCESS_DATA_URL}" target="_blank" rel="noopener" class="font-semibold">DynastyProcess</a>`;
+
+  it("passes the real footer, rendered by React on the server, reading the link's words", () => {
+    const rendered = dynastyProcessLinksInHtml(`<html><body>${renderToStaticMarkup(createElement(SiteFooter))}</body></html>`);
+    expect(rendered).toEqual([{ href: DYNASTYPROCESS_DATA_URL, rel: "noopener", referrerPolicy: null, inFooter: true, hiddenBy: null, text: "DynastyProcess" }]);
+    expect(dynastyProcessLinkIssues(rendered)).toEqual([]);
+    expect(dynastyProcessLinkIssues(dynastyProcessLinksInHtml(footer(dp)))).toEqual([]);
+    expect(DYNASTYPROCESS_DATA_URL).toBe("https://github.com/dynastyprocess/data");
+  });
+
+  it("fails a footer without it, a link elsewhere, the wrong address, rel or words, or one hidden without JavaScript", () => {
+    const issues = (a: string) => dynastyProcessLinkIssues(dynastyProcessLinksInHtml(footer(a)));
+    expect(issues("DynastyProcess")).toEqual(["no link to DynastyProcess's data in the footer"]);
+    expect(dynastyProcessLinkIssues(dynastyProcessLinksInHtml(`<main>${dp}</main><footer><p>Player IDs: DynastyProcess</p></footer>`))).toEqual(["no link to DynastyProcess's data in the footer"]);
+    expect(issues('<a href="https://github.com/dynastyprocess" rel="noopener">DynastyProcess</a>')).toEqual([`the footer's DynastyProcess link goes to https://github.com/dynastyprocess, not ${DYNASTYPROCESS_DATA_URL}`]);
+    expect(issues(`<a href="${DYNASTYPROCESS_DATA_URL}" rel="noopener noreferrer">DynastyProcess</a>`)).toEqual(['the footer\'s DynastyProcess link: rel is "noopener noreferrer", not exactly "noopener"']);
+    expect(issues(`<a href="${DYNASTYPROCESS_DATA_URL}">DynastyProcess</a>`)).toEqual(['the footer\'s DynastyProcess link: rel is missing, not exactly "noopener"']);
+    expect(issues(`<a href="${DYNASTYPROCESS_DATA_URL}" rel="noopener">their data</a>`)).toEqual(['the footer\'s DynastyProcess link reads "their data", not "DynastyProcess"']);
+    expect(issues(`<details><summary>Credits</summary>${dp}</details>`)).toEqual(["the footer's DynastyProcess link is hidden without JavaScript (inside details)"]);
+    // A script's copy of the markup isn't a link; words with markup and entities inside read as shown.
+    expect(dynastyProcessLinksInHtml(`<footer></footer><script>self.__next_f.push([1,"${dp.replace(/"/g, '\\"')}"])</script>`)).toEqual([]);
+    expect(linksInHtml(`<footer><a href="${DYNASTYPROCESS_DATA_URL}" rel="noopener"><span>Dynasty</span>Process &amp; co</a></footer>`, isDynastyProcessHref)[0]?.text).toBe("Dynasty Process & co");
+  });
+
+  it("knows DynastyProcess's addresses, and reads FantasyCalc's links as before", () => {
+    expect([DYNASTYPROCESS_DATA_URL, "https://github.com/dynastyprocess", "http://www.github.com/dynastyprocess/data/blob/master/x.csv"].every(isDynastyProcessHref)).toBe(true);
+    expect(["https://github.com/dynastyprocessx", "https://github.com/someone/dynastyprocess", "/dynastyprocess", null, undefined].some(isDynastyProcessHref)).toBe(false);
+    // The shared reader leaves FantasyCalc's link as fantasyCalcLinksInHtml always read it (no words in its shape).
+    const fc = '<footer><a href="https://fantasycalc.com" rel="noopener" referrerPolicy="origin">FantasyCalc</a></footer>';
+    expect(fantasyCalcLinksInHtml(fc)).toEqual([{ href: "https://fantasycalc.com", rel: "noopener", referrerPolicy: "origin", inFooter: true, hiddenBy: null }]);
+    expect(linksInHtml(fc, isFantasyCalcHref)[0]?.text).toBe("FantasyCalc");
+  });
+});
+
 describe("Checkpoint 7c: nothing in a page's server HTML loads from another site (prod:deploy, planner reply to Checkpoint 7b, §2)", () => {
   const origin = "https://offersheet.vercel.app";
 
@@ -1159,18 +1202,22 @@ describe("Checkpoint 7c: “Helps both” (planner reply to Checkpoint 7b, §7)"
     expect(sortInversions("Helps both", [card("29"), card("50")], "helpsBoth")).toEqual(["Helps both: idea 1 shows 29, idea 2 shows 50"]);
   });
 
-  it("the tag on exactly the cards that help both as printed: Helps you above 0, Helps them at least helpsThemMin", () => {
+  it("the tag on exactly the cards that help both as printed: Helps you and Helps them each at least helpsThemMin (Helps you since Checkpoint 7d, planner reply to Checkpoint 7c, answer 5)", () => {
     expect(cardHelpsBoth(read("39", String(MIN), true), MIN)).toBe(true);
+    expect(cardHelpsBoth(read(String(MIN), String(MIN), true), MIN)).toBe(true);
     for (const [helps, helpsThem] of [
       ["39", String(MIN - 1)],
+      [String(MIN - 1), "40"],
+      ["2", "14"],
       ["0", "40"],
       ["—", "40"],
       ["39", null],
       [null, "40"],
     ] as const)
       expect(cardHelpsBoth(read(helps, helpsThem, false), MIN), `${helps} / ${helpsThem}`).toBe(false);
-    const cards = [read("39", "24", true), read("39", "4", false), read("0", "24", false), read("39", null, false)];
+    const cards = [read("39", "24", true), read("39", "4", false), read("0", "24", false), read("39", null, false), read("2", "14", false)];
     expect(helpsBothTagProblems(cards, MIN)).toEqual([]);
+    expect(helpsBothTagProblems([read("2", "14", true)], MIN)).toEqual(["idea 1 shows “Helps both” at Helps you 2, Helps them 14"]);
     expect(helpsBothTagProblems([read("39", "4", true), read("39", "24", false)], MIN)).toEqual([
       "idea 1 shows “Helps both” at Helps you 39, Helps them 4",
       "idea 2 has no “Helps both” tag at Helps you 39, Helps them 24",
@@ -1190,8 +1237,12 @@ describe("Checkpoint 7c: “Helps both” (planner reply to Checkpoint 7b, §7)"
     const result = searchResult([tagged, short], { helpsBoth: { trades: [tagged], qualifying: 1, byChance: 0, lowerWouldAdd: false, dropped: { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 } } });
     for (const sort of SORT_OPTIONS.map((o) => o.value)) {
       const view = buildFinderView({ result, sort, snapshot, partnerId: null });
-      const reads = view.cards.map((c) => read(c.numbers.helps.value, c.them?.helps.value ?? null, c.helpsBothTag !== null));
+      const reads = view.cards.map((c) => ({ ...read(c.numbers.helps.value, c.them?.helps.value ?? null, c.helpsBothTag !== null), planBHelpsThem: JSON.stringify(c.planB ?? {}).includes("Helps them") }));
       expect(helpsBothTagProblems(reads, MIN), sort).toEqual([]);
+      // Checkpoint 7d (planner reply to Checkpoint 7c, answer 3): the partner's line only with the tag (the short card has neither).
+      expect(finderPartnerLineProblems(reads), sort).toEqual([]);
+      const shortCard = view.cards.find((c) => c.key === "s");
+      if (shortCard) expect(shortCard.them, sort).toBeNull();
       if (sort === "helpsBoth") {
         expect(helpsBothListProblems(reads, MIN)).toEqual([]);
         expect(helpsBothStatusOk(view.statusText, view.cards.length)).toBe(true);
@@ -1215,6 +1266,40 @@ describe("Checkpoint 7c: “Helps both” (planner reply to Checkpoint 7b, §7)"
     // The partner's labels against a top-3 league, and a list that reads otherwise.
     expect(oddsLabelProblems([["Their title odds", "Their top 3 odds", "Their playoff odds"]], 3, undefined, "theirs")).toEqual([]);
     expect(oddsLabelProblems([["Title odds", "Playoff odds"]], null, (i) => `idea ${i + 1}`, "theirs")).toEqual(["idea 1: “Title odds” · “Playoff odds”"]);
+  });
+
+  it("Checkpoint 7d: the partner's line on a Trade Finder card exactly with the tag, never in a Plan B box; on the Analyzer's card whatever it is (planner reply to Checkpoint 7c, answer 3)", () => {
+    const line = (helps: string, helpsThem: string | null, helpsBothTag: boolean, planBHelpsThem = false) => ({ helps, helpsThem, helpsBothTag, planBHelpsThem });
+    expect(finderPartnerLineProblems([line("39", "24", true), line("39", null, false), line("2", null, false)])).toEqual([]);
+    expect(finderPartnerLineProblems([line("39", "4", false), line("39", null, true), line("39", "24", true, true)], (i) => `card ${i + 1}`)).toEqual([
+      "card 1 shows “Helps them 4” without the “Helps both” tag",
+      "card 2 is tagged “Helps both” without the partner's line",
+      "card 3's “If they say no, try:” shows a partner's line",
+    ]);
+    // The Analyzer: the line whatever it is, the Finder's number when the Finder showed one, the same tag.
+    expect(analyzerPartnerLineProblems(line("39", "0", false), { helpsThem: null, helpsBothTag: false })).toEqual([]);
+    expect(analyzerPartnerLineProblems(line("39", "24", true), { helpsThem: "24", helpsBothTag: true })).toEqual([]);
+    expect(analyzerPartnerLineProblems(line("39", null, false), { helpsThem: null, helpsBothTag: false })).toEqual(["the Analyzer's card has no partner's line"]);
+    expect(analyzerPartnerLineProblems(line("39", "22", false), { helpsThem: "24", helpsBothTag: true })).toEqual([
+      "the Analyzer's card reads Helps them 22, the Trade Finder's 24",
+      "the Analyzer's card is not tagged “Helps both”, the Trade Finder's is",
+    ]);
+    // The app's own pages: a Finder card that doesn't help both (Helps them 4) shows no line, its Analyzer card "Helps them 4".
+    const snapshot = tradeSnapshot();
+    const e = withThem(evaluation({ key: "x", b: 6 }), 4);
+    const finderCard = buildFinderView({ result: searchResult([e]), sort: "overall", snapshot, partnerId: null }).cards[0];
+    const analyzerCard = buildAnalysisView({ evaluation: e, illegal: null, notes: [] }, snapshot).card;
+    const asRead = (c: typeof finderCard) => line(c?.numbers.helps.value ?? "", c?.them?.helps.value ?? null, !!c?.helpsBothTag);
+    expect(finderPartnerLineProblems([asRead(finderCard)])).toEqual([]);
+    expect(asRead(finderCard).helpsThem).toBeNull();
+    expect(analyzerPartnerLineProblems(asRead(analyzerCard ?? undefined), asRead(finderCard))).toEqual([]);
+    expect(asRead(analyzerCard ?? undefined).helpsThem).toBe("4");
+    // The reader keeps a Plan B box apart: the box is the parent of its "If they say no, try:" heading, as TradeCard renders it.
+    const planB = planBFixture({ partnerId: "2", give: ["105"], get: ["203"] });
+    const boxed = renderToStaticMarkup(createElement(TradeCard, { card: buildTradeCard(withThem(evaluation({ planB }), 24), { snapshot }), rank: 1, feedback: noFeedback, onFeedback: saved }));
+    expect(boxed).toMatch(/<div class="[^"]*"><p class="font-bold">If they say no, try:<\/p>/);
+    expect(CARD_HELPERS).toContain('txt(p) === "If they say no, try:"');
+    expect(CARD_HELPERS).toContain("planBHelpsThem: box ? !!partnerLine(box, null) : false");
   });
 
   it("FINDER_DONE reads every status line the Finder's done state can show, in every sort, and none of a search under way", () => {

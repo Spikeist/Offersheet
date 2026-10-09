@@ -115,8 +115,10 @@ const A = "font-semibold underline underline-offset-2";
  *     schema (feedbackSink.ts FeedbackEventSchema) takes and no amount, so the planner's words: "how your league splits its
  *     prizes (as shares, never amounts)".
  *   - Your rights (planner reply to Checkpoint 7b, section 3; shown whatever the features): asked, we can find only what a
- *     person points us to: mail from their address (the Gmail inbox), and their anonymous copies by the random codes (`rid`)
- *     in a file they export (src/lib/feedbackStore.ts keeps each record's). Everything else is filed under codes made with
+ *     person points us to: mail from their address (the Gmail inbox), and their anonymous copies by what a file they export
+ *     holds (since Checkpoint 7d's export, version 3, no share code, `rid`: its trades, days and the card's printed numbers,
+ *     matched against each copy's players, UTC day and printed Helps you, chance and Overall; src/lib/feedbackStore.ts
+ *     feedbackExport). Everything else is filed under codes made with
  *     the server's secret, which no one reads (SESSION_SECRET is never shown), held in a server's memory for minutes, or
  *     names no one, and goes on its own schedule (above). ⚠️ No tool deletes a copy by its code yet: by hand, in Upstash's
  *     console.

@@ -583,8 +583,8 @@ export interface TradeSearchResult {
 /**
  * The "Helps both" list (Checkpoint 7c; planner reply to Checkpoint 7b, §7: "only trades that help both teams, sorted by Helps
  * you, highest first … the chance filter and the diversity caps still apply"; search.ts finish): the finalists, with the
- * helps-both finalists among them, that help both teams on their final numbers (benefit.ts helpsBoth: Helps you above 0 and
- * Helps them at least config.benefit.helpsThemMin, both as printed), in Helps-you order (B, highest first), after the §10
+ * helps-both finalists among them, that help both teams on their final numbers (benefit.ts helpsBoth: Helps you and Helps
+ * them each at least config.benefit.helpsThemMin, both as printed), in Helps-you order (B, highest first), after the §10
  * guards and the minimum chance, through §13's diversity rules in that order (rank.ts RankOptions order "helps", keep), and
  * the folding of cards that show one plan. A card the Overall list shows too is the very same evaluation (one set of steps,
  * one Plan B and one set of words per card).

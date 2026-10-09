@@ -18,7 +18,8 @@
  * value comparison (review of Phase 7b): Settings is read for one. Checkpoint 7c (planner reply to Checkpoint 7b, §7: "No
  * FantasyCalc numbers anywhere in it"): the "Helps both" sort, its helper line, the tag and the partner's line on the Finder's
  * cards and the Analyzer's, a dynasty card's "Their long-term value" in words, and How to read's paragraph on them in every
- * league type (review of the "Helps both" UI, helps-both-ui-1). Every name is made up.
+ * league type (review of the "Helps both" UI, helps-both-ui-1). Checkpoint 7d (planner reply to Checkpoint 7c, answer 1): the
+ * feedback export, a file users open, which holds what the cards printed. Every name is made up.
  */
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -43,10 +44,11 @@ import type { LeagueSnapshot } from "@/engine/model";
 import { PROTECT_VALUE_LEVELS, defaultTradeSettings } from "@/engine/settings";
 import { acceptanceTerms, planBFixture, type EvaluationFixture } from "@/engine/tradeTestFixtures";
 import type { PartnerNumbers, TradeEvaluation } from "@/engine/tradeModel";
+import { applyFeedback, feedbackExportText, type FeedbackRecord } from "./feedbackStore";
 import { buildImportReport } from "./importReport";
 import { buildLeagueView } from "./leagueView";
 import type { CardFeedback } from "./tradeView";
-import { buildAnalysisView, buildFinderView, buildTradeCard, fantasyCalcLookup } from "./tradeView";
+import { buildAnalysisView, buildFinderView, buildTradeCard, cardPress, fantasyCalcLookup } from "./tradeView";
 
 /**
  * Every sum and difference of up to four values on either side (|a × 7,777 + b × 8,888| for |a|, |b| ≤ 4, but the two
@@ -326,6 +328,29 @@ describe("no trade value shows on the trade pages (planner reply to Checkpoint 7
       expect(html).toContain(">Helps them<");
       expect(html.includes(">Their long-term value<"), leagueType).toBe(leagueType === "dynasty");
     }
+  });
+
+  it("shows none in the feedback export, which holds what the cards printed (Checkpoint 7d; planner reply to Checkpoint 7c, answer 1)", () => {
+    // A press on every card (the version sent, then a report with a note), and one record made before 7d (no printed words
+    // kept: the export prints its own numbers as its card did).
+    let records: FeedbackRecord[] = [];
+    for (const [trades, snap] of [
+      [redraft, snapshot],
+      [dynastyTrades, dynasty],
+    ] as const) {
+      for (const e of trades) {
+        const c = buildTradeCard(e, { snapshot: snap, fantasyCalc: FC, baseline: { pPlayoffs: 0.62, pTitle: 0.09 } });
+        records = applyFeedback(records, { leagueKey: "espn:0000abcd", evaluation: e, change: cardPress({ outcome: "sent", sent: c.versions[c.versions.length - 1] }, c), at: "2026-10-09T18:00:00.000Z" });
+        records = applyFeedback(records, { leagueKey: "espn:0000abcd", evaluation: e, change: cardPress({ report: { reason: "other", note: "Asked twice." } }, c), at: "2026-10-09T18:05:00.000Z" });
+      }
+    }
+    records = applyFeedback(records, { leagueKey: "espn:0000abcd", evaluation: trade({ key: "before" }), change: { outcome: "rejected" }, at: "2026-10-09T18:10:00.000Z" });
+    expect(records.filter((r) => r.shown)).toHaveLength(redraft.length + dynastyTrades.length);
+    const text = feedbackExportText(records, "2026-10-10T00:00:00.000Z");
+    expectHidden("the feedback export", text);
+    for (const s of stringsOf(JSON.parse(text))) expectHidden("the feedback export's words", s);
+    // The cards' printed numbers are there (Helps you, the chance, Overall), never a value of theirs.
+    expect(text).toContain('"chance": "');
   });
 
   it("shows none in the Trade Analyzer's result, Details included", () => {

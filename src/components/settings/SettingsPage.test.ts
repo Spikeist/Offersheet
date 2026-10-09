@@ -16,6 +16,7 @@ import { leagueStoreStateOf, savedLeagueId, type LeagueStoreState } from "@/lib/
 import { modelKey, type StoredModel } from "@/lib/modelStore";
 import { leagueKey } from "@/lib/settingsStore";
 import {
+  EXPORT_TEXT,
   FEEDBACK_SCOPE_TEXT,
   FeedbackCardView,
   SHARE_LABEL,
@@ -447,11 +448,21 @@ describe("the feedback card", () => {
     expect(textOf(asking)).toContain("Delete the feedback on 4 trade ideas in both leagues? You can't undo this. Anonymous copies already sent aren't affected.");
   });
 
-  it("says what the exported file holds: ID numbers, numbers and notes, no names, leagues only numbered (review)", () => {
+  it("says what the exported file holds: what you saw and entered, ID numbers, no names, leagues only numbered (Checkpoint 7d; planner reply to Checkpoint 7c, answer 1)", () => {
     const text = textOf(render({ feedback: records }));
-    expect(text).toContain("The file holds player and team ID numbers and Offer Sheet's numbers for each trade, plus any notes you typed and the random code each one's anonymous copies carry.");
+    expect(text).toContain(EXPORT_TEXT);
+    // The feedback page's words for it (src/app/feedback/FeedbackGuide.tsx), with the days it holds: the first press's and
+    // the latest outcome's and report's, never "each press" (a record keeps no earlier outcome's time: review of track cards,
+    // cards-4; feedbackStore.test.ts pins the days).
+    expect(text).toContain(
+      "The file holds what you saw and entered: each trade (its players and the other team as ID numbers), the numbers on its card, your outcome, the version you sent and your notes, with the day you first marked or reported each trade and the days of its latest outcome and report.",
+    );
+    expect(EXPORT_TEXT).not.toContain("each press");
     // Notes are kept as typed, so they can hold names (review POL-24).
     expect(text).toContain("Apart from what your notes say, it has no names, and it numbers your leagues (league-1, league-2) rather than saying which they are.");
+    // Since version 3 it holds neither Offer Sheet's own numbers nor the anonymous copies' code (version 2's words said both).
+    expect(text).not.toContain("Offer Sheet's numbers for each trade");
+    expect(text).not.toContain("random code");
   });
 
   describe("keyboard focus through Delete: each step takes away the button pressed, so focus moves to what took its place (review)", () => {

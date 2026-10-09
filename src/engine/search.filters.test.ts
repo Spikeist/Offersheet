@@ -22,6 +22,7 @@ const screened = (partnerId: string, i: number, objective: number, gPartner = 0)
   get: [`h${i}`],
   objective,
   myDelta: objective,
+  partnerDelta: 0,
   pQuick: 1,
   gPartner,
 });
@@ -62,6 +63,7 @@ describe("the dominance pruning (lead decision N11: dominancePruned, shortlistOf
     get,
     objective,
     myDelta: objective / pQuick,
+    partnerDelta: 0,
     pQuick,
     gPartner,
   });

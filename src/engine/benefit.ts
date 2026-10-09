@@ -148,8 +148,8 @@
  * per partner, made when first needed, evaluate.ts partnerCalibrationOf), floored at helpsFloor (B₃,P), then mixed (1 − λ_P)
  * × B₃,P + λ_P × F₁₀ with long-term values (the planner's order: floor, then mix; ⚠️ helpsScale, mine, floors the mix). Helps
  * them = round(100 × (1 − e^(−B_P / B_ref,P))) when B_P > 0, 0 when B_P ≤ 0 (helpsThemScore), so +3 points a week for them
- * reads 63 as for me. A trade helps both teams when its Helps you, as printed, is above 0 and its Helps them, as printed, is
- * at least config.benefit.helpsThemMin (10, about +0.3 points a week for them: helpsBoth). Helps them weighs nothing in B, the
+ * reads 63 as for me. A trade helps both teams when its Helps you and its Helps them, as printed, are each at least
+ * config.benefit.helpsThemMin (10, about +0.3 points a week for them: helpsBoth; Helps you above 0 until Checkpoint 7d). Helps them weighs nothing in B, the
  * chance they accept or Overall (§10's "Don't add extra factors to Overall"; "Helps you already counts the cost of making
  * them stronger": my B_win reads the run in which they gain).
  *

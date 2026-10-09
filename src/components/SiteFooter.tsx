@@ -13,7 +13,12 @@ import { FANTASYCALC_LINK } from "@/components/league/ValuesCredit";
  * - the other sources' credits, exactly the ones production uses: Sleeper and ESPN for projections and stats,
  *   DynastyProcess for the player ID map (its GPL-3.0 data asks for credit), ESPN for the NFL schedule
  *   (src/data/nflSchedule.ts reads ESPN's proTeamSchedules_wl; the app downloads nothing from nflverse, whose games were
- *   only Phase 0's cross-check: review PG-2);
+ *   only Phase 0's cross-check: review PG-2). Since Checkpoint 7d "DynastyProcess" links to its data repository, where the
+ *   map and its license are (planner reply to Checkpoint 7c, "Also": its ID pairs reach the browser, security finding 10,
+ *   so the license is credited where users can see it; the terms name it too): DYNASTYPROCESS_LINK, a plain <a> in the
+ *   same server-rendered footer, rel "noopener" like every outbound link (⚠️ ours; no referrerPolicy: the site's
+ *   Referrer-Policy, same-origin, already sends another site no referrer), inline in its sentence, so it isn't a 44 px
+ *   target (WCAG 2.5.8's inline exception, which check:browser applies);
  * - that Offer Sheet is free, independent and a beta, and is affiliated with none of the services it reads or names;
  * - the copyright line the landing page had, in Offer Sheet's name (no person's name: planner reply to Checkpoint 7a, 3).
  * Yahoo's attribution ("Fantasy data provided by Yahoo Fantasy", CLAUDE.md §2.4) joins it only where Yahoo data shows,
@@ -27,6 +32,14 @@ export const FOOTER_LINKS = [
 ] as const;
 
 export const FOOTER_CREDITS = "Projections and stats: Sleeper and ESPN · Player IDs: DynastyProcess · NFL schedule: ESPN";
+
+/** DynastyProcess's data repository: its player ID map and the map's license (planner reply to Checkpoint 7c, "Also"). */
+export const DYNASTYPROCESS_URL = "https://github.com/dynastyprocess/data";
+/** The footer's link to it, in a new tab like FantasyCalc's (see the header). */
+export const DYNASTYPROCESS_LINK = { href: DYNASTYPROCESS_URL, target: "_blank", rel: "noopener" } as const;
+
+/** The credits around the linked name: the same words as FOOTER_CREDITS, "DynastyProcess" the link. */
+const [CREDITS_BEFORE = "", CREDITS_AFTER = ""] = FOOTER_CREDITS.split("DynastyProcess");
 
 export const FOOTER_INDEPENDENT =
   "Offer Sheet is a free, independent beta. It is not affiliated with or endorsed by ESPN, Sleeper, Yahoo, Fleaflicker, MyFantasyLeague, Fantrax, FantasyCalc, DynastyProcess or the NFL.";
@@ -57,7 +70,13 @@ export function SiteFooter() {
             FantasyCalc
           </a>
         </p>
-        <p>{FOOTER_CREDITS}</p>
+        <p>
+          {CREDITS_BEFORE}
+          <a {...DYNASTYPROCESS_LINK} className="font-semibold text-brand-strong underline underline-offset-2 dark:text-brand">
+            DynastyProcess
+          </a>
+          {CREDITS_AFTER}
+        </p>
         <p>{FOOTER_INDEPENDENT}</p>
         <p>© 2026 Offer Sheet</p>
       </div>

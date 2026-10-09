@@ -144,6 +144,26 @@ describe("saveFeedbackPress: saved here first, then its anonymous copy", () => {
     expect(await saveFeedbackPress({ leagueKey: LEAGUE_KEY, evaluation, change: { outcome: "sent" }, share }, { client: null })).toEqual({ ok: false, message: FEEDBACK_SAVE_FAILED });
   });
 
+  it("keeps what the card printed with a new record, through the league store and a reload; its copy holds none of it (Checkpoint 7d; planner reply to Checkpoint 7c, answer 1)", async () => {
+    const factory = new IDBFactory();
+    const s = await setup(true, { factory });
+    const shown = { helps: "41", chance: "45%", label: "Decent", overall: "22", odds: ["Title odds 9.0% → 9.4%", "Playoff odds 62% → 64%"], helpsThem: "12", theirOdds: ["Their title odds 6.0% → 6.9%", "Their playoff odds 41% → 45%"] };
+    expect(await s.press({ outcome: "sent", shown })).toEqual({ ok: true, shared: true });
+    expect(s.record()?.shown).toEqual(shown);
+    s.advance(FEEDBACK_SHARE_DEBOUNCE_MS);
+    // The copy is built as before: none of the printed texts.
+    expect(s.posted).toHaveLength(1);
+    expect(s.posted[0]).not.toHaveProperty("shown");
+    for (const text of ["45%", "Title odds", "Helps them"]) expect(JSON.stringify(s.posted), text).not.toContain(text);
+    // A later press, from a card that prints otherwise now, leaves them as the first press's.
+    await s.press({ outcome: "accepted", shown: { ...shown, helps: "60" } });
+    expect(s.record()?.shown?.helps).toBe("41");
+    s.client.dispose();
+    // Another visit reads them back from IndexedDB.
+    const again = await setup(true, { factory });
+    expect(again.record()?.shown).toEqual(shown);
+  });
+
   it("keeps the week and goal the card's numbers were computed for with a new record; a later press doesn't change them (review FB-R6)", async () => {
     const s = await setup();
     await s.press({ report: { reason: "never-accept" } });

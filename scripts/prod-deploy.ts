@@ -1,22 +1,23 @@
 /**
  * npm run prod:deploy — Offer Sheet's production deploy (planner reply to Checkpoint 7b, §2: "yes to `npm run prod:deploy
  * -- --live`"). Production deploys only through this script, and only after Parker writes "go" (CLAUDE.md §19): the
- * approved launch tag (Checkpoint 7c's), from a clean copy of that tag, with the preview script's checks.
+ * approved launch tag (checkpoint-7d once Parker approves Checkpoint 7d, else checkpoint-7c), from a clean copy of that
+ * tag, with the preview script's checks.
  *
- *   npm run prod:deploy                                        a dry run on the newest checkpoint tag: every check, nothing uploaded
- *   npm run prod:deploy -- --checkpoint checkpoint-7c          a dry run on that tag (launch day, before the go)
- *   npm run prod:deploy -- --ref HEAD                          a rehearsal on a commit that isn't tagged yet (it never deploys)
- *   npm run prod:deploy -- --offline [--checkpoint …|--ref …]  the local checks only: no Vercel CLI, no web request
- *   npm run prod:deploy -- --live --checkpoint checkpoint-7c   THE deploy, only after Parker's "go"
- *   npm run prod:deploy -- --verify --checkpoint checkpoint-7c the checks of the production domain again, no deploy
+ *   npm run prod:deploy                                             a dry run on the newest checkpoint tag: every check, nothing uploaded
+ *   npm run prod:deploy -- --checkpoint <the approved tag>          a dry run on that tag (launch day, before the go)
+ *   npm run prod:deploy -- --ref HEAD                               a rehearsal on a commit that isn't tagged yet (it never deploys)
+ *   npm run prod:deploy -- --offline [--checkpoint …|--ref …]       the local checks only: no Vercel CLI, no web request
+ *   npm run prod:deploy -- --live --checkpoint <the approved tag>   THE deploy, only after Parker's "go"
+ *   npm run prod:deploy -- --verify --checkpoint <the tag it serves> the checks of the production domain again, no deploy
  *
  * Without --live it is its own dry run, the one exception to CLAUDE.md §0.9's rule for scripts that talk to Vercel: it
  * asks Vercel read-only questions and the production domain for a few public addresses, and never uploads, so forgetting
  * a flag never deploys. Like the other scripts it sets OFFERSHEET_NETWORK=off without --live (its own requests don't go
  * through the app's HTTP client, so nothing it does reads it). --live needs --checkpoint, so the tag that goes live is
  * always named on the command line. When the "--" is left out, npm keeps --live, --checkpoint, --ref and --verify as its
- * own settings (npm_config_live …): the script refuses then, rather than guess (Parker's command line is spelled out in
- * the error).
+ * own settings (npm_config_live …): the script refuses then, rather than guess (the command is spelled out in the error,
+ * LIVE_COMMAND, with <the approved tag> for the tag).
  *
  * In order, each a numbered line (✅, ⚠️ or ❌). A dry run goes through every check and lists every problem; a live run
  * uploads only when none failed.
@@ -39,8 +40,9 @@
  *    folder's .env.local values, redaction maps and watch lists (it starts in the main folder, and refuses a scan with no
  *    .env.local values to look for).
  * 7. Deployment Protection is Standard (`vercel project protection`; protectionVerdict): deployment addresses ask visitors
- *    to log in, the production domain doesn't. ⚠️ Which of Standard's two names Vercel gives for this project hasn't been
- *    seen yet (STANDARD_PROTECTIONS takes both, and the line shows the one read); step 9 asks the domain itself.
+ *    to log in, the production domain doesn't. Checkpoint 7c's dry run read Standard as all_except_custom_domains for this
+ *    project; STANDARD_PROTECTIONS still takes both of its names (the line shows the one read), and step 9 asks the domain
+ *    itself.
  * 8. Production's variables, by name only (`vercel env ls production --format json`, never printed: a plain variable's
  *    value can be in it; productionEnv): SESSION_SECRET, CRON_SECRET and the store's address and token are there, and none
  *    of the names that must never be (FORBIDDEN_PRODUCTION_ENV). CONTACT_EMAIL is a constant in the code
@@ -49,27 +51,40 @@
  * 10. The image optimizer: /_next/image and /_vercel/image (IMAGE_PATHS) answer 403 on the production domain already. The
  *     firewall rule is the project's, so it holds before the deploy too; a rule not yet published shows here, before
  *     anything uploads, not only after (deploy-4).
- * 11. The rollback target: the deployment production serves now (`vercel api /v9/projects/offersheet`, read for
+ * 11. Cross-site API requests (planner reply to Checkpoint 7c, answer 4: "a request with that header gets 403, and the app
+ *     still works"): CROSS_SITE_PATH asked twice on the production domain, as a page on another site would ask it
+ *     (Sec-Fetch-Site: cross-site) and as the app's own pages do (same-origin), then CROSS_SITE_PAGE as a link on another
+ *     site opens it (CROSS_SITE_NAVIGATION). The first must get the firewall's 403 from its "Deny cross-site API requests"
+ *     rule (CROSS_SITE_RULE), the second must not be denied (crossSiteRuleProblems), and nor must the page
+ *     (crossSitePageProblems): a rule that lost its /api/ path condition denies every page reached from another site (a
+ *     search result, a link in a post), and the /api/ asks alone can't tell it from the right rule (review of the
+ *     policy-deploy track, PD-1). The app answers a cross-site request with a 403 of its own (BAD_ORIGIN), but only after
+ *     the firewall's rate limit counted it: told apart by the app's JSON (isAppCrossSiteRefusal), it fails the line. The
+ *     rule is the project's, so, as with step 10, a rule not yet published shows before anything uploads. ⚠️ Not the
+ *     rules' order: that a deny above the rate limit keeps those requests out of its count is Vercel's documented order
+ *     (CLAUDE.md §19), which only past 80 requests could show.
+ * 12. The rollback target: the deployment production serves now (`vercel api /v9/projects/offersheet`, read for
  *     targets.production.url only, the host only: the JSON can hold variables' values and is never printed; never the
  *     production domain itself, which after the deploy serves the new one: projectFacts). Warn only: the dashboard's Instant
  *     Rollback needs no address. The same JSON says whether Vercel's own variables reach the app.
- * 12. Next: a newer 16.3.x patch on npm than the tag's lock file has (warn only: a patch needs a new approved tag).
+ * 13. Next: a newer 16.3.x patch on npm than the tag's lock file has (warn only: a patch needs a new approved tag).
  * Then, live only and only when nothing above failed:
- * 13. `vercel deploy --prod --project offersheet --format json --meta offersheetCheckpoint=<tag> --meta
+ * 14. `vercel deploy --prod --project offersheet --format json --meta offersheetCheckpoint=<tag> --meta
  *     offersheetCommit=<sha>`, run in the copy: only the copy uploads, Vercel builds it, and a build that fails never takes
  *     the domain. The only call that can reach production; allowedVercelCall refuses every other shape.
- * 14–19. On the production domain (anonymous requests, well inside the app's rate limits and the firewall's): /api/health
+ * 15–21. On the production domain (anonymous requests, well inside the app's rate limits and the firewall's): /api/health
  *     (asked up to HEALTH_TRIES times until the domain serves the new deployment) shows production, the shared store and
  *     its check (region iad1, warn only); every app page step 4 kept answers 200 with the tag's Content-Security-Policy and
  *     no report-only copy, its footer's FantasyCalc link (rel "noopener", referrerpolicy "origin") and nothing loaded from
  *     another site (foreignResourcesInHtml); robots.txt names the production sitemap; the cron route answers a bare 401
- *     without the secret; /_next/image and /_vercel/image answer 403 (the firewall rule); the deployment's own address asks
- *     visitors to log in (warn only: a production deployment is never removed here).
+ *     without the secret; /_next/image and /_vercel/image answer 403 (the firewall rule); step 11's three asks again, the
+ *     same-origin one now the health check's 200 and the page the app's 200; the deployment's own address asks visitors to
+ *     log in (warn only: a production deployment is never removed here).
  * Last: .env.local is unchanged (its sha256 before the first CLI call and after the last, never printed: `vercel link`
  * once wrote a token into it, Checkpoint 7a). Every live run ends with the rollback steps (rollbackSteps), and so does a
  * dry run's summary.
  *
- * --verify --checkpoint <the tag production serves>: steps 1, 2 and 4, then 14–18 once (no CLI call, no deploy, no wait),
+ * --verify --checkpoint <the tag production serves>: steps 1, 2 and 4, then 15–20 once (no CLI call, no deploy, no wait),
  * for when a check after the deploy failed or the domain was slow to switch. Never a second --live to check again: a
  * second production deploy leaves Hobby's Instant Rollback no way back to the landing page.
  *
@@ -79,7 +94,11 @@
  * The pure parts are exported and tested in prod-deploy.test.ts; runProdDeploy takes git, the CLI, fetch, the leak check,
  * the module loader, the file system and the log as arguments, so a whole run is tested offline with fakes. ⚠️ Like
  * stable.ts, the script itself runs from the development folder, not from the tag (only the policy and the pages it checks
- * come from the tag, step 4): it's reviewed with Checkpoint 7c, and shouldn't change between the dry run and the go.
+ * come from the tag, step 4): it's reviewed with Checkpoint 7d, and shouldn't change between the dry run and the go. A
+ * launch on checkpoint-7c (7d not approved in time) runs this same script, whose changes since Checkpoint 7c are the
+ * cross-site check, step 11 (planner reply to Checkpoint 7c, answer 4), and LIVE_COMMAND, which names <the approved tag>
+ * instead of checkpoint-7c; its FantasyCalc link reader, shared with check:browser, was reworked for 7d's DynastyProcess
+ * check and reads the same.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -97,9 +116,10 @@ export const PRODUCTION_ORIGIN = "https://offersheet.vercel.app";
 export const COPY_PREFIX = "offersheet-prod-";
 /**
  * Deployment Protection as the launch takes it: Vercel's Standard Protection, previews and deployment addresses behind
- * Vercel's login and the production domain public. ⚠️ Vercel's API has two names for that kind of setting, and which one it
- * gives for this project hasn't been seen yet (preview:deploy only checked that one was set; review of the deploy track,
- * deploy-6): both are taken, the line shows the one read, and step 9 asks the production domain itself.
+ * Vercel's login and the production domain public. Vercel's API has two names for that kind of setting (review of the
+ * deploy track, deploy-6, when neither had been seen for this project); Checkpoint 7c's dry run read
+ * all_except_custom_domains. Both are still taken, the line shows the one read, and step 9 asks the production domain
+ * itself.
  */
 export const STANDARD_PROTECTIONS: readonly string[] = ["all_except_custom_domains", "prod_deployment_urls_and_all_previews"];
 /** How many times, and how far apart, /api/health is asked until the domain serves the new deployment (its limit: 12 per 10 minutes). */
@@ -116,8 +136,30 @@ export const SNAPSHOT_CRON_PATH = "/api/cron/snapshot";
 export const REGION = "iad1";
 /** Vercel's image optimizer, which the launch's firewall rule denies (CLAUDE.md §19). */
 export const IMAGE_PATHS = ["/_next/image?url=%2Fapple-icon.png&w=32&q=75", "/_vercel/image?url=%2Fapple-icon.png&w=32&q=75"] as const;
-/** The command that deploys (in every message that names it). */
-export const LIVE_COMMAND = "npm run prod:deploy -- --live --checkpoint checkpoint-7c";
+/**
+ * The firewall rule that denies another site's /api/ requests before the rate limit counts them (planner reply to
+ * Checkpoint 7c, answer 4; CLAUDE.md §19), and the address it's asked on: any /api/ path would do, and the health route
+ * answers fast, holds nothing and is what a live run asks anyway.
+ */
+export const CROSS_SITE_RULE = "Deny cross-site API requests";
+export const CROSS_SITE_PATH = "/api/health";
+/** How a page on another site's request says so (current browsers send the header; scripts send none), and how the app's own pages' does. */
+export const CROSS_SITE = { "sec-fetch-site": "cross-site" } as const;
+export const SAME_ORIGIN = { "sec-fetch-site": "same-origin" } as const;
+/**
+ * A page opened from a link on another site (a search result, a post), which the cross-site rule must leave alone: a rule
+ * that lost its /api/ path condition denies it (review of the policy-deploy track, PD-1). Asked as a followed link asks
+ * it, as far as Node's fetch allows: it sends Sec-Fetch-Mode: cors whatever it's given (Node 22.18, checked), and the rule
+ * reads only the path and Sec-Fetch-Site.
+ */
+export const CROSS_SITE_PAGE = "/";
+export const CROSS_SITE_NAVIGATION = { "sec-fetch-site": "cross-site", "sec-fetch-dest": "document", "sec-fetch-user": "?1" } as const;
+/**
+ * The command that deploys (in every message that names it), its tag left for Parker to name: the launch tag is
+ * checkpoint-7d once he approves Checkpoint 7d, else checkpoint-7c, so a fixed one could name the wrong tag (which step 1
+ * would refuse, as not the newest checkpoint).
+ */
+export const LIVE_COMMAND = "npm run prod:deploy -- --live --checkpoint <the approved tag>";
 
 /** The command that checks the production domain again without deploying, for `tag` (the one production serves). */
 export function verifyCommand(tag: string): string {
@@ -126,12 +168,12 @@ export function verifyCommand(tag: string): string {
 
 export const USAGE = [
   "Usage (PowerShell, in the project folder):",
-  "  npm run prod:deploy                                          a dry run on the newest checkpoint tag: every check, nothing uploaded",
-  "  npm run prod:deploy -- --checkpoint checkpoint-7c            a dry run on that tag",
-  "  npm run prod:deploy -- --ref HEAD                            a rehearsal on a commit that isn't tagged (never deploys)",
-  "  npm run prod:deploy -- --offline                             the local checks only (no Vercel CLI, no web request)",
-  `  ${LIVE_COMMAND}     the production deploy, only after Parker's "go"`,
-  `  ${verifyCommand("checkpoint-7c")}   the checks of the production domain again (no deploy)`,
+  "  npm run prod:deploy                                             a dry run on the newest checkpoint tag: every check, nothing uploaded",
+  "  npm run prod:deploy -- --checkpoint checkpoint-7c               a dry run on that tag",
+  "  npm run prod:deploy -- --ref HEAD                               a rehearsal on a commit that isn't tagged (never deploys)",
+  "  npm run prod:deploy -- --offline                                the local checks only (no Vercel CLI, no web request)",
+  `  ${LIVE_COMMAND}   the production deploy, only after Parker's "go"`,
+  `  ${verifyCommand("checkpoint-7c")}      the checks of the production domain again (no deploy)`,
 ].join("\n");
 
 // ---------------------------------------------------------------------------------------------
@@ -140,7 +182,7 @@ export const USAGE = [
 export interface ProdArgs {
   live: boolean;
   offline: boolean;
-  /** --verify: the checks of the production domain again (steps 14–18), against --checkpoint's tag; no deploy, no CLI. */
+  /** --verify: the checks of the production domain again (steps 15–20), against --checkpoint's tag; no deploy, no CLI. */
   verify: boolean;
   help: boolean;
   /** --checkpoint <tag>: the tag to deploy (and to check in a dry run, or to check production against with --verify). */
@@ -647,7 +689,7 @@ function cspDirectives(csp: string): Map<string, string> {
   return out;
 }
 
-/** What's wrong with a page the production domain served (none: an empty list), against the tag's own policy (step 4): see the header, steps 14–19. */
+/** What's wrong with a page the production domain served (none: an empty list), against the tag's own policy (step 4): see the header, steps 15–21. */
 export function pageProblems(page: PageRead, expectedCsp: string, origin: string = PRODUCTION_ORIGIN): string[] {
   if (page.status !== 200) return [`${page.path}: HTTP ${page.status}`];
   const out: string[] = [];
@@ -688,6 +730,57 @@ export function imageRuleProblems(results: ReadonlyArray<{ path: string; status:
   const open = results.filter((r) => r.status !== 403);
   if (!open.length) return [];
   return [`${open.map((r) => `${r.path.split("?")[0]} answered ${r.status || "nothing"}`).join(", ")}, not 403: add the "Block image optimizer" firewall rule and publish it now (Vercel → offersheet → Firewall; reports/beta-infrastructure.md, Launch-day step 2)`];
+}
+
+/**
+ * Whether an answer is the app's own refusal of another site's request (src/app/api/_lib/route.ts withRoute, step 1:
+ * BAD_ORIGIN, src/lib/errors.ts), not the firewall's: also a 403, but its JSON names the code. Hardcoded rather than read
+ * from the app (this script loads none of its code); prod-deploy.test.ts asks the real withRoute for its answer.
+ */
+export function isAppCrossSiteRefusal(status: number, body: string): boolean {
+  if (status !== 403) return false;
+  try {
+    return (JSON.parse(body) as { error?: { code?: unknown } | null } | null)?.error?.code === "BAD_ORIGIN";
+  } catch {
+    return false;
+  }
+}
+
+/** Where the firewall's rules are set, and which launch-day step sets them (reports/beta-infrastructure.md). */
+const FIREWALL_STEP = "Vercel → offersheet → Firewall; reports/beta-infrastructure.md, Launch-day step 2";
+
+/**
+ * What's wrong with the answers to CROSS_SITE_PATH asked as a page on another site would ask it (CROSS_SITE) and as the
+ * app's own pages do (SAME_ORIGIN), on the production domain (none: an empty list; planner reply to Checkpoint 7c,
+ * answer 4: "a request with that header gets 403, and the app still works"). The cross-site one must get the firewall's
+ * 403 from CROSS_SITE_RULE: not the app's own BAD_ORIGIN 403 (isAppCrossSiteRefusal: it got past the firewall, so the
+ * rate limit counted it toward the visitor's 80), and nothing else. The same-origin one must get through: no 403 and an
+ * answer; once production serves the app (`deployed`: after the deploy, --verify), the health check's own 200.
+ */
+export function crossSiteRuleProblems(cross: { status: number; body: string }, same: { status: number; body: string }, deployed: boolean): string[] {
+  const out: string[] = [];
+  const rule = `the "${CROSS_SITE_RULE}" firewall rule, first, above "API rate limit", and publish it now (${FIREWALL_STEP})`;
+  if (isAppCrossSiteRefusal(cross.status, cross.body)) out.push(`${CROSS_SITE_PATH} with Sec-Fetch-Site: cross-site got the app's own 403 (BAD_ORIGIN), not the firewall's: it passed the firewall, so the rate limit counts it. Add ${rule}`);
+  else if (cross.status !== 403) out.push(`${CROSS_SITE_PATH} with Sec-Fetch-Site: cross-site answered ${cross.status || "nothing"}, not 403: add ${rule}`);
+  if (same.status === 403) out.push(`${CROSS_SITE_PATH} with Sec-Fetch-Site: same-origin answered 403: a firewall rule denies the app's own requests too ("${CROSS_SITE_RULE}" must match the header sec-fetch-site equals cross-site, nothing else; ${FIREWALL_STEP})`);
+  else if (same.status === 0) out.push(`${CROSS_SITE_PATH} with Sec-Fetch-Site: same-origin answered nothing: couldn't confirm the app's own requests get through`);
+  else if (deployed && (same.status !== 200 || healthVerdict(same.status, same.body).kind !== "new")) out.push(`${CROSS_SITE_PATH} with Sec-Fetch-Site: same-origin answered ${same.status}, not the health check's 200: the app's own requests must get through`);
+  return out;
+}
+
+/**
+ * What's wrong with the answer to CROSS_SITE_PAGE opened from another site (CROSS_SITE_NAVIGATION) on the production
+ * domain (none: an empty list; review of the policy-deploy track, PD-1). A 403 means a firewall rule's cross-site
+ * condition lacks "Request Path starts with /api/", so it would deny every page reached from another site, which the
+ * /api/ asks alone can't tell from the right rule. Before the app serves (`deployed` false) any other answer passes (the
+ * landing page's 200); once it serves (after the deploy, --verify), the page's 200.
+ */
+export function crossSitePageProblems(status: number, deployed: boolean): string[] {
+  const opened = `${CROSS_SITE_PAGE} opened from another site (Sec-Fetch-Site: cross-site)`;
+  if (status === 403) return [`${opened} answered 403: a firewall rule denies every page reached from another site (a search result, a link in a post). Its cross-site condition ("${CROSS_SITE_RULE}", or the third OR group of "Block image optimizer") must also require Request Path starts with /api/ (${FIREWALL_STEP})`];
+  if (status === 0) return [`${opened} answered nothing: couldn't confirm pages reached from other sites open`];
+  if (deployed && status !== 200) return [`${opened} answered ${status}, not 200: pages reached from other sites must open`];
+  return [];
 }
 
 /**
@@ -810,10 +903,10 @@ function resolveTarget(args: ProdArgs, git: GitRun): Target {
   return { label: v.tag.name, tag: v.tag.name, commit: v.tag.commit, text: `${v.tag.name}, commit ${v.tag.commit.slice(0, 7)} (committed ${utcTime(v.tag.time)}), ${kind}, ${newest}${named}`, problems: v.problems };
 }
 
-/** A web request's status, headers and text; status 0 when nothing answered. */
-async function get(deps: ProdDeployDeps, url: string, accept: string): Promise<{ status: number; headers: Headers; text: string; location: string | null }> {
+/** A web request's status, headers and text; status 0 when nothing answered. `extra`: more request headers (CROSS_SITE …). */
+async function get(deps: ProdDeployDeps, url: string, accept: string, extra: Readonly<Record<string, string>> = {}): Promise<{ status: number; headers: Headers; text: string; location: string | null }> {
   try {
-    const res = await deps.fetch(url, { redirect: "manual", headers: { accept }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    const res = await deps.fetch(url, { redirect: "manual", headers: { accept, ...extra }, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     return { status: res.status, headers: res.headers, text: await res.text(), location: res.headers.get("location") };
   } catch {
     return { status: 0, headers: new Headers(), text: "", location: null };
@@ -904,7 +997,7 @@ export async function runProdDeploy(args: ProdArgs, deps: ProdDeployDeps, opts: 
     else steps.line("skip", EXPECT_TITLE, "skipped (no copy)");
 
     if (mode === "verify") {
-      // 14–18, once: the production domain against the tag.
+      // 15–20, once: the production domain against the tag.
       if (expectations) await afterDeploy(deps, steps, opts.origin, null, expectations, 1);
       else deps.log("       The checks of the production domain need the tag's policy and pages: they didn't run.");
       return outcome;
@@ -913,7 +1006,7 @@ export async function runProdDeploy(args: ProdArgs, deps: ProdDeployDeps, opts: 
     if (mode === "offline") {
       // 6 (offline). The leak check is local: it runs; the Vercel steps and the web requests don't.
       if (exported) leakStep(deps, steps, files, copy);
-      deps.log("       --offline: Vercel's dry run, Deployment Protection, Production's variables, the production domain, its image optimizer, the rollback target and npm weren't asked.");
+      deps.log("       --offline: Vercel's dry run, Deployment Protection, Production's variables, the production domain, its firewall rules (the image optimizer, cross-site API requests), the rollback target and npm weren't asked.");
       return outcome;
     }
 
@@ -971,7 +1064,10 @@ export async function runProdDeploy(args: ProdArgs, deps: ProdDeployDeps, opts: 
       steps.line(issues.length ? "fail" : "ok", "The image optimizer", issues.length ? "open on the production domain" : 'both paths answer 403 on the production domain (the firewall\'s "Block image optimizer" rule)', issues);
     }
 
-    // 11. The rollback target (and whether Vercel's own variables reach the app).
+    // 11. Cross-site API requests, denied by the firewall already (its rule is the project's too), the app's own not.
+    await crossSiteStep(deps, steps, opts.origin, false);
+
+    // 12. The rollback target (and whether Vercel's own variables reach the app).
     {
       const r = cli(PROJECT_API_ARGS, READ_TIMEOUT_MS);
       const facts = r.status === 0 ? projectFacts(jsonOf(r.stdout), opts.origin) : { productionHost: null, namedDomain: false, systemEnvs: null };
@@ -982,7 +1078,7 @@ export async function runProdDeploy(args: ProdArgs, deps: ProdDeployDeps, opts: 
       if (facts.systemEnvs === false) steps.line("fail", "Vercel's own variables", 'not exposed to the app, so production would run as if off Vercel (no shared store): Settings → Environment Variables → "Automatically expose System Environment Variables"');
     }
 
-    // 12. Next's newest 16.3 patch (warn only).
+    // 13. Next's newest 16.3 patch (warn only).
     if (exported && files.includes("package-lock.json")) {
       const locked = lockedNextVersion(deps.fs.readFile(path.join(copy, "package-lock.json")).toString("utf8"));
       const spec = locked ? `next@${locked.split(".").slice(0, 2).join(".")}` : null;
@@ -1000,7 +1096,7 @@ export async function runProdDeploy(args: ProdArgs, deps: ProdDeployDeps, opts: 
       return outcome;
     }
 
-    // 13. THE deploy, from the copy.
+    // 14. THE deploy, from the copy.
     deps.log("\nDeploying to production: Vercel builds the tag's copy (about 2–3 minutes)…");
     outcome.uploaded = true;
     const dep = cli(liveDeployArgs(target.label, commit), DEPLOY_TIMEOUT_MS);
@@ -1081,7 +1177,23 @@ async function imageIssues(deps: ProdDeployDeps, origin: string): Promise<string
 }
 
 /**
- * Steps 14–19 (see the header): the production domain after the deploy, or again with --verify (`deploymentUrl` null:
+ * Step 11, and again after the deploy and with --verify (see the header): CROSS_SITE_PATH asked as another site's page
+ * would ask it, then as the app's own pages do, read by crossSiteRuleProblems; then CROSS_SITE_PAGE as a link on another
+ * site opens it, read by crossSitePageProblems. Its line names statuses and the rule only.
+ */
+async function crossSiteStep(deps: ProdDeployDeps, steps: StepLog, origin: string, deployed: boolean): Promise<void> {
+  const cross = await get(deps, `${origin}${CROSS_SITE_PATH}`, "application/json", CROSS_SITE);
+  const same = await get(deps, `${origin}${CROSS_SITE_PATH}`, "application/json", SAME_ORIGIN);
+  const page = await get(deps, `${origin}${CROSS_SITE_PAGE}`, "text/html", CROSS_SITE_NAVIGATION);
+  const problems = [...crossSiteRuleProblems({ status: cross.status, body: cross.text }, { status: same.status, body: same.text }, deployed), ...crossSitePageProblems(page.status, deployed)];
+  const passes = deployed
+    ? `with same-origin, 200 (the app's health check); ${CROSS_SITE_PAGE} opened from another site, 200 (the app's home page)`
+    : `with same-origin, ${same.status}, not denied; ${CROSS_SITE_PAGE} opened from another site, ${page.status}, not denied (the deployment production serves now)`;
+  steps.line(problems.length ? "fail" : "ok", "Cross-site API requests", problems.length ? "see below" : `${CROSS_SITE_PATH} with Sec-Fetch-Site: cross-site answers 403 (the firewall's "${CROSS_SITE_RULE}" rule); ${passes}`, problems);
+}
+
+/**
+ * Steps 15–21 (see the header): the production domain after the deploy, or again with --verify (`deploymentUrl` null:
  * its own address isn't known, and isn't asked). /api/health is asked up to `tries` times until the domain serves the app.
  */
 async function afterDeploy(deps: ProdDeployDeps, steps: StepLog, origin: string, deploymentUrl: string | null, expect: Expectations, tries: number): Promise<void> {
@@ -1123,6 +1235,9 @@ async function afterDeploy(deps: ProdDeployDeps, steps: StepLog, origin: string,
 
   const images = await imageIssues(deps, origin);
   steps.line(images.length ? "fail" : "ok", "The image optimizer", images.length ? "open" : "both paths answer 403 (the firewall rule)", images);
+
+  // The cross-site rule again, now with the app behind it: its own refusal must not stand in for the firewall's.
+  await crossSiteStep(deps, steps, origin, true);
 
   if (!deploymentUrl) return;
   const own = await get(deps, deploymentUrl, "text/html");

@@ -13,8 +13,9 @@
  *   npm run league:report -- --live         Parker's ESPN league through the public-link path (the network)
  *   npm run league:report -- --live --cookies   use the .env.local ESPN cookies (also with USE_ENV_COOKIES=1),
  *                                           so ESPN itself says which team is his
- *   npm run league:report -- --prizes 2000,1600,900,0   the league's prizes (1st, 2nd, 3rd, the weekly high score, the most
- *                                           points; blank or 0 not paid): "Several prizes" on them, and the prizes section
+ *   npm run league:report -- --prizes 2000,1600,900   the league's prizes (1st, 2nd, 3rd, the weekly high score, the most
+ *                                           points; blank, 0 or left off not paid: Parker's league pays only the top 3):
+ *                                           "Several prizes" on them, and the prizes section
  *                                           (Checkpoint 7c, below); the console says how it read them first
  *
  * Offline by default (planner reply to Checkpoint 4c, A5; scripts/lib/runMode.ts): without --live the process's offline

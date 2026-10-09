@@ -2017,6 +2017,12 @@ export interface Screened {
   objective: number;
   /** EV ROS(after) − EV ROS(V*(me)), lineup points. */
   myDelta: number;
+  /**
+   * Checkpoint 7d (planner reply to Checkpoint 7c, answer 2: "their lineup gain > 0" on the fast method): the partner's
+   * ΔLineup_P on this screen, points a week (acceptance.partnerLineupDelta's blend of the next weeks and the rest of the
+   * season, EV lineups from V*(P)), the number the quick acceptance's n is made from. search.ts's helps-both lane reads it.
+   */
+  partnerDelta: number;
   pQuick: number;
   gPartner: number;
 }
@@ -2299,6 +2305,7 @@ export function screenTrade(I: TradeInternals, partner: TeamState, give: readonl
     get: [...get],
     objective: myDelta * pQuick,
     myDelta,
+    partnerDelta: delta.blended,
     pQuick,
     gPartner,
   };

@@ -2,7 +2,8 @@
  * The footer (CLAUDE.md §14 "Footer and layout"; planner reply to Checkpoint 4c, B3: "a feedback link, the attributions
  * (FantasyCalc wherever values show), and 'Not affiliated with ESPN or Sleeper…'"). Static render. Checkpoint 7b (planner
  * reply to Checkpoint 7a, 5.4): its FantasyCalc link carries FantasyCalc's attributes and is plain HTML in every page's
- * server render (the root layout around the page, usePathname mocked for the header).
+ * server render (the root layout around the page, usePathname mocked for the header). Checkpoint 7d (planner reply to
+ * Checkpoint 7c, "Also"): the DynastyProcess credit links to its data repository, where the map's license is.
  */
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -16,7 +17,7 @@ vi.mock("next/navigation", () => ({ usePathname: () => "/league" }));
 import { ESPN_READS_BASE } from "@/adapters/espn/fetch";
 import { nflScheduleUrl } from "@/data/nflSchedule";
 import { FANTASYCALC_LINK, FANTASYCALC_URL, ValuesCredit } from "./league/ValuesCredit";
-import { FOOTER_CREDITS, FOOTER_INDEPENDENT, SiteFooter } from "./SiteFooter";
+import { DYNASTYPROCESS_LINK, DYNASTYPROCESS_URL, FOOTER_CREDITS, FOOTER_INDEPENDENT, SiteFooter } from "./SiteFooter";
 
 const html = renderToStaticMarkup(createElement(SiteFooter));
 const text = html
@@ -103,6 +104,27 @@ describe("SiteFooter", () => {
     );
     expect(text).toContain(FOOTER_INDEPENDENT);
     expect(text).toContain("© 2026 Offer Sheet");
+  });
+
+  it("links the DynastyProcess credit to its data repository, where the map's GPL-3.0 license is, in every page's server HTML: rel noopener, a new tab, inline in its sentence (planner reply to Checkpoint 7c, \"Also\"; security finding 10)", async () => {
+    expect(DYNASTYPROCESS_URL).toBe("https://github.com/dynastyprocess/data");
+    expect(DYNASTYPROCESS_LINK).toEqual({ href: DYNASTYPROCESS_URL, target: "_blank", rel: "noopener" });
+    const dp = links(html).filter((l) => l.href === DYNASTYPROCESS_URL);
+    expect(dp.map((l) => l.text)).toEqual(["DynastyProcess"]);
+    expect(dp[0]?.attrs).toMatch(/^href="https:\/\/github\.com\/dynastyprocess\/data" target="_blank" rel="noopener" class="/);
+    // No referrer policy of its own (the site's same-origin policy sends another site none), no noreferrer or nofollow.
+    expect(dp[0]?.attrs).not.toMatch(/noreferrer|nofollow|referrerpolicy/i);
+    // Inline in the credits' sentence, the same words as before: not a 44 px target (check:browser exempts a link inside a
+    // sentence), nothing that would make it a box of its own.
+    expect(dp[0]?.classes).not.toContain("min-h-11");
+    expect(dp[0]?.classes.filter((c) => /^(inline-|block$|flex$|grid$)/.test(c))).toEqual([]);
+    const credits = [...html.matchAll(/<p>([\s\S]*?)<\/p>/g)].map((m) => m[1] ?? "").find((p) => p.includes(DYNASTYPROCESS_URL));
+    expect(credits?.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim()).toBe(FOOTER_CREDITS);
+    // The root layout's render around a page: the link is in the server HTML, after the page, like FantasyCalc's.
+    const { default: RootLayout } = await import("@/app/layout");
+    const page = renderToStaticMarkup(createElement(RootLayout, null, createElement("p", null, "A page of Offer Sheet")));
+    expect(links(page).filter((l) => l.href === DYNASTYPROCESS_URL).map((l) => l.text)).toEqual(["DynastyProcess"]);
+    expect(page.indexOf(`href="${DYNASTYPROCESS_URL}"`)).toBeGreaterThan(page.indexOf("<footer"));
   });
 
   it("credits the NFL schedule to ESPN, where the app reads it, not to nflverse, which it never downloads (review PG-2)", () => {

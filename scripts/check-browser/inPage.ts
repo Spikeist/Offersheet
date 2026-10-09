@@ -22,7 +22,8 @@
  *   name itself never comes back to Node).
  * - CARD_HELPERS: a trade card as data (its give and get lists with their tags, the three numbers, the chance it goes
  *   through when the league's review cuts it, links, buttons; since Checkpoint 7c its "Helps both" tag and the partner's
- *   line: Helps them as printed and the labels of their odds).
+ *   line: Helps them as printed and the labels of their odds; since Checkpoint 7d the card's own line read outside its "If
+ *   they say no, try:" box, and whether the box shows one).
  * - sanitizeCall(rules): replaces team, owner and league names and the league id in the page's text and attributes
  *   with placeholders before a screenshot, by report.ts's rules (NAME_REPLACER is report.ts replaceNames, for the page;
  *   a test runs both on the same texts), and keeps what it changed: RESTORE_CALL puts it back right after the capture,
@@ -392,14 +393,21 @@ function ownAnalyzerLink(a) {
 }
 // Checkpoint 7c ("Helps both"): the card's tag, a leaf with those words outside any screen-reader-only part, and the
 // partner's line, the odds line whose first item is "Helps them": its score (the item's number) and the labels of their
-// odds after it; null without the line. A Plan B box has neither.
+// odds after it; null without the line. A Plan B box has neither. Checkpoint 7d: the card's own line is read outside its
+// "If they say no, try:" box (planBBox), and whether the box shows one of its own (it never may) is read apart.
 const HELPS_BOTH_TEXT = "Helps both";
 const LINE_ITEM = ":scope > span.whitespace-nowrap > span.font-semibold";
 function hasHelpsBothTag(a) {
   return [...a.querySelectorAll("span")].some((e) => e.children.length === 0 && e.textContent.trim() === HELPS_BOTH_TEXT && !e.closest(".sr-only"));
 }
-function partnerLine(a) {
+// The card's "If they say no, try:" box (TradeCard.tsx PlanBBox: its first paragraph is that heading), or null.
+function planBBox(a) {
+  const head = [...a.querySelectorAll("p")].find((p) => txt(p) === "If they say no, try:");
+  return head ? head.parentElement : null;
+}
+function partnerLine(a, skip) {
   for (const p of a.querySelectorAll("p")) {
+    if (skip && skip.contains(p)) continue;
     const labels = [...p.querySelectorAll(LINE_ITEM)];
     if (labels.length && txt(labels[0]) === "Helps them") {
       const n = labels[0].nextElementSibling;
@@ -411,7 +419,8 @@ function partnerLine(a) {
 function cardData(a) {
   const link = ownAnalyzerLink(a);
   const pitch = [...a.querySelectorAll("details")].find((d) => txt(d.querySelector("summary")).startsWith("Message to send them"));
-  const them = partnerLine(a);
+  const box = planBBox(a);
+  const them = partnerLine(a, box);
   return {
     heading: txt(a.querySelector("h2, h3")),
     give: assets(a, "You give"),
@@ -424,6 +433,7 @@ function cardData(a) {
     helpsThem: them ? them.helps : null,
     theirOdds: them ? them.labels : null,
     helpsBothTag: hasHelpsBothTag(a),
+    planBHelpsThem: box ? !!partnerLine(box, null) : false,
     analyzerHref: link ? link.getAttribute("href") : null,
     linkIsOwnTrade: isOwnTrade(a, link),
     hasPitch: !!pitch,

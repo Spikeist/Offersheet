@@ -2,7 +2,8 @@
 /**
  * "Your trade feedback" on the Settings page (CLAUDE.md §11 "Feedback on every suggestion", Phase 4: local
  * only; §14 item 6 "Export feedback"): how many trade ideas have feedback saved in this browser, "Export
- * feedback" (a JSON file, src/lib/feedbackStore.ts: leagues numbered, no names), and "Delete saved feedback"
+ * feedback" (a JSON file, src/lib/feedbackStore.ts feedbackExport: since Checkpoint 7d what the user saw and entered, leagues
+ * numbered, no names: EXPORT_TEXT), and "Delete saved feedback"
  * behind a second step. It needs no league: it counts, exports and deletes every saved league's feedback (Phase 4c:
  * the league store keeps each league's apart, src/lib/leagueStore.ts; useFeedback.ts useSavedFeedback), and says so
  * (⚠️ review of track ML: on a page that edits one league, "N trade ideas" read as that league's, and Delete took every
@@ -58,6 +59,18 @@ export function deleteQuestionText(count: number, leagues = 1): string {
 
 /** The card's scope, in its explanation (the page above it edits one league; this card doesn't). */
 export const FEEDBACK_SCOPE_TEXT = "This card covers all your leagues in this browser together.";
+
+/**
+ * What the exported file holds (Checkpoint 7d; planner reply to Checkpoint 7c, answer 1: "export only what the user saw and
+ * entered"; src/lib/feedbackStore.ts feedbackExport, version 3), in the feedback page's words for it (src/app/feedback/FeedbackGuide.tsx:
+ * "what you saw and entered: each trade, the numbers on its card, your outcome, the version you sent and your notes"), with
+ * what it holds as ID numbers, its days and what it never names. Its days are the record's first press and its latest outcome's
+ * and report's (FeedbackExportEntry madeOn, outcome.on, report.on): a record keeps no earlier outcome's time, so the words
+ * never say "each press" (review of track cards, cards-4). Until then it held "Offer Sheet's numbers for each trade"
+ * and the random code each record's anonymous copies carry.
+ */
+export const EXPORT_TEXT =
+  "The file holds what you saw and entered: each trade (its players and the other team as ID numbers), the numbers on its card, your outcome, the version you sent and your notes, with the day you first marked or reported each trade and the days of its latest outcome and report. Apart from what your notes say, it has no names, and it numbers your leagues (league-1, league-2) rather than saying which they are.";
 
 /** A step of "Delete saved feedback": asking, keeping it, deleted, or the browser refused to delete. */
 export type DeleteStep = "ask" | "keep" | "deleted" | "failed";
@@ -181,11 +194,7 @@ export function FeedbackCardView({ count, leagues = 1, confirming, note, onExpor
           {note.text}
         </Callout>
       ) : null}
-      <p className="mt-3 text-xs text-muted">
-        The file holds player and team ID numbers and Offer Sheet&apos;s numbers for each trade, plus any notes you typed and the random code each one&apos;s
-        anonymous copies carry. Apart from what your notes say, it has no names, and it numbers your leagues (league-1, league-2) rather than saying which they
-        are.
-      </p>
+      <p className="mt-3 text-xs text-muted">{EXPORT_TEXT}</p>
     </Card>
   );
 }
