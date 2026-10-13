@@ -85,10 +85,17 @@ checked Upstash's console on 2026-10-05).
     the cross-site condition becomes a third OR group of "Block image optimizer" (*Request Path* starts with `/api/` AND
     *Request Header* `sec-fetch-site` equals `cross-site`), and that rule then moves above "API rate limit".
   - **Who it touches:** current browsers send `Sec-Fetch-Site` on every request (⚠️ an old browser that sends none
-    passes the rule and is counted, as before it); the app's own pages ask `/api` same-origin, a typed address says
-    none, and the cron, `vercel curl`, the store-reading scripts and `prod:deploy`'s other requests send none, so the
+    passes the rule and is counted, as before it); the app's own pages ask `/api` same-origin, a typed address sends
+    `none`, and the cron, `vercel curl`, the store-reading scripts and `prod:deploy`'s other requests send none, so the
     rule touches none of them. A link on another site (a search result, a post) opens a page with `cross-site` too:
     the path condition is what leaves pages alone.
+  - **Later, for Phase 5** (review of Checkpoint 7d, PD7D-3): an `/api/` address another site sends the browser to
+    arrives `cross-site`, and both this rule and `withRoute`'s same-origin check (BAD_ORIGIN) refuse it. Yahoo's OAuth
+    callback is one (CLAUDE.md §2.4: `/api/auth/yahoo/callback`, which Yahoo's login sends the browser back to), and
+    perhaps the planned Chrome extension's requests (⚠️ what `Sec-Fetch-Site` an extension sends isn't checked; an
+    `Origin` of `chrome-extension://…` already fails `withRoute`'s check). Each needs an exception in this rule (a
+    condition that leaves its path out) and in `withRoute`, or an address outside `/api/`. The rule lives only in
+    Vercel's dashboard, where no test sees it.
   - **The check** (the planner: "a request with that header gets 403, and the app still works"): `npm run prod:deploy`
     asks `/api/health` on the production domain with `Sec-Fetch-Site: cross-site` (403 expected) and with `same-origin`
     (not denied: the landing page's 404 before the deploy, the health check's 200 after), and `/` opened from another
@@ -231,7 +238,7 @@ place in steps 4 and 5. The script refuses any tag but the newest checkpoint, so
    the same line the home page as a link on another site opens it (it must not be denied: a 403 there means the
    cross-site condition lost its `/api/` path condition, which would turn away everyone arriving from a search result or
    a post); step 5 asks all three again once the app serves (the same-origin one then gets the health check's 200), and
-   step 6 shows the app working on a phone (a typed address, which sends no `Sec-Fetch-Site`). ⚠️ The order itself
+   step 6 shows the app working on a phone (a typed address, which sends `Sec-Fetch-Site: none`). ⚠️ The order itself
    isn't asked: only a visitor past 80 requests could show it (Vercel's docs above say a Deny ends the list).
 3. **Next:** on the latest 16.3.x patch. `npm view next@16.3 version` lists every 16.3 release; the last one must be
    16.3.8, the version the lock file pins (step 4's "Next" line asks the same). A newer 16.3 patch means stop: it needs a

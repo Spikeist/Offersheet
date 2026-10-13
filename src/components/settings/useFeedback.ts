@@ -165,7 +165,11 @@ export function setFeedbackSharing(on: boolean): SaveResult {
   return setSharing(on);
 }
 
-/** Downloads the records as a JSON file (the Settings page's "Export feedback": feedbackStore.ts feedbackExportText, version 3). */
+/**
+ * Downloads the records as a JSON file (the Settings page's "Export feedback": feedbackStore.ts feedbackExportText, version 3),
+ * named by the export's UTC day; the file says that day too, never the time (feedbackExport; review of Checkpoint 7d,
+ * cards-export-1).
+ */
 export function downloadFeedback(records: readonly FeedbackRecord[], now: Date = new Date()): void {
   const exportedAt = now.toISOString();
   const blob = new Blob([feedbackExportText(records, exportedAt)], { type: "application/json" });

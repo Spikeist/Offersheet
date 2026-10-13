@@ -310,7 +310,8 @@ describe("B's market term in both of the search's simulations: every player at m
     const companions = drain(leanCompanions(HI, shortlist, perPartner, pools));
     const taken = new Set([...shortlist, ...companions].map((s) => s.key));
     const lane = helpsBothLaneOf(perPartner, taken, cheap).trades;
-    const chosen = [...shortlist, ...companions, ...lane, ...drain(leanCompanions(HI, lane, perPartner, pools, { screened: 0 }, taken))];
+    const laneCompanions = drain(leanCompanions(HI, lane, perPartner, pools, { screened: 0 }, taken));
+    const chosen = [...shortlist, ...companions, ...lane, ...laneCompanions];
     const exact = chosen.flatMap((s) => {
       const x = evaluateExact(HI, { partnerId: s.partnerId, give: s.give.map((id) => ({ kind: "player", id })), get: s.get.map((id) => ({ kind: "player", id })) }, settings.maxPerSide);
       return "illegal" in x ? [] : [x];
@@ -334,8 +335,9 @@ describe("B's market term in both of the search's simulations: every player at m
       expect(other.bWin, c.key).toBe(c.bWin);
       expect(Math.abs((other.b as number) - (c.b as number)), c.key).toBeGreaterThan(0);
     });
-    // The search's finalists are the ones those numbers pick.
-    const floored = finalistsOf(cores, value, true).keys;
+    // The search's finalists are the ones those numbers pick (with the lane's trades and companions: the extras' room and the
+    // finalists the lane displaces, Checkpoint 7d).
+    const floored = finalistsOf(cores, value, true, pools.forcedGive, new Set([...lane, ...laneCompanions].map((s) => s.key))).keys;
     expect(r.counts.simFinal).toBe(floored.size);
     for (const t of r.trades) expect(floored.has(t.key), t.key).toBe(true);
   });
@@ -478,5 +480,35 @@ describe("finalistsOf: the relaxed caps cover every finalist (final review of Ph
     expect(exempt.size).toBe(config.search.finalists);
     expect(fromA(counted)).toBe(40);
     expect(fromA(exempt)).toBe(config.search.finalists - 30);
+  });
+
+  it("⚠️ Checkpoint 7d (ours, the final review, ENG-7D-1): a finalist the ranking picks without the helps-both lane's trades that it doesn't pick with them keeps its final run when its Helps them is known (`displaced`, ranked on the “Helps both” list only); unknown, or no lane, none", () => {
+    // finalists trades each with its own partner and core, B falling; two lane trades with a higher EG take the first two
+    // places, so the last two of the others leave the ranking's finalists. The first of those has Helps them 0 (known: its
+    // final run could still read 10 or more), the second none (its partner's scale unknown: it can't help both).
+    const n = config.search.finalists;
+    const t = (i: number, b: number) => tradeEvaluation({ partnerId: `p${i}`, give: [`d${i}`], get: [`x${i}`], b, pComplete: 0.5, stage: "exact", sims: 1000 });
+    const theirs = (helps: number) => ({ helps }) as NonNullable<TradeEvaluation["them"]>;
+    const others: TradeEvaluation[] = Array.from({ length: n }, (_, i) => ({ ...t(i + 1, 5 - i * 0.01), them: theirs(0) }));
+    const { them: _unknown, ...last } = others[n - 1] as TradeEvaluation;
+    void _unknown;
+    others[n - 1] = last;
+    const lane = [t(901, 10), t(902, 9.9)];
+    const value = (a: Parameters<typeof assetId>[0]) => Number(assetId(a).replace(/\D/g, "")) || 0;
+    const cores = [...others, ...lane];
+    const laneKeys = new Set(lane.map((c) => c.key));
+    const out = finalistsOf(cores, value, false, [], laneKeys);
+    expect(out.displaced).toEqual([others[n - 2]?.key]);
+    expect(out.extras).toEqual([]);
+    // The ranking's finalists with the lane, then the displaced one: n + 1 final runs.
+    expect(out.keys.size).toBe(n + 1);
+    for (const c of lane) expect(out.keys.has(c.key)).toBe(true);
+    expect(out.keys.has(last.key)).toBe(false);
+    // Without the lane's trades among the trades, or without a lane, nothing is displaced: the ranking's finalists alone.
+    expect(finalistsOf(others, value, false, [], laneKeys)).toMatchObject({ displaced: [], extras: [] });
+    const plain = finalistsOf(cores, value);
+    expect(plain.displaced).toEqual([]);
+    expect(plain.keys.size).toBe(n);
+    expect(plain.keys.has(others[n - 2]?.key as string)).toBe(false);
   });
 });

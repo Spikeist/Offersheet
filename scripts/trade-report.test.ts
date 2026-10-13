@@ -17,7 +17,7 @@ import { buildLeagueModel } from "@/engine/league";
 import { neutralThrowIns } from "@/engine/market";
 import type { LeagueSnapshot, Pos } from "@/engine/model";
 import { prizeOddsOf, prizePercents, prizePeriods, rewardWith } from "@/engine/reward";
-import { runTradeSearch, searchStateOf } from "@/engine/search";
+import { runTradeSearch, searchStateOf, type SearchState } from "@/engine/search";
 import { GOALS, defaultTradeSettings } from "@/engine/settings";
 import { TEST_NOW } from "@/engine/testLeague";
 import { smallLeague } from "@/engine/trade.testing";
@@ -86,6 +86,7 @@ import {
   withoutHelpsThem,
   type HelpsBothCost,
   type HelpsBothCounts,
+  type LaneCounts,
   type Runtime,
   type RuntimeRun,
   type Tagger,
@@ -432,8 +433,8 @@ describe("trade report: what Helps both costs a search (section 10)", () => {
     expect(laneShown(on, off)).toEqual({
       shared: { cards: 5, box: 2, step: 2 },
       list: { added: 1, dropped: 2, cards: 2 },
-      // Made-up results carry no search state: no extras to read.
-      extrasLost: { count: 0, listed: 0 },
+      // Made-up results carry no search state: no final runs to read.
+      finalsLost: { count: 0, listed: 0 },
       exact: { without: 201, with: 245 },
       leftOut: { without: { benefit: 29, market: 0, chance: 0 }, with: { benefit: 39, market: 1, chance: 2 } },
     });
@@ -441,25 +442,66 @@ describe("trade report: what Helps both costs a search (section 10)", () => {
     expect(laneShown(off, off)).toMatchObject({ shared: { cards: 6, box: 0, step: 0 }, list: { added: 0, dropped: 0, cards: 3 }, exact: { without: 201, with: 201 } });
   });
 
-  it("keeps every \"Helps both\" extra of the search without the lane (review of the lane, LANE-2: smallLeague 13 at 10%, where the plain top 20 by B lost one and the list went 2 cards → 1)", () => {
-    const { snapshot: s13, inputs: i13 } = smallLeague(13);
+  /** smallLeague(seed) at 10% with the helps-both lane (`on`) and without it (`off`), each on a context of its own. */
+  const laneSearches = (seed: number) => {
+    const { snapshot, inputs } = smallLeague(seed);
     const at10 = { ...defaultTradeSettings(), minChance: 0.1 };
-    const search = (lane: boolean) => runTradeSearch(buildTradeContext(s13, i13, { now: TEST_NOW, scenarios: 8 }), { settings: at10, ...(lane ? {} : { helpsBothLane: false }) });
+    const search = (lane: boolean) => runTradeSearch(buildTradeContext(snapshot, inputs, { now: TEST_NOW, scenarios: 8 }), { settings: at10, ...(lane ? {} : { helpsBothLane: false }) });
     const on = search(true);
     const off = search(false);
+    return { on, off, stOn: searchStateOf(on) as SearchState, stOff: searchStateOf(off) as SearchState };
+  };
+
+  it("keeps every \"Helps both\" extra of the search without the lane (review of the lane, LANE-2: smallLeague 13 at 10%, where the plain top 20 by B lost one and the list went 2 cards → 1), and counts the extras' pool with the lane's wider room (the final review, ENG-7D-2)", { timeout: 60_000 }, () => {
+    const { on, off, stOn, stOff } = laneSearches(13);
     const shown = laneShown(on, off);
     // Seven of the lane's long shots (each under 5% as printed) help both on the screening run. As the plain top 20 they took
     // places among the extras, and one extra without the lane, a card of its list, lost its final run. Since the lead's fix each
     // lane trade widens the room by one (search.ts finalistsOf), so every extra without the lane keeps its final run.
-    expect(shown.extrasLost).toEqual({ count: 0, listed: 0 });
+    expect(shown.finalsLost).toEqual({ count: 0, listed: 0 });
     expect(shown.list.dropped).toBe(0);
     expect(shown.list.cards).toBeGreaterThanOrEqual(2);
-    const stOn = searchStateOf(on) as NonNullable<ReturnType<typeof searchStateOf>>;
-    const stOff = searchStateOf(off) as NonNullable<ReturnType<typeof searchStateOf>>;
     const finalsOn = new Set(stOn.finals.map((f) => f.key));
     expect(stOff.helpsBothExtras.every((k) => finalsOn.has(k))).toBe(true);
     // The lane's own candidates got the wider room: more extras than without it.
-    expect(stOn.helpsBothExtras.length).toBeGreaterThan(stOff.helpsBothExtras.length);
+    expect(stOn.helpsBothExtras.length - stOn.laneDisplaced.length).toBeGreaterThan(stOff.helpsBothExtras.length);
+    // Section 10's extras row counts the pool as the search chose it (ENG-7D-2): here more candidates help both than the 20, so
+    // "already finalists" read as the pool less every extra went negative (−1). The room: 20, one more for each from the lane.
+    const c = helpsBothCounts(on) as HelpsBothCounts;
+    const screen = [...stOn.exactByKey.keys()].map((k) => stOn.versions.get(k)?.screen as TradeEvaluationCore);
+    const candidates = screen.filter((x) => helpsBoth(x) && !x.flags.hiddenByMarket);
+    const fromLane = new Set([...stOn.lane.trades, ...stOn.lane.companions]);
+    expect(candidates.length).toBeGreaterThan(config.search.helpsBothFinalists); // a fact of the synthetic data
+    expect(c.exact.shown).toBe(candidates.length);
+    expect(c.room).toBe(config.search.helpsBothFinalists + candidates.filter((x) => fromLane.has(x.key)).length);
+    expect(c.pool).toBe(Math.min(c.exact.shown, c.room));
+    expect(c.picked).toBeGreaterThanOrEqual(0);
+    expect(c.picked + c.extras).toBe(c.pool);
+    expect(c.extras + stOn.laneDisplaced.length).toBe(stOn.helpsBothExtras.length);
+    const ranked = new Set(stOn.finals.filter((f) => !stOn.helpsBothExtras.includes(f.key)).map((f) => f.key));
+    expect(c.finalists.total).toBe(ranked.size);
+  });
+
+  it("counts the finalists the helps-both lane displaced, kept for the \"Helps both\" list, and words them apart (the final review, ENG-7D-1: smallLeague 45 at 10%, where a finalist the lane's trades push out helps both only on its final numbers)", { timeout: 60_000 }, () => {
+    const { on, off, stOn, stOff } = laneSearches(45);
+    // Every final run without the lane whose Helps them is known (the list's candidates) is made with it too.
+    expect(laneShown(on, off).finalsLost).toEqual({ count: 0, listed: 0 });
+    const finalsOn = new Set(stOn.finals.map((f) => f.key));
+    expect(stOff.finals.filter((f) => !finalsOn.has(f.key)).every((f) => !Number.isFinite(f.them?.helps))).toBe(true);
+    // The lane table's row: the displaced finalists kept, of them those that help both on the final run and those listed.
+    const lc = laneCounts(on) as LaneCounts;
+    const displaced = new Set(stOn.laneDisplaced);
+    expect(lc.displaced.kept).toBe(displaced.size);
+    expect(lc.displaced.kept).toBeGreaterThan(0); // a fact of the synthetic data
+    expect(lc.displaced.both).toBe(stOn.finals.filter((f) => displaced.has(f.key) && helpsBoth(f)).length);
+    expect(lc.displaced.both).toBeGreaterThan(0); // a fact of the synthetic data: the case ENG-7D-1 found
+    expect(lc.displaced.listed).toBe((on.helpsBoth?.trades ?? []).filter((t) => displaced.has(t.key)).length);
+    expect(laneCounts(off)?.displaced).toEqual({ kept: 0, both: 0, listed: 0 });
+    // Section 4's words: the finalists, the pool's extras and the displaced finalists apart.
+    const d = stOn.laneDisplaced.length;
+    const x = stOn.helpsBothExtras.length - d;
+    expect(x).toBeGreaterThan(0); // a fact of the synthetic data
+    expect(finalRunsText(on)).toBe(`${on.counts.simFinal} final runs (${on.counts.simFinal - d - x} finalists, ${x} "Helps both" extra${x === 1 ? "" : "s"} and ${d} finalist${d === 1 ? "" : "s"} the helps-both lane displaced: section 10)`);
   });
 
   it("words the runs without Helps them against section 4's with their own sign, and the spread only from 2 timed runs a set (review of the report track, HBR-1)", () => {
@@ -838,7 +880,11 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     const fromLane = [...state.lane.trades, ...state.lane.companions].filter((k) => state.exactByKey.has(k)).length;
     expect(fromLane).toBeGreaterThan(0);
     expect(exactText(report.result)).toBe(`${report.result.counts.exact} exact (${fromLane} from the helps-both lane: section 10)`);
-    expect(finalRunsText(report.result)).toBe(`${state.finals.length} final runs (${state.finals.length - state.helpsBothExtras.length} finalists and ${state.helpsBothExtras.length} "Helps both" extra${state.helpsBothExtras.length === 1 ? "" : "s"}: section 10)`);
+    // The extras of the pool and (Checkpoint 7d, the final review, ENG-7D-1) the finalists the lane displaced, named apart.
+    const displacedRuns = state.laneDisplaced.length;
+    const poolExtras = state.helpsBothExtras.length - displacedRuns;
+    const finalParts = [`${state.finals.length - state.helpsBothExtras.length} finalists`, ...(poolExtras ? [`${poolExtras} "Helps both" extra${poolExtras === 1 ? "" : "s"}`] : []), ...(displacedRuns ? [`${displacedRuns} finalist${displacedRuns === 1 ? "" : "s"} the helps-both lane displaced`] : [])];
+    expect(finalRunsText(report.result)).toBe(`${state.finals.length} final runs (${finalParts.length > 2 ? `${finalParts.slice(0, -1).join(", ")} and ${finalParts.at(-1)}` : finalParts.join(" and ")}: section 10)`);
     expect(s).toContain(`of the ${state.finals.length} final runs, `);
     expect(s).toContain("| Partner | Screened | Beams alone | Exact | Final runs | Cards |");
     expect(s).toContain("**Garrett Wilson → Chuba Hubbard + Mike Evans** (Team 2): ");
@@ -1058,12 +1104,20 @@ describe("trade report: the whole offline report on a synthetic league", () => {
       expect(n.exact.helpsYou).toBe(screen.filter((x) => (x.tradeScore ?? 0) >= config.benefit.helpsThemMin).length);
       expect(n.exact.both).toBe(screen.filter((x) => helpsBoth(x)).length);
       expect(n.exact.shown).toBe(screen.filter((x) => helpsBoth(x) && !x.flags.hiddenByMarket).length);
-      // The extras: the pool's first helpsBothFinalists that the ranking hadn't picked, checked again on the final run.
-      expect(n.pool).toBe(Math.min(n.exact.shown, config.search.helpsBothFinalists));
-      expect(n.extras).toBe(st.helpsBothExtras.length);
+      // The extras: the pool's trades the ranking hadn't picked, checked again on the final run; the pool, the first `room`
+      // candidates, the room helpsBothFinalists and one more for each candidate from the helps-both lane (LANE-2; the final
+      // review, ENG-7D-2: counted as the search chose it, "already finalists" counted, never a difference).
+      const fromLane = new Set([...st.lane.trades, ...st.lane.companions]);
+      const candidates = screen.filter((x) => helpsBoth(x) && !x.flags.hiddenByMarket);
+      expect(n.room).toBe(config.search.helpsBothFinalists + candidates.filter((x) => fromLane.has(x.key)).length);
+      expect(n.pool).toBe(Math.min(n.exact.shown, n.room));
+      expect(n.picked).toBeGreaterThanOrEqual(0);
       expect(n.picked + n.extras).toBe(n.pool);
-      expect(n.stillBoth).toBe(st.finals.filter((f) => st.helpsBothExtras.includes(f.key) && helpsBoth(f)).length);
-      expect(n.finalists.total + n.extras).toBe(st.finals.length);
+      // Every trade only the "Helps both" list ranks: the pool's extras, then the finalists the lane displaced (ENG-7D-1).
+      expect(n.extras + st.laneDisplaced.length).toBe(st.helpsBothExtras.length);
+      const poolExtras = st.helpsBothExtras.slice(0, n.extras);
+      expect(n.stillBoth).toBe(st.finals.filter((f) => poolExtras.includes(f.key) && helpsBoth(f)).length);
+      expect(n.finalists.total + st.helpsBothExtras.length).toBe(st.finals.length);
       expect(n.cards).toEqual({ total: r.trades.length, both: r.trades.filter((t) => helpsBoth(t)).length });
       // The list is the search's own; every card on it helps both on its final numbers.
       expect(n.list).toBe(r.helpsBoth);
@@ -1199,6 +1253,12 @@ describe("trade report: the whole offline report on a synthetic league", () => {
       expect(n.finalBoth).toBe(st.finals.filter((f) => fromLane.has(f.key) && helpsBoth(f)).length);
       expect(n.list).toBe((r.helpsBoth?.trades ?? []).filter((t) => fromLane.has(t.key)).length);
       expect(n.overall).toBe(r.trades.filter((t) => fromLane.has(t.key)).length);
+      // The finalists its trades displace, kept for the "Helps both" list (the final review, ENG-7D-1): never the lane's own.
+      const displaced = new Set(st.laneDisplaced);
+      expect(n.displaced.kept).toBe(displaced.size);
+      for (const k of displaced) expect(fromLane.has(k)).toBe(false);
+      expect(n.displaced.both).toBe(st.finals.filter((f) => displaced.has(f.key) && helpsBoth(f)).length);
+      expect(n.displaced.listed).toBe((r.helpsBoth?.trades ?? []).filter((t) => displaced.has(t.key)).length);
       // The same search without the lane evaluates exactly the shortlist and its companions: the lane's legal trades fewer.
       expect(before?.exact.total).toBe(r.counts.exact - n.exact);
       expect(differs).toBeLessThanOrEqual(r.trades.length);
@@ -1224,6 +1284,7 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     const o = l.counts.other as NonNullable<typeof l.counts.other>;
     expect(s).toContain(`| ${t.qualifying} · ${t.onShortlist} · ${t.trades} · ${t.companions} · ${t.exact} | ${o.qualifying} · ${o.onShortlist} · ${o.trades} · ${o.companions} · ${o.exact} |`);
     expect(s).toContain(`| ${t.screenBoth} · ${t.finalists} · ${t.extras} · ${t.finalBoth} · ${t.list} · ${t.overall} | ${o.screenBoth} · ${o.finalists} · ${o.extras} · ${o.finalBoth} · ${o.list} · ${o.overall} |`);
+    expect(s).toContain(`| The lane's displaced finalists (the ranking picks them without it, not with it), kept for the "Helps both" list (Helps them known) · help both on the final run · on that list | ${t.displaced.kept} · ${t.displaced.both} · ${t.displaced.listed} | ${o.displaced.kept} · ${o.displaced.both} · ${o.displaced.listed} |`);
     const after = report.helpsBoth.counts.title as HelpsBothCounts;
     const before = l.before.title as HelpsBothCounts;
     expect(s).toContain(`| Without the lane → with it: exact trades that help both on the screening run (not hidden) | ${before.exact.both} (${before.exact.shown}) of ${before.exact.total} → ${after.exact.both} (${after.exact.shown}) of ${after.exact.total} |`);
@@ -1240,13 +1301,14 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     expect(sh.shared.cards + l.differs.title).toBe(trades.length);
     expect(sh.list.cards).toBe(after.list.trades.length);
     expect(sh.list.cards - sh.list.added + sh.list.dropped).toBe(before.list.trades.length);
-    expect(sh.extrasLost.listed).toBeLessThanOrEqual(sh.extrasLost.count);
-    expect(sh.extrasLost.count).toBeLessThanOrEqual(before.extras);
+    // Every final run without the lane whose Helps them is known is made with it too (LANE-2 and ENG-7D-1): a guard.
+    expect(sh.finalsLost).toEqual({ count: 0, listed: 0 });
+    expect(l.shown.other.finalsLost).toEqual({ count: 0, listed: 0 });
     const pair = (f: (x: typeof sh) => string) => `| ${f(sh)} | ${f(l.shown.other)} |`;
     const left = (x: typeof sh.leftOut.with) => `${x.benefit} · ${x.market} · ${x.chance}`;
     expect(s).toContain(`| Overall cards both show with a different Plan B box · a different offer-first step ${pair((x) => `${x.shared.box} · ${x.shared.step} of ${x.shared.cards}`)}`);
     expect(s).toContain(`| "Helps both" cards the search without the lane doesn't show · its cards this list doesn't show ${pair((x) => `${x.list.added} · ${x.list.dropped} of ${x.list.cards}`)}`);
-    expect(s).toContain(`| "Helps both" extras without the lane that get no final run with it · of them on its list ${pair((x) => `${x.extrasLost.count} · ${x.extrasLost.listed}`)}`);
+    expect(s).toContain(`| Final runs without the lane, Helps them known (the "Helps both" list's candidates), that the search with it doesn't make · of them on its list ${pair((x) => `${x.finalsLost.count} · ${x.finalsLost.listed}`)}`);
     expect(s).toContain(`| The Finder's "checked N closely", without → with ${pair((x) => `${x.exact.without} → ${x.exact.with}`)}`);
     expect(s).toContain(`| The Finder's "Left out on purpose": ideas that wouldn't help you · that give up much more trade value · under the minimum chance, without → with ${pair((x) => `${left(x.leftOut.without)} → ${left(x.leftOut.with)}`)}`);
     expect(s).toContain(`**What the lane costs** (⚠️ ours: under "Only the champion", section 4's runs, each timed one followed by the same search without the lane on its own context`);

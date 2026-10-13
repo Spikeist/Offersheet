@@ -21,7 +21,11 @@ export function feedbackDescription(features: PolicyFeatures): string {
  * own lead-in (planner reply to Checkpoint 7c, answer 1: "export only what the user saw and entered: the trade; the numbers
  * on its card …; the outcome, the version sent and the notes"; src/lib/feedbackStore.ts, the export's version 3; until
  * then, planner reply to Checkpoint 7b, Q5, it said what it left out: "the trade-value comparisons behind Offer Sheet's
- * estimates"). pages.test.ts ties the words to the export itself: a record's model numbers never reach the file.
+ * estimates"). The words name everything a record in the file holds (review of Checkpoint 7d, PD7D-1: they named neither
+ * the reason picked with a report nor the days, which the Settings card's words, FeedbackCard.tsx EXPORT_TEXT, do): the
+ * problem reported, and the days as the Settings card says them, the first press's and the latest outcome's and report's
+ * (a record keeps no earlier outcome's time). pages.test.ts ties the words to the export itself: a record's model numbers
+ * never reach the file, and every field it holds is named here.
  */
 export function FeedbackGuide({ features }: { features: PolicyFeatures }) {
   const shared = features.anonymousFeedback;
@@ -61,7 +65,8 @@ export function FeedbackGuide({ features }: { features: PolicyFeatures }) {
               </li>
               <li>
                 &ldquo;Export feedback&rdquo;, also on the Settings page, downloads what you saw and entered: each trade, the numbers on its card, your
-                outcome, the version you sent and your notes.
+                outcome, the version you sent, the problem you reported and your notes. It also holds the day you first marked or reported each trade
+                and the days of its latest outcome and report.
               </li>
             </>
           ) : (
@@ -72,7 +77,8 @@ export function FeedbackGuide({ features }: { features: PolicyFeatures }) {
                 <Link href="/settings" className="font-semibold underline underline-offset-2">
                   Settings page
                 </Link>{" "}
-                downloads what you saw and entered: each trade, the numbers on its card, your outcome, the version you sent and your notes.
+                downloads what you saw and entered: each trade, the numbers on its card, your outcome, the version you sent, the problem you reported and
+                your notes. It also holds the day you first marked or reported each trade and the days of its latest outcome and report.
               </li>
             </>
           )}

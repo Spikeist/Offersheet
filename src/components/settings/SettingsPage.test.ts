@@ -453,9 +453,10 @@ describe("the feedback card", () => {
     expect(text).toContain(EXPORT_TEXT);
     // The feedback page's words for it (src/app/feedback/FeedbackGuide.tsx), with the days it holds: the first press's and
     // the latest outcome's and report's, never "each press" (a record keeps no earlier outcome's time: review of track cards,
-    // cards-4; feedbackStore.test.ts pins the days).
+    // cards-4; feedbackStore.test.ts pins the days). The problem reported is named too, as the feedback page names it (review
+    // of Checkpoint 7d, cards-export-1 and PD7D-1: a record's report reason is in the file, and neither page named it).
     expect(text).toContain(
-      "The file holds what you saw and entered: each trade (its players and the other team as ID numbers), the numbers on its card, your outcome, the version you sent and your notes, with the day you first marked or reported each trade and the days of its latest outcome and report.",
+      "The file holds what you saw and entered: each trade (its players and the other team as ID numbers), the numbers on its card, your outcome, the version you sent, the problem you reported and your notes, with the day you first marked or reported each trade and the days of its latest outcome and report.",
     );
     expect(EXPORT_TEXT).not.toContain("each press");
     // Notes are kept as typed, so they can hold names (review POL-24).

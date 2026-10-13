@@ -134,17 +134,22 @@
  *    helps-both lane under each setting, read off each search's state (laneCounts: the screened trades on which both lineups
  *    gain, those the shortlist and its companions held, the lane, its lean companions, the legal ones, and of those the ones
  *    that help both on the screening run, the finalists the ranking picked, the extras, those that help both on the final
- *    run, and the cards of each list), the same counts as above for the same search without the lane
+ *    run, and the cards of each list; and the finalists its trades displace, kept for the "Helps both" list), the same
+ *    counts as above for the same search without the lane
  *    (TradeSearchOptions.helpsBothLane false: under section 1's setting the last of section 4's runs paired with one, under
- *    the split section 2's search again on its context), how many Overall cards the search without it doesn't show, what
+ *    the split section 2's search against the same search on a context of its own, built the same way, so its partners'
+ *    calibration runs aren't free), how many Overall cards the search without it doesn't show, what
  *    else it changes on the Finder (laneShown; review of the lane, LANE-1 and LANE-2: the Plan B boxes and offer-first steps
- *    of the cards both show, the "Helps both" list's cards each way, the extras without it that get no final run with it
- *    (none since the lead's fix: search.ts finalistsOf widens the extras' room by one for each lane trade), and the
+ *    of the cards both show, the "Helps both" list's cards each way, the final runs without it, Helps them known, that it
+ *    doesn't make (none since the lead's fix: search.ts finalistsOf widens the extras' room by one for each of the extras'
+ *    candidates the lane brought, a lane trade or its lean companion that helps both on the screening run and isn't hidden,
+ *    and keeps the final runs of the finalists the lane's trades displace: the final review, ENG-7D-1), and the
  *    "checked N closely" and "Left out on purpose" counts), and
  *    what the lane costs (laneCost), measured like the extra above: each timed run of section 4 is followed by the same
  *    search without the lane on its own context (timedSearches' pairedNoLane, after the one without Helps them), the lane's
  *    exact evaluations and screening simulations are read off each run's own progress (laneParts), and the rest (the final
- *    simulation, ranking and steps: more extras' final runs, a bigger Plan B pool and second list) is those stages with the
+ *    simulation, ranking and steps: more extras' final runs and the displaced finalists' kept ones, a bigger Plan B pool and
+ *    second list) is those stages with the
  *    lane less without, warm only; under the split, section 2's one search's parts and its total against the search
  *    without the lane (one run each).
  *
@@ -180,7 +185,7 @@ import type { BaseRateSource, FaMove, HelpsCalibration, LeagueModel, SeasonOdds,
 import { neutralThrowIns } from "@/engine/market";
 import type { InjuryStatus, LeagueSnapshot } from "@/engine/model";
 import { eliteIds, perceivedPackage, teamPremiums } from "@/engine/premium";
-import { atMostWaiverCredit, buildPools, helpsBothLaneOf, leanCompanions, partnerCandidates, runRefilter, runTradeSearch, searchStateOf, shortlistOf, type SearchState } from "@/engine/search";
+import { atMostWaiverCredit, buildPools, helpsBothLaneOf, helpsBothPoolOf, leanCompanions, partnerCandidates, runRefilter, runTradeSearch, searchStateOf, shortlistOf, type SearchState } from "@/engine/search";
 import { prizePeriods, type Reward } from "@/engine/reward";
 import { buildSimSetup, pickupSeasonModel } from "@/engine/season";
 import { GOALS, PROTECT_VALUE_LEVELS, defaultTradeSettings, normalizeTradeSettings, type Goal, type PrizeAmounts, type TradeSettings } from "@/engine/settings";
@@ -1008,12 +1013,20 @@ export function rankedFinals(state: Pick<SearchState, "finals" | "helpsBothExtra
 /**
  * A search's final runs in words (section 4): since Checkpoint 7c counts.simFinal holds the "Helps both" extras' final runs
  * too (SearchState.helpsBothExtras; planner reply to Checkpoint 7b, §7), so "65 final runs (60 finalists and 5 "Helps both"
- * extras: section 10)"; "60 finalists" without an extra.
+ * extras: section 10)"; "60 finalists" without an extra. Since Checkpoint 7d (the final review, ENG-7D-1) the finalists the
+ * helps-both lane displaced, kept for that list (SearchState.laneDisplaced, among helpsBothExtras), are named apart: "67
+ * final runs (60 finalists, 5 "Helps both" extras and 2 finalists the helps-both lane displaced: section 10)".
  */
 export function finalRunsText(result: TradeSearchResult): string {
   const n = result.counts.simFinal;
-  const extras = searchStateOf(result)?.helpsBothExtras.length ?? 0;
-  return extras ? `${n} final runs (${n - extras} finalists and ${extras} "Helps both" extra${extras === 1 ? "" : "s"}: section 10)` : `${n} finalists`;
+  const st = searchStateOf(result);
+  const extras = st?.helpsBothExtras.length ?? 0;
+  if (!extras) return `${n} finalists`;
+  const displaced = st?.laneDisplaced.length ?? 0;
+  const pool = extras - displaced;
+  const parts = [`${n - extras} finalists`, ...(pool ? [`${pool} "Helps both" extra${pool === 1 ? "" : "s"}`] : []), ...(displaced ? [`${displaced} finalist${displaced === 1 ? "" : "s"} the helps-both lane displaced`] : [])];
+  const words = parts.length > 2 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts.join(" and ");
+  return `${n} final runs (${words}: section 10)`;
 }
 
 /**
@@ -1608,27 +1621,35 @@ export const HELPS_BOTH_SHOWN = 5;
 /**
  * One search's trades that help both teams at each stage (section 10; benefit.helpsBoth: Helps you and Helps them each at
  * least config.benefit.helpsThemMin, as printed: planner reply to Checkpoint 7c, answer 5, where Checkpoint 7c read "Helps
- * you above 0"), read off its state: the exact trades on their screening numbers (the
- * run the extras are chosen on), the extras (search.ts finalistsOf: the first config.search.helpsBothFinalists by B among
- * those that help both and that the §10 guards don't hide, the ones the ranking hadn't picked already), the finalists the
- * ranking picked and the extras on their final numbers, the Overall cards, and the "Helps both" list.
+ * you above 0"), read off its state: the exact trades on their screening numbers (the run the extras are chosen on), the
+ * extras' pool (search.ts helpsBothPoolOf, as finalistsOf reads it: by B among those that help both and that the §10 guards
+ * don't hide, the first config.search.helpsBothFinalists, since Checkpoint 7d one more for each from the helps-both lane: the
+ * room; the extras, the pool's trades the ranking hadn't picked already), the finalists the ranking picked and the extras on
+ * their final numbers, the Overall cards, and the "Helps both" list.
  */
 export interface HelpsBothCounts {
   /**
    * The exact trades on the screening run: Helps you at least the minimum (as printed; above 0 until answer 5), the partner's B
    * above 0, Helps them at least the minimum, both (helpsBoth), and of those the ones the §10 guards don't hide (the extras'
-   * pool).
+   * candidates).
    */
   exact: { total: number; helpsYou: number; theirB: number; helpsThem: number; both: number; shown: number };
-  /** The pool's first helpsBothFinalists, how many of those the ranking had already picked, the extras, and the extras that still help both on the final run. */
+  /**
+   * The room (helpsBothFinalists, one more for each candidate from the helps-both lane: review of the lane, LANE-2), the pool
+   * (its first `room` candidates), how many of those the ranking had already picked (counted, never a difference: the final
+   * review, ENG-7D-2), the extras (the pool's others), and the extras that still help both on the final run. The finalists the
+   * lane displaced (SearchState.laneDisplaced, among SearchState.helpsBothExtras) aren't in the pool: section 10's lane table
+   * counts them.
+   */
+  room: number;
   pool: number;
   picked: number;
   extras: number;
   stillBoth: number;
-  /** The finalists the ranking picked (the extras left out) and the Overall cards, each with those that help both on their final numbers (the cards' tag). */
+  /** The finalists the ranking picked (every trade only the "Helps both" list ranks left out) and the Overall cards, each with those that help both on their final numbers (the cards' tag). */
   finalists: { total: number; both: number };
   cards: { total: number; both: number };
-  /** TradeSearchResult.helpsBoth, with how many of its cards the Overall list shows too and how many are extras. */
+  /** TradeSearchResult.helpsBoth, with how many of its cards the Overall list shows too and how many only it ranks (SearchState.helpsBothExtras: the extras, and the finalists the lane displaced). */
   list: HelpsBothList;
   onOverall: number;
   fromExtras: number;
@@ -1645,9 +1666,12 @@ export function helpsBothCounts(result: TradeSearchResult): HelpsBothCounts | nu
     return c ? [c] : [];
   });
   const shown = screen.filter((c) => helpsBoth(c) && !c.flags.hiddenByMarket).length;
-  const pool = Math.min(shown, Math.max(0, Math.floor(config.search.helpsBothFinalists)));
+  // The pool as the search chose it (search.ts helpsBothPoolOf): the room one wider for each of its candidates from the lane.
+  const { room, pool } = helpsBothPoolOf(screen, new Set([...state.lane.trades, ...state.lane.companions]));
   const extras = new Set(state.helpsBothExtras);
   const regular = state.finals.filter((f) => !extras.has(f.key));
+  const ranked = new Set(regular.map((f) => f.key));
+  const poolExtras = new Set(pool.filter((c) => !ranked.has(c.key)).map((c) => c.key));
   const overall = new Set(result.trades.map((t) => t.key));
   return {
     exact: {
@@ -1658,10 +1682,11 @@ export function helpsBothCounts(result: TradeSearchResult): HelpsBothCounts | nu
       both: screen.filter((c) => helpsBoth(c)).length,
       shown,
     },
-    pool,
-    picked: pool - extras.size,
-    extras: extras.size,
-    stillBoth: state.finals.filter((f) => extras.has(f.key) && helpsBoth(f)).length,
+    room,
+    pool: pool.length,
+    picked: pool.filter((c) => ranked.has(c.key)).length,
+    extras: poolExtras.size,
+    stillBoth: state.finals.filter((f) => poolExtras.has(f.key) && helpsBoth(f)).length,
     finalists: { total: regular.length, both: regular.filter((f) => helpsBoth(f)).length },
     cards: { total: result.trades.length, both: result.trades.filter((t) => helpsBoth(t)).length },
     list,
@@ -1769,7 +1794,9 @@ export function measuredRunsText(c: Pick<HelpsBothCost, "with" | "measured">): s
  * helpsBothLaneOf), read off its state: the screened trades past screening's rules on which both lineups gain, those the
  * shortlist and its lean companions held, the lane, its lean companions and how many of them (both) were legal; then of
  * those, the ones that help both on the screening run, the finalists the ranking picked, the extras, the finalists and
- * extras that help both on their final numbers, and the cards of each list.
+ * extras that help both on their final numbers, and the cards of each list; and (⚠️ the final review, ENG-7D-1) the
+ * finalists the ranking would pick without the lane that its trades displaced, kept for the "Helps both" list
+ * (SearchState.laneDisplaced), of them those that help both on the final run and those on that list.
  */
 export interface LaneCounts {
   qualifying: number;
@@ -1783,6 +1810,7 @@ export interface LaneCounts {
   finalBoth: number;
   list: number;
   overall: number;
+  displaced: { kept: number; both: number; listed: number };
 }
 
 /** A search's LaneCounts; null when it stopped before ranking. */
@@ -1793,6 +1821,8 @@ export function laneCounts(result: TradeSearchResult): LaneCounts | null {
   const legal = [...fromLane].filter((k) => st.exactByKey.has(k));
   const extras = new Set(st.helpsBothExtras);
   const finals = st.finals.filter((f) => fromLane.has(f.key));
+  const displaced = new Set(st.laneDisplaced);
+  const listed = result.helpsBoth?.trades ?? [];
   return {
     qualifying: st.lane.qualifying,
     onShortlist: st.lane.onShortlist,
@@ -1806,8 +1836,13 @@ export function laneCounts(result: TradeSearchResult): LaneCounts | null {
     finalists: finals.filter((f) => !extras.has(f.key)).length,
     extras: finals.filter((f) => extras.has(f.key)).length,
     finalBoth: finals.filter((f) => helpsBoth(f)).length,
-    list: (result.helpsBoth?.trades ?? []).filter((t) => fromLane.has(t.key)).length,
+    list: listed.filter((t) => fromLane.has(t.key)).length,
     overall: result.trades.filter((t) => fromLane.has(t.key)).length,
+    displaced: {
+      kept: displaced.size,
+      both: st.finals.filter((f) => displaced.has(f.key) && helpsBoth(f)).length,
+      listed: listed.filter((t) => displaced.has(t.key)).length,
+    },
   };
 }
 
@@ -1833,17 +1868,19 @@ export interface LeftOut {
  * What else the lane changes on the Finder (section 10; review of the lane, LANE-1: cardsNotIn reads card keys only), with
  * the lane (`on`) against the same search without it (`off`): the Overall cards both show, and of them those whose Plan B box
  * and those whose offer-first step differ (by key); the "Helps both" list's cards with the lane that the list without it
- * doesn't show (`added`), the other way (`dropped`), and its cards with the lane; the "Helps both" extras without the lane that
- * get no final run with it, and of them those on that list without it (review of the lane, LANE-2: as first built, the plain
- * top config.search.helpsBothFinalists by B, chosen without the minimum chance, the lane's long shots could take a likelier
- * trade's place; since the lead's fix each lane trade widens the extras' room by one, search.ts finalistsOf, so this reads
- * 0, a guard; none when either search stopped before ranking); and the Finder's "checked N closely" (counts.exact) and
- * "Left out on purpose" counts, without and with.
+ * doesn't show (`added`), the other way (`dropped`), and its cards with the lane; the final runs of the search without the
+ * lane (its finalists and its "Helps both" extras) whose Helps them is known, the "Helps both" list's candidates, that the
+ * search with it doesn't make, and of them those on that list without it (`finalsLost`; review of the lane, LANE-2: as first
+ * built, the plain top config.search.helpsBothFinalists by B, chosen without the minimum chance, the lane's long shots could
+ * take an extra's place, so the lead widened the extras' room by one for each lane trade; the final review, ENG-7D-1: a
+ * finalist the lane's trades push out that helps both only on its final numbers lost its final run too, so search.ts
+ * finalistsOf keeps those, SearchState.laneDisplaced; so this reads 0, a guard; none when either search stopped before
+ * ranking); and the Finder's "checked N closely" (counts.exact) and "Left out on purpose" counts, without and with.
  */
 export interface LaneShown {
   shared: { cards: number; box: number; step: number };
   list: { added: number; dropped: number; cards: number };
-  extrasLost: { count: number; listed: number };
+  finalsLost: { count: number; listed: number };
   exact: { without: number; with: number };
   leftOut: { without: LeftOut; with: LeftOut };
 }
@@ -1864,12 +1901,12 @@ export function laneShown(on: TradeSearchResult, off: TradeSearchResult): LaneSh
   const stOff = searchStateOf(off);
   const finalsOn = new Set((stOn?.finals ?? []).map((f) => f.key));
   const listedOff = new Set(listOff.map((t) => t.key));
-  const lost = stOn && stOff ? stOff.helpsBothExtras.filter((k) => !finalsOn.has(k)) : [];
+  const lost = stOn && stOff ? stOff.finals.filter((f) => finite(f.them?.helps) && !finalsOn.has(f.key)).map((f) => f.key) : [];
   const leftOut = (r: TradeSearchResult): LeftOut => ({ benefit: r.hidden.byBenefit, market: r.hidden.byMarket, chance: r.hidden.byChance ?? 0 });
   return {
     shared,
     list: { added: keysNotIn(listOn, listOff), dropped: keysNotIn(listOff, listOn), cards: listOn.length },
-    extrasLost: { count: lost.length, listed: lost.filter((k) => listedOff.has(k)).length },
+    finalsLost: { count: lost.length, listed: lost.filter((k) => listedOff.has(k)).length },
     exact: { without: off.counts.exact, with: on.counts.exact },
     leftOut: { without: leftOut(off), with: leftOut(on) },
   };
@@ -1884,7 +1921,7 @@ export interface LaneCost {
   /** The lane's exact evaluations and its trades' screening simulations, each read off its run's progress (laneParts): the cold run's, and the median of the timed runs'. */
   exact: { count: number; cold: number | null; warm: number | null };
   simScreen: { count: number; cold: number | null; warm: number | null };
-  /** The rest, warm only: the final simulation, ranking and steps stages with the lane less without, medians (more extras' final runs, a bigger Plan B pool and second list; ⚠️ a difference of medians). */
+  /** The rest, warm only: the final simulation, ranking and steps stages with the lane less without, medians (more extras' final runs and the displaced finalists' kept ones, a bigger Plan B pool and second list; ⚠️ a difference of medians). */
   rest: number | null;
   /** The three parts (cold: the cold run's own lane parts and the warm rest, ⚠️). */
   extra: { cold: number | null; warm: number | null };
@@ -1961,7 +1998,8 @@ export interface HelpsBothSection {
 
 /**
  * The searches without the helps-both lane that section 10 reads (Checkpoint 7d): section 4's runs paired with one each
- * (timedSearches' pairedNoLane), and the split's search again on its context (`split`, with its total when timed).
+ * (timedSearches' pairedNoLane), and the same search as section 2's on a context of its own, built the same way, so its
+ * partners' calibration runs aren't free (`split`, with its total when timed).
  */
 export interface NoLaneRuns {
   paired: PairedRuns;
@@ -2666,7 +2704,7 @@ function renderHelpsBoth(L: string[], snapshot: LeagueSnapshot, inputs: ModelInp
   const top = Math.max(0, Math.floor(config.search.helpsBothFinalists));
   L.push("## 10. Helps both", "");
   L.push(
-    `Planner reply to Checkpoint 7b, §7: "Helps them" is the partner's Helps you from the same runs (${helpsThemScaleWords(snapshot.settings.leagueType)}), and a trade helps both when its Helps you and its Helps them, as printed, are each at least ${min} (planner reply to Checkpoint 7c, answer 5: Helps you above 0 before). The "Helps both" sort shows only those, by Helps you, under the chance filter and the variety caps. The first ${top} by B among the screening run's trades that help both and aren't hidden get the final run (those the ranking hadn't picked: the extras), are checked again on it and are ranked on that list only, so it shows only trades exact evaluation saw. Each column is the app's search under that setting (sections 1 and 2):`,
+    `Planner reply to Checkpoint 7b, §7: "Helps them" is the partner's Helps you from the same runs (${helpsThemScaleWords(snapshot.settings.leagueType)}), and a trade helps both when its Helps you and its Helps them, as printed, are each at least ${min} (planner reply to Checkpoint 7c, answer 5: Helps you above 0 before). The "Helps both" sort shows only those, by Helps you, under the chance filter and the variety caps. The first ${top} by B among the screening run's trades that help both and aren't hidden, one more for each of those from the helps-both lane (the room; Checkpoint 7d, review of the lane, LANE-2), get the final run (those the ranking hadn't picked: the extras), are checked again on it and are ranked on that list only, so it shows only trades exact evaluation saw. Each column is the app's search under that setting (sections 1 and 2):`,
     "",
   );
   const cell = (c: HelpsBothCounts | null, f: (c: HelpsBothCounts) => string) => (c ? f(c) : "–");
@@ -2674,7 +2712,7 @@ function renderHelpsBoth(L: string[], snapshot: LeagueSnapshot, inputs: ModelInp
   const dropped = (d: HelpsBothList["dropped"]) => d.partnerCap + d.core + d.filler + d.givenPlayer;
   L.push(`| Trades that help both | ${main} | ${other} (the split) |`, "|---|---|---|");
   row(`Exact trades, screening run: Helps you ${min}+ · their B above 0 · Helps them ${min}+ · both (not hidden)`, (c) => `${c.exact.helpsYou} · ${c.exact.theirB} · ${c.exact.helpsThem} · ${c.exact.both} (${c.exact.shown}) of ${c.exact.total}`);
-  row(`The extras: the first ${top} not hidden · already finalists · extras · still helping both on the final run`, (c) => `${c.pool} · ${c.picked} · ${c.extras} · ${c.stillBoth}`);
+  row(`The extras: the first ${top} not hidden, one more for each from the helps-both lane (the room) · already finalists · extras · still helping both on the final run`, (c) => `${c.pool} (room ${c.room}) · ${c.picked} · ${c.extras} · ${c.stillBoth}`);
   row("Finalists the ranking picked, on the final run", (c) => `${c.finalists.both} of ${c.finalists.total}`);
   row(`Overall cards (their "Helps both" tag)`, (c) => `${c.cards.both} of ${c.cards.total}`);
   row(`**The "Helps both" list**: cards (also Overall cards · extras)`, (c) => `**${c.list.trades.length}** (${c.onOverall} · ${c.fromExtras})`);
@@ -2750,6 +2788,7 @@ function renderLane(L: string[], r: Report, main: string, other: string): void {
   L.push(`| The helps-both lane | ${main} | ${other} (the split) |`, "|---|---|---|");
   row("Screened trades both lineups gain on · already on the shortlist or among its companions · the lane · its lean companions · legal", (c) => `${c.qualifying} · ${c.onShortlist} · ${c.trades} · ${c.companions} · ${c.exact}`);
   row(`From the lane: help both on the screening run · finalists the ranking picked · extras · help both on the final run · on the "Helps both" list · on the Overall list`, (c) => `${c.screenBoth} · ${c.finalists} · ${c.extras} · ${c.finalBoth} · ${c.list} · ${c.overall}`);
+  row(`The lane's displaced finalists (the ranking picks them without it, not with it), kept for the "Helps both" list (Helps them known) · help both on the final run · on that list`, (c) => `${c.displaced.kept} · ${c.displaced.both} · ${c.displaced.listed}`);
   move("Without the lane → with it: exact trades that help both on the screening run (not hidden)", exactBothText);
   move("… the extras (still helping both on the final run)", (c) => (c ? `${c.extras} (${c.stillBoth})` : "–"));
   move("… finalists the ranking picked that help both", (c) => (c ? `${c.finalists.both} of ${c.finalists.total}` : "–"));
@@ -2761,7 +2800,7 @@ function renderLane(L: string[], r: Report, main: string, other: string): void {
   const leftOutText = (x: LeftOut) => `${x.benefit} · ${x.market} · ${x.chance}`;
   shown("Overall cards both show with a different Plan B box · a different offer-first step", (x) => `${x.shared.box} · ${x.shared.step} of ${x.shared.cards}`);
   shown(`"Helps both" cards the search without the lane doesn't show · its cards this list doesn't show`, (x) => `${x.list.added} · ${x.list.dropped} of ${x.list.cards}`);
-  shown(`"Helps both" extras without the lane that get no final run with it · of them on its list`, (x) => `${x.extrasLost.count} · ${x.extrasLost.listed}`);
+  shown(`Final runs without the lane, Helps them known (the "Helps both" list's candidates), that the search with it doesn't make · of them on its list`, (x) => `${x.finalsLost.count} · ${x.finalsLost.listed}`);
   shown(`The Finder's "checked N closely", without → with`, (x) => `${x.exact.without} → ${x.exact.with}`);
   shown(`The Finder's "Left out on purpose": ideas that wouldn't help you · that give up much more trade value · under the minimum chance, without → with`, (x) => `${leftOutText(x.leftOut.without)} → ${leftOutText(x.leftOut.with)}`);
   L.push("");
@@ -2776,7 +2815,7 @@ function renderLane(L: string[], r: Report, main: string, other: string): void {
       ? ` Under "${other}", section 2's one search (warm, ${ms(sp.with)}): the lane's exact evaluations ${ms(sp.parts.exact.ms)} and screening simulations ${ms(sp.parts.simScreen.ms)}; the search without the lane, on a context of its own, ${ms(sp.without)}${finite(sp.with) && finite(sp.without) ? ` (${msChange(sp.with - sp.without)} with it, one run each)` : ""}.`
       : "";
   L.push(
-    `**What the lane costs** (⚠️ ours: under "${main}", section 4's runs, each timed one followed by the same search without the lane on its own context, after the one without "Helps them"). Its exact evaluations and screening simulations are read off each run's own progress (⚠️ a batch of ${cs.yieldEverySims} simulations' time shared out evenly where the lane's begin inside one); the rest, the final simulation, ranking and steps with the lane less without (more extras' final runs, a bigger Plan B pool and second list), is warm only (the cold extra adds the warm figure).${measured}${splitText}`,
+    `**What the lane costs** (⚠️ ours: under "${main}", section 4's runs, each timed one followed by the same search without the lane on its own context, after the one without "Helps them"). Its exact evaluations and screening simulations are read off each run's own progress (⚠️ a batch of ${cs.yieldEverySims} simulations' time shared out evenly where the lane's begin inside one); the rest, the final simulation, ranking and steps with the lane less without (more extras' final runs and the displaced finalists' kept ones, a bigger Plan B pool and second list), is warm only (the cold extra adds the warm figure).${measured}${splitText}`,
     "",
   );
   L.push(`| | Cold | Warm (median of ${r.runtime.runs.length}) |`, "|---|---|---|");

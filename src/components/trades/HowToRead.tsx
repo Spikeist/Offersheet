@@ -56,7 +56,8 @@
  * a card is tagged "Helps both" (config.benefit.helpsThemMin) and what the "Helps both" sort shows (helpsThemWords), on both
  * pages. Checkpoint 7d (planner reply to Checkpoint 7c, answers 3 and 5): a trade idea shows Helps them only when it helps
  * both teams, the Analyzer's card always ("then it reads 0" when the trade costs them), and the tag needs the bar on both
- * scores.
+ * scores; the sentence on what it counts names Helps them, which the sentence before it no longer ends on (review of
+ * Checkpoint 7d, cards-export-4).
  * A native <details>, closed at first; its summary is a 44 px target.
  */
 import type { HelpsScale } from "@/engine/benefit";
@@ -160,12 +161,15 @@ export interface HelpsThemWordsOptions {
  * roster's long-term value change (B_future,P) weighed by λ_P, config.benefit.lambda by their own playoff odds (more the
  * less likely they are to make the playoffs) or lambda.keeper, never the user's Win now ↔ Future setting; without long-term
  * values this season only, as Helps you. The card names which way their long-term value goes (tradeView.ts theirLongTermFact).
+ * Each sentence names Helps them (review of Checkpoint 7d, cards-export-4): since 7d the sentence before it ends on "both Helps
+ * you and Helps them" (the Trade Finder's) or on the Trade Finder (the Analyzer's), so a bare "It" read as the trade idea or as
+ * Helps you, which does count trade value in a redraft league.
  */
 export function helpsThemValueWords(leagueType: LeagueSettings["leagueType"] = "redraft", longTermOn = true): string {
-  if (leagueType === "redraft") return "It doesn't count trade value: the chance they accept does.";
-  if (!longTermOn) return "Like Helps you, it counts this season only while long-term trade values aren't available.";
+  if (leagueType === "redraft") return `${HELPS_THEM_LABEL} doesn't count trade value: the chance they accept does.`;
+  if (!longTermOn) return `Like Helps you, ${HELPS_THEM_LABEL} counts this season only while long-term trade values aren't available.`;
   const weighed = leagueType === "keeper" ? `weighed at a fixed ${Math.round(config.benefit.lambda.keeper * 100)}%` : "weighed more the less likely they are to make the playoffs";
-  return `In a ${leagueType} league it also counts the change in their roster's long-term value, ${weighed}, not by your Win now ↔ Future setting.`;
+  return `In a ${leagueType} league ${HELPS_THEM_LABEL} also counts the change in their roster's long-term value, ${weighed}, not by your Win now ↔ Future setting.`;
 }
 
 /**

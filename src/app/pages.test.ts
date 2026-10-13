@@ -42,7 +42,7 @@ import { z } from "zod";
 vi.mock("server-only", () => ({}));
 
 import { FANTASYCALC_LINK } from "@/components/league/ValuesCredit";
-import { DYNASTYPROCESS_URL, FOOTER_INDEPENDENT, SiteFooter } from "@/components/SiteFooter";
+import { DYNASTYPROCESS_URL, FOOTER_INDEPENDENT, NEW_TAB, SiteFooter } from "@/components/SiteFooter";
 import { config } from "@/engine/config";
 import { FEEDBACK_MAX_RECORDS, feedbackExportText, parseFeedbackRecord } from "@/lib/feedbackStore";
 import { CONTACT_EMAIL, POLICY_FEATURES, SHARE_IMAGE_ALT, SHARE_IMAGE_TAGLINE, SITE_NAME, type PolicyFeatures } from "@/lib/site";
@@ -128,9 +128,27 @@ const ESTIMATES_WITH_HELPS_THEM = "The numbers Offer Sheet works out are estimat
 const RIGHTS = "Email us to ask what we hold about you or to have it deleted.";
 /**
  * The feedback page's export sentence (Checkpoint 7d; planner reply to Checkpoint 7c, answer 1: "export only what the user
- * saw and entered"; the lead's words), each branch with its own lead-in.
+ * saw and entered"; the lead's words), each branch with its own lead-in, and since the review of Checkpoint 7d (PD7D-1) the
+ * rest of what a record in the file holds: the problem reported, and the days as the Settings card says them.
  */
-const EXPORT_WHAT = "downloads what you saw and entered: each trade, the numbers on its card, your outcome, the version you sent and your notes.";
+const EXPORT_WHAT =
+  "downloads what you saw and entered: each trade, the numbers on its card, your outcome, the version you sent, the problem you reported and your notes. It also holds the day you first marked or reported each trade and the days of its latest outcome and report.";
+/**
+ * Where EXPORT_WHAT names each field a record in the export file holds (src/lib/feedbackStore.ts FeedbackExportEntry; the
+ * outcome's and the report's parts one by one, since their days and the reason are what the words once left out). The
+ * league isn't among them: the file numbers it ("league-1") and names none, as the Settings card says.
+ */
+const EXPORT_FIELD_WORDS: Readonly<Record<string, string>> = {
+  madeOn: "the day you first marked or reported each trade",
+  trade: "each trade",
+  shown: "the numbers on its card",
+  "outcome.kind": "your outcome",
+  "outcome.on": "the days of its latest outcome and report",
+  version: "the version you sent",
+  "report.reason": "the problem you reported",
+  "report.note": "your notes",
+  "report.on": "the days of its latest outcome and report",
+};
 const EXPORT_SHARED = `“Export feedback”, also on the Settings page, ${EXPORT_WHAT}`;
 const EXPORT_LOCAL = `“Export feedback” on the Settings page ${EXPORT_WHAT}`;
 
@@ -634,6 +652,12 @@ describe("privacy page, whichever features are on", () => {
       ["https://policies.google.com/privacy", "Google's privacy policy"],
     ]);
     for (const l of external) expect(l.attrs).toContain('rel="noopener noreferrer"');
+    // Each opens a new tab and says so, as the footer's links do: its name is its words and " (opens in a new tab)", the
+    // words shown unchanged (review of Checkpoint 7d, PD7D-2).
+    for (const l of external) {
+      expect(l.attrs, l.href).toContain('target="_blank"');
+      expect(textOf(/\baria-label="([^"]*)"/.exec(l.attrs)?.[1] ?? "").trim(), l.href).toBe(`${l.text}${NEW_TAB}`);
+    }
     // Review POL-6: where the server runs (vercel.json: the functions' one region, iad1, Washington, D.C.).
     expect((JSON.parse(source("vercel.json")) as { regions?: string[] }).regions).toEqual(["iad1"]);
     expect(text).toContain("Vercel hosts Offer Sheet and runs its server, in its US East region near Washington, D.C. ( Vercel's privacy policy ).");
@@ -1011,6 +1035,16 @@ describe("feedback page (Part B, B3)", () => {
     expect(["PagesTestShareId0123xA", "tk-made-up-for-the-pages-test", "vk-made-up-for-the-pages-test", "lk-made-up-for-the-pages-test"].filter((v) => file.includes(v))).toEqual([]);
     expect(['"rid"', '"tradeKey"', '"versionKey"', '"features"', '"basis"', '"versionInputs"'].filter((k) => file.includes(k))).toEqual([]);
     expect((JSON.parse(file) as { version: number }).version).toBeGreaterThanOrEqual(3);
+    // And the page's words name every field the file holds for a record (review of Checkpoint 7d, PD7D-1: the days and the
+    // reason reported were there unnamed), the made-up record holding each one, so a field added to the export without
+    // words for it fails here.
+    const { records } = JSON.parse(file) as { records: Array<Record<string, unknown>> };
+    const held = records.flatMap((rec) =>
+      Object.entries(rec).flatMap(([key, value]) => ((key === "outcome" || key === "report") && value && typeof value === "object" ? Object.keys(value).map((part) => `${key}.${part}`) : [key])),
+    );
+    expect([...new Set(held)].sort()).toEqual(["league", ...Object.keys(EXPORT_FIELD_WORDS)].sort());
+    for (const key of held.filter((k) => k !== "league")) expect(EXPORT_WHAT, key).toContain(EXPORT_FIELD_WORDS[key]);
+    for (const f of [true, false]) expect(feedback({ ...POLICY_FEATURES, anonymousFeedback: f }).text).toContain(f ? EXPORT_SHARED : EXPORT_LOCAL);
   });
 });
 

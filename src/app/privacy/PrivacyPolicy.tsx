@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ContactLine } from "@/components/ContactLine";
+import { NEW_TAB } from "@/components/SiteFooter";
 import { Card } from "@/components/ui";
 import { config } from "@/engine/config";
 import type { PolicyFeatures } from "@/lib/site";
@@ -31,6 +32,19 @@ export const feedbackKeptWords = (days: number): string => (days === 365 ? "12 m
 const P = "mt-2 text-sm leading-relaxed";
 const UL = "mt-2 list-disc space-y-1.5 pl-5 text-sm leading-relaxed";
 const A = "font-semibold underline underline-offset-2";
+
+/**
+ * A link to another service's own privacy policy ("Who handles the data"): a new tab, with "noopener noreferrer", and a name
+ * that says it opens a new tab (its aria-label: its words and NEW_TAB, as the footer's links say it; review of Checkpoint
+ * 7d, PD7D-2), so what the page shows, and its word count, stay the same.
+ */
+function PolicyLink({ href, children }: { href: string; children: string }) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className={A} aria-label={`${children}${NEW_TAB}`}>
+      {children}
+    </a>
+  );
+}
 
 /**
  * The privacy policy's text (CLAUDE.md §14: it must match what the app actually does; update it whenever data handling
@@ -367,24 +381,18 @@ export function PrivacyPolicy({ features }: { features: PolicyFeatures }) {
         <ul className={UL}>
           <li>
             Vercel hosts Offer Sheet and runs its server, in its US East region near Washington, D.C. (
-            <a href="https://vercel.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer" className={A}>
-              Vercel&apos;s privacy policy
-            </a>
+            <PolicyLink href="https://vercel.com/legal/privacy-policy">Vercel&apos;s privacy policy</PolicyLink>
             ).
           </li>
           <li>
             Upstash, our database service, in its US East region with backups turned off, keeps {listWords(upstashKeeps)} (
-            <a href="https://upstash.com/trust/privacy.pdf" target="_blank" rel="noopener noreferrer" className={A}>
-              Upstash&apos;s privacy policy
-            </a>
+            <PolicyLink href="https://upstash.com/trust/privacy.pdf">Upstash&apos;s privacy policy</PolicyLink>
             ).
           </li>
           <li>
             Google keeps the emails you send us (your address and message) in Offer Sheet&apos;s Gmail inbox, used only to answer you. Ask, and we&apos;ll delete them
             (
-            <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" className={A}>
-              Google&apos;s privacy policy
-            </a>
+            <PolicyLink href="https://policies.google.com/privacy">Google&apos;s privacy policy</PolicyLink>
             ).
           </li>
         </ul>

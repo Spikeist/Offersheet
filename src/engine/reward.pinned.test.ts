@@ -4,7 +4,9 @@
  * playoffs" stays 0.70 × ΔPO + 0.30 × ΔCH). The numbers below were stored from HEAD 7a1ac38, before src/engine/reward.ts
  * existed, by running these very builds: the League model's automatic playoff weight ω and its B per point in each run, its
  * "Helps you" calibration run, my headline odds, the search's B₃ and every card it shows (key, B, Helps you, P_complete,
- * Overall, in order). They are values, not formulas: a change that moves any of them, by however little, fails here.
+ * Overall, in order; since Checkpoint 7d the cards of the search without the helps-both lane, TradeSearchOptions
+ * .helpsBothLane false: the lane changes which trades are cards, not the reward's numbers). They are values, not formulas:
+ * a change that moves any of them, by however little, fails here.
  * Synthetic leagues (trade.testing.ts: made-up players, placeholder teams), EV lineups, the app's default seasons.
  */
 import { describe, expect, it } from "vitest";

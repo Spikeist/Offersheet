@@ -63,7 +63,9 @@ import {
   STANDARD_PROTECTIONS,
   tagPolicy,
   uploadMatchesCopy,
+  USAGE,
   utcTime,
+  VERIFY_COMMAND,
   verifyCommand,
   vercelJsonProblems,
   type ProdArgs,
@@ -117,7 +119,7 @@ describe("the command line", () => {
   });
 
   it("--verify needs --checkpoint (the tag production serves) and goes with nothing else", () => {
-    expect(parseProdArgs(["--verify"])).toEqual({ error: `--verify needs --checkpoint <the tag production serves>, so the checks compare with that tag: ${verifyCommand("checkpoint-7c")}` });
+    expect(parseProdArgs(["--verify"])).toEqual({ error: `--verify needs --checkpoint <the tag production serves>, so the checks compare with that tag: ${VERIFY_COMMAND}` });
     for (const extra of [["--live"], ["--offline"], ["--ref", "HEAD"]]) {
       expect(parseProdArgs(["--verify", "--checkpoint", "checkpoint-7c", ...extra]), extra.join(" ")).toMatchObject({ error: expect.stringContaining("--verify only asks the production domain again") });
     }
@@ -129,7 +131,7 @@ describe("the command line", () => {
     for (const a of ["--prod", "--production", "--target", "--target=production", "promote", "--public"]) {
       expect(parseProdArgs(["--checkpoint", "checkpoint-7c", a]), a).toMatchObject({ error: expect.stringContaining("Refused") });
     }
-    expect(parseProdArgs(["--tag", "checkpoint-7c"])).toMatchObject({ error: expect.stringContaining("Use --checkpoint <tag>") });
+    expect(parseProdArgs(["--tag", "checkpoint-7c"])).toMatchObject({ error: expect.stringContaining("Use --checkpoint <the approved tag>") });
     expect(parseProdArgs(["--dry-run"])).toMatchObject({ error: expect.stringContaining("its own dry run") });
     expect(parseProdArgs(["--force"])).toMatchObject({ error: expect.stringContaining('Unknown option "--force"') });
     expect(parseProdArgs(["checkpoint-7c"])).toMatchObject({ error: expect.stringContaining(`Unexpected "checkpoint-7c": was the "--" before the options left out? Write it as: ${LIVE_COMMAND}`) });
@@ -151,6 +153,22 @@ describe("the command line", () => {
     expect(parseProdArgs([], { npm_config_offline: "true", npm_config_tag: "latest" })).toEqual(base); // npm's own settings of other names don't matter
     // The command spelled out names no fixed tag: the launch tag is checkpoint-7d once approved, else checkpoint-7c.
     expect(LIVE_COMMAND).toBe("npm run prod:deploy -- --live --checkpoint <the approved tag>");
+    // Nor does the --verify command, the usage or any of the command line's errors (review of Checkpoint 7d, PD7D-5: they
+    // named checkpoint-7c, and --verify checks production against any tag it's given, so the one copied after a launch on
+    // another tag would have checked production against a tag it doesn't serve). Only a word the command line itself
+    // carried comes back (an unexpected word, an option it doesn't know).
+    expect(VERIFY_COMMAND).toBe("npm run prod:deploy -- --verify --checkpoint <the tag production serves>");
+    expect(USAGE).not.toMatch(/checkpoint-\d/);
+    expect(USAGE).toContain(`  ${LIVE_COMMAND} `);
+    expect(USAGE).toContain(`  ${VERIFY_COMMAND} `);
+    expect(USAGE).toContain("  npm run prod:deploy -- --checkpoint <the approved tag> ");
+    const tagless = [["--verify"], ["--verify", "--live"], ["--verify", "--ref", "HEAD"], ["--live"], ["--checkpoint"], ["--checkpoint", "v1.0"], ["--tag", "x"], ["--ref", "--live"], ["--live", "--ref", "HEAD"], ["--force"], ["--dry-run"], ["--prod"], ["stray"]];
+    for (const argv of tagless) {
+      const parsed = parseProdArgs(argv);
+      expect("error" in parsed && parsed.error, argv.join(" ")).toEqual(expect.any(String));
+      expect("error" in parsed ? parsed.error : "", argv.join(" ")).not.toMatch(/checkpoint-\d/);
+    }
+    expect(parseProdArgs(["--verify", "--checkpoint", "checkpoint-zz", "--live"])).toMatchObject({ error: expect.stringContaining(`alone: ${VERIFY_COMMAND}`) });
   });
 });
 
@@ -470,6 +488,17 @@ describe("the production domain after the deploy", () => {
     expect(imageRuleProblems([{ path: "/_next/image?url=x", status: 403 }, { path: "/_vercel/image?url=x", status: 200 }])).toEqual([
       '/_vercel/image answered 200, not 403: add the "Block image optimizer" firewall rule and publish it now (Vercel → offersheet → Firewall; reports/beta-infrastructure.md, Launch-day step 2)',
     ]);
+    // No answer at all says nothing about the rule (its Deny always answers 403): unconfirmed, never a rule to add (PD7D-4).
+    expect(imageRuleProblems([{ path: "/_next/image?url=x", status: 0 }, { path: "/_vercel/image?url=x", status: 403 }])).toEqual([
+      '/_next/image answered nothing: couldn\'t confirm the "Block image optimizer" firewall rule denies it',
+    ]);
+    expect(imageRuleProblems([{ path: "/_next/image?url=x", status: 0 }, { path: "/_vercel/image?url=x", status: 0 }])).toEqual([
+      '/_next/image and /_vercel/image answered nothing: couldn\'t confirm the "Block image optimizer" firewall rule denies them',
+    ]);
+    expect(imageRuleProblems([{ path: "/_next/image?url=x", status: 200 }, { path: "/_vercel/image?url=x", status: 0 }])).toEqual([
+      '/_next/image answered 200, not 403: add the "Block image optimizer" firewall rule and publish it now (Vercel → offersheet → Firewall; reports/beta-infrastructure.md, Launch-day step 2)',
+      '/_vercel/image answered nothing: couldn\'t confirm the "Block image optimizer" firewall rule denies it',
+    ]);
   });
 
   it("the new deployment's own address, never the production domain the output also names", () => {
@@ -500,8 +529,17 @@ describe("the firewall's cross-site rule (planner reply to Checkpoint 7c, answer
   it("a cross-site ask that isn't denied fails, naming the rule and where to add it, before the deploy and after", () => {
     const fix = `add the "${CROSS_SITE_RULE}" firewall rule, first, above "API rate limit", and publish it now (Vercel → offersheet → Firewall; reports/beta-infrastructure.md, Launch-day step 2)`;
     expect(crossSiteRuleProblems(LANDING_404, LANDING_404, false)).toEqual([`/api/health with Sec-Fetch-Site: cross-site answered 404, not 403: ${fix}`]);
-    expect(crossSiteRuleProblems({ status: 0, body: "" }, LANDING_404, false)).toEqual([`/api/health with Sec-Fetch-Site: cross-site answered nothing, not 403: ${fix}`]);
     expect(crossSiteRuleProblems({ status: 429, body: "" }, HEALTH_200, true)).toEqual([`/api/health with Sec-Fetch-Site: cross-site answered 429, not 403: ${fix}`]);
+  });
+
+  it("a cross-site ask that gets no answer at all fails as unconfirmed, never as a rule to add: the rule's Deny always answers 403, so nothing means the domain or the network (review of Checkpoint 7d, PD7D-4)", () => {
+    const unconfirmed = `/api/health with Sec-Fetch-Site: cross-site answered nothing: couldn't confirm the "${CROSS_SITE_RULE}" firewall rule denies it`;
+    for (const deployed of [false, true]) {
+      expect(crossSiteRuleProblems({ status: 0, body: "" }, deployed ? HEALTH_200 : LANDING_404, deployed)).toEqual([unconfirmed]);
+    }
+    expect(crossSiteRuleProblems({ status: 0, body: "" }, LANDING_404, false).join(" ")).not.toMatch(/add the|publish it now/);
+    // With the same-origin ask unanswered too, each says what it couldn't confirm.
+    expect(crossSiteRuleProblems({ status: 0, body: "" }, { status: 0, body: "" }, false)).toEqual([unconfirmed, "/api/health with Sec-Fetch-Site: same-origin answered nothing: couldn't confirm the app's own requests get through"]);
   });
 
   it("the app's own 403 (BAD_ORIGIN) isn't the firewall's: the request got past the rate limit's count, so it fails", () => {
@@ -929,9 +967,27 @@ describe("a dry run (no --live): every check, nothing uploaded", () => {
     // The /api/ asks alone pass (403 cross-site, not denied same-origin): only the page tells the two rules apart.
     expect(r.text).not.toContain("/api/health with Sec-Fetch-Site");
     expect(r.text).toContain(`/ opened from another site (Sec-Fetch-Site: cross-site) answered 403: a firewall rule denies every page reached from another site (a search result, a link in a post). Its cross-site condition ("${CROSS_SITE_RULE}", or the third OR group of "Block image optimizer") must also require Request Path starts with /api/`);
-    // A typed address (no Sec-Fetch-Site), as step 9 and the phone check ask, still opens: only the header shows it.
+    // Step 9's ask, which sends no Sec-Fetch-Site, still opens, as a typed address (the phone check: Sec-Fetch-Site: none)
+    // would: only the cross-site header shows it.
     expect(r.text).toContain(`✅ The production domain: ${PRODUCTION_ORIGIN}/ answers 200 to an anonymous visitor`);
     expect(r.text).toContain("Dry run: 1 check(s) to fix before the go (❌ above). Nothing was uploaded.");
+  });
+
+  it("an image optimizer path that gets no answer at all fails as unconfirmed, never as a rule to add (review of Checkpoint 7d, PD7D-4)", async () => {
+    const r = await run({
+      argv: ["--checkpoint", "checkpoint-7c"],
+      web: {
+        [IMAGE_PATHS[0]]: () => {
+          throw new TypeError("fetch failed");
+        },
+      },
+    });
+    expect(r.outcome).toMatchObject({ ok: false, uploaded: false, failures: 1, warnings: 0 });
+    expect(prodCalls(r.calls)).toEqual([]);
+    expect(r.text).toContain("❌ The image optimizer: no answer from the production domain");
+    expect(r.text).toContain('/_next/image answered nothing: couldn\'t confirm the "Block image optimizer" firewall rule denies it');
+    expect(r.text).not.toContain("open on the production domain");
+    expect(r.text).not.toContain('add the "Block image optimizer" firewall rule');
   });
 
   it("with the app already on the domain (a later deploy), the app's own 403 for a cross-site request doesn't pass for the firewall's", async () => {
@@ -1142,7 +1198,7 @@ describe("--verify: the checks of the production domain again, no deploy (deploy
     expect(broad.text).toContain("/api/health with Sec-Fetch-Site: same-origin answered 403: a firewall rule denies the app's own requests too");
     expect(broad.text).toContain("✅ Health"); // the health check sends no Sec-Fetch-Site, as no script does
     // Without its /api/ path condition (PD-1): the API asks pass, the page opened from another site doesn't, and the
-    // app's pages, asked as a typed address asks them (no Sec-Fetch-Site), still pass.
+    // app's pages, asked with no Sec-Fetch-Site (a typed address sends Sec-Fetch-Site: none), still pass.
     const noPath = await run({ argv: ["--verify", "--checkpoint", "checkpoint-7c"], deployed: true, crossSiteRule: "noPath" });
     expect(noPath.outcome).toMatchObject({ ok: false, failures: 1 });
     expect(noPath.text).toContain("/ opened from another site (Sec-Fetch-Site: cross-site) answered 403: a firewall rule denies every page reached from another site");

@@ -65,7 +65,8 @@
  *   the press that made the record (FeedbackChange.shown: tradeView.ts TradeCardView.shown, which the card's presses carry).
  *   Like the numbers it's the first press's; a record made before (or by a press that carried none) has none, and the export
  *   works its three numbers out from the record's own with the card's formatting (exportedShownOf). Only texts in
- *   the card's printed forms are kept (parseFeedbackShown), so no raw number can ride in it.
+ *   the card's printed forms, at the card's own precision, are kept (parseFeedbackShown; review of Checkpoint 7d,
+ *   cards-export-2), so no raw number can ride in it.
  *
  * Privacy: a record holds no names, no league id and nothing about anyone's account: player ids (canonical:
  * Sleeper's), the platform's team id of the partner, the league's short hash, the model's numbers and features (with the
@@ -269,31 +270,61 @@ export interface FeedbackShown {
   theirOdds?: string[];
 }
 
-/** A 0–100 score as a card prints it (Helps you, Overall, Helps them): a whole number, or "—" when it wasn't scored. */
-const PRINTED_SCORE = /^(?:\d{1,3}|—)$/;
-/** A chance as a card prints it ("45%", "<5%"), or "—". */
-const PRINTED_CHANCE = /^(?:<?\d{1,3}%|—)$/;
-/** The chance it goes through, as printed ("about 20%", "under 5%"). */
-const PRINTED_THROUGH = /^(?:about|under) \d{1,3}%$/;
-/** An odds value as printed: "12.1% → 13.4%" ("<1%", ">99.9%" at the edges), "+4.1 percentage points", "no change", "unknown". */
-const ODDS_VALUE = String.raw`(?:unknown|no change|[+−]\d{1,3}(?:\.\d)? percentage points?|[<>]?\d{1,3}(?:\.\d)?% → [<>]?\d{1,3}(?:\.\d)?%)`;
-/** One of my odds lines as printed. */
-const PRINTED_MY_ODDS = new RegExp(`^(?:Title|Top [23]|Playoff) odds ${ODDS_VALUE}$`);
-/** One of the partner's odds as printed. */
-const PRINTED_THEIR_ODDS = new RegExp(`^Their (?:title|top [23]|playoff) odds ${ODDS_VALUE}$`);
-/** The weekly line as printed (tradeView.ts weeklyLine). */
-const WEEK_MOVE = String.raw`Week \d{1,2}: [<>]?\d{1,3}% → [<>]?\d{1,3}%`;
-const PRINTED_WEEKLY = new RegExp(`^Win chance by week: ${WEEK_MOVE}(?: · ${WEEK_MOVE}){0,7}$`);
+// The card's printed forms, each at the card's own precision and no finer (review of Checkpoint 7d, cards-export-2: any whole
+// percent passed for the chance, any number up to 999 for a score and a tenth for every odds value, so a slip that printed a
+// raw estimate to the percent would have ridden into the file). Each is what src/lib/printed.ts and tradeView.ts print:
+/** A whole percent as a card prints one: 0 to 100, no leading zero. */
+const WHOLE = String.raw`(?:100|[1-9]?\d)`;
+/** A 0–100 score as a card prints it (printed.ts printedScore: Helps you, Overall; Helps them), or "—" when it wasn't scored. */
+const PRINTED_SCORE = new RegExp(`^(?:${WHOLE}|—)$`);
+/** The chance's step, a whole percent (config.acceptance.displayStep: 5). */
+const STEP = Math.max(1, Math.round(config.acceptance.displayStep * 100));
+/** A chance as printed.ts acceptText prints it: a whole step ("45%"; "0%" only for an estimate that isn't a number), "<5%" under the step; or "—". */
+const PRINTED_CHANCE = new RegExp(`^(?:<(${WHOLE})%|(${WHOLE})%|—)$`);
+/** The chance it goes through as printed.ts throughText prints it: "about 20%" (a whole step from the step up), "under 5%". */
+const PRINTED_THROUGH = new RegExp(`^(?:under (${WHOLE})%|about (${WHOLE})%)$`);
+/** A whole-percent odds value as tradeView.ts percentText prints it ("<1%" and ">99%" at the edges): the top-N and playoff odds, the weekly line. */
+const WHOLE_ODDS = String.raw`(?:<1%|>99%|${WHOLE}%)`;
+/** A title odds value as tradeView.ts titleOddsText prints it: one decimal ("<0.1%" and ">99.9%" at the edges). */
+const TENTH_ODDS = String.raw`(?:<0\.1%|>99\.9%|(?:100\.0|[1-9]?\d\.\d)%)`;
+/** The change alone, without the odds before (tradeView.ts pointsChange: "+4.1 percentage points", "−1 percentage point", "no change"), or "unknown". */
+const ODDS_CHANGE = String.raw`(?:unknown|no change|[+−](?:100|[1-9]?\d(?:\.\d)?) percentage points?)`;
+/** The title odds' value, and the others' (tradeView.ts oddsView): before → after, or the change alone. */
+const TITLE_VALUE = `(?:${ODDS_CHANGE}|${TENTH_ODDS} → ${TENTH_ODDS})`;
+const OTHER_VALUE = `(?:${ODDS_CHANGE}|${WHOLE_ODDS} → ${WHOLE_ODDS})`;
+/** One of my odds lines as printed (tradeView.ts oddsViews). */
+const PRINTED_MY_ODDS = new RegExp(`^(?:Title odds ${TITLE_VALUE}|(?:Top [23]|Playoff) odds ${OTHER_VALUE})$`);
+/** One of the partner's odds as printed (tradeView.ts theirOddsViews). */
+const PRINTED_THEIR_ODDS = new RegExp(`^Their (?:title odds ${TITLE_VALUE}|(?:top [23]|playoff) odds ${OTHER_VALUE})$`);
+/** The weekly line as printed (tradeView.ts weeklyLine): a week of the season, whole percents, at most config.explain.weeklyLineMax weeks. */
+const WEEK_MOVE = String.raw`Week (?:[1-9]|[12]\d|30): ${WHOLE_ODDS} → ${WHOLE_ODDS}`;
+const PRINTED_WEEKLY = new RegExp(`^Win chance by week: ${WEEK_MOVE}(?: · ${WEEK_MOVE}){0,${Math.max(0, Math.floor(config.explain.weeklyLineMax) - 1)}}$`);
 /** At most this many odds lines a side (title, top-N, playoffs). */
 const SHOWN_ODDS_MAX = 3;
 
 const printed = (x: unknown, re: RegExp): x is string => typeof x === "string" && x.length <= 300 && re.test(x);
 
-/** Whether a value is a chance they accept as a card prints it ("45%", "<5%", "—"): the export's version line reads it too. */
-export const isPrintedChance = (x: unknown): x is string => printed(x, PRINTED_CHANCE);
+/** Whether a whole percent is one of the chance's steps (STEP). */
+const onStep = (n: number): boolean => n % STEP === 0;
 
-/** Whether a value is the chance a trade goes through as a card prints it ("about 20%", "under 5%"). */
-export const isPrintedThrough = (x: unknown): x is string => printed(x, PRINTED_THROUGH);
+/**
+ * Whether a value is a chance they accept as a card prints it (printed.ts acceptText: "45%", "<5%"), or "—" when there's none
+ * to print: the export's version line reads it too.
+ */
+export function isPrintedChance(x: unknown): x is string {
+  if (!printed(x, PRINTED_CHANCE)) return false;
+  const [, under, whole] = PRINTED_CHANCE.exec(x) ?? [];
+  if (under !== undefined) return Number(under) === STEP;
+  return whole === undefined || onStep(Number(whole));
+}
+
+/** Whether a value is the chance a trade goes through as a card prints it (printed.ts throughText: "about 20%", "under 5%"). */
+export function isPrintedThrough(x: unknown): x is string {
+  if (!printed(x, PRINTED_THROUGH)) return false;
+  const [, under, about] = PRINTED_THROUGH.exec(x) ?? [];
+  if (under !== undefined) return Number(under) === STEP;
+  return about !== undefined && Number(about) >= STEP && onStep(Number(about));
+}
 
 /** A list of printed lines, all of them in the form (`re`) and at most SHOWN_ODDS_MAX; else undefined. */
 function printedLines(x: unknown, re: RegExp): string[] | undefined {
@@ -303,12 +334,14 @@ function printedLines(x: unknown, re: RegExp): string[] | undefined {
 
 /**
  * What a card printed, as a record keeps it (FeedbackShown), from a press's or a stored value: only texts in the card's
- * printed forms (a score "57" or "—", a chance "45%" or "<5%", a label of config.acceptance.labels, "about 20%", the odds and
- * weekly lines as tradeView.ts words them), so no raw number can ride in it. A part that isn't in its form is left out (the
- * partner's score and their odds go together); undefined when Helps you, the chance or Overall isn't, or it isn't an object.
+ * printed forms, at its own precision (a score "57" or "—" from 0 to 100, a chance "45%" in whole steps of
+ * config.acceptance.displayStep or "<5%", a label of config.acceptance.labels, "about 20%", the title odds to a tenth and
+ * every other odds value and the weekly line in whole percents, as tradeView.ts words them), so no raw number can ride in it.
+ * A part that isn't in its form is left out (the partner's score and their odds go together); undefined when Helps you, the
+ * chance or Overall isn't, or it isn't an object.
  */
 export function parseFeedbackShown(x: unknown): FeedbackShown | undefined {
-  if (!isRecordLike(x) || !printed(x.helps, PRINTED_SCORE) || !printed(x.chance, PRINTED_CHANCE) || !printed(x.overall, PRINTED_SCORE)) return undefined;
+  if (!isRecordLike(x) || !printed(x.helps, PRINTED_SCORE) || !isPrintedChance(x.chance) || !printed(x.overall, PRINTED_SCORE)) return undefined;
   const labels: readonly string[] = config.acceptance.labels.map((l) => l.label);
   const odds = printedLines(x.odds, PRINTED_MY_ODDS);
   const theirOdds = printedLines(x.theirOdds, PRINTED_THEIR_ODDS);
@@ -317,7 +350,7 @@ export function parseFeedbackShown(x: unknown): FeedbackShown | undefined {
     helps: x.helps,
     chance: x.chance,
     ...(typeof x.label === "string" && labels.includes(x.label) ? { label: x.label } : {}),
-    ...(printed(x.through, PRINTED_THROUGH) ? { through: x.through } : {}),
+    ...(isPrintedThrough(x.through) ? { through: x.through } : {}),
     overall: x.overall,
     ...(odds ? { odds } : {}),
     ...(printed(x.weekly, PRINTED_WEEKLY) ? { weekly: x.weekly } : {}),
@@ -831,14 +864,19 @@ export function clearFeedback(storage: StorageLike): SaveResult {
 //             formatting: the step's, Plan B's and the card's own lines print exactly that), and the chance it goes through
 //             when that printed differently: exportedVersionOf
 //   report    the report's reason, the note (the user's own words) and its UTC day
+// Around them, what the file is (kind, version), how many records it holds and the UTC day it was exported (exportedAt: the
+// day, as the file's name gives it; review of Checkpoint 7d, cards-export-1: until then its time to the millisecond, the one
+// time of day in the file).
 // Never: B, B₃, the raw P_accept or P_complete, g_mkt, the acceptance features, ΔPO, ΔCH or ΔPPW, the basis, the version's
 // inputs, the share id, a trade key or a record id (made from the trade key and the first press's time to the millisecond, an
 // id would give that time back). Every number in the file is one a card printed (whole scores, percents rounded as the card
-// rounds them, the title odds to a tenth), and every printed text is checked against the card's forms (parseFeedbackShown), so
-// no value ratio can be worked back out of it (feedbackStore.test.ts: two records whose model numbers differ but print the
-// same export the same, byte for byte). The records in this browser keep everything, and so do the anonymous copies made from
-// them (src/lib/feedbackShare.ts: unchanged). Versions 1 (Phase 4: every record as stored) and 2 (planner reply to Checkpoint
-// 7b, Q5: the value ratios' own fields left out, though its raw P_accept and B gave them back) still read (parseFeedbackExport).
+// rounds them, the title odds to a tenth), and every printed text is checked against the card's forms at the card's own
+// precision (parseFeedbackShown, isPrintedChance, isPrintedThrough: a chance in whole steps of 5%, never finer; review of
+// Checkpoint 7d, cards-export-2), so no value ratio can be worked back out of it (feedbackStore.test.ts: two records whose
+// model numbers differ but print the same export the same, byte for byte). The records in this browser keep everything, and
+// so do the anonymous copies made from them (src/lib/feedbackShare.ts: unchanged). Versions 1 (Phase 4: every record as
+// stored) and 2 (planner reply to Checkpoint 7b, Q5: the value ratios' own fields left out, though its raw P_accept and B gave
+// them back) still read (parseFeedbackExport).
 
 export const FEEDBACK_EXPORT_KIND = "offersheet-trade-feedback";
 
@@ -879,10 +917,11 @@ export interface FeedbackExportEntry {
   report?: { reason: FeedbackReason; note?: string; on?: string };
 }
 
-/** The exported file: the records (FeedbackExportEntry) with what they are and when they were exported. */
+/** The exported file: the records (FeedbackExportEntry) with what they are and the day they were exported. */
 export interface FeedbackExport {
   kind: typeof FEEDBACK_EXPORT_KIND;
   version: typeof FEEDBACK_EXPORT_VERSION;
+  /** The UTC day of the export, "2026-10-13", as the file's name gives it (feedbackExportFileName); never its time of day. */
   exportedAt: string;
   count: number;
   records: FeedbackExportEntry[];
@@ -929,19 +968,21 @@ export function exportedShownOf(r: Pick<FeedbackRecord, "shown" | "numbers">): F
 /**
  * The version sent, as the export holds it (the section's header), or undefined without an outcome or a version: which one,
  * its players read from its key, and its chance as its line printed it (acceptText, throughText on the estimate the record
- * keeps for it, FeedbackRecord.versionAccept).
+ * keeps for it, FeedbackRecord.versionAccept), checked against the card's forms like the card's own (isPrintedChance,
+ * isPrintedThrough: an estimate no card could print, above 100%, is left out, and the chance it goes through with it).
  */
 export function exportedVersionOf(r: Pick<FeedbackRecord, "outcome" | "version" | "versionKey" | "versionAccept">): ExportedVersion | undefined {
   if (!r.outcome || !r.version) return undefined;
   const players = proposalFromKey(r.versionKey);
   const p = r.versionAccept?.pAccept ?? null;
   const c = r.versionAccept?.pComplete ?? null;
+  const chance = p !== null ? acceptText(p) : null;
   const through = p !== null && c !== null ? throughText(p, c) : null;
   return {
     kind: r.version,
     ...(players ? { give: players.give.map(copyAsset), get: players.get.map(copyAsset) } : {}),
-    ...(p !== null ? { chance: acceptText(p) } : {}),
-    ...(through ? { through } : {}),
+    ...(isPrintedChance(chance) ? { chance } : {}),
+    ...(isPrintedChance(chance) && isPrintedThrough(through) ? { through } : {}),
   };
 }
 
@@ -977,12 +1018,13 @@ function exportEntriesOf(records: readonly FeedbackRecord[]): FeedbackExportEntr
 }
 
 /**
- * The export (version 3: the section's header): the records as FeedbackExportEntry holds them, with what they are and when they
- * were exported. Pure: `records` isn't changed (the browser's records, and the anonymous copies made from them, keep everything).
+ * The export (version 3: the section's header): the records as FeedbackExportEntry holds them, with what they are and the UTC
+ * day of `exportedAt`, the export's time (the text as given when it isn't one). Pure: `records` isn't changed (the browser's
+ * records, and the anonymous copies made from them, keep everything).
  */
 export function feedbackExport(records: readonly FeedbackRecord[], exportedAt: string): FeedbackExport {
   const out = exportEntriesOf(records);
-  return { kind: FEEDBACK_EXPORT_KIND, version: FEEDBACK_EXPORT_VERSION, exportedAt, count: out.length, records: out };
+  return { kind: FEEDBACK_EXPORT_KIND, version: FEEDBACK_EXPORT_VERSION, exportedAt: dayOf(exportedAt) ?? exportedAt, count: out.length, records: out };
 }
 
 /** The export as the downloaded file's text (indented JSON). */

@@ -1277,13 +1277,21 @@ describe("Checkpoint 7c: “Helps both” (planner reply to Checkpoint 7b, §7)"
       "card 3's “If they say no, try:” shows a partner's line",
     ]);
     // The Analyzer: the line whatever it is, the Finder's number when the Finder showed one, the same tag.
-    expect(analyzerPartnerLineProblems(line("39", "0", false), { helpsThem: null, helpsBothTag: false })).toEqual([]);
-    expect(analyzerPartnerLineProblems(line("39", "24", true), { helpsThem: "24", helpsBothTag: true })).toEqual([]);
-    expect(analyzerPartnerLineProblems(line("39", null, false), { helpsThem: null, helpsBothTag: false })).toEqual(["the Analyzer's card has no partner's line"]);
-    expect(analyzerPartnerLineProblems(line("39", "22", false), { helpsThem: "24", helpsBothTag: true })).toEqual([
+    expect(analyzerPartnerLineProblems(line("39", "0", false), { helpsThem: null, helpsBothTag: false }, MIN)).toEqual([]);
+    expect(analyzerPartnerLineProblems(line("39", "24", true), { helpsThem: "24", helpsBothTag: true }, MIN)).toEqual([]);
+    expect(analyzerPartnerLineProblems(line("39", null, false), { helpsThem: null, helpsBothTag: false }, MIN)).toEqual(["the Analyzer's card has no partner's line"]);
+    expect(analyzerPartnerLineProblems(line("39", "22", false), { helpsThem: "24", helpsBothTag: true }, MIN)).toEqual([
       "the Analyzer's card reads Helps them 22, the Trade Finder's 24",
       "the Analyzer's card is not tagged “Helps both”, the Trade Finder's is",
+      "the Analyzer's card has no “Helps both” tag at Helps you 39, Helps them 22",
     ]);
+    // Its tag also follows its own printed scores (review of Checkpoint 7d, cards-export-3): a Trade Finder card shows Helps
+    // them only with the tag, so an untagged one can't tell a trade that helps both from one that doesn't, and only the
+    // Analyzer's card, which prints both scores, can show a tag the page failed to give. Before, a page that tagged neither
+    // passed every check.
+    expect(analyzerPartnerLineProblems(line("12", "15", false), { helpsThem: null, helpsBothTag: false }, MIN)).toEqual(["the Analyzer's card has no “Helps both” tag at Helps you 12, Helps them 15"]);
+    expect(analyzerPartnerLineProblems(line("12", "15", true), { helpsThem: null, helpsBothTag: false }, MIN)).toEqual(["the Analyzer's card is tagged “Helps both”, the Trade Finder's isn't"]);
+    expect(analyzerPartnerLineProblems(line(String(MIN - 1), "15", true), { helpsThem: null, helpsBothTag: true }, MIN)).toEqual([`the Analyzer's card shows “Helps both” at Helps you ${MIN - 1}, Helps them 15`]);
     // The app's own pages: a Finder card that doesn't help both (Helps them 4) shows no line, its Analyzer card "Helps them 4".
     const snapshot = tradeSnapshot();
     const e = withThem(evaluation({ key: "x", b: 6 }), 4);
@@ -1292,8 +1300,14 @@ describe("Checkpoint 7c: “Helps both” (planner reply to Checkpoint 7b, §7)"
     const asRead = (c: typeof finderCard) => line(c?.numbers.helps.value ?? "", c?.them?.helps.value ?? null, !!c?.helpsBothTag);
     expect(finderPartnerLineProblems([asRead(finderCard)])).toEqual([]);
     expect(asRead(finderCard).helpsThem).toBeNull();
-    expect(analyzerPartnerLineProblems(asRead(analyzerCard ?? undefined), asRead(finderCard))).toEqual([]);
+    expect(analyzerPartnerLineProblems(asRead(analyzerCard ?? undefined), asRead(finderCard), MIN)).toEqual([]);
     expect(asRead(analyzerCard ?? undefined).helpsThem).toBe("4");
+    // And a trade that helps both: both cards tagged, with the same line.
+    const both = withThem(evaluation({ key: "y", b: 6 }), 30);
+    const finderBoth = buildFinderView({ result: searchResult([both]), sort: "overall", snapshot, partnerId: null }).cards[0];
+    const analyzerBoth = buildAnalysisView({ evaluation: both, illegal: null, notes: [] }, snapshot).card;
+    expect([asRead(finderBoth).helpsBothTag, asRead(analyzerBoth ?? undefined).helpsBothTag]).toEqual([true, true]);
+    expect(analyzerPartnerLineProblems(asRead(analyzerBoth ?? undefined), asRead(finderBoth), MIN)).toEqual([]);
     // The reader keeps a Plan B box apart: the box is the parent of its "If they say no, try:" heading, as TradeCard renders it.
     const planB = planBFixture({ partnerId: "2", give: ["105"], get: ["203"] });
     const boxed = renderToStaticMarkup(createElement(TradeCard, { card: buildTradeCard(withThem(evaluation({ planB }), 24), { snapshot }), rank: 1, feedback: noFeedback, onFeedback: saved }));

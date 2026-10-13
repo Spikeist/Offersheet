@@ -7,8 +7,8 @@
  * that helps both offers first and falls back only on trades that help both, the list shows no filler of its own cards; a
  * lower minimum's suggestion; re-filtering equals a fresh search; one partner and must-include players. Checkpoint 7d
  * (planner reply to Checkpoint 7c, answer 2): the helps-both lane (search.ts helpsBothLaneOf), its condition, order, cap,
- * skipping, lean companions, one partner, must-include players, the report switch, and that it changes nothing when no
- * screened trade qualifies.
+ * skipping, lean companions, one partner, must-include players, the report switch, that it changes nothing when no screened
+ * trade qualifies, and that it never takes a final run another trade would have had (LANE-2, ENG-7D-1).
  * Synthetic leagues (trade.testing.ts smallLeague: made-up players, placeholder teams); which seeds show what is a fact of
  * the synthetic data, said where a test leans on it.
  */
@@ -22,6 +22,7 @@ import {
   bothLineupsGain,
   buildPools,
   helpsBothLaneOf,
+  helpsBothPoolOf,
   leanCompanions,
   partnerCandidates,
   rankCaps,
@@ -107,7 +108,8 @@ describe("the “Helps both” list (TradeSearchResult.helpsBoth)", { timeout: 1
           expect(t.stage, `${label} ${t.key}`).toBe("final");
           expect(finals.has(t.key), `${label} ${t.key}`).toBe(true);
           expect(helpsBoth(t), `${label} ${t.key}`).toBe(true);
-          expect(t.tradeScore as number, `${label} ${t.key}`).toBeGreaterThan(0);
+          // Helps you at least the minimum too (planner reply to Checkpoint 7c, answer 5: above 0 at Checkpoint 7c).
+          expect(t.tradeScore as number, `${label} ${t.key}`).toBeGreaterThanOrEqual(config.benefit.helpsThemMin);
           expect(t.them?.helps as number, `${label} ${t.key}`).toBeGreaterThanOrEqual(config.benefit.helpsThemMin);
           expect(meetsMinChance(t.pComplete, minChance), `${label} ${t.key}`).toBe(true);
           expect(t.flags.hiddenByMarket, `${label} ${t.key}`).toBe(false);
@@ -141,10 +143,18 @@ describe("the “Helps both” list (TradeSearchResult.helpsBoth)", { timeout: 1
       const fromLane = candidates.filter((c) => lane.has(c.key)).length;
       widened += fromLane;
       const top = candidates.slice(0, config.search.helpsBothFinalists + fromLane);
+      // The search's own pool holds the same trades (helpsBothPoolOf: trade-report's section 10 counts it; ties on B go by EG
+      // there, by the key here).
+      expect(keys(helpsBothPoolOf(screened, lane).pool).sort(), `seed ${seed}`).toEqual(keys(top).sort());
       const finals = new Set(keys(st.finals));
       for (const c of top) expect(finals.has(c.key), `seed ${seed} ${c.key}`).toBe(true);
+      // The extras: the pool's trades the ranking hadn't picked, then (Checkpoint 7d, ENG-7D-1) the finalists the lane
+      // displaced, outside the pool (the lane test below).
       const topKeys = new Set(keys(top));
-      for (const k of st.helpsBothExtras) expect(topKeys.has(k), `seed ${seed} ${k}`).toBe(true);
+      const poolExtras = st.helpsBothExtras.slice(0, st.helpsBothExtras.length - st.laneDisplaced.length);
+      expect(st.helpsBothExtras.slice(poolExtras.length), `seed ${seed}`).toEqual(st.laneDisplaced);
+      for (const k of poolExtras) expect(topKeys.has(k), `seed ${seed} ${k}`).toBe(true);
+      for (const k of st.laneDisplaced) expect(topKeys.has(k), `seed ${seed} ${k}`).toBe(false);
       // The finalists the ranking picked, then the extras: at most finalists of the former, and every final simulated once.
       expect(st.finals.length - st.helpsBothExtras.length, `seed ${seed}`).toBeLessThanOrEqual(config.search.finalists);
       expect(r.counts.simFinal, `seed ${seed}`).toBe(st.finals.length);
@@ -156,7 +166,8 @@ describe("the “Helps both” list (TradeSearchResult.helpsBoth)", { timeout: 1
   });
 
   it("re-checked on the final run: an extra that doesn't help both on its final numbers stays off the list (smallLeague(13))", () => {
-    // smallLeague(13) since Checkpoint 7d's bar (Helps you at least 10 too): 6 of its 12 extras don't help both on the final run.
+    // smallLeague(13) with Checkpoint 7d's bar (Helps you at least 10 too) and its helps-both lane: 8 of its 22 extras (the one
+    // finalist the lane displaced among them) don't help both on the final run.
     const r = search(13, 0.1);
     const st = stateOf(r);
     const out = st.finals.filter((c) => st.helpsBothExtras.includes(c.key) && !helpsBoth(c));
@@ -532,16 +543,41 @@ describe("the helps-both lane (Checkpoint 7d; planner reply to Checkpoint 7c, an
     expect(so.companions).toEqual(s.companions);
   });
 
-  it("never takes a “Helps both” extra's place: every extra of the search without the lane gets its final run with it (LANE-2; each lane trade widens the extras' room by one)", () => {
+  it("never takes a final run another trade would have had: every trade the search without the lane simulates on the final block, its Helps them known, gets its final run with it (LANE-2: each lane trade widens the extras' room by one; ENG-7D-1: a finalist its trades push out keeps its final run, for the “Helps both” list only)", () => {
     let widened = 0;
-    for (const seed of [...SEEDS, 12, 13]) {
+    let displaced = 0;
+    for (const seed of [...SEEDS, 12, 13, 45]) {
       const on = stateOf(search(seed, 0.1));
       const off = stateOf(runTradeSearch(contextOf(seed), { settings: at(0.1), helpsBothLane: false }));
       const finals = new Set(keys(on.finals));
-      for (const k of off.helpsBothExtras) expect(finals.has(k), `seed ${seed} ${k}`).toBe(true);
-      if (on.helpsBothExtras.length > off.helpsBothExtras.length) widened++;
+      for (const c of off.finals) if (Number.isFinite(c.them?.helps)) expect(finals.has(c.key), `seed ${seed} ${c.key}`).toBe(true);
+      // The displaced: finalists the ranking picked without the lane, not with it, ranked on the "Helps both" list only.
+      const pickedOff = new Set(keys(off.finals).filter((k) => !off.helpsBothExtras.includes(k)));
+      for (const k of on.laneDisplaced) {
+        expect(pickedOff.has(k), `seed ${seed} ${k}`).toBe(true);
+        expect(on.helpsBothExtras, `seed ${seed} ${k}`).toContain(k);
+        expect(Number.isFinite(on.versions.get(k)?.screen.them?.helps), `seed ${seed} ${k}`).toBe(true);
+      }
+      expect(off.laneDisplaced, `seed ${seed}`).toEqual([]);
+      if (on.helpsBothExtras.length - on.laneDisplaced.length > off.helpsBothExtras.length) widened++;
+      displaced += on.laneDisplaced.length;
     }
-    expect(widened).toBeGreaterThan(0); // a fact of the synthetic data (smallLeague(13): the case LANE-2 found)
+    // Facts of the synthetic data: smallLeague(13) is the case LANE-2 found; the lane's trades displace finalists.
+    expect(widened).toBeGreaterThan(0);
+    expect(displaced).toBeGreaterThan(0);
+    // smallLeague(45) (facts of the synthetic data): two lane trades take finalists' places, and one finalist they push out helps
+    // both only on its final numbers (Helps them 0 on the screening run, at least 10 on the final one), so the "Helps both" pool
+    // never held it. At 20%, where the lane's long shots are under the minimum, the list without the lane shows it, at 84%;
+    // with its final run kept the list with the lane shows every card the list without it does.
+    const on45 = stateOf(search(45, 0.1));
+    const kept = on45.laneDisplaced.filter((k) => !helpsBoth(on45.versions.get(k)?.screen as TradeEvaluationCore) && helpsBoth(on45.finals.find((c) => c.key === k) as TradeEvaluationCore));
+    expect(kept).toHaveLength(1);
+    const off45 = runTradeSearch(contextOf(45), { settings: at(0.2), helpsBothLane: false });
+    const on20 = runRefilter(contextOf(45), on45, { minChance: 0.2 });
+    expect(keys(listOf(off45))).toContain(kept[0]);
+    for (const t of listOf(off45)) expect(keys(listOf(on20)), t.key).toContain(t.key);
+    // The Overall list keeps to the ranking's finalists: the displaced finalist isn't a card of it.
+    expect(keys(on20.trades)).not.toContain(kept[0]);
   });
 
   it("changes nothing when no screened trade qualifies outside the shortlist: the same result as without the lane", () => {

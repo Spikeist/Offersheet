@@ -30,7 +30,8 @@
  *
  * Planner reply to Checkpoint 7c (Checkpoint 7d): "Helps both" needs Helps you of at least the bar too (answer 5:
  * cardHelpsBoth); a Trade Finder card shows the partner's line exactly when it's tagged, never on an "If they say no, try:" box
- * (answer 3: finderPartnerLineProblems), and the Analyzer's card shows it whatever it is (analyzerPartnerLineProblems); every
+ * (answer 3: finderPartnerLineProblems), and the Analyzer's card shows it whatever it is, tagged as its own scores call for
+ * (analyzerPartnerLineProblems: the one card that prints both scores of an untagged idea); every
  * app page's footer links "DynastyProcess" to its data repository (dynastyProcessLinksInHtml, dynastyProcessLinkIssues, on the
  * server's own HTML like FantasyCalc's).
  *
@@ -321,7 +322,8 @@ export function dynastyProcessLinksInHtml(html: string): HtmlLink[] {
 /**
  * What's wrong with a page's DynastyProcess credit (pure; the lead's decisions for Checkpoint 7d): its footer has a link that
  * reads "DynastyProcess", shown without JavaScript, to exactly DYNASTYPROCESS_DATA_URL, with rel exactly "noopener" (⚠️ the
- * lead's, like the other outbound links: the site's Referrer-Policy same-origin already sends no referrer). Each footer link
+ * lead's, like FantasyCalc's links; the privacy page's links add "noreferrer", which adds nothing here: the site's
+ * Referrer-Policy, same-origin, already sends another site no referrer; review of Checkpoint 7d, PD7D-6). Each footer link
  * to DynastyProcess is checked; one elsewhere doesn't stand in for the footer's.
  */
 export function dynastyProcessLinkIssues(links: readonly HtmlLink[]): string[] {
@@ -596,14 +598,19 @@ export function finderPartnerLineProblems(cards: ReadonlyArray<HelpsBothCardRead
 /**
  * The partner's line on the Trade Analyzer's card (pure; Checkpoint 7d, planner reply to Checkpoint 7c, answer 3: "The Analyzer
  * always shows them, including when the trade hurts the other team"): it shows Helps them (a whole number, "0" when the trade
- * costs them); when the Trade Finder's card for the same trade showed the line too, the same number; and the same tag as that
- * card. Each way it reads otherwise, in words.
+ * costs them); when the Trade Finder's card for the same trade showed the line too, the same number; the same tag as that
+ * card; and the tag its own printed scores call for (helpsBothTagProblems at `min`, config.benefit.helpsThemMin, which the
+ * step passes). The last because a Finder card shows Helps them only with the tag: an untagged one reads as not helping both
+ * whatever its numbers, so a trade that helps both but that the page tags nowhere passes every Finder check, and only the
+ * Analyzer's card, which prints both scores, shows it (review of Checkpoint 7d, cards-export-3). Each way it reads otherwise,
+ * in words.
  */
-export function analyzerPartnerLineProblems(analyzer: HelpsBothCardRead, finder: Pick<HelpsBothCardRead, "helpsThem" | "helpsBothTag"> | null): string[] {
+export function analyzerPartnerLineProblems(analyzer: HelpsBothCardRead, finder: Pick<HelpsBothCardRead, "helpsThem" | "helpsBothTag"> | null, min: number): string[] {
   const out: string[] = [];
   if (printedScore(analyzer.helpsThem) === null) out.push(analyzer.helpsThem === null ? "the Analyzer's card has no partner's line" : `the Analyzer's card reads “Helps them ${analyzer.helpsThem}”`);
   if (finder && finder.helpsThem !== null && analyzer.helpsThem !== finder.helpsThem) out.push(`the Analyzer's card reads Helps them ${analyzer.helpsThem ?? "none"}, the Trade Finder's ${finder.helpsThem}`);
   if (finder && analyzer.helpsBothTag !== finder.helpsBothTag) out.push(`the Analyzer's card is ${analyzer.helpsBothTag ? "" : "not "}tagged “Helps both”, the Trade Finder's ${finder.helpsBothTag ? "is" : "isn't"}`);
+  out.push(...helpsBothTagProblems([analyzer], min, () => "the Analyzer's card"));
   return out;
 }
 

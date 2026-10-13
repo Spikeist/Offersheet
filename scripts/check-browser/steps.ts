@@ -87,9 +87,11 @@
  *
  * Checkpoint 7d (planner reply to Checkpoint 7c; contracts.ts decides): answer 3, in every sort a Trade Finder card shows the
  * partner's line exactly when it's tagged "Helps both", never in an "If they say no, try:" box (finderPartnerLineProblems), and
- * the Analyzer's card shows it whatever it is, the same number as the Finder's card when that one showed it, with the same tag
- * (analyzerPartnerLineProblems); "Also", step "DynastyProcess link" with the public pages: every app page's server HTML
- * credits DynastyProcess in its footer with a link to its data repository (dynastyProcessLinkIssues).
+ * the Analyzer's card shows it whatever it is, the same number as the Finder's card when that one showed it, with the same tag,
+ * and that tag the one its own printed scores call for (analyzerPartnerLineProblems; review of Checkpoint 7d, cards-export-3:
+ * only the Analyzer's card prints both scores of an untagged idea); "Also", step "DynastyProcess link" with the public pages:
+ * every app page's server HTML credits DynastyProcess in its footer with a link to its data repository
+ * (dynastyProcessLinkIssues).
  * - The odds lines on every Trade Finder card (and Plan B box) and the Analyzer's card, and my odds on the League page:
  *   "Top 3 odds" (or "Top 2 odds") exactly when the tab's saved settings pay 3rd (2nd) place under "Several prizes"
  *   (tradeView.ts topPlacesOf on them). The League, Trade Finder and Analyzer steps run in a fresh browser, under "Only the
@@ -1398,14 +1400,15 @@ export async function analyzerStep(ctx: StepContext): Promise<void> {
     );
     // Checkpoint 7c (planner reply to Checkpoint 7b, §7: "The Analyzer shows the same"): the partner's score and the tag. Since
     // Checkpoint 7d (planner reply to Checkpoint 7c, answer 3: "The Analyzer always shows them, including when the trade hurts
-    // the other team") its card shows the partner's line whatever it is, the Trade Finder's card only with the tag.
+    // the other team") its card shows the partner's line whatever it is, the Trade Finder's card only with the tag; so its tag
+    // is also held to its own printed scores, which only it shows for an untagged idea (review of Checkpoint 7d, cards-export-3).
     const them = (c: CardInfo) => `${c.helpsThem === null ? "no “Helps them” line" : `Helps them ${c.helpsThem}`}${c.helpsBothTag ? ", tagged “Helps both”" : ""}`;
-    const lineProblems = analyzerPartnerLineProblems(shown, card);
+    const lineProblems = analyzerPartnerLineProblems(shown, card, config.benefit.helpsThemMin);
     report.check(
       step,
       lineProblems.length === 0,
-      `its card shows the partner's line (${them(shown)}), the Trade Finder's card ${card.helpsThem === null ? "none, untagged" : "the same"}`,
-      "its partner's line or tag isn't as the Trade Finder's card calls for",
+      `its card shows the partner's line (${them(shown)}), tagged as its own scores call for, and the Trade Finder's card ${card.helpsThem === null ? "none, untagged" : "the same"}`,
+      "its partner's line or tag isn't as its own scores and the Trade Finder's card call for",
       [`Trade Finder: ${them(card)}`, `Analyzer: ${them(shown)}`, ...lineProblems],
     );
     // Both sides first (the tag check counts under "You give"), then the tags.

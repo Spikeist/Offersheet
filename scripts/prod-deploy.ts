@@ -96,9 +96,11 @@
  * stable.ts, the script itself runs from the development folder, not from the tag (only the policy and the pages it checks
  * come from the tag, step 4): it's reviewed with Checkpoint 7d, and shouldn't change between the dry run and the go. A
  * launch on checkpoint-7c (7d not approved in time) runs this same script, whose changes since Checkpoint 7c are the
- * cross-site check, step 11 (planner reply to Checkpoint 7c, answer 4), and LIVE_COMMAND, which names <the approved tag>
- * instead of checkpoint-7c; its FantasyCalc link reader, shared with check:browser, was reworked for 7d's DynastyProcess
- * check and reads the same.
+ * cross-site check, step 11 (planner reply to Checkpoint 7c, answer 4); the commands its messages and its usage spell out
+ * (LIVE_COMMAND, VERIFY_COMMAND), which name <the approved tag> and <the tag production serves> instead of checkpoint-7c
+ * (review of Checkpoint 7d, PD7D-5); and a firewall check that gets no answer at all, which fails as unconfirmed rather
+ * than asking for the rule (PD7D-4). Its FantasyCalc link reader, shared with check:browser, was reworked for 7d's
+ * DynastyProcess check and reads the same.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -166,15 +168,26 @@ export function verifyCommand(tag: string): string {
   return `npm run prod:deploy -- --verify --checkpoint ${tag}`;
 }
 
-export const USAGE = [
-  "Usage (PowerShell, in the project folder):",
-  "  npm run prod:deploy                                             a dry run on the newest checkpoint tag: every check, nothing uploaded",
-  "  npm run prod:deploy -- --checkpoint checkpoint-7c               a dry run on that tag",
-  "  npm run prod:deploy -- --ref HEAD                               a rehearsal on a commit that isn't tagged (never deploys)",
-  "  npm run prod:deploy -- --offline                                the local checks only (no Vercel CLI, no web request)",
-  `  ${LIVE_COMMAND}   the production deploy, only after Parker's "go"`,
-  `  ${verifyCommand("checkpoint-7c")}      the checks of the production domain again (no deploy)`,
-].join("\n");
+/**
+ * The --verify command where no run names the tag (the usage, the command line's errors), its tag left for Parker to name
+ * like LIVE_COMMAND's (review of Checkpoint 7d, PD7D-5): --verify checks production against whatever tag it's given, the
+ * newest or not, so a fixed one copied after a launch on another tag would check production against a tag it doesn't
+ * serve. A run that deployed names its own tag (afterDeploy's "again").
+ */
+export const VERIFY_COMMAND = verifyCommand("<the tag production serves>");
+
+/** The usage's commands, each with what it does; none names a fixed tag (PD7D-5). */
+const USAGE_ROWS: ReadonlyArray<readonly [string, string]> = [
+  ["npm run prod:deploy", "a dry run on the newest checkpoint tag: every check, nothing uploaded"],
+  ["npm run prod:deploy -- --checkpoint <the approved tag>", "a dry run on that tag"],
+  ["npm run prod:deploy -- --ref HEAD", "a rehearsal on a commit that isn't tagged (never deploys)"],
+  ["npm run prod:deploy -- --offline", "the local checks only (no Vercel CLI, no web request)"],
+  [LIVE_COMMAND, `the production deploy, only after Parker's "go"`],
+  [VERIFY_COMMAND, "the checks of the production domain again (no deploy)"],
+];
+const USAGE_WIDTH = Math.max(...USAGE_ROWS.map(([command]) => command.length));
+
+export const USAGE = ["Usage (PowerShell, in the project folder):", ...USAGE_ROWS.map(([command, what]) => `  ${command.padEnd(USAGE_WIDTH)}   ${what}`)].join("\n");
 
 // ---------------------------------------------------------------------------------------------
 // The command line
@@ -224,7 +237,7 @@ export function parseProdArgs(argv: readonly string[], env: Env = {}): ProdArgs 
     if (flag === "--checkpoint" || flag === "--ref") {
       const value = inline ?? argv[i + 1];
       if (inline === undefined) i++;
-      const example = flag === "--checkpoint" ? "--checkpoint checkpoint-7c" : "--ref HEAD";
+      const example = flag === "--checkpoint" ? "--checkpoint <the approved tag>" : "--ref HEAD";
       if (!value || value.startsWith("-")) return { error: `${flag} needs a value, for example ${example}.` };
       const key = flag === "--checkpoint" ? "checkpoint" : "ref";
       if (out[key] !== null) return { error: `${flag} is given twice.` };
@@ -233,15 +246,15 @@ export function parseProdArgs(argv: readonly string[], env: Env = {}): ProdArgs 
       out[key] = value;
       continue;
     }
-    if (flag === "--tag") return { error: "Use --checkpoint <tag>, for example --checkpoint checkpoint-7c (npm takes --tag as its own option when the \"--\" is dropped)." };
+    if (flag === "--tag") return { error: "Use --checkpoint <the approved tag> (npm takes --tag as its own option when the \"--\" is dropped)." };
     if (flag === "--dry-run" || flag === "--dry") return { error: "Leave it out: without --live, npm run prod:deploy is its own dry run (nothing is uploaded)." };
     if (/prod|promote|public|target/i.test(a)) return { error: `Refused: "${a}". The script adds --prod itself, and only with --live --checkpoint <the approved tag>.` };
     if (a.startsWith("-")) return { error: `Unknown option "${a}".\n${USAGE}` };
     return { error: `Unexpected "${a}": was the "--" before the options left out? Write it as: ${LIVE_COMMAND}` };
   }
   if (out.help) return out;
-  if (out.verify && (out.live || out.offline || out.ref)) return { error: `--verify only asks the production domain again (no deploy, no Vercel CLI): it goes with --checkpoint <the tag production serves> alone, for example ${verifyCommand("checkpoint-7c")}` };
-  if (out.verify && !out.checkpoint) return { error: `--verify needs --checkpoint <the tag production serves>, so the checks compare with that tag: ${verifyCommand("checkpoint-7c")}` };
+  if (out.verify && (out.live || out.offline || out.ref)) return { error: `--verify only asks the production domain again (no deploy, no Vercel CLI): it goes with --checkpoint <the tag production serves> alone: ${VERIFY_COMMAND}` };
+  if (out.verify && !out.checkpoint) return { error: `--verify needs --checkpoint <the tag production serves>, so the checks compare with that tag: ${VERIFY_COMMAND}` };
   if (out.live && out.ref) return { error: "--ref is for dry runs only (a rehearsal on a commit that isn't tagged): a deploy needs --checkpoint <the approved tag>." };
   if (out.live && !out.checkpoint) return { error: `--live needs --checkpoint <the approved tag>, so the tag that goes live is named: ${LIVE_COMMAND}` };
   if (out.live && out.offline) return { error: "--offline makes no Vercel call, so it can't go with --live." };
@@ -724,12 +737,18 @@ export function cronProblems(status: number, body: string): string[] {
 
 /**
  * What's wrong with the image optimizer's answers (none: every path 403, the firewall rule), before the deploy (step 10:
- * the rule is the project's, so it already answers for the deployment production serves) and after it.
+ * the rule is the project's, so it already answers for the deployment production serves) and after it. A path that got no
+ * answer at all (status 0: a timeout, the network) says nothing about the rule, whose Deny always answers 403, so it fails
+ * as unconfirmed, not as a rule to add (review of Checkpoint 7d, PD7D-4).
  */
 export function imageRuleProblems(results: ReadonlyArray<{ path: string; status: number }>): string[] {
-  const open = results.filter((r) => r.status !== 403);
-  if (!open.length) return [];
-  return [`${open.map((r) => `${r.path.split("?")[0]} answered ${r.status || "nothing"}`).join(", ")}, not 403: add the "Block image optimizer" firewall rule and publish it now (Vercel → offersheet → Firewall; reports/beta-infrastructure.md, Launch-day step 2)`];
+  const route = (r: { path: string }) => r.path.split("?")[0];
+  const open = results.filter((r) => r.status !== 403 && r.status !== 0);
+  const silent = results.filter((r) => r.status === 0);
+  const out: string[] = [];
+  if (open.length) out.push(`${open.map((r) => `${route(r)} answered ${r.status}`).join(", ")}, not 403: add the "Block image optimizer" firewall rule and publish it now (Vercel → offersheet → Firewall; reports/beta-infrastructure.md, Launch-day step 2)`);
+  if (silent.length) out.push(`${silent.map(route).join(" and ")} answered nothing: couldn't confirm the "Block image optimizer" firewall rule denies ${silent.length > 1 ? "them" : "it"}`);
+  return out;
 }
 
 /**
@@ -754,14 +773,17 @@ const FIREWALL_STEP = "Vercel → offersheet → Firewall; reports/beta-infrastr
  * app's own pages do (SAME_ORIGIN), on the production domain (none: an empty list; planner reply to Checkpoint 7c,
  * answer 4: "a request with that header gets 403, and the app still works"). The cross-site one must get the firewall's
  * 403 from CROSS_SITE_RULE: not the app's own BAD_ORIGIN 403 (isAppCrossSiteRefusal: it got past the firewall, so the
- * rate limit counted it toward the visitor's 80), and nothing else. The same-origin one must get through: no 403 and an
- * answer; once production serves the app (`deployed`: after the deploy, --verify), the health check's own 200.
+ * rate limit counted it toward the visitor's 80), and nothing else; no answer at all (status 0: a timeout, the network)
+ * says nothing about the rule, whose Deny always answers 403, so it fails as unconfirmed, not as a rule to add (review of
+ * Checkpoint 7d, PD7D-4). The same-origin one must get through: no 403 and an answer; once production serves the app
+ * (`deployed`: after the deploy, --verify), the health check's own 200.
  */
 export function crossSiteRuleProblems(cross: { status: number; body: string }, same: { status: number; body: string }, deployed: boolean): string[] {
   const out: string[] = [];
   const rule = `the "${CROSS_SITE_RULE}" firewall rule, first, above "API rate limit", and publish it now (${FIREWALL_STEP})`;
   if (isAppCrossSiteRefusal(cross.status, cross.body)) out.push(`${CROSS_SITE_PATH} with Sec-Fetch-Site: cross-site got the app's own 403 (BAD_ORIGIN), not the firewall's: it passed the firewall, so the rate limit counts it. Add ${rule}`);
-  else if (cross.status !== 403) out.push(`${CROSS_SITE_PATH} with Sec-Fetch-Site: cross-site answered ${cross.status || "nothing"}, not 403: add ${rule}`);
+  else if (cross.status === 0) out.push(`${CROSS_SITE_PATH} with Sec-Fetch-Site: cross-site answered nothing: couldn't confirm the "${CROSS_SITE_RULE}" firewall rule denies it`);
+  else if (cross.status !== 403) out.push(`${CROSS_SITE_PATH} with Sec-Fetch-Site: cross-site answered ${cross.status}, not 403: add ${rule}`);
   if (same.status === 403) out.push(`${CROSS_SITE_PATH} with Sec-Fetch-Site: same-origin answered 403: a firewall rule denies the app's own requests too ("${CROSS_SITE_RULE}" must match the header sec-fetch-site equals cross-site, nothing else; ${FIREWALL_STEP})`);
   else if (same.status === 0) out.push(`${CROSS_SITE_PATH} with Sec-Fetch-Site: same-origin answered nothing: couldn't confirm the app's own requests get through`);
   else if (deployed && (same.status !== 200 || healthVerdict(same.status, same.body).kind !== "new")) out.push(`${CROSS_SITE_PATH} with Sec-Fetch-Site: same-origin answered ${same.status}, not the health check's 200: the app's own requests must get through`);
@@ -1060,8 +1082,9 @@ export async function runProdDeploy(args: ProdArgs, deps: ProdDeployDeps, opts: 
 
     // 10. The image optimizer, denied on the production domain already (the firewall rule is the project's).
     {
-      const issues = await imageIssues(deps, opts.origin);
-      steps.line(issues.length ? "fail" : "ok", "The image optimizer", issues.length ? "open on the production domain" : 'both paths answer 403 on the production domain (the firewall\'s "Block image optimizer" rule)', issues);
+      const { problems, open } = await imageIssues(deps, opts.origin);
+      const said = !problems.length ? 'both paths answer 403 on the production domain (the firewall\'s "Block image optimizer" rule)' : open ? "open on the production domain" : "no answer from the production domain";
+      steps.line(problems.length ? "fail" : "ok", "The image optimizer", said, problems);
     }
 
     // 11. Cross-site API requests, denied by the firewall already (its rule is the project's too), the app's own not.
@@ -1169,11 +1192,14 @@ function leakStep(deps: ProdDeployDeps, steps: StepLog, files: readonly string[]
   steps.line(passed ? "ok" : "fail", "Leak check", passed ? `no hard hit in the copy's ${files.length} files (.env.local's values, the redaction maps and watch lists)` : "it found something in the copy's files (its lines above)");
 }
 
-/** The image optimizer's paths on the production domain (IMAGE_PATHS), as imageRuleProblems reads them (none: all 403). */
-async function imageIssues(deps: ProdDeployDeps, origin: string): Promise<string[]> {
+/**
+ * The image optimizer's paths on the production domain (IMAGE_PATHS), as imageRuleProblems reads them (none: all 403), and
+ * whether one answered without the rule's 403 (`open`), not only nothing (PD7D-4: its line says "open" only then).
+ */
+async function imageIssues(deps: ProdDeployDeps, origin: string): Promise<{ problems: string[]; open: boolean }> {
   const images: Array<{ path: string; status: number }> = [];
   for (const p of IMAGE_PATHS) images.push({ path: p, status: (await get(deps, `${origin}${p}`, "image/png")).status });
-  return imageRuleProblems(images);
+  return { problems: imageRuleProblems(images), open: images.some((r) => r.status !== 403 && r.status !== 0) };
 }
 
 /**
@@ -1234,7 +1260,7 @@ async function afterDeploy(deps: ProdDeployDeps, steps: StepLog, origin: string,
   steps.line(cronIssues.length ? "fail" : "ok", "The cron route", cronIssues.length ? "see below" : "a bare 401 without the secret", cronIssues);
 
   const images = await imageIssues(deps, origin);
-  steps.line(images.length ? "fail" : "ok", "The image optimizer", images.length ? "open" : "both paths answer 403 (the firewall rule)", images);
+  steps.line(images.problems.length ? "fail" : "ok", "The image optimizer", !images.problems.length ? "both paths answer 403 (the firewall rule)" : images.open ? "open" : "no answer", images.problems);
 
   // The cross-site rule again, now with the app behind it: its own refusal must not stand in for the firewall's.
   await crossSiteStep(deps, steps, origin, true);

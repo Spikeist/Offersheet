@@ -38,6 +38,8 @@ import {
   feedbackRecordsFrom,
   feedbackTouchedAt,
   isFeedbackPrizes,
+  isPrintedChance,
+  isPrintedThrough,
   mergeFeedbackRecords,
   parseFeedback,
   parseFeedbackExport,
@@ -374,17 +376,21 @@ describe("the export file (version 3 since Checkpoint 7d: what the user saw and 
   })();
   const TRADE = evaluation().proposal;
 
-  it("says what it is and when it was exported, and reads back to the same records", () => {
+  it("says what it is and the day it was exported, and reads back to the same records", () => {
     const text = feedbackExportText(records, T3);
     const data = JSON.parse(text) as { kind: string; version: number; exportedAt: string; count: number };
     expect(FEEDBACK_EXPORT_VERSION).toBe(3);
-    expect(data).toMatchObject({ kind: FEEDBACK_EXPORT_KIND, version: 3, exportedAt: T3, count: 2 });
+    // The export's day, as the file's name gives it, never its time (review of Checkpoint 7d, cards-export-1: the time to the
+    // millisecond was the one time of day left in the file).
+    expect(data).toMatchObject({ kind: FEEDBACK_EXPORT_KIND, version: 3, exportedAt: "2026-10-03", count: 2 });
+    expect(text).not.toMatch(/T\d\d:\d\d/);
+    expect(feedbackExport([], "2026-10-03T23:59:59.999-05:00").exportedAt).toBe("2026-10-04");
     expect(parseFeedbackExport(text)).toEqual(feedbackExport(records, T3).records);
     // Anything else isn't one: no records, not JSON, a version this code doesn't know.
     expect(parseFeedbackExport("{}")).toBeNull();
     expect(parseFeedbackExport("not json")).toBeNull();
     expect(parseFeedbackExport(JSON.stringify({ ...data, version: 4 }))).toBeNull();
-    expect(feedbackExport([], T3)).toEqual({ kind: FEEDBACK_EXPORT_KIND, version: 3, exportedAt: T3, count: 0, records: [] });
+    expect(feedbackExport([], T3)).toEqual({ kind: FEEDBACK_EXPORT_KIND, version: 3, exportedAt: "2026-10-03", count: 0, records: [] });
   });
 
   it("holds each record as what the user saw and entered: the league numbered, the trade, the card's numbers and lines as printed, the outcome, the report with its note, and the days the user acted", () => {
@@ -399,10 +405,10 @@ describe("the export file (version 3 since Checkpoint 7d: what the user saw and 
       shown: { helps: "50", chance: "40%", label: "Decent", overall: "25" },
       report: { reason: "never-accept", note: "Team 2 never trades.", on: "2026-10-02" },
     });
-    // The days of the presses, never their times (the file's own export time stays, as before).
+    // The days of the presses, never their times (the file's own export day too: the test above).
     const text = feedbackExportText(records, T3);
-    for (const at of [T1, T2]) expect(text).not.toContain(at);
-    expect(JSON.stringify((JSON.parse(text) as { records: unknown }).records)).not.toMatch(/T\d\d:\d\d/);
+    for (const at of [T1, T2, T3]) expect(text).not.toContain(at);
+    expect(text).not.toMatch(/T\d\d:\d\d/);
     expect([dayOf(T1), dayOf("2026-10-01T23:59:59.999-05:00"), dayOf("whenever"), dayOf(undefined)]).toEqual(["2026-10-01", "2026-10-02", undefined, undefined]);
   });
 
@@ -519,6 +525,9 @@ describe("the export file (version 3 since Checkpoint 7d: what the user saw and 
     // No key (recorded before keys were kept), or one that isn't one: no players; no estimate: no chance.
     expect(sentAs(undefined, 0.33, 0.33)).toEqual({ kind: "offerFirst", chance: "35%" });
     expect(sentAs("not a key", null, null)).toEqual({ kind: "offerFirst" });
+    // An estimate no card could print (a stored record's numbers are only checked to be finite) leaves no chance: the
+    // version's line is held to the card's forms like the card's own (review of Checkpoint 7d, cards-export-2).
+    expect(sentAs(undefined, 1.2, 0.6)).toEqual({ kind: "offerFirst" });
     expect(exportedVersionOf({ version: "planB", versionKey: "2|give:101|get:202" })).toBeUndefined();
     expect(proposalFromKey("2|give:101|get:202,203")).toEqual({ partnerId: "2", give: [{ kind: "player", id: "101" }], get: [{ kind: "player", id: "202" }, { kind: "player", id: "203" }] });
   });
@@ -634,6 +643,42 @@ describe("what the card printed (Checkpoint 7d; planner reply to Checkpoint 7c, 
     }
     for (const chance of ["0%", "85%", "<5%"]) expect(parseFeedbackShown({ ...SHOWN, chance })?.chance).toBe(chance);
     expect(config.acceptance.labels.map((l) => parseFeedbackShown({ ...SHOWN, label: l.label })?.label)).toEqual(config.acceptance.labels.map((l) => l.label));
+  });
+
+  it("keeps a number only at the card's own precision: a chance between its steps, a score above 100 or a tenth on a whole-percent line isn't a printed form (review of Checkpoint 7d, cards-export-2)", () => {
+    // Before, any whole percent passed for the chance, so a slip that printed the raw estimate to the percent (5 times the
+    // card's precision) would have ridden into the file; every guard passed it.
+    const step = Math.round(config.acceptance.displayStep * 100);
+    for (const bad of [
+      { ...SHOWN, chance: "42%" },
+      { ...SHOWN, chance: `${step + 1}%` },
+      { ...SHOWN, chance: "<42%" },
+      { ...SHOWN, chance: "999%" },
+      { ...SHOWN, chance: "105%" },
+      { ...SHOWN, chance: "05%" },
+      { ...SHOWN, helps: "137" },
+      { ...SHOWN, helps: "07" },
+      { ...SHOWN, overall: "101" },
+    ]) {
+      expect(parseFeedbackShown(bad), JSON.stringify(bad)).toBeUndefined();
+    }
+    const parsed = (part: Record<string, unknown>) => parseFeedbackShown({ ...SHOWN, ...part });
+    // The chance it goes through: "about" a step from the step up, or "under" the step.
+    for (const through of ["about 37%", "under 99%", "about 0%", "about <5%", "about 105%", "under 10%"]) expect(parsed({ through }), through).not.toHaveProperty("through");
+    for (const through of [`about ${step}%`, "about 85%", `under ${step}%`]) expect(parsed({ through })?.through, through).toBe(through);
+    // The title odds to a tenth, every other odds value in whole percents; a change alone to a tenth on any of them.
+    const badLines = ["Playoff odds 65.3% → 69.1%", "Top 3 odds 30.4% → 32.7%", "Title odds 999.9% → 0.1%", "Title odds 12% → 13%", "Title odds 12.12% → 13.4%", "Playoff odds <0% → 5%", "Playoff odds 101% → 99%", "Playoff odds +4.12 percentage points", "Title odds +104 percentage points"];
+    for (const line of badLines) expect(parsed({ odds: [line] }), line).not.toHaveProperty("odds");
+    const goodLines = ["Title odds 0.0% → 100.0%", "Playoff odds 0% → 100%", "Top 3 odds <1% → >99%", "Top 2 odds 18% → 20%", "Playoff odds −12 percentage points", "Title odds +0.4 percentage points"];
+    for (const line of goodLines) expect(parsed({ odds: [line] })?.odds, line).toEqual([line]);
+    for (const line of ["Their playoff odds 41.2% → 45.9%", "Their title odds 6% → 7%", "Their top 3 odds 33.5% → 36%"]) expect(parsed({ theirOdds: [line] }), line).not.toHaveProperty("theirOdds");
+    for (const line of ["Their top 2 odds 18% → 20%", "Their title odds +0.4 percentage points", "Their playoff odds no change"]) expect(parsed({ theirOdds: [line] })?.theirOdds, line).toEqual([line]);
+    // The weekly line: whole percents, a week of the season, at most config.explain.weeklyLineMax weeks.
+    const weeks = (n: number) => `Win chance by week: ${Array.from({ length: n }, (_, i) => `Week ${i + 3}: 50% → 55%`).join(" · ")}`;
+    for (const weekly of ["Win chance by week: Week 99: 999% → <0%", "Win chance by week: Week 9: 68.5% → 64%", weeks(config.explain.weeklyLineMax + 1)]) expect(parsed({ weekly }), weekly).not.toHaveProperty("weekly");
+    for (const weekly of [weeks(config.explain.weeklyLineMax), "Win chance by week: Week 17: <1% → >99%"]) expect(parsed({ weekly })?.weekly, weekly).toBe(weekly);
+    // The version's line reads the same forms.
+    expect([isPrintedChance("42%"), isPrintedChance("45%"), isPrintedChance(`<${step}%`), isPrintedChance("—"), isPrintedThrough("about 37%"), isPrintedThrough("about 35%"), isPrintedThrough(`under ${step}%`)]).toEqual([false, true, true, true, false, true, true]);
   });
 });
 

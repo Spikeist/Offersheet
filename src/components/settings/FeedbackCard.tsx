@@ -63,14 +63,16 @@ export const FEEDBACK_SCOPE_TEXT = "This card covers all your leagues in this br
 /**
  * What the exported file holds (Checkpoint 7d; planner reply to Checkpoint 7c, answer 1: "export only what the user saw and
  * entered"; src/lib/feedbackStore.ts feedbackExport, version 3), in the feedback page's words for it (src/app/feedback/FeedbackGuide.tsx:
- * "what you saw and entered: each trade, the numbers on its card, your outcome, the version you sent and your notes"), with
+ * "what you saw and entered: each trade, the numbers on its card, your outcome, the version you sent, the problem you
+ * reported and your notes", then the days), with
  * what it holds as ID numbers, its days and what it never names. Its days are the record's first press and its latest outcome's
  * and report's (FeedbackExportEntry madeOn, outcome.on, report.on): a record keeps no earlier outcome's time, so the words
- * never say "each press" (review of track cards, cards-4). Until then it held "Offer Sheet's numbers for each trade"
- * and the random code each record's anonymous copies carry.
+ * never say "each press" (review of track cards, cards-4). It names the problem reported, as the feedback page does (review of
+ * Checkpoint 7d, cards-export-1 and PD7D-1: a record's report reason is in the file). Until then it held "Offer Sheet's
+ * numbers for each trade" and the random code each record's anonymous copies carry.
  */
 export const EXPORT_TEXT =
-  "The file holds what you saw and entered: each trade (its players and the other team as ID numbers), the numbers on its card, your outcome, the version you sent and your notes, with the day you first marked or reported each trade and the days of its latest outcome and report. Apart from what your notes say, it has no names, and it numbers your leagues (league-1, league-2) rather than saying which they are.";
+  "The file holds what you saw and entered: each trade (its players and the other team as ID numbers), the numbers on its card, your outcome, the version you sent, the problem you reported and your notes, with the day you first marked or reported each trade and the days of its latest outcome and report. Apart from what your notes say, it has no names, and it numbers your leagues (league-1, league-2) rather than saying which they are.";
 
 /** A step of "Delete saved feedback": asking, keeping it, deleted, or the browser refused to delete. */
 export type DeleteStep = "ask" | "keep" | "deleted" | "failed";

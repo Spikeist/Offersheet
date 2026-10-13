@@ -127,6 +127,24 @@ describe("SiteFooter", () => {
     expect(page.indexOf(`href="${DYNASTYPROCESS_URL}"`)).toBeGreaterThan(page.indexOf("<footer"));
   });
 
+  it("tells screen readers which links open a new tab, as ValuesCredit's link does: each one's name is its words and \" (opens in a new tab)\", the words it shows unchanged (review of Checkpoint 7d, PD7D-2)", async () => {
+    const newTab = (markup: string) => links(markup).filter((l) => /\btarget="_blank"/.test(l.attrs));
+    // FantasyCalc's and DynastyProcess's, the footer's only links to another site.
+    expect(newTab(html).map((l) => l.href)).toEqual([FANTASYCALC_URL, DYNASTYPROCESS_URL]);
+    expect(links(html).filter((l) => /^https?:/.test(l.href ?? "")).map((l) => l.href)).toEqual([FANTASYCALC_URL, DYNASTYPROCESS_URL]);
+    for (const l of newTab(html)) {
+      expect(/\baria-label="([^"]*)"/.exec(l.attrs)?.[1], l.href).toBe(`${l.text} (opens in a new tab)`);
+      // The words shown are the link's own (check:browser's DynastyProcess step wants exactly "DynastyProcess").
+      expect(l.text, l.href).toBe(l.href === FANTASYCALC_URL ? "FantasyCalc" : "DynastyProcess");
+    }
+    // The same words ValuesCredit's link reads out, there in a screen-reader-only span.
+    expect(links(renderToStaticMarkup(createElement(ValuesCredit)))[0]?.text).toBe("Values: FantasyCalc (opens in a new tab)");
+    // In every page's server HTML too.
+    const { default: RootLayout } = await import("@/app/layout");
+    const page = renderToStaticMarkup(createElement(RootLayout, null, createElement("p", null, "A page of Offer Sheet")));
+    expect(newTab(page).map((l) => /\baria-label="([^"]*)"/.exec(l.attrs)?.[1])).toEqual(["FantasyCalc (opens in a new tab)", "DynastyProcess (opens in a new tab)"]);
+  });
+
   it("credits the NFL schedule to ESPN, where the app reads it, not to nflverse, which it never downloads (review PG-2)", () => {
     expect(nflScheduleUrl(2026).startsWith(`${ESPN_READS_BASE}/`)).toBe(true);
     expect(text).toContain("NFL schedule: ESPN");

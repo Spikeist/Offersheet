@@ -119,9 +119,10 @@
  * the key (helpsBothLaneOf). They're evaluated exactly after the shortlist and its companions, each bringing its lean
  * version like a shortlisted trade (leanCompanions, skipping what's chosen already; ⚠️ not counted in the lane's size), and
  * from then on they're exact trades like any other: the screening simulation, the finalists' rules (so one can be a
- * finalist and a card on the Overall list) and the "Helps both" extras. SearchState.lane keeps their keys, their companions'
- * and how many screened trades qualified; TradeSearchOptions.helpsBothLane false (a report switch the app never sets) or the
- * config at 0 leaves them out.
+ * finalist and a card on the Overall list) and the "Helps both" extras, never at another trade's expense on that list (each
+ * widens the extras' room, and a finalist they push out keeps its final run: "Helps both" below). SearchState.lane keeps
+ * their keys, their companions' and how many screened trades qualified; TradeSearchOptions.helpsBothLane false (a report
+ * switch the app never sets) or the config at 0 leaves them out.
  *
  * Final stages (M8). Every exact trade gets the screening simulation (the screening block of seasons, screeningSims) → B
  * (λ, κ and the reward from the call's settings: lambda, "Protect my trade value" protectValue and "What does your league
@@ -207,30 +208,34 @@
  * evaluate.partnerCalibrationOf), and a trade helps both when its Helps you and its Helps them, as printed, are each at
  * least config.benefit.helpsThemMin (benefit.helpsBoth; planner reply to Checkpoint 7c, answer 5: Checkpoint 7c read "Helps
  * you > 0"). On top of the finalists, finalistsOf adds the first config.search.helpsBothFinalists exact trades by B on the
- * screening block (ties: EG, then the key) that help both and aren't hidden by default (since Checkpoint 7d the helps-both
- * lane's among them, above, each widening the room by one: ⚠️ the lead's call, review of the lane, LANE-2, so the lane never
- * takes another trade's place), ⚠️ the plain top 20 (the lead's call: no caps in the choice); those that aren't finalists
- * already (SearchState.helpsBothExtras) get the final simulation too and count in counts.simFinal. ⚠️ Only the second list
- * ranks them (review of the "Helps both" engine track, finding HB-5): they're simulated so that list has enough candidates,
- * and in the Overall list a trade that missed the finalists would get a second chance only because it helps the partner (on
- * synthetic leagues one pushed a card out under the core cap); Plan B's pool keeps their screening numbers as before. So the
- * Overall list, its steps, boxes, words, `few` and pattern note are the same as without the second list, but for the rules
- * of a card that helps both, below. finish then ranks a second list (TradeSearchResult.helpsBoth) from every finalist, the
- * extras too: rankTrades with RankOptions.order "helps" (B, highest first, the order the caps go through them in) and keep
- * benefit.helpsBoth (on the final numbers: the re-check), the §10 guards, the minimum chance and §13's caps as the Overall
- * list's (one partner, must-include players alike; ⚠️ the filler rule judging each pair as the Overall order does: rank.ts,
- * HB-3), its own folding of cards that show one plan, and lowerWouldAdd (the same finalists at Any, its folded cards left
- * out, would show more: the page's suggestion of a lower setting). Steps, Plan B and words are made once per card for both
- * lists: a card on both is the very same evaluation (the Overall list's cards first, then the second list's others). ⚠️ A
- * card that helps both teams (its "Helps both" tag, on its final numbers, in either list) offers first only a version that
- * helps both too (evaluate.ts tradeSteps, StepOptions.helpsBoth; HB-1), and its Plan B box helps both too (planB.ts
- * planBPasses; HB-4): judged by the card's own numbers, never by the list it's on, so its steps are one per card (both
- * lists fold on them) and the tag the page shows in every sort holds for what the card suggests. ⚠️ A Plan B box names no
- * card of its card's list, nor a version that list's steps show, nor one a card of that list matches or beats (a card on
- * both lists reads both lists' cards: its one box is read in either; HB-2: the page shows one list at a time, so an
- * Overall card's box doesn't depend on the second list); ⚠️ the second list's boxes keep to the given-player cap among
- * themselves in its own top-20 window, the boxes its cards on the Overall list already have counted first. The pattern note
- * is the Overall list's only.
+ * screening block (ties: EG, then the key) that help both and aren't hidden by default (helpsBothPoolOf; since Checkpoint 7d
+ * the helps-both lane's among them, above, each widening the room by one: ⚠️ the lead's call, review of the lane, LANE-2),
+ * ⚠️ the plain top 20 (the lead's call: no caps in the choice); those that aren't finalists already
+ * (SearchState.helpsBothExtras) get the final simulation too and count in counts.simFinal. ⚠️ Since Checkpoint 7d so do the
+ * finalists the ranking would pick without the lane's trades that it doesn't pick with them, each whose Helps them is known
+ * (SearchState.laneDisplaced, among helpsBothExtras; ours, the final review, ENG-7D-1: one that helps both only on its final
+ * numbers isn't in the pool, which reads the screening run), so the lane never takes a final run another trade would have
+ * had: every trade the search without the lane would simulate on the final block, its Helps them known, it simulates too.
+ * ⚠️ Only the second list ranks them (review of the "Helps both" engine track, finding HB-5): they're simulated so that
+ * list has enough candidates, and in the Overall list a trade that missed the finalists would get a second chance only
+ * because it helps the partner (on synthetic leagues one pushed a card out under the core cap); Plan B's pool keeps their
+ * screening numbers as before. So the Overall list, its steps, boxes, words, `few` and pattern note are the same as without
+ * the second list, but for the rules of a card that helps both, below. finish then ranks a second list
+ * (TradeSearchResult.helpsBoth) from every finalist, the extras too: rankTrades with RankOptions.order "helps" (B, highest
+ * first, the order the caps go through them in) and keep benefit.helpsBoth (on the final numbers: the re-check), the §10
+ * guards, the minimum chance and §13's caps as the Overall list's (one partner, must-include players alike; ⚠️ the filler
+ * rule judging each pair as the Overall order does: rank.ts, HB-3), its own folding of cards that show one plan, and
+ * lowerWouldAdd (the same finalists at Any, its folded cards left out, would show more: the page's suggestion of a lower
+ * setting). Steps, Plan B and words are made once per card for both lists: a card on both is the very same evaluation (the
+ * Overall list's cards first, then the second list's others). ⚠️ A card that helps both teams (its "Helps both" tag, on its
+ * final numbers, in either list) offers first only a version that helps both too (evaluate.ts tradeSteps,
+ * StepOptions.helpsBoth; HB-1), and its Plan B box helps both too (planB.ts planBPasses; HB-4): judged by the card's own
+ * numbers, never by the list it's on, so its steps are one per card (both lists fold on them) and the tag the page shows in
+ * every sort holds for what the card suggests. ⚠️ A Plan B box names no card of its card's list, nor a version that list's
+ * steps show, nor one a card of that list matches or beats (a card on both lists reads both lists' cards: its one box is
+ * read in either; HB-2: the page shows one list at a time, so an Overall card's box doesn't depend on the second list); ⚠️
+ * the second list's boxes keep to the given-player cap among themselves in its own top-20 window, the boxes its cards on
+ * the Overall list already have counted first. The pattern note is the Overall list's only.
  *
  * Re-filtering (planner reply to Checkpoint 4b, change 10: "re-filter instantly from the finalists, without re-running the
  * search"): a finished search keeps its finalists and caches (searchStateOf: the result object → its state; null when the
@@ -948,26 +953,11 @@ const bOf = (c: TradeEvaluationCore): number => (c.b === null ? Number.NEGATIVE_
 const byBThenEg = (a: TradeEvaluationCore, b: TradeEvaluationCore): number => (Math.abs(bOf(b) - bOf(a)) > EPS ? bOf(b) - bOf(a) : byEgThenKey(a, b));
 
 /**
- * The finalists (the file header, "Final stages") among the trades with screening numbers: the first
- * config.search.finalists that rankTrades keeps with its per-core, per-partner and given-player caps relaxed by one, the
- * caps' window covering every finalist (rankCaps; no per-partner cap when `onePartner`: the file header's "One
- * partner"; the given-player cap never counts `forcedGive`, my must-include players: the file header's "Must-include
- * players of mine"), then, while room is left, the best others by EG = B × P_complete (ties: the key) that aren't hidden
- * by default. ⚠️ Never the minimum chance (the file header). Then (Checkpoint 7c; planner reply to Checkpoint 7b, §7; the
- * file header's "Helps both") the first config.search.helpsBothFinalists by B (ties: EG, then the key) among the trades that
- * help both teams on these numbers (benefit.helpsBoth) and aren't hidden by default, finalists or not, the room one wider
- * for each such trade `lane` holds (Checkpoint 7d, the helps-both lane's trades and their companions: ⚠️ the lead's call,
- * review of the lane, LANE-2, so the lane adds to the extras and never takes a place another trade would have had): those
- * that aren't finalists yet join them (`extras`, in that order; `keys` holds them too). Also the counts of the others the
- * guards hide (B ≤ 0 or unknown: by benefit; else the market guard).
+ * The finalists the ranking picks (finalistsOf's first part; the file header, "Final stages") among the trades with
+ * screening numbers: the first config.search.finalists that rankTrades keeps with its caps relaxed by one (finalistsOf),
+ * then, while room is left, the best others by EG (ties: the key) that aren't hidden by default.
  */
-export function finalistsOf(
-  cores: readonly TradeEvaluationCore[],
-  value: (asset: TradeAsset) => number,
-  onePartner = false,
-  forcedGive: readonly string[] = [],
-  lane: ReadonlySet<string> = new Set<string>(),
-): { keys: Set<string>; extras: string[]; hidden: { byBenefit: number; byMarket: number } } {
+function rankedFinalistsOf(cores: readonly TradeEvaluationCore[], value: (asset: TradeAsset) => number, onePartner: boolean, forcedGive: readonly string[]): Set<string> {
   const maxFinalists = Math.max(0, Math.floor(config.search.finalists));
   // Relaxed by one (review of track E, item 3): at 1,000 seasons the order is noisy, and the strict caps dropped trades the
   // 5,000-season numbers rank near the top. The strict rules apply in the final ranking.
@@ -978,19 +968,79 @@ export function finalistsOf(
     if (keys.size >= maxFinalists) break;
     keys.add(c.key);
   }
-  // "Helps both" (the plain top helpsBothFinalists, the lead's call: no caps in the choice), chosen without the minimum
-  // chance. Since Checkpoint 7d each candidate from the helps-both lane widens the room by one (⚠️ the lead's call; review of
-  // the lane, LANE-2): as the plain top 20, the lane's long shots took a likelier trade's place (smallLeague 13 at 10%: seven
-  // lane trades under 5% as printed entered the 20, and the list went from 2 cards to 1). Every trade the 20 would hold
-  // without the lane ranks at most that many places lower with it, so it keeps its final run.
-  const extras: string[] = [];
+  return keys;
+}
+
+/** The "Helps both" extras' pool (helpsBothPoolOf): the candidates in their order, the room, and the first `room` of them. */
+export interface HelpsBothPool {
+  candidates: TradeEvaluationCore[];
+  room: number;
+  pool: TradeEvaluationCore[];
+}
+
+/**
+ * The "Helps both" extras' pool (Checkpoint 7c; planner reply to Checkpoint 7b, §7; the file header's "Helps both";
+ * finalistsOf): the trades with these numbers that help both teams (benefit.helpsBoth) and aren't hidden by default,
+ * finalists or not, by B (ties: EG, then the key); the room, config.search.helpsBothFinalists, one wider for each of them
+ * `lane` holds (Checkpoint 7d, the helps-both lane's trades and their companions: ⚠️ the lead's call, review of the lane,
+ * LANE-2); and the pool, the first `room`. ⚠️ The plain top 20 (the lead's call: no caps in the choice), chosen without the
+ * minimum chance. trade-report's section 10 counts it the same way.
+ */
+export function helpsBothPoolOf(cores: readonly TradeEvaluationCore[], lane: ReadonlySet<string> = new Set<string>()): HelpsBothPool {
   const candidates = cores.filter((c) => !hiddenAt(c) && helpsBoth(c)).sort(byBThenEg);
   const room = Math.max(0, Math.floor(config.search.helpsBothFinalists)) + candidates.filter((c) => lane.has(c.key)).length;
-  const both = candidates.slice(0, room);
-  for (const c of both) {
+  return { candidates, room, pool: candidates.slice(0, room) };
+}
+
+/**
+ * The finalists (the file header, "Final stages") among the trades with screening numbers: the first
+ * config.search.finalists that rankTrades keeps with its per-core, per-partner and given-player caps relaxed by one, the
+ * caps' window covering every finalist (rankCaps; no per-partner cap when `onePartner`: the file header's "One
+ * partner"; the given-player cap never counts `forcedGive`, my must-include players: the file header's "Must-include
+ * players of mine"), then, while room is left, the best others by EG = B × P_complete (ties: the key) that aren't hidden
+ * by default (rankedFinalistsOf). ⚠️ Never the minimum chance (the file header). Then (Checkpoint 7c; planner reply to
+ * Checkpoint 7b, §7; the file header's "Helps both") the "Helps both" pool (helpsBothPoolOf, the room one wider for each of
+ * its trades `lane` holds, the helps-both lane's trades and their companions: Checkpoint 7d): those that aren't finalists
+ * yet join them (`extras`, in that order). Then (Checkpoint 7d, ⚠️ ours: the final review, ENG-7D-1) the finalists the
+ * ranking would pick without the trades `lane` holds that it doesn't pick with them, each whose Helps them is known
+ * (`displaced`, in that ranking's order), so the lane never takes a final run another trade would have had.
+ * `keys` holds all of them. Also the counts of the others the guards hide (B ≤ 0 or unknown: by benefit; else the market
+ * guard).
+ */
+export function finalistsOf(
+  cores: readonly TradeEvaluationCore[],
+  value: (asset: TradeAsset) => number,
+  onePartner = false,
+  forcedGive: readonly string[] = [],
+  lane: ReadonlySet<string> = new Set<string>(),
+): { keys: Set<string>; extras: string[]; displaced: string[]; hidden: { byBenefit: number; byMarket: number } } {
+  const keys = rankedFinalistsOf(cores, value, onePartner, forcedGive);
+  // "Helps both": since Checkpoint 7d each candidate from the helps-both lane widens the room by one (⚠️ the lead's call;
+  // review of the lane, LANE-2): as the plain top 20, the lane's long shots took a likelier trade's place (smallLeague 13 at
+  // 10%: seven lane trades under 5% as printed entered the 20, and the list went from 2 cards to 1). Every trade the 20 would
+  // hold without the lane ranks at most that many places lower with it, so it keeps its final run.
+  const extras: string[] = [];
+  for (const c of helpsBothPoolOf(cores, lane).pool) {
     if (keys.has(c.key)) continue;
     keys.add(c.key);
     extras.push(c.key);
+  }
+  // ⚠️ The finalists the ranking would pick without the lane (Checkpoint 7d, ours: the final review, ENG-7D-1). The lane's
+  // trades take finalists' places like any other trade (the planner's "the same … finalist rules"), and a finalist they push
+  // out that helps both only on its final numbers isn't in the pool above, which reads the screening run: without its final
+  // run it left the "Helps both" list (smallLeague 45: Helps them 0 on the screening run, 14 on the final one; at 84% the
+  // likeliest card the list without the lane shows at 20%, where the lane's long shots are under the minimum). So each one
+  // whose Helps them is known (a trade whose partner's scale is unknown can't help both) keeps its final run, which only the
+  // "Helps both" list ranks, like the extras; the Overall list keeps to the ranking's finalists.
+  const displaced: string[] = [];
+  if (lane.size) {
+    const byKey = new Map(cores.map((c) => [c.key, c]));
+    for (const k of rankedFinalistsOf(cores.filter((c) => !lane.has(c.key)), value, onePartner, forcedGive)) {
+      const helps = byKey.get(k)?.them?.helps;
+      if (keys.has(k) || typeof helps !== "number" || !Number.isFinite(helps)) continue;
+      keys.add(k);
+      displaced.push(k);
+    }
   }
   const hidden = { byBenefit: 0, byMarket: 0 };
   for (const c of cores) {
@@ -998,7 +1048,7 @@ export function finalistsOf(
     if (c.b === null || !(c.b > 0)) hidden.byBenefit++;
     else if (c.flags.hiddenByMarket) hidden.byMarket++;
   }
-  return { keys, extras, hidden };
+  return { keys, extras, displaced, hidden };
 }
 
 /**
@@ -1032,11 +1082,19 @@ export interface SearchState {
   /** The exact trades other than the finalists that the guards hide at screening numbers (finalistsOf). */
   readonly hiddenElsewhere: { readonly byBenefit: number; readonly byMarket: number };
   /**
-   * Checkpoint 7c (the file header, "Helps both"): the keys of the trades that got the final simulation as "Helps both"
-   * finalists only (finalistsOf's extras, in their order: by B on the screening block), on top of the finalists the ranking
-   * picked; they're among `finals` and count in counts.simFinal, and only the "Helps both" list ranks them.
+   * Checkpoint 7c (the file header, "Helps both"): the keys of the trades that got the final simulation for the "Helps both"
+   * list only, on top of the finalists the ranking picked: finalistsOf's extras (in their order: by B on the screening
+   * block), then since Checkpoint 7d the finalists the helps-both lane displaced (laneDisplaced, in their order). They're
+   * among `finals` and count in counts.simFinal, and only the "Helps both" list ranks them.
    */
   readonly helpsBothExtras: readonly string[];
+  /**
+   * Checkpoint 7d (the file header, "Helps both"; ⚠️ ours, the final review, ENG-7D-1): the finalists the ranking would pick
+   * without the helps-both lane's trades and their companions that it doesn't pick with them, each whose Helps them is known
+   * (finalistsOf's `displaced`): their final runs are kept for the "Helps both" list (helpsBothExtras holds them too, after
+   * the extras). Empty with the lane off.
+   */
+  readonly laneDisplaced: readonly string[];
   /** The finalists (with the "Helps both" extras, which only that list ranks) with their numbers on the final block. */
   readonly finals: readonly TradeEvaluationCore[];
   /**
@@ -1477,7 +1535,8 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
   const onePartner = pools.partners.length === 1;
   const {
     keys: finalKeys,
-    extras: helpsBothExtras,
+    extras,
+    displaced: laneDisplaced,
     hidden: hiddenElsewhere,
   } = finalistsOf(
     screened.map((s) => s.core),
@@ -1486,6 +1545,8 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
     pools.forcedGive,
     new Set([...lane.trades, ...laneCompanions].map((s) => s.key)),
   );
+  // Only the "Helps both" list ranks the extras and (Checkpoint 7d) the finalists the lane displaced (finish).
+  const helpsBothExtras = [...extras, ...laneDisplaced];
   const finalists = screened.filter((s) => finalKeys.has(s.core.key));
 
   // The final simulation (§12 step 5).
@@ -1500,8 +1561,8 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
 
   // What the shown list (and any re-filter of it) reads: Plan B's pool, fixed before any card picks, of every exact trade
   // with its best numbers (a finalist's final ones; ⚠️ a "Helps both" extra's screening ones, as before the extras, so the
-  // Overall list's boxes are what they were: the file header, "Helps both"), and the caches (an extra's final numbers among
-  // them: a box that names one reads them there, with no new run).
+  // Overall list's boxes are what they were: the file header, "Helps both"; a finalist the lane displaced is one of them), and
+  // the caches (an extra's final numbers among them: a box that names one reads them there, with no new run).
   const finalByKey = new Map<string, TradeEvaluationCore>(finals.map((c) => [c.key, c]));
   const extraKeys = new Set(helpsBothExtras);
   const state: SearchState = {
@@ -1515,6 +1576,7 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
     lane: { trades: lane.trades.map((s) => s.key), companions: laneCompanions.map((s) => s.key), qualifying: lane.qualifying, onShortlist: lane.onShortlist },
     hiddenElsewhere,
     helpsBothExtras,
+    laneDisplaced,
     finals,
     planBPool: screened.map((s) => (extraKeys.has(s.core.key) ? s.core : (finalByKey.get(s.core.key) ?? s.core))),
     planBCfg: { ...planBConfig(), ...opts.planB },

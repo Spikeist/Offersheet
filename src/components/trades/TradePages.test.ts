@@ -859,10 +859,10 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
     // Checkpoint 7d (planner reply to Checkpoint 7c, answers 3 and 5): a trade idea shows it only when it helps both teams, the
     // Analyzer's card always ("then it reads 0"); the tag needs the bar on both scores.
     expect(how()).toContain(
-      `Helps them (0–100) ${tooltip} A trade idea shows it, with their odds before and after the trade, only when it helps both teams: when it scores at least 10 on both Helps you and Helps them. It doesn't count trade value: the chance they accept does. Such an idea is tagged “Helps both”, and the “Helps both” sort shows only those, sorted by how much they help you.`,
+      `Helps them (0–100) ${tooltip} A trade idea shows it, with their odds before and after the trade, only when it helps both teams: when it scores at least 10 on both Helps you and Helps them. Helps them doesn't count trade value: the chance they accept does. Such an idea is tagged “Helps both”, and the “Helps both” sort shows only those, sorted by how much they help you.`,
     );
     expect(how(undefined, "analyzer")).toContain(
-      `Helps them (0–100) ${tooltip} The card shows it with their odds before and after the trade, even when the trade costs them (then it reads 0); the Trade Finder shows it only on trade ideas that help both teams. It doesn't count trade value: the chance they accept does. A trade that scores at least 10 on both Helps you and Helps them is tagged “Helps both”, and the Trade Finder's “Helps both” sort shows such trades, sorted by how much they help you.`,
+      `Helps them (0–100) ${tooltip} The card shows it with their odds before and after the trade, even when the trade costs them (then it reads 0); the Trade Finder shows it only on trade ideas that help both teams. Helps them doesn't count trade value: the chance they accept does. A trade that scores at least 10 on both Helps you and Helps them is tagged “Helps both”, and the Trade Finder's “Helps both” sort shows such trades, sorted by how much they help you.`,
     );
     // After Overall, before Harder to get; in every league type; its bar from config.
     for (const leagueType of ["redraft", "keeper", "dynasty"] as const) {
@@ -886,16 +886,22 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
     const counts = (props: Parameters<typeof read>[0], sentence: string) => {
       for (const page of ["finder", "analyzer"] as const) expect(paragraph(read({ ...props, page })), `${JSON.stringify(props)} ${page}`).toContain(`${shows[page]} ${sentence} ${tagged[page]}`);
     };
-    // Redraft: B_P has no trade-value term (benefit.ts partnerBenefit), whether or not FantasyCalc's values loaded.
-    const redraft = "It doesn't count trade value: the chance they accept does.";
+    // Redraft: B_P has no trade-value term (benefit.ts partnerBenefit), whether or not FantasyCalc's values loaded. Each
+    // sentence names Helps them (review of Checkpoint 7d, cards-export-4): since 7d the sentence before it ends on "both Helps
+    // you and Helps them" (or on the Trade Finder), so a bare "It" read as the trade idea or as Helps you, which does count
+    // trade value in a redraft league.
+    const redraft = "Helps them doesn't count trade value: the chance they accept does.";
     for (const valuesOn of [true, false]) counts({ valuesOn }, redraft);
     counts({ leagueType: "redraft", longTermOn: false }, redraft);
     // Dynasty and keeper with long-term values: B_future,P by λ_P, their own odds (keeper: config.benefit.lambda.keeper).
-    counts({ leagueType: "dynasty" }, "In a dynasty league it also counts the change in their roster's long-term value, weighed more the less likely they are to make the playoffs, not by your Win now ↔ Future setting.");
-    counts({ leagueType: "keeper" }, `In a keeper league it also counts the change in their roster's long-term value, weighed at a fixed ${Math.round(config.benefit.lambda.keeper * 100)}%, not by your Win now ↔ Future setting.`);
+    counts({ leagueType: "dynasty" }, "In a dynasty league Helps them also counts the change in their roster's long-term value, weighed more the less likely they are to make the playoffs, not by your Win now ↔ Future setting.");
+    counts({ leagueType: "keeper" }, `In a keeper league Helps them also counts the change in their roster's long-term value, weighed at a fixed ${Math.round(config.benefit.lambda.keeper * 100)}%, not by your Win now ↔ Future setting.`);
     expect(config.benefit.lambda.keeper).toBe(0.2);
     // Without long-term values: this season only, as Helps you.
-    for (const leagueType of ["dynasty", "keeper"] as const) counts({ leagueType, longTermOn: false }, "Like Helps you, it counts this season only while long-term trade values aren't available.");
+    for (const leagueType of ["dynasty", "keeper"] as const) counts({ leagueType, longTermOn: false }, "Like Helps you, Helps them counts this season only while long-term trade values aren't available.");
+    for (const leagueType of ["redraft", "keeper", "dynasty"] as const) {
+      for (const longTermOn of [true, false]) expect(helpsThemValueWords(leagueType, longTermOn), `${leagueType} ${String(longTermOn)}`).toMatch(/^(?:Helps them |In a \w+ league Helps them |Like Helps you, Helps them )/);
+    }
     // Each league type says its own sentence alone (redraft's never in dynasty and keeper, no long-term value in redraft's); no "goal" anywhere.
     for (const leagueType of ["dynasty", "keeper"] as const) expect(paragraph(read({ leagueType }))).not.toContain(redraft);
     expect(paragraph(read({}))).not.toContain("long-term");
