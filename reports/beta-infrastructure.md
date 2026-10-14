@@ -202,9 +202,9 @@ Parker does steps 1–4 and then gives the go; no deployment reaches production 
 through `npm run prod:deploy` (planner reply to Checkpoint 7b, §2; CLAUDE.md §16 and §19). Every command is PowerShell,
 one per line, in the project folder. (Upstash, the protection check and the phone were Checkpoint 7a's steps.)
 
-**The tag:** `checkpoint-7d` once Parker approves Checkpoint 7d (the planner, reply to Checkpoint 7c: "If 7d is approved
-in time, production deploys `checkpoint-7d` instead"); if it isn't approved by Tuesday, `checkpoint-7c`, written in its
-place in steps 4 and 5. The script refuses any tag but the newest checkpoint, so a wrong one stops at its first line.
+**The tag:** `checkpoint-7d`, approved by Parker on 2026-10-14 (the planner, reply to Checkpoint 7c: "If 7d is approved
+in time, production deploys `checkpoint-7d` instead"). The script refuses any tag but the newest checkpoint, so a wrong
+one stops at its first line.
 
 1. **Production's secrets** (PowerShell, one per line; each makes a random value and gives it to Vercel without
    showing it):
