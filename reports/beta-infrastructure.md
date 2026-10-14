@@ -232,6 +232,16 @@ one stops at its first line.
    `/api/` AND *Request Header* `sec-fetch-site` equals `cross-site`), and move that rule above "API rate limit". The
    checks below read either setup the same way.
 
+   **Done on 2026-10-14 with the Vercel CLI** (the dashboard didn't offer Parker the header condition): `vercel@62.2.0
+   firewall rules add` once per rule, in this order, each with `--project offersheet` (no link, so nothing is written into
+   this folder), the conditions as `--condition` JSON (path `pre` `/api/`, header `sec-fetch-site` `eq` `cross-site`; the
+   rate limit `--action rate_limit --rate-limit-algo fixed_window --rate-limit-window 600 --rate-limit-requests 80
+   --rate-limit-keys ip --rate-limit-action rate_limit`; the image paths as two `--or` groups), no `--duration`; run from a
+   Node script with an argument array (no shell, so PowerShell can't mangle the JSON), the way `scripts/lib/vercelCli.ts`
+   runs the CLI. Then `vercel firewall diff` (3 rules added, nothing else), `vercel firewall publish`, and `vercel firewall
+   rules list --expand` shows them live in this order (every `actionDuration` null; the rate limit's action `rate_limit`,
+   429). To change one later: `vercel firewall rules edit|reorder|remove … --project offersheet`, then `publish`.
+
    **The check** (the planner: "a request with that header gets 403, and the app still works"): step 4's dry run asks
    `/api/health` on the production domain with `Sec-Fetch-Site: cross-site` (it must get the firewall's 403) and with
    `same-origin` (it must not be denied: the landing page answers 404), on its "Cross-site API requests" line, and on

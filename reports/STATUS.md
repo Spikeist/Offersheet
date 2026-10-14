@@ -16,7 +16,7 @@
 | 7b: The planner's reply to Checkpoint 7a, readiness (B4), go/no-go | ✅ approved (tag `checkpoint-7b`). See `reports/checkpoint-7b.md` and `reports/planner-reply-7b.md`. |
 | 7c: The planner's reply to Checkpoint 7b: the launch candidate | ✅ approved 2026-10-09 (tag `checkpoint-7c`). See `reports/checkpoint-7c.md` and `reports/planner-reply-7c.md`. |
 | 7d: The planner's reply to Checkpoint 7c | ✅ approved 2026-10-14 (tag `checkpoint-7d`). See `reports/checkpoint-7d.md`. |
-| 7: Production | ⏳ launch-day steps under way (2026-10-14); `checkpoint-7d` deploys only on Parker's "go", through `npm run prod:deploy` |
+| 7: Production | ⏳ launch-day steps done (2026-10-14: production's secrets, the three firewall rules published, the dry run on `checkpoint-7d` all ✅); `checkpoint-7d` deploys only on Parker's "go", through `npm run prod:deploy` |
 | 5–6 | ⏸ after the launch (order: 5 → 6) |
 
 ## Phase 7d (done; approved 2026-10-14)
