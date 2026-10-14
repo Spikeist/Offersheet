@@ -1,6 +1,6 @@
 # Status: Offer Sheet (folder: fantasy-trade-finder)
 
-**Current phase:** Checkpoint 7c approved and tagged `checkpoint-7c` on 2026-10-09 (the launch candidate). Checkpoint 7d (the planner's reply to Checkpoint 7c) approved and tagged `checkpoint-7d` on 2026-10-14: the launch tag. Parker is doing the launch-day steps (2026-10-14); production deploys `checkpoint-7d` only after his "go", through `npm run prod:deploy`.
+**Current phase:** Checkpoint 7c approved and tagged `checkpoint-7c` on 2026-10-09 (the launch candidate). Checkpoint 7d (the planner's reply to Checkpoint 7c) approved and tagged `checkpoint-7d` on 2026-10-14. **Offer Sheet is live** at https://offersheet.vercel.app since 2026-10-14: production serves `checkpoint-7d` (offersheet-e50m4rlg3-parker-daniels.vercel.app), deployed after Parker's "go" through `npm run prod:deploy`; `--verify` passes every check.
 **Last updated:** 2026-10-14
 
 | Phase | State |
@@ -16,7 +16,7 @@
 | 7b: The planner's reply to Checkpoint 7a, readiness (B4), go/no-go | ✅ approved (tag `checkpoint-7b`). See `reports/checkpoint-7b.md` and `reports/planner-reply-7b.md`. |
 | 7c: The planner's reply to Checkpoint 7b: the launch candidate | ✅ approved 2026-10-09 (tag `checkpoint-7c`). See `reports/checkpoint-7c.md` and `reports/planner-reply-7c.md`. |
 | 7d: The planner's reply to Checkpoint 7c | ✅ approved 2026-10-14 (tag `checkpoint-7d`). See `reports/checkpoint-7d.md`. |
-| 7: Production | ⏳ launch-day steps done (2026-10-14: production's secrets, the three firewall rules published, the dry run on `checkpoint-7d` all ✅); `checkpoint-7d` deploys only on Parker's "go", through `npm run prod:deploy` |
+| 7: Production | ✅ live since 2026-10-14: `checkpoint-7d` (offersheet-e50m4rlg3-parker-daniels.vercel.app), `npm run prod:deploy -- --verify --checkpoint checkpoint-7d` all ✅; rollback target the landing page (offersheet-dtgsgk03x-parker-daniels.vercel.app) until the next production deploy |
 | 5–6 | ⏸ after the launch (order: 5 → 6) |
 
 ## Phase 7d (done; approved 2026-10-14)
@@ -72,7 +72,7 @@
 - The shared store's readers, read-only (`READONLY_STORE_URL` and `READONLY_STORE_TOKEN` typed into .env.local by hand; add `--env production` after launch, except for `snapshot:pull`, which reads production by default): `npm run beta:log -- --live`, `npm run usage:report -- --live`, `npm run feedback:report -- --live`, `npm run snapshot:pull -- --live`
 
 ## Waiting on Parker
-- The launch: the launch-day steps below, then the "go". `npm run stable` serves `checkpoint-7d` from its next run.
+- After the launch (2026-10-14): open https://offersheet.vercel.app on your phone and import your league; after 20:00 UTC the daily cron's first run (`npm run beta:log -- --live --env production`, once the read-only store variables below are typed in). `npm run stable` serves `checkpoint-7d` from its next run.
 - Launch day, Tuesday, October 13, 2026, before the go (`reports/beta-infrastructure.md`, "Launch-day steps"): production's SESSION_SECRET and CRON_SECRET (`npm run vercel:secret`); the three firewall rules published, in this order: "Deny cross-site API requests" first (`/api/` with the header `sec-fetch-site` equal to `cross-site` → Deny; required since the planner's reply to Checkpoint 7c, answer 4), then the `/api/*` rate limit answering 429, then the image-optimizer deny (⚠️ the dry run asks what each rule answers, not their order: check the order on Vercel's Firewall page before publishing); Next's check; then the dry run, `npm run prod:deploy -- --checkpoint <the launch tag>`. After the go: `npm run prod:deploy -- --live --checkpoint <the launch tag>` (`checkpoint-7d` if approved in time, else `checkpoint-7c`).
 - In Settings for your league: "What does your league reward?" → "Several prizes", with 2000, 1600 and 900.
 - After launch, to read the beta's usage: type the values of Vercel's `KV_REST_API_URL` and `KV_REST_API_READ_ONLY_TOKEN` into .env.local as `READONLY_STORE_URL` and `READONLY_STORE_TOKEN`.

@@ -292,7 +292,8 @@ one stops at its first line.
    npm run prod:deploy -- --verify --checkpoint checkpoint-7d
    ```
    Never run `--live` a second time to check: Hobby's Instant Rollback reaches only the previous production deployment,
-   so a second deploy would leave no way back to the landing page.
+   so a second deploy would leave no way back to the landing page. (The launch, 2026-10-14: the first page check right
+   after the switch caught the landing page still cached at `/`, and `--verify` a minute later passed every check.)
 6. **The phone:** Parker opens https://offersheet.vercel.app on his phone and imports his league.
 7. **The cron's first run** (after 20:00 UTC): `npm run beta:log -- --live --env production` shows a `snapshot_run`
    line (once the read-only store variables below are typed in).
