@@ -244,11 +244,16 @@ describe("settingsFingerprint", () => {
     expect(settingsFingerprint({ ...defaultTradeSettings(), goal: "playoffs" }, LEAGUE_MODEL_SETTINGS)).not.toBe(base);
     // "Several prizes"' amounts (Checkpoint 7c): the split moves ω.
     expect(settingsFingerprint({ ...defaultTradeSettings(), prizes: { first: 2000, second: 1600, third: 900, weeklyHigh: null, pointsLeader: null } }, LEAGUE_MODEL_SETTINGS)).not.toBe(base);
+    // Checkpoint 7e (planner reply to Checkpoint 7d, items 3.2, 3.3 and 3.5): the untouchables, "Drop from the same position"
+    // and the user's return weeks are read by the League model too.
+    expect(settingsFingerprint({ ...defaultTradeSettings(), untouchables: ["1"] }, LEAGUE_MODEL_SETTINGS)).not.toBe(base);
+    expect(settingsFingerprint({ ...defaultTradeSettings(), waiverSamePosition: false }, LEAGUE_MODEL_SETTINGS)).not.toBe(base);
+    expect(settingsFingerprint({ ...defaultTradeSettings(), returnWeeks: { "1": 8 } }, LEAGUE_MODEL_SETTINGS)).not.toBe(base);
     // The manual playoff weight is gone (planner reply to Checkpoint 7a, §6.1: ω is set automatically).
-    const other = { ...defaultTradeSettings(), lambda: 0.4, maxPerSide: 3, untouchables: ["1"], mustInclude: ["2"], targetPositions: ["RB"], avoidPositions: ["TE"], includeKDefIdp: true, includePicks: true } satisfies TradeSettings;
+    const other = { ...defaultTradeSettings(), lambda: 0.4, maxPerSide: 3, mustInclude: ["2"], targetPositions: ["RB"], avoidPositions: ["TE"], includeKDefIdp: true, includePicks: true } satisfies TradeSettings;
     expect(settingsFingerprint(other, LEAGUE_MODEL_SETTINGS)).toBe(base);
     // The fields' order and repeats don't matter; the lists' order doesn't either.
-    expect(settingsFingerprint(mine, ["goal", "prizes", "streamPositions", "goal"])).toBe(settingsFingerprint({ ...mine, streamPositions: ["TE", "DEF", "K"] }, LEAGUE_MODEL_SETTINGS));
+    expect(settingsFingerprint(mine, ["returnWeeks", "goal", "untouchables", "prizes", "waiverSamePosition", "streamPositions", "goal"])).toBe(settingsFingerprint({ ...mine, streamPositions: ["TE", "DEF", "K"] }, LEAGUE_MODEL_SETTINGS));
   });
 });
 
@@ -277,7 +282,6 @@ describe("LEAGUE_MODEL_SETTINGS: every setting the League model reads, and only 
   const tradeOnly: { [K in TradeOnly]: TradeSettings[K] } = {
     lambda: 0.8,
     maxPerSide: 3,
-    untouchables: [roster(0)[0] as string, roster(0)[8] as string], // my QB and my kicker
     mustInclude: [roster(0)[1] as string, roster(1)[9] as string], // my RB and their D/ST
     targetPositions: ["RB", "K"],
     avoidPositions: ["TE", "DEF"],

@@ -42,6 +42,18 @@
  *   split moves ω).
  * - minChance: the Trade Finder's "Chance they accept: at least …" filter on P_complete (change 10): one of
  *   config.ranking.minChanceOptions (0 = Any), default config.ranking.minChanceDefault (10%).
+ * - waiverSamePosition: Waiver upgrades' "Drop from the same position" (Checkpoint 7e; planner reply to Checkpoint 7d, item
+ *   3.2: "New switch, on by default … On: the suggested drop plays the pickup's position. Off: the drop can be at any
+ *   position. It's saved per league and applies to all three lists."). A copy stored before reads as on.
+ * - returnWeeks: the user's own expected return week for his injured players (Checkpoint 7e; item 3.5: "the user can
+ *   change the week, and the new week works like a return week from the platform … saved per league in the browser and
+ *   never sent. It clears when the player is active again or the week passes."), player id → NFL week. Kept only as ids
+ *   and whole weeks from 1 to RETURN_WEEK_MAX, at most RETURN_WEEKS_MAX entries, in id order (settingsFingerprint's JSON
+ *   needs one order); clearing an entry once its player is active or its week has passed is the League page's job (it
+ *   knows the snapshot). A copy stored before reads as none.
+ * Both stay in the browser like every setting: the engine worker reads them, and no request to the server and no anonymous
+ * feedback copy (src/lib/feedbackShare.ts) carries them (planner reply to Checkpoint 7d: "New settings stay in the browser
+ * and never go into the anonymous feedback").
  */
 import { config } from "./config";
 import { POSITIONS, type Pos } from "./model";
@@ -98,7 +110,17 @@ export interface TradeSettings {
   prizes: PrizeAmounts;
   /** The Trade Finder's minimum chance they accept (P_complete), 0 = Any (Phase 4c). */
   minChance: number;
+  /** Waiver upgrades' "Drop from the same position" (Checkpoint 7e, item 3.2), on by default. */
+  waiverSamePosition: boolean;
+  /** The user's own expected return weeks for his injured players, id → NFL week (Checkpoint 7e, item 3.5). */
+  returnWeeks: Readonly<Record<string, number>>;
 }
+
+/** The latest NFL week a user-set return week may name (a sanity bound on what's stored, not a model number). */
+export const RETURN_WEEK_MAX = 30;
+
+/** At most this many user-set return weeks are kept per league (a sanity bound on what's stored). */
+export const RETURN_WEEKS_MAX = 100;
 
 /** The settings a new league starts with. */
 export function defaultTradeSettings(): TradeSettings {
@@ -117,7 +139,25 @@ export function defaultTradeSettings(): TradeSettings {
     goal: config.benefit.goalDefault,
     prizes: prizesFrom(config.benefit.prizesDefault),
     minChance: config.ranking.minChanceDefault,
+    waiverSamePosition: true,
+    returnWeeks: {},
   };
+}
+
+/**
+ * A stored returnWeeks object made safe: entries whose key is a player id (1 to 64 characters) and whose value is a whole
+ * NFL week from 1 to RETURN_WEEK_MAX, in id order, the first RETURN_WEEKS_MAX of them; anything else: none.
+ */
+function returnWeeksFrom(x: unknown): Readonly<Record<string, number>> {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return {};
+  const out: Record<string, number> = {};
+  const keys = Object.keys(x as Record<string, unknown>).filter((id) => id.length > 0 && id.length <= 64).sort();
+  for (const id of keys) {
+    if (Object.keys(out).length >= RETURN_WEEKS_MAX) break;
+    const w = (x as Record<string, unknown>)[id];
+    if (typeof w === "number" && Number.isInteger(w) && w >= 1 && w <= RETURN_WEEK_MAX) out[id] = w;
+  }
+  return out;
 }
 
 /** `x` as a prize amount: a finite number from 0 to PRIZE_MAX (−0 read as 0), else null (not paid). */
@@ -183,5 +223,7 @@ export function normalizeTradeSettings(raw: unknown): TradeSettings {
     goal: legacy ? "prizes" : typeof r.goal === "string" && (GOALS as readonly string[]).includes(r.goal) ? (r.goal as Goal) : d.goal,
     prizes,
     minChance: typeof r.minChance === "number" && config.ranking.minChanceOptions.includes(r.minChance) ? r.minChance : d.minChance,
+    waiverSamePosition: typeof r.waiverSamePosition === "boolean" ? r.waiverSamePosition : d.waiverSamePosition,
+    returnWeeks: returnWeeksFrom(r.returnWeeks),
   };
 }

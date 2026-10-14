@@ -134,16 +134,18 @@ export function resetLeagueSettings(storage: StorageLike, key: string): SaveResu
  * reward?") and since Checkpoint 7c its prizes (planner reply to Checkpoint 7b, §6: the reward, src/engine/reward.ts, which
  * the automatic playoff-week weight weighs my odds by, league.ts step 5c, and whose weekly prize decides whether the weekly
  * high scores are simulated; a split with nothing entered or a goal that ignores the prizes builds the same model, which
- * only costs a rebuild). The manual playoff weight left the list
+ * only costs a rebuild). Since Checkpoint 7e (planner reply to Checkpoint 7d, items 3.2, 3.3 and 3.5) also the untouchables
+ * (never dropped: my pickups, IR returns, Waiver upgrades), "Drop from the same position" (Waiver upgrades) and the return
+ * weeks the user sets (his injured players' availability). The manual playoff weight left the list
  * then, and the settings with it (src/engine/settings.ts: a copy stored before still loads, without it). The others (Win
- * now ↔ Future, players per side, untouchables, must-include
+ * now ↔ Future, players per side, must-include
  * players, positions to target or avoid, what else trade ideas include) are the trade search's alone, so changing one of
  * them doesn't compute the League page's model again (it would come out the same, after a dimmed "Updating the
  * numbers…"); the engine worker keys its cached trade context by these too (engine.worker.ts contextKey), so a new goal or
  * a new split builds a new one. Keep it in step with league.ts: settingsStore.test.ts builds a League model with every other setting
  * changed and checks that nothing in it moves.
  */
-export const LEAGUE_MODEL_SETTINGS = ["streamPositions", "goal", "prizes"] as const satisfies readonly (keyof TradeSettings)[];
+export const LEAGUE_MODEL_SETTINGS = ["streamPositions", "goal", "prizes", "untouchables", "waiverSamePosition", "returnWeeks"] as const satisfies readonly (keyof TradeSettings)[];
 
 /**
  * The settings as one stable string: equal settings give equal text whatever the order of their lists
