@@ -36,6 +36,7 @@ This is the complete spec for the project. The planner wrote it on 2026-09-29. T
    - Parker may have created `.env.local` before you start. Use these variable names; blank means "not available":
      ```
      ESPN_LEAGUE_ID, ESPN_SEASON, ESPN_S2, ESPN_SWID
+     ESPN_LEAGUE_ID_2, ESPN_S2_2   (optional, Checkpoint 7e: Parker's second ESPN league and its own espn_s2; the SWID is ESPN_SWID; read only by the git-ignored dump scripts under data-local/)
      SLEEPER_USERNAME, SLEEPER_LEAGUE_ID
      FLEAFLICKER_LEAGUE_ID, FANTRAX_LEAGUE_ID
      MFL_LEAGUE_ID, MFL_USERNAME, MFL_PASSWORD   (the MFL login is only needed for private MFL leagues)
@@ -697,9 +698,11 @@ This covers every relevant player *i* (everyone rostered, plus the top 50 free a
   - Log any player whose two sources disagree by more than 40%.
   - Phase 2 details: proj_now is the latest week at or before the current week with a Sleeper projection (the model fetches 3 weeks back), else his nearest later projected week; ESPN's value for that same week is averaged in. "Agree within 10% on average" is measured as Σ|E − S| / Σ S over rostered players both sources project this week, a ratio of sums so bench players with tiny projections don't dominate.
 - `actual_ppg_i` = season-to-date points per game played, in league scoring. `g_i` = games played.
-- `b_i = (1 − α_i)·(proj_now_i / m_{i,now}) + α_i·actual_ppg_i`, where `α_i = config.actualWeight × min(1, g_i / config.actualFullGames)`.
+- `b_i = (1 − α_i)·(proj_now_i / m_{i,now}) + α_i·actual_ppg_i`, where `α_i = w_pos × min(1, g_i / config.actualFullGames)` and `w_pos` is his position's season-to-date weight: `config.actualWeightByPos` where it names his position (K and DEF), else `config.actualWeight` (`projections.ts` actualWeightFor).
   - `m_{i,now}` is the week-shape factor (step 2) for the week that `proj_now_i` came from. Dividing by it takes that week's matchup out of the base rate, so the matchup isn't counted twice.
-  - Defaults: `actualWeight` = 0.25, `actualFullGames` = 6.
+  - Defaults: `actualWeight` = 0.25, `actualFullGames` = 6; `actualWeightByPos` K 0, DEF 0.
+  - **K and DEF weigh 0** (Checkpoint 7e; planner reply to Checkpoint 7d, item 1.2: "Set the season-to-date weight (α) to 0 for K and DEF, as a per-position setting in config. Their projections then come from ESPN and Sleeper alone. Phase 6's backtest decides whether to bring the weight back."): a kicker's or team defense's b is `proj_now / m_now`, so in the week his projection comes from he reads that projection × his availability. Every other position keeps 0.25, bit for bit (tested on the League model: `projections.league.test.ts`). ⚠️ P keeps 0.25 too (the planner named K and DEF only), and a K or DEF that no source projects at all still falls back to his points per game so far, every position's last resort, which isn't this weight (none needed it on Parker's data). The stale-date tiebreaker's healthy base rate (step 3) uses the same weight (`league.ts` availabilityNoteFor passes his position).
+  - Parker's week-6 case (planner reply to Checkpoint 7d, item 1.2: "The waiver view had the 49ers D/ST 2.6 points above his Giants D/ST, while ESPN projects the Giants higher"), in his second league (Team 7, "Only the champion"; the 2026-10-14 21:06 UTC dump, before week 6's first kickoff; the 49ers D/ST a free agent there): ESPN projects the Giants D/ST 5.33 in week 6 and the 49ers D/ST 4.75, Sleeper 5.44 and 7.79. The two sources differ by 11.6% on average across the league's 138 rostered players this week (over 10%), so the model reads Sleeper's alone. Before, with 5 games each (α 0.21) at 6.4 and 8.6 points a game and week shapes 1.07 and 1.20 (the 49ers' 1.33, capped), their week-6 points were 5.74 and 8.32, 1.43 and 2.15 of them the season-to-date part, and the waiver view's "This week" list led with the 49ers, +2.58 over his Giants: the planner's 2.6. Now each reads Sleeper's own week-6 projection, 5.44 and 7.79: the gap narrows to 2.35, but the Giants don't move ahead (only ESPN alone ranks them higher; averaged with ESPN the 49ers would still lead by 0.9), and the Colts D/ST (0.4 points a game so far, projected 7.89) now leads the list, +2.45. His odds there fall from 91.9% playoffs and 14.4% title to 91.1% and 13.6% (ω 4 either way): his kicker, Spencer Shrader (15.0 points a game so far, 9.4 a game in his projections), loses 12.7 rest-of-season points, and his projected weekly score with pickups 0.9 points, the second-largest drop of the 12 teams. In his first league (Team 3, his prizes; the 20:55 UTC dump, where ESPN and Sleeper are 11.7% apart, so Sleeper alone too) the odds move the other way, 61.5% playoffs and 27.3% top 3 → 63.3% and 28.6%: his own weekly score barely moves (+0.1), while teams around him lose kicker and D/ST points (Team 1 −1.4 a week).
 
 **2. Week shape m_{i,w}**
 
@@ -1559,7 +1562,7 @@ The server's numbers for the public beta (Checkpoint 7a: cache tiers and timeout
 
 | Key | Default | Section |
 |---|---|---|
-| actualWeight / actualFullGames | 0.25 / 6 | 6 |
+| actualWeight / actualFullGames; actualWeightByPos | 0.25 / 6; K 0, DEF 0 (Checkpoint 7e: a kicker's or team defense's base rate is his projection alone; every other position 0.25) | 6 |
 | weekShapeClamp | [0.8, 1.2] | 6 |
 | injury table | see Section 6 | 6 |
 | sigma c/d by position | see Section 6; P uses K's (an assumption) | 6 |
@@ -1995,6 +1998,7 @@ The server's numbers for the public beta (Checkpoint 7a: cache tiers and timeout
 
 **Build**
 - a projection backtest on 2025, comparing Sleeper's 2025 weekly projections (same endpoint, season 2025) with nflverse weekly actuals, to tune α and σ. If the 2025 projections aren't available, tune σ from actuals only and report that α couldn't be tuned.
+- whether K and DEF get a season-to-date weight back, from that backtest (0 since Checkpoint 7e: planner reply to Checkpoint 7d, item 1.2, "Phase 6's backtest decides whether to bring the weight back"; Section 6 step 1, `config.projections.actualWeightByPos`)
 - estimates of the injury model's `M_pos` and d from nflverse weekly data (2018–2025) for fantasy-relevant players, replacing the defaults (Section 6)
 - a negative binomial for rush attempts, completions and receptions, with the measured dispersion (TDs stay Poisson), and the stat SDs refit on the archived pre-game projection snapshots (Sections 2.3 and 5)
 - live game-day scores, so the odds count points already scored in the week in progress (Checkpoint 3 answer 6)

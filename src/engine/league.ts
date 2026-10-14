@@ -739,10 +739,11 @@ function relevantIds(snapshot: LeagueSnapshot): Relevant {
  * returnConflictWeeks), which signal his availability follows (Sleeper breaks the tie) and the numbers behind it;
  * undefined for everyone else. `sleeperWeekLoaded` false (sleeperWeekLoaded, below: Sleeper's projections for this
  * week didn't load) leaves no tiebreaker: he follows the date, and the note says the projections were missing rather
- * than that Sleeper doesn't project him.
+ * than that Sleeper doesn't project him. His healthy base rate is at his position's season-to-date weight, as his own b
+ * (projections.actualWeightFor; planner reply to Checkpoint 7d, item 1.2: K and DEF 0).
  */
 export function availabilityNoteFor(
-  info: Pick<PlayerInfo, "injury" | "injuryReturnWeek">,
+  info: Pick<PlayerInfo, "injury" | "injuryReturnWeek" | "pos">,
   inputs: PlayerInputs,
   ctx: BaseRateContext,
   cfg: ProjectionConfig & Pick<AvailabilityConfig, "returnConflictWeeks"> = config.projections,
@@ -750,7 +751,7 @@ export function availabilityNoteFor(
 ): AvailabilityNote | undefined {
   const conflict = returnDateConflict(info, ctx.currentWeek, cfg);
   if (!conflict) return undefined;
-  const check = staleReturnCheck(inputs, ctx, cfg);
+  const check = staleReturnCheck(inputs, { ...ctx, pos: info.pos }, cfg);
   const note: AvailabilityNote = { status: conflict.status, returnWeek: conflict.returnWeek, used: check.stale ? "sleeper" : "returnDate", sleeperNow: check.sleeperNow, healthyRate: check.healthyRate };
   if (sleeperWeekLoaded) return note;
   return { ...note, used: "returnDate", sleeperNow: null, sleeperUnavailable: true };

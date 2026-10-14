@@ -197,6 +197,7 @@ import type {
 import { prepareLeagueSlots, solveLineup, type LineupPlayer } from "@/engine/lineup";
 import { fantasyCalcFallbackText, fantasyCalcFormat, fantasyCalcFormatLabel, noteDay } from "@/engine/market";
 import { POSITIONS, type InjuryStatus, type LeagueSettings, type LeagueSnapshot, type Platform, type PlayerInfo, type Pos, type Team } from "@/engine/model";
+import { actualWeightFor } from "@/engine/projections";
 import { TITLE_ONLY, prizeStillMovable, type Reward } from "@/engine/reward";
 import { DIVISION_RULE_ASSUMED, weekList, weekUnderWayNote } from "@/engine/season";
 import { fmtNum, fmtSigned, fmtWhole, formatShortDateTime, plural, recordText } from "./format";
@@ -2411,6 +2412,19 @@ function chipMinGapText(model: Pick<LeagueModel, "lineupThresholds">): string {
   return fmtNum(model.lineupThresholds?.chipMinGap ?? config.needs.chipMinGap, 1);
 }
 
+/**
+ * " (not for kickers and D/STs, whose points per game come from the projections alone)": the positions this league starts
+ * whose recent form counts for nothing (config.projections.actualWeightByPos 0: K and DEF since Checkpoint 7e, planner reply
+ * to Checkpoint 7d, item 1.2; projections.ts actualWeightFor), for the "Projected points" explainer, in POSITIONS order;
+ * "" when there are none.
+ */
+export function noFormText(snapshot: Pick<LeagueSnapshot, "platform" | "settings">, cfg: Parameters<typeof actualWeightFor>[1] = config.projections): string {
+  const started = new Set(snapshot.settings.lineup.filter((s) => s.count > 0).flatMap((s) => s.eligible));
+  const none = POSITIONS.filter((pos) => started.has(pos) && actualWeightFor(pos, cfg) === 0);
+  if (!none.length) return "";
+  return ` (not for ${listText(none.map((pos) => positionPlural(pos, snapshot.platform)))}, whose points per game come from the projections alone)`;
+}
+
 function buildExplain(c: ExplainContext): ExplainItem[] {
   const { snapshot, model } = c;
   const p = config.projections;
@@ -2435,7 +2449,7 @@ function buildExplain(c: ExplainContext): ExplainItem[] {
       title: "Projected points",
       text: seasonOver
         ? "The season is over, so nothing is projected: projections aren't requested once no fantasy weeks are left."
-        : `A player's points per game start from ${c.source.from}. Recent form counts too: up to ${pct(p.actualWeight)} once he has played ${p.actualFullGames} games.${matchup}${blendExplainText(snapshot, model, c.fallback?.kind === "curve")}`,
+        : `A player's points per game start from ${c.source.from}. Recent form counts too: up to ${pct(p.actualWeight)} once he has played ${p.actualFullGames} games${noFormText(snapshot)}.${matchup}${blendExplainText(snapshot, model, c.fallback?.kind === "curve")}`,
     },
     {
       title: "Availability",

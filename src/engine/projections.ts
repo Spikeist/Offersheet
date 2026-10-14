@@ -4,7 +4,10 @@
  *
  * Per player and remaining NFL week w (`weeks` = currentWeek..lastWeek, in order; LeagueModel.weeks):
  * - Step 1, base rate b (points per game played, in this league's scoring):
- *   b = (1 − α)·(proj_now / m_now) + α·actual_ppg, α = actualWeight × min(1, games / actualFullGames).
+ *   b = (1 − α)·(proj_now / m_now) + α·actual_ppg, α = w_pos × min(1, games / actualFullGames), w_pos his position's
+ *   season-to-date weight (actualWeightFor: config.projections.actualWeightByPos, else actualWeight). Since the planner's
+ *   reply to Checkpoint 7d (item 1.2) K and DEF weigh 0, so their b is proj_now / m_now: ESPN's and Sleeper's projections
+ *   alone. The position comes from projectPlayer's `pos`, or BaseRateContext.pos for the exported base rates.
  *   proj_now is his most recent HEALTHY projection: Sleeper's value in the latest week ≤ currentWeek
  *   where it is > 0 (PlayerInputs.sleeper carries lookbackWeeks past weeks for this), else in the
  *   nearest later remaining week. A null or 0 week is a stub (bye, injured, unprojected), never a base
@@ -72,7 +75,13 @@ import type { InjuryStatus, Pos } from "./model";
  * callers and tests can tune them. Pass `config.projections` (the default).
  */
 export interface ProjectionConfig {
+  /** The season-to-date weight of every position actualWeightByPos doesn't name (§6 step 1). */
   actualWeight: number;
+  /**
+   * Positions whose season-to-date weight replaces actualWeight (config: K and DEF 0; planner reply to Checkpoint 7d, item
+   * 1.2). Absent (a test's own config): actualWeight for every position.
+   */
+  actualWeightByPos?: Readonly<Partial<Record<Pos, number>>>;
   actualFullGames: number;
   weekShapeClamp: readonly [number, number];
   espnSleeperAgreement: number;
@@ -150,6 +159,21 @@ export interface BaseRateContext {
   weeks: readonly number[];
   /** ESPN leagues: ESPN and Sleeper agree well enough to be averaged (espnSleeperAgreement(...).agree). */
   espnAveraged: boolean;
+  /**
+   * His primary position (PlayerInfo.pos), for his season-to-date weight (actualWeightFor; planner reply to Checkpoint 7d,
+   * item 1.2: K and DEF 0). Absent: config.projections.actualWeight, every other position's. projectPlayer reads its own
+   * `pos` argument instead.
+   */
+  pos?: Pos;
+}
+
+/**
+ * His position's season-to-date weight (§6 step 1; planner reply to Checkpoint 7d, item 1.2): α once he has played
+ * cfg.actualFullGames games. actualWeightByPos's entry for his position, else actualWeight (also without a position). K and
+ * DEF read 0 in config, so their base rate comes from ESPN's and Sleeper's projections alone.
+ */
+export function actualWeightFor(pos: Pos | undefined, cfg: Pick<ProjectionConfig, "actualWeight" | "actualWeightByPos"> = config.projections): number {
+  return (pos === undefined ? undefined : cfg.actualWeightByPos?.[pos]) ?? cfg.actualWeight;
 }
 
 /** A projection the base rate starts from: its value, the week it came from (null for a season projection) and its source. */
@@ -195,27 +219,31 @@ function actualForm(actual: Readonly<Record<number, number>>): { ppg: number | n
   return { ppg: games > 0 ? sum / games : null, games };
 }
 
-function baseRateWithShape(inputs: PlayerInputs, ctx: BaseRateContext, shape: ReadonlyMap<number, number>, cfg: ProjectionConfig): PlayerBase {
-  return blendBaseRate(projectionNow(inputs, ctx), inputs, shape, cfg);
+function baseRateWithShape(inputs: PlayerInputs, ctx: BaseRateContext, shape: ReadonlyMap<number, number>, cfg: ProjectionConfig, pos: Pos | undefined): PlayerBase {
+  return blendBaseRate(projectionNow(inputs, ctx), inputs, shape, cfg, pos);
 }
 
-/** §6 step 1's formula from a projection (null = none): the α blend with actual points per game, the week shape taken out. */
-function blendBaseRate(proj: BaseProjection | null, inputs: PlayerInputs, shape: ReadonlyMap<number, number>, cfg: ProjectionConfig): PlayerBase {
+/**
+ * §6 step 1's formula from a projection (null = none): the α blend with actual points per game at his position's weight
+ * (actualWeightFor; 0 for K and DEF, whose b is then proj_now / m_now), the week shape taken out.
+ */
+function blendBaseRate(proj: BaseProjection | null, inputs: PlayerInputs, shape: ReadonlyMap<number, number>, cfg: ProjectionConfig, pos: Pos | undefined): PlayerBase {
   const { ppg: actualPpg, games } = actualForm(inputs.actual);
   if (proj) {
-    const alpha = games > 0 ? cfg.actualWeight * Math.min(1, games / cfg.actualFullGames) : 0;
+    const alpha = games > 0 ? actualWeightFor(pos, cfg) * Math.min(1, games / cfg.actualFullGames) : 0;
     const mNow = proj.week === null ? 1 : (shape.get(proj.week) ?? 1);
     const b = (1 - alpha) * (proj.value / mNow) + alpha * (actualPpg ?? 0);
     return { b: Math.max(0, b), projNow: proj.value, projWeek: proj.week, mNow, actualPpg, games, alpha, source: proj.source };
   }
-  // No projection anywhere: his actual points per game ARE the base rate (α = 1 in the step 1 formula).
+  // No projection anywhere: his actual points per game ARE the base rate (α = 1 in the step 1 formula). ⚠️ Ours: K and DEF
+  // too, since this last resort isn't the season-to-date weight they weigh 0 (config.projections.actualWeightByPos).
   if (actualPpg !== null) return { b: Math.max(0, actualPpg), projNow: null, projWeek: null, mNow: 1, actualPpg, games, alpha: 1, source: "actual" };
   return { b: 0, projNow: null, projWeek: null, mNow: 1, actualPpg: null, games: 0, alpha: 0, source: "none" };
 }
 
-/** §6 step 1: the base rate b and how it was made. */
+/** §6 step 1: the base rate b and how it was made, at ctx.pos's season-to-date weight. */
 export function baseRate(inputs: PlayerInputs, ctx: BaseRateContext, cfg: ProjectionConfig = config.projections): PlayerBase {
-  return baseRateWithShape(inputs, ctx, weekShape(inputs, ctx.weeks, cfg), cfg);
+  return baseRateWithShape(inputs, ctx, weekShape(inputs, ctx.weeks, cfg), cfg, ctx.pos);
 }
 
 /** A weekly series without week `week` (the same object when it has no such week). */
@@ -234,13 +262,13 @@ function withoutWeekInputs(inputs: PlayerInputs, week: number): PlayerInputs {
 /**
  * His healthy base rate H (§6 step 3 "Conflicting ESPN signals"; the file header), what the stale-date
  * tiebreaker compares Sleeper's projection this week with: step 1's base rate as if neither source had
- * projected him this week, the same α blend. This week's numbers are the ones his tag may have cut, and the
- * one H is compared with, so they count nowhere: not as proj_now, and not in the week shape's mean (a cut
- * this week would pull the mean down and H with it). proj_now is then the latest healthy week before this
- * week, else his nearest later healthy week (a player hurt all season so far: Sleeper's projection once he's
- * back is his healthy rate, where the season line ÷ 17 counts the games he's expected to miss), else ESPN's
- * the same way, else Sleeper's season line per game, else his points per game (b 0, source "none", without
- * any). The Q/D/P base rate (gameTimeBaseRate) takes the later week first instead.
+ * projected him this week, the same α blend (at ctx.pos's weight). This week's numbers are the ones his
+ * tag may have cut, and the one H is compared with, so they count nowhere: not as proj_now, and not in the
+ * week shape's mean (a cut this week would pull the mean down and H with it). proj_now is then the latest
+ * healthy week before this week, else his nearest later healthy week (a player hurt all season so far:
+ * Sleeper's projection once he's back is his healthy rate, where the season line ÷ 17 counts the games he's
+ * expected to miss), else ESPN's the same way, else Sleeper's season line per game, else his points per game
+ * (b 0, source "none", without any). The Q/D/P base rate (gameTimeBaseRate) takes the later week first instead.
  */
 export function priorHealthyBaseRate(inputs: PlayerInputs, ctx: BaseRateContext, cfg: ProjectionConfig = config.projections): PlayerBase {
   return baseRate(withoutWeekInputs(inputs, ctx.currentWeek), ctx, cfg);
@@ -276,16 +304,17 @@ export function nearestHealthyProjection(values: WeeklyValues | undefined, curre
  */
 export function gameTimeBaseRate(inputs: PlayerInputs, ctx: BaseRateContext, cfg: ProjectionConfig = config.projections): PlayerBase {
   const source = withoutWeekInputs(inputs, ctx.currentWeek);
-  return gameTimeBase(source, ctx, weekShape(source, ctx.weeks, cfg), cfg);
+  return gameTimeBase(source, ctx, weekShape(source, ctx.weeks, cfg), cfg, ctx.pos);
 }
 
-/** gameTimeBaseRate from inputs already without this week and their week shape. */
-function gameTimeBase(source: PlayerInputs, ctx: BaseRateContext, shape: ReadonlyMap<number, number>, cfg: ProjectionConfig): PlayerBase {
+/** gameTimeBaseRate from inputs already without this week and their week shape, at `pos`'s season-to-date weight. */
+function gameTimeBase(source: PlayerInputs, ctx: BaseRateContext, shape: ReadonlyMap<number, number>, cfg: ProjectionConfig, pos: Pos | undefined): PlayerBase {
   return blendBaseRate(
     pickProjection(source, ctx, (values) => nearestHealthyProjection(values, ctx.currentWeek, ctx.weeks)),
     source,
     shape,
     cfg,
+    pos,
   );
 }
 
@@ -310,7 +339,8 @@ export interface StaleReturnCheck {
 /**
  * Whether ESPN's return date for a PROBABLE, QUESTIONABLE or DOUBTFUL player 2+ weeks out is stale (the
  * file header): Sleeper still projects him this week at config.projections.staleReturnShare or more of
- * his healthy base rate. The caller decides who it applies to (availability.returnDateConflict).
+ * his healthy base rate (at ctx.pos's season-to-date weight, as his own b: league.ts availabilityNoteFor passes his
+ * position). The caller decides who it applies to (availability.returnDateConflict).
  */
 export function staleReturnCheck(inputs: PlayerInputs, ctx: BaseRateContext, cfg: ProjectionConfig = config.projections): StaleReturnCheck {
   const now = inputs.sleeper[ctx.currentWeek];
@@ -350,6 +380,7 @@ export interface ProjectPlayerContext extends BaseRateContext {
  * `value` is null here; the market layer (§9) fills it in. A PROBABLE, QUESTIONABLE or DOUBTFUL player
  * (ctx.injury) is projected as if neither source had projected him this week (the Q/D/P base rate in the
  * file header): b = gameTimeBaseRate's (his nearest later healthy week first), and this week's shape is 1.
+ * His season-to-date weight is `pos`'s (actualWeightFor; ctx.pos isn't read).
  */
 export function projectPlayer(id: string, pos: Pos, inputs: PlayerInputs, availability: ArrayLike<number>, ctx: ProjectPlayerContext, cfg: ProjectionConfig = config.projections): PlayerModel {
   if (availability.length !== ctx.weeks.length) {
@@ -360,7 +391,7 @@ export function projectPlayer(id: string, pos: Pos, inputs: PlayerInputs, availa
   const gameTime = usesHealthyBaseRate(ctx.injury);
   const source = gameTime ? withoutWeekInputs(inputs, ctx.currentWeek) : inputs;
   const shape = weekShape(source, ctx.weeks, cfg);
-  const base = gameTime ? gameTimeBase(source, ctx, shape, cfg) : baseRateWithShape(source, ctx, shape, cfg);
+  const base = gameTime ? gameTimeBase(source, ctx, shape, cfg, pos) : baseRateWithShape(source, ctx, shape, cfg, pos);
   const weekly: WeekProjection[] = ctx.weeks.map((w, i) => {
     const a = availability[i] ?? 0;
     const m = shape.get(w) ?? 1;

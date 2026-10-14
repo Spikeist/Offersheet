@@ -33,6 +33,10 @@ export const ENV_VARS = [
   "ESPN_SEASON",
   "ESPN_S2",
   "ESPN_SWID",
+  // Optional (Parker, 2026-10-14; Checkpoint 7e): his second ESPN league and its own espn_s2 (the SWID is ESPN_SWID), read
+  // only by the git-ignored dump scripts under data-local/; listed so check:leaks and every output scrubber know them.
+  "ESPN_LEAGUE_ID_2",
+  "ESPN_S2_2",
   "SLEEPER_USERNAME",
   "SLEEPER_LEAGUE_ID",
   "FLEAFLICKER_LEAGUE_ID",

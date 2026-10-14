@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { config } from "./config";
 import type { PlayerInputs } from "./inputs";
+import { POSITIONS } from "./model";
 import {
+  actualWeightFor,
   baseRate,
   baseRateSourceCounts,
   espnSleeperAgreement,
@@ -102,7 +104,7 @@ describe("nearestHealthyProjection (§6 step 3, the Q/D/P base rate's week)", ()
 describe("baseRate (§6 step 1)", () => {
   const weeks = [4, 5, 6];
 
-  it("b = (1 − α)·(proj_now / m_now) + α·actual_ppg, with α = actualWeight × min(1, games / actualFullGames)", () => {
+  it("b = (1 − α)·(proj_now / m_now) + α·actual_ppg, with α = actualWeight × min(1, games / actualFullGames) (no position: the default weight)", () => {
     // proj_now 16 in week 4; remaining mean (16 + 20 + 24) / 3 = 20 → m_now 0.8 → 20 points in a neutral matchup.
     // 3 games at 18 per game → α = 0.25 × 3/6 = 0.125 → b = 0.875 × 20 + 0.125 × 18 = 19.75.
     const base = baseRate(player({ 3: 18, 4: 16, 5: 20, 6: 24 }, { actual: { 1: 12, 2: 18, 3: 24 } }), { currentWeek: 4, weeks, espnAveraged: false });
@@ -110,7 +112,7 @@ describe("baseRate (§6 step 1)", () => {
     expect(base.b).toBeCloseTo(19.75, 12);
   });
 
-  it("α grows with games played up to actualWeight at actualFullGames, and reads both from config", () => {
+  it("α grows with games played up to actualWeight at actualFullGames (every position but K and DEF), and reads both from config", () => {
     const alphaFor = (games: number, cfg: ProjectionConfig = config.projections) =>
       baseRate(player({ 4: 10 }, { actual: flat(range(1, games), 10) }), { currentWeek: 4, weeks, espnAveraged: false }, cfg).alpha;
     expect(alphaFor(0)).toBe(0);
@@ -219,6 +221,76 @@ describe("baseRate (§6 step 1)", () => {
     const blended = baseRate(player({ 4: 1 }, { actual: flat(range(1, 6), -20) }), { currentWeek: 4, weeks: [4], espnAveraged: false });
     expect(blended).toMatchObject({ b: 0, actualPpg: -20, alpha: 0.25, source: "sleeper" });
     expect(baseRate(player({}, { actual: { 3: -1 } }), { currentWeek: 4, weeks, espnAveraged: false })).toMatchObject({ b: 0, actualPpg: -1, source: "actual" });
+  });
+});
+
+describe("the season-to-date weight by position (§6 step 1; planner reply to Checkpoint 7d, item 1.2: K and DEF 0)", () => {
+  const c = { currentWeek: 4, weeks: [4, 5, 6], espnAveraged: false };
+  // 16 projected this week, (16 + 20 + 24) / 3 = 20 a week → m_now 0.8; 3 games at 18 a game (α 0.125 at 0.25).
+  const inputs = player({ 3: 18, 4: 16, 5: 20, 6: 24 }, { actual: { 1: 12, 2: 18, 3: 24 } });
+  /** The rule before item 1.2: every position at actualWeight. */
+  const before: ProjectionConfig = { ...config.projections, actualWeightByPos: {} };
+  const others = POSITIONS.filter((pos) => pos !== "K" && pos !== "DEF");
+
+  it("config: K and DEF weigh 0, every other position actualWeight (0.25), and so does a caller without a position", () => {
+    expect(config.projections.actualWeight).toBe(0.25);
+    expect(Object.fromEntries(POSITIONS.map((pos) => [pos, actualWeightFor(pos)]))).toEqual({ QB: 0.25, RB: 0.25, WR: 0.25, TE: 0.25, K: 0, P: 0.25, DEF: 0, DL: 0.25, LB: 0.25, DB: 0.25 });
+    expect(actualWeightFor(undefined)).toBe(0.25);
+    // A config without the map (a test's own) reads actualWeight everywhere; an entry replaces it for its position only.
+    const noMap: ProjectionConfig = { ...config.projections, actualWeightByPos: undefined };
+    expect(actualWeightFor("K", noMap)).toBe(0.25);
+    const wr: ProjectionConfig = { ...config.projections, actualWeightByPos: { WR: 0.5 } };
+    expect([actualWeightFor("WR", wr), actualWeightFor("K", wr), actualWeightFor("TE", wr)]).toEqual([0.5, 0.25, 0.25]);
+  });
+
+  it("K and DEF: b is the projection with the matchup taken out (proj_now / m_now), whatever their points so far", () => {
+    for (const pos of ["K", "DEF"] as const) {
+      const base = baseRate(inputs, { ...c, pos });
+      // Games and points per game are still reported (facts), but weigh nothing.
+      expect(base).toMatchObject({ projNow: 16, projWeek: 4, mNow: 0.8, actualPpg: 18, games: 3, alpha: 0, source: "sleeper" });
+      expect(base.b).toBe(16 / 0.8);
+      // A full season of games, or points per game below 0 (a defense's bad start), changes nothing.
+      for (const actual of [flat(range(1, 8), 30), flat(range(1, 3), -4)]) expect(baseRate({ ...inputs, actual }, { ...c, pos }).b).toBe(16 / 0.8);
+      // The rule before blended them in: 0.875 × 20 + 0.125 × 18 = 19.75.
+      expect(baseRate(inputs, { ...c, pos }, before).b).toBeCloseTo(19.75, 12);
+    }
+  });
+
+  it("⚠️ a K or DEF whom no source projects at all still falls back to his points per game so far, every position's last resort", () => {
+    for (const pos of ["K", "DEF"] as const) {
+      expect(baseRate(player({ 4: null }, { actual: { 1: 9, 2: 13 } }), { ...c, pos })).toMatchObject({ b: 11, alpha: 1, source: "actual" });
+    }
+  });
+
+  it("every other position, and a caller without a position, keeps the rule before bit for bit", () => {
+    for (const pos of others) {
+      expect(baseRate(inputs, { ...c, pos })).toEqual(baseRate(inputs, { ...c, pos }, before));
+      expect(baseRate(inputs, { ...c, pos })).toEqual(baseRate(inputs, c, before));
+    }
+    expect(baseRate(inputs, c)).toEqual(baseRate(inputs, c, before));
+    expect(baseRate(inputs, c).alpha).toBe(0.125);
+  });
+
+  it("projectPlayer weighs by its own `pos` (ctx.pos isn't read): a team defense's week is his projection, and no other position moves", () => {
+    // A defense projected 7.2 this week, 6 a week after it, with 14 points a game in 3 games.
+    const d = player({ 3: 6, ...flat(range(4, 17), 6), 4: 7.2 }, { actual: { 1: 14, 2: 10, 3: 18 } });
+    const a = ones(WEEKS.length);
+    const def = projectPlayer("d", "DEF", d, a, ctx());
+    expect(def.base).toMatchObject({ alpha: 0, games: 3, actualPpg: 14 });
+    expect(def.weekly[0]!.p).toBeCloseTo(7.2, 12); // this week: Sleeper's projection (× availability 1)
+    expect(projectPlayer("d", "DEF", d, a, ctx({ pos: "WR" }))).toEqual(def);
+    expect(projectPlayer("d", "DEF", d, a, ctx(), before).weekly[0]!.p).toBeGreaterThan(def.weekly[0]!.p); // 14 a game pulled it up
+    for (const pos of others) expect(projectPlayer("d", pos, d, a, ctx({ pos: "K" }))).toEqual(projectPlayer("d", pos, d, a, ctx(), before));
+  });
+
+  it("the Q/D/P base rate and the stale-date tiebreaker's healthy base rate read ctx.pos's weight too", () => {
+    // A questionable kicker: Sleeper cut him to 3 this week, 8 a week otherwise; 3 games at 16.
+    const k = player({ 1: 8, 2: 8, 3: 8, 4: 3, 5: 8, 6: 8 }, { actual: { 1: 16, 2: 16, 3: 16 } });
+    expect(gameTimeBaseRate(k, { ...c, pos: "K" })).toMatchObject({ b: 8, alpha: 0, projWeek: 5 });
+    expect(gameTimeBaseRate(k, c)).toMatchObject({ b: 9, alpha: 0.125 }); // 0.875 × 8 + 0.125 × 16
+    expect(priorHealthyBaseRate(k, { ...c, pos: "K" })).toMatchObject({ b: 8, alpha: 0, projWeek: 3 });
+    expect(staleReturnCheck(k, { ...c, pos: "K" })).toEqual({ sleeperNow: 3, healthyRate: 8, stale: false });
+    expect(staleReturnCheck(k, c)).toEqual({ sleeperNow: 3, healthyRate: 9, stale: false });
   });
 });
 

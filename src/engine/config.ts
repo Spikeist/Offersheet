@@ -83,7 +83,22 @@ export const config = {
 
   /** §6 Projection model. */
   projections: {
+    /**
+     * The season-to-date weight of the base rate (§6 step 1): b = (1 − α)·(proj_now / m_now) + α·actual_ppg, with α = his
+     * position's weight × min(1, games / actualFullGames) (projections.ts actualWeightFor). This is the weight of every
+     * position actualWeightByPos doesn't name.
+     */
     actualWeight: 0.25,
+    /**
+     * Positions whose season-to-date weight replaces actualWeight (planner reply to Checkpoint 7d, item 1.2: "Set the
+     * season-to-date weight (α) to 0 for K and DEF, as a per-position setting in config. Their projections then come from
+     * ESPN and Sleeper alone. Phase 6's backtest decides whether to bring the weight back."). A kicker's or team defense's
+     * base rate is then his projection with the week's matchup taken out (proj_now / m_now). Every position it doesn't name
+     * keeps actualWeight (⚠️ P too: the planner named K and DEF only). ⚠️ Ours: a K or DEF whom no source projects at all (no
+     * Sleeper or ESPN week, no season line) still falls back to his points per game so far, every position's last resort
+     * (projections.ts blendBaseRate), which this weight doesn't govern; no K or DEF needed it on Parker's data of 2026-10-14.
+     */
+    actualWeightByPos: { K: 0, DEF: 0 } as Readonly<Partial<Record<Pos, number>>>,
     actualFullGames: 6,
     weekShapeClamp: [0.8, 1.2] as const,
     /** Average ESPN with Sleeper × rules only if they agree within this on average (planner reply 14). */

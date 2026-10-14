@@ -46,6 +46,7 @@ import {
   buildLeagueView,
   heatStep,
   likelyStarters,
+  noFormText,
   oddsCell,
   pickupsUnderWayNote,
   playoffWeightLabel,
@@ -2364,6 +2365,23 @@ describe("buildLeagueView: without a team", () => {
 });
 
 describe("buildLeagueView: how these numbers work", () => {
+  it("says which positions' recent form counts for nothing, from config (planner reply to Checkpoint 7d, item 1.2: K and DEF 0)", () => {
+    const { snapshot } = leagueFixture();
+    const withK = { ...snapshot, settings: { ...snapshot.settings, lineup: [...snapshot.settings.lineup, { slot: "K", count: 1, eligible: ["K" as const] }] } };
+    expect(config.projections.actualWeightByPos).toEqual({ K: 0, DEF: 0 });
+    expect(noFormText(withK)).toBe(" (not for kickers and D/STs, whose points per game come from the projections alone)");
+    expect(noFormText({ ...withK, platform: "sleeper" })).toBe(" (not for kickers and team defenses, whose points per game come from the projections alone)");
+    // Only the positions the league starts, and only those config weighs 0.
+    expect(noFormText(snapshot)).toBe(" (not for D/STs, whose points per game come from the projections alone)");
+    expect(noFormText(withK, { actualWeight: 0.25, actualWeightByPos: { K: 0 } })).toBe(" (not for kickers, whose points per game come from the projections alone)");
+    expect(noFormText(withK, { actualWeight: 0.25, actualWeightByPos: { K: 0.1 } })).toBe("");
+    expect(noFormText(withK, { actualWeight: 0.25, actualWeightByPos: {} })).toBe("");
+    expect(noFormText(withK, { actualWeight: 0.25 })).toBe("");
+    // A Sleeper league's page says it in its own words.
+    const sleeper = view({ platform: "sleeper" }).explain.find((e) => e.title === "Projected points")?.text;
+    expect(sleeper).toContain("once he has played 6 games (not for team defenses, whose points per game come from the projections alone).");
+  });
+
   it("explains the model with config's numbers", () => {
     const text = v.explain.map((e) => `${e.title}: ${e.text}`).join("\n");
     expect(v.explain.map((e) => e.title)).toEqual([
@@ -2379,7 +2397,8 @@ describe("buildLeagueView: how these numbers work", () => {
       "Needs, trade chips and partners",
       "Harder to get",
     ]);
-    expect(text).toContain(`up to ${Math.round(config.projections.actualWeight * 100)}% once he has played ${config.projections.actualFullGames} games`);
+    // Not for D/STs (the fixture starts one, no kicker): config weighs their recent form 0 (planner reply to Checkpoint 7d, item 1.2).
+    expect(text).toContain(`up to ${Math.round(config.projections.actualWeight * 100)}% once he has played ${config.projections.actualFullGames} games (not for D/STs, whose points per game come from the projections alone).`);
     expect(text).toContain("ESPN's own projections differ from Sleeper's by 14% on average this week, more than the 10% we allow");
     expect(text).toContain("Out: 0% this week, 50% next week, 85% in 2 weeks; Doubtful 25%, Questionable 85% and Probable 95% this week");
     expect(text).toContain("RB 14%, TE 14%, WR 12%, QB 6%, K 2%");
