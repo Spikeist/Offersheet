@@ -433,7 +433,7 @@ export const config = {
      * gains that print the same are a tie, decided by points, and every gain that rounds to 0 or below ("No gain") is one.
      */
     gainDecimals: 1,
-    /** Rows the League page shows before "Show all" (display only). */
+    /** Rows that help the League page shows before "Show all"; the rows that don't help are folded (display only; Checkpoint 7f). */
     rowsShown: 10,
     /**
      * "Rest of season" rated by Helps you (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.4: "screen with 1,000

@@ -36,7 +36,7 @@ import { buildImportReport } from "@/lib/importReport";
 import { buildLeagueView } from "@/lib/leagueView";
 import { NOTICE_TEXT, UNKNOWN_SETTING_NOTICE } from "@/lib/notices";
 import { ANALYZER_SUGGESTED_LABEL, OFFER_STEP_LABEL, PLAN_B_HEADING, bestTimeText, buildAnalysisView, buildFinderView, buildLadderView, buildTradeCard, PROJECTIONS_SOURCE, SORT_OPTIONS } from "@/lib/tradeView";
-import { RATING_PENDING_TEXT } from "@/lib/waiversView";
+import { RATING_PENDING_TEXT, WAIVERS_NONE_HELPS, waiversRestText } from "@/lib/waiversView";
 import { DEFAULT_MAX_SEARCH_SECONDS, SECOND_LEAGUE, USAGE, parseArgs, resolveArgs, type CheckBrowserArgs } from "./args";
 import { chromeArgs, chromeCandidates, devtoolsUrl, exited, findChrome, killTree, waitForDevtools } from "./chrome";
 import {
@@ -79,7 +79,10 @@ import {
   rowCount,
   valueLeaks,
   VALUES_CREDIT,
+  WAIVER_REST_TEXT,
+  waiverFoldProblems,
   waiverMoveProblems,
+  waiverSplitProblems,
   waiverToggleKind,
   OFFERS_ALONE,
   offersAlsoProblems,
@@ -90,6 +93,7 @@ import {
   type OfferRead,
   type OffersRead,
   type PrizeGroupRead,
+  type WaiverFoldRead,
   type WaiverMoveRead,
 } from "./contracts";
 import {
@@ -121,6 +125,7 @@ import {
   sanitizeCall,
   STOP_PLAYOFF_WEIGHT,
   typePrize,
+  WAIVER_REST,
   WAIVER_SHOW_ALL,
   waiverToggle,
   WATCH_PLAYOFF_WEIGHT,
@@ -175,6 +180,7 @@ import {
   TECHNICAL_DETAILS,
   togglePressed,
   WAIVER_RATING_WAIT_MS,
+  waiverFoldOpen,
   WAIVERS_HREF,
   WAIVERS_REVEALED,
   type SiteFiles,
@@ -491,7 +497,7 @@ describe("the in-page JavaScript", () => {
     ]) {
       expect(() => new Function(body(reader)), reader.slice(0, 60)).not.toThrow();
     }
-    for (const expression of [PLAYOFF_WEIGHT_SHOWN, WAIVER_SHOW_ALL, waiverToggle(1), WAIVERS_REVEALED, togglePressed(2), BACK_LINK]) {
+    for (const expression of [PLAYOFF_WEIGHT_SHOWN, WAIVER_SHOW_ALL, WAIVER_REST, waiverFoldOpen(true), waiverFoldOpen(false), waiverToggle(1), WAIVERS_REVEALED, togglePressed(2), BACK_LINK]) {
       expect(() => new Function(body(`return (${expression});`)), expression.slice(0, 60)).not.toThrow();
     }
   });
@@ -1115,6 +1121,81 @@ describe("Checkpoint 7e: the waiver rows as moves (planner reply to Checkpoint 7
   it("waits a minute at most for the rating, and knows its words", () => {
     expect(WAIVER_RATING_WAIT_MS).toBe(60_000);
     expect(RATING_PENDING_TEXT).toBe("Rating these against your odds…");
+  });
+});
+
+describe("Checkpoint 7f: the rows that don't help, folded (planner reply to Checkpoint 7e, item 3)", () => {
+  const move = (over: Partial<WaiverMoveRead> = {}): WaiverMoveRead => ({ add: true, kind: "drop", main: "Helps you", mainValue: "27", outscores: true, locks: 1, lockNames: true, ...over });
+  const noGain = move({ mainValue: "No gain" });
+  const cantAdd = move({ kind: "blocked", mainValue: "Can't add", outscores: false, locks: 0 });
+  /** A fold as READ_WAIVERS reads it: collapsed by default, with 6 rows that help above it. */
+  const fold = (rest: Partial<NonNullable<WaiverFoldRead["rest"]>> = {}, over: Partial<WaiverFoldRead> = {}): WaiverFoldRead => ({
+    rest: { text: "42 more pickups that don't help you (show)", expanded: "false", controls: null, height: 44, width: 290, focused: false, ...rest },
+    rows: 6,
+    restRows: 0,
+    restId: null,
+    none: null,
+    ...over,
+  });
+
+  it("reads the app's own words: every count and week, open or not, and the line when none helps (waiversView.ts)", () => {
+    for (const when of ["ros", "thisWeek", "nextWeek"] as const)
+      for (const n of [1, 2, 42])
+        for (const more of [true, false])
+          for (const open of [true, false]) {
+            const text = waiversRestText(n, when, { more, open });
+            const m = WAIVER_REST_TEXT.exec(text);
+            expect(m?.[1], text).toBe(String(n));
+            const label = when === "ros" ? "Rest of season" : when === "thisWeek" ? "This week" : "Next week";
+            const read = fold({ text, expanded: open ? "true" : "false", controls: open ? "r1" : null }, { rows: more ? 3 : 0, restRows: open ? n : 0, restId: open ? "r1" : null, none: more ? null : WAIVERS_NONE_HELPS[when] });
+            expect(waiverFoldProblems(read, label), text).toEqual([]);
+            expect(waiverSplitProblems(more ? [move()] : [], [], read.none, label), text).toEqual([]);
+          }
+    expect(WAIVER_REST_TEXT.test("42 more pickups that don't help you")).toBe(false);
+    expect(WAIVER_REST_TEXT.test("Show all 42")).toBe(false);
+  });
+
+  it("passes a fold collapsed, then open with its rows and aria-controls naming them", () => {
+    expect(waiverFoldProblems(fold(), "Rest of season")).toEqual([]);
+    expect(waiverFoldProblems(fold({ text: "42 more pickups that don't help you (hide)", expanded: "true", controls: "r1", focused: true }, { restRows: 42, restId: "r1" }), "Rest of season")).toEqual([]);
+    expect(waiverFoldProblems(fold({ text: "1 more pickup that doesn't help you this week (show)" }), "This week")).toEqual([]);
+    expect(waiverFoldProblems(fold({ text: "21 pickups that don't help you (show)" }, { rows: 0, none: "No pickup helps you over the rest of the season." }), "Rest of season")).toEqual([]);
+  });
+
+  it("names each problem with a fold: none, its words, its number's agreement, “more”, the weeks, “(show)” against aria-expanded, its count, rows showing while collapsed, its size, aria-controls", () => {
+    expect(waiverFoldProblems({ ...fold(), rest: null }, "Rest of season")).toEqual(["no button folds the rows that don't help"]);
+    expect(waiverFoldProblems(fold({ text: "Show 42 more" }), "Rest of season")).toEqual(["the fold's button reads “Show 42 more”"]);
+    expect(waiverFoldProblems(fold({ text: "1 more pickups that don't help you (show)" }), "Rest of season")).toEqual(["“1 more pickups that don't help you (show)” doesn't agree with its number"]);
+    expect(waiverFoldProblems(fold({ text: "2 more pickup that doesn't help you (show)" }), "Rest of season")).toEqual(["“2 more pickup that doesn't help you (show)” doesn't agree with its number"]);
+    expect(waiverFoldProblems(fold({ text: "42 pickups that don't help you (show)" }), "Rest of season")).toEqual(["“42 pickups that don't help you (show)” lacks “more”, though rows that help show above it"]);
+    expect(waiverFoldProblems(fold({}, { rows: 0, none: "No pickup helps you over the rest of the season." }), "Rest of season")).toEqual(["“42 more pickups that don't help you (show)” says “more”, though no row helps"]);
+    expect(waiverFoldProblems(fold(), "This week")).toEqual(["“42 more pickups that don't help you (show)” doesn't name the weeks of “This week”"]);
+    expect(waiverFoldProblems(fold({ text: "42 more pickups that don't help you this week (show)" }), "Next week")).toEqual(["“42 more pickups that don't help you this week (show)” doesn't name the weeks of “Next week”"]);
+    expect(waiverFoldProblems(fold({ text: "42 more pickups that don't help you (hide)" }), "Rest of season")).toEqual(["“42 more pickups that don't help you (hide)” with aria-expanded false"]);
+    expect(waiverFoldProblems(fold({ text: "42 more pickups that don't help you (hide)", expanded: "true", controls: "r1" }, { restRows: 40, restId: "r1" }), "Rest of season")).toEqual(["“42 more pickups that don't help you (hide)” shows 40 rows"]);
+    expect(waiverFoldProblems(fold({}, { restRows: 42, restId: "r1" }), "Rest of season")).toEqual(["42 folded rows show while “42 more pickups that don't help you (show)” is collapsed"]);
+    expect(waiverFoldProblems(fold({ height: 36 }), "Rest of season")).toEqual(["the fold's button is 290 × 36 px, under 44 px tall or 24 px wide"]);
+    expect(waiverFoldProblems(fold({ text: "42 more pickups that don't help you (hide)", expanded: "true", controls: null }, { restRows: 42, restId: "r1" }), "Rest of season")).toEqual(["the fold's aria-controls (missing) doesn't name its list (r1)"]);
+    expect(waiverFoldProblems(fold({ controls: "r1" }), "Rest of season")).toEqual(["the fold's aria-controls names r1 while its list isn't there"]);
+    expect(waiverFoldProblems(fold({ expanded: null }), "Rest of season")).toEqual(["the fold's button has no aria-expanded (“42 more pickups that don't help you (show)”)"]);
+  });
+
+  it("passes rows that help above the fold (Helps you from 1, a lineup gain above 0) and folded rows that don't (“No gain”, a move that can't be made last)", () => {
+    expect(waiverSplitProblems([move(), move({ mainValue: "1" })], [noGain, noGain, cantAdd, move({ kind: "blocked", main: "Helps you", mainValue: "No room", outscores: false, locks: 0 })], null, "Rest of season")).toEqual([]);
+    expect(waiverSplitProblems([move({ main: "Lineup gain", mainValue: "+0.1 pts" }), move({ main: "Lineup gain", mainValue: "+1,234.5 pts" })], [move({ main: "Lineup gain", mainValue: "No gain" })], null, "This week")).toEqual([]);
+    expect(waiverSplitProblems([], [noGain], "No pickup helps you next week.", "Next week")).toEqual([]);
+  });
+
+  it("names each problem with the split: a row above the fold that doesn't help, a folded row that does, a move that can't be made before a “No gain” row, the line missing, beside rows that help, or in other words", () => {
+    expect(waiverSplitProblems([noGain], [], null, "Rest of season")).toEqual(["row 1 shows above the fold with Helps you “No gain”"]);
+    expect(waiverSplitProblems([move({ main: "Lineup gain", mainValue: "No gain" })], [], null, "This week")).toEqual(["row 1 shows above the fold with Lineup gain “No gain”"]);
+    expect(waiverSplitProblems([move({ mainValue: "0" })], [], null, "Rest of season")).toEqual(["row 1 shows above the fold with Helps you “0”"]);
+    expect(waiverSplitProblems([cantAdd], [], null, "Rest of season")).toEqual(["row 1 shows above the fold with Helps you “Can't add”"]);
+    expect(waiverSplitProblems([move()], [move({ mainValue: "3" })], null, "Rest of season")).toEqual(["folded row 1 reads Helps you “3”, though it's folded as not helping"]);
+    expect(waiverSplitProblems([move()], [cantAdd, noGain], null, "Rest of season")).toEqual(["folded row 2 reads “No gain” after a move that can't be made"]);
+    expect(waiverSplitProblems([], [noGain], null, "Rest of season")).toEqual(["no row shows above the fold, and no line says none helps (“No pickup helps you over the rest of the season.”)"]);
+    expect(waiverSplitProblems([move()], [], "No pickup helps you over the rest of the season.", "Rest of season")).toEqual(["“No pickup helps you over the rest of the season.” shows beside 1 row that helps"]);
+    expect(waiverSplitProblems([], [noGain], "No pickup helps you this week.", "Next week")).toEqual(["the line reads “No pickup helps you this week.”, not “No pickup helps you next week.”"]);
   });
 });
 

@@ -23,7 +23,7 @@
  * 4.1): "How to offer it", each offer with its players, numbers, roster moves and message, and as a version the feedback asks
  * about; (item 3.4; the final review of Checkpoint 7e) Waiver upgrades' rated rows, whose Helps you counts trade value in a
  * redraft league and long-term value in a dynasty one, an open roster spot's row and a "No gain" row's line among them, on
- * every list. Every name is made up.
+ * every list (Checkpoint 7f: with the rows that don't help unfolded, as a tap on the fold shows them). Every name is made up.
  */
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -529,11 +529,12 @@ describe("no trade value shows in Waiver upgrades, whose Helps you counts it (Ch
       const shown: LeagueModel = { ...model, waiverUpgrades: { ...w, ros: { ...ros, rows } } };
       const view = buildWaiversView({ snapshot, model: shown, inputs, timeZone: "America/Chicago", now: TEST_NOW.toISOString() });
       if (!view?.ros) throw new Error("no view");
-      const all = view.ros.rows.length;
-      // Every row shown (not just the first config.waivers.rowsShown) on each list.
+      // Every row shown on each list: "Show all" open, and the rows that don't help unfolded (Checkpoint 7f: the page folds
+      // them, the "No gain" row with its line among them).
       for (const first of ["ros", "week"] as const) {
-        const html = renderToStaticMarkup(createElement(WaiverUpgradesCard, { view: { ...view, first, ros: { ...view.ros, shown: all } } }));
+        const html = renderToStaticMarkup(createElement(WaiverUpgradesCard, { view: { ...view, first }, open: { all: true, more: true } }));
         expectHidden(`Waiver upgrades (${leagueType}, ${first})`, html);
+        expect((html.match(/<li class="rounded-xl border/g) ?? []).length).toBe((first === "ros" ? view.ros : view.week)?.rows.length);
       }
       for (const s of stringsOf(view)) expectHidden(`Waiver upgrades' view (${leagueType})`, s);
       // The rows are there, in words: Helps you, an open spot, and the line saying what the move gives up.

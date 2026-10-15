@@ -4,7 +4,9 @@
  * (id "waivers", its heading focusable from script so the link can move focus there: review of the Waivers link), the
  * toggle (44 px, aria-pressed; three lists while a week is under way, wrapping rather than overflowing), the first
  * config.waivers.rowsShown rows and "Show all", tags in words, the 375 px rules (cards that wrap, no table), and its place
- * on the League page (from the page's context, after the trade partners).
+ * on the League page (from the page's context, after the trade partners). Checkpoint 7f (planner reply to Checkpoint 7e,
+ * item 3): the rows that help, then the fold of the rest ("N more pickups that don't help you (show)": 44 px, aria-expanded,
+ * aria-controls only while its list is there, the list right after it), or the line when none helps.
  */
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -119,12 +121,13 @@ describe("WaiverUpgradesCard", () => {
     expect(classes).toEqual(expect.arrayContaining(["inline-flex", "flex-wrap", "max-w-full"]));
   });
 
-  it("the first rows, then 'Show all' (44 px, aria-expanded)", () => {
+  it("the first rows that help, then 'Show all' (44 px, aria-expanded); every row helps here, so nothing is folded", () => {
     const ros = view.ros;
-    expect(ros && ros.rows.length > ros.shown).toBe(true);
+    expect(ros && ros.helping === ros.rows.length && ros.rows.length > ros.shown).toBe(true);
     const items = html.match(/<li class="rounded-xl border/g) ?? [];
     expect(items.length).toBe(ros?.shown);
     expect(html).toMatch(new RegExp(`<button type="button" aria-expanded="false" class="[^"]*min-h-11[^"]*">Show all ${ros?.rows.length}</button>`));
+    expect(html).not.toContain("data-waiver-more");
   });
 
   it("each card: name, position, team and bye, the points, whom he beats, the gain and the drop, tags in words", () => {
@@ -211,7 +214,9 @@ describe("Checkpoint 7e: one move per row, the switch and the locks (planner rep
     if (!v) throw new Error("no waivers view");
     return v;
   }
-  const withEdit = (view: WaiversView, settings: TradeSettings) => renderToStaticMarkup(createElement(LeagueSettingsEditContext, { value: { leagueKey: "test-key", settings, season: 2026 } }, createElement(WaiverUpgradesCard, { view })));
+  /** The section with the League page's settings, the rows that don't help unfolded (Checkpoint 7f: a move that can't be made is among them). */
+  const withEdit = (view: WaiversView, settings: TradeSettings) =>
+    renderToStaticMarkup(createElement(LeagueSettingsEditContext, { value: { leagueKey: "test-key", settings, season: 2026 } }, createElement(WaiverUpgradesCard, { view, open: { more: true } })));
 
   it("a row reads as one move: “Add” him, “Drop” the player named with his position, the two numbers on its right", () => {
     const view = fullView();
@@ -271,6 +276,93 @@ describe("Checkpoint 7e: one move per row, the switch and the locks (planner rep
     expect(text).toContain(`${UNTOUCHABLES_LABEL} W. Catch`);
     // No locks without the League page's settings: no words either.
     expect(textOf(renderToStaticMarkup(createElement(WaiverUpgradesCard, { view: fullView() })))).not.toContain(LOCK_HELP);
+  });
+});
+
+describe("Checkpoint 7f: the rows that don't help, folded (planner reply to Checkpoint 7e, item 3)", () => {
+  /**
+   * `helping` free-agent RBs who'd start in my FLEX (over Wade Route's 7), then `folded` who beat only Ronnie Slow (6): "No
+   * gain", depth only. Unrated (no season simulated): the lineup gain is each row's main number.
+   */
+  function foldView(helping: number, folded: number): WaiversView {
+    const mine = MINE.map((x) => (x.id === "r3" ? { ...x, points: 6 } : x.id === "w3" ? { ...x, points: 7 } : x));
+    const fas = [...Array.from({ length: helping }, (_, i) => p(`fh${i}`, "RB", 8 + i, `Helper Number${i}`)), ...Array.from({ length: folded }, (_, i) => p(`fd${i}`, "RB", 6.1 + i / 10, `Depth Number${i}`))];
+    const l = buildTestLeague({ platform: "espn", teams: [{ id: "1", roster: mine }, { id: "2", roster: [p("q2", "QB", 18, "Other QB")] }], freeAgents: fas });
+    const model = buildLeagueModel(l.snapshot, l.inputs, { now: TEST_NOW, sims: 0 }, NO_RISK);
+    const v = buildWaiversView({ snapshot: l.snapshot, model, inputs: l.inputs, timeZone: "America/New_York", now: TEST_NOW.toISOString() });
+    if (!v) throw new Error("no waivers view");
+    return v;
+  }
+  const render = (view: WaiversView, open?: { all?: boolean; more?: boolean }) => renderToStaticMarkup(createElement(WaiverUpgradesCard, { view, ...(open ? { open } : {}) }));
+  /** The fold's button: its attributes in the order React writes them, and its words. */
+  const FOLD = /<button type="button" aria-expanded="(true|false)"(?: aria-controls="([^"]+)")? data-waiver-more="" class="([^"]*)">([^<]*)<\/button>/;
+  const listOf = (html: string, which: "helping" | "rest") => new RegExp(`<ul(?: id="([^"]+)")? data-waiver-rows="${which}" aria-label="([^"]*)" class="[^"]*">([\\s\\S]*?)</ul>`).exec(html);
+  const items = (html: string) => (html.match(/<li class="rounded-xl border/g) ?? []).length;
+
+  it("the rows that help, then one button: “N more pickups that don't help you (show)”, 44 px, collapsed (aria-expanded false, no aria-controls); none of the others in the page", () => {
+    const view = foldView(3, 2);
+    expect([view.ros?.helping, view.ros?.rest?.count]).toEqual([3, 2]);
+    const html = render(view);
+    expect(html).toMatch(/<div data-waiver-list="ros" data-rated="false">/);
+    const helping = listOf(html, "helping");
+    expect(textOf(helping?.[2] ?? "")).toBe("Waiver upgrades for the rest of the season");
+    expect(items(helping?.[3] ?? "")).toBe(3);
+    expect(items(html)).toBe(3);
+    const fold = FOLD.exec(html);
+    expect(fold?.[1]).toBe("false");
+    expect(fold?.[2]).toBeUndefined();
+    expect(fold?.[3]?.split(" ")).toEqual(expect.arrayContaining(["min-h-11", "max-w-full", "py-2", "text-left"]));
+    expect(textOf(fold?.[4] ?? "")).toBe("2 more pickups that don't help you (show)");
+    // Its own block after the rows (never beside "Show all"), and no folded list until it's opened.
+    expect(html).toMatch(/<\/ul><div class="mt-3"><button type="button" aria-expanded="false" data-waiver-more=""/);
+    expect(listOf(html, "rest")).toBeNull();
+    expect(textOf(html)).not.toContain("No gain");
+    expect(textOf(html)).not.toContain("Depth Number");
+  });
+
+  it("opened: the rows that don't help in their own list right after the button, “(hide)”, aria-expanded true and aria-controls naming that list", () => {
+    const html = render(foldView(3, 2), { more: true });
+    const fold = FOLD.exec(html);
+    expect(fold?.[1]).toBe("true");
+    expect(textOf(fold?.[4] ?? "")).toBe("2 more pickups that don't help you (hide)");
+    const rest = listOf(html, "rest");
+    expect(rest?.[1]).toBe(fold?.[2]);
+    expect(textOf(rest?.[2] ?? "")).toBe("Pickups that don't help you over the rest of the season");
+    expect(items(rest?.[3] ?? "")).toBe(2);
+    expect(textOf(rest?.[3] ?? "")).toContain("Lineup gain: No gain");
+    // Right after the button: the button stays where it was, so focus stays on it (the file header).
+    expect(html).toMatch(/data-waiver-more="" class="[^"]*">[^<]*<\/button><\/div><ul id="[^"]+" data-waiver-rows="rest"/);
+    expect(items(html)).toBe(5);
+  });
+
+  it("more than config.waivers.rowsShown help: the first of them and “Show all N”, N the rows that help, then the fold; “Show all” opened shows them all", () => {
+    const view = foldView(config.waivers.rowsShown + 2, 2);
+    const html = render(view);
+    expect(items(listOf(html, "helping")?.[3] ?? "")).toBe(config.waivers.rowsShown);
+    expect(html).toMatch(new RegExp(`<button type="button" aria-expanded="false" class="[^"]*min-h-11[^"]*">Show all ${config.waivers.rowsShown + 2}</button><div class="mt-3"><button type="button" aria-expanded="false" data-waiver-more=""`));
+    const all = render(view, { all: true });
+    expect(items(listOf(all, "helping")?.[3] ?? "")).toBe(config.waivers.rowsShown + 2);
+    expect(all).toMatch(/aria-expanded="true" class="[^"]*">Show fewer<\/button>/);
+    expect(listOf(all, "rest")).toBeNull();
+  });
+
+  it("none helps: the line instead of the rows, then the fold without “more”", () => {
+    const html = render(foldView(0, 3));
+    expect(html).toContain('<p data-waiver-none="" class="text-sm">No pickup helps you over the rest of the season.</p>');
+    expect(listOf(html, "helping")).toBeNull();
+    expect(textOf(FOLD.exec(html)?.[4] ?? "")).toBe("3 pickups that don't help you (show)");
+    expect(items(html)).toBe(0);
+    // Opened: the three rows.
+    expect(items(render(foldView(0, 3), { more: true }))).toBe(3);
+  });
+
+  it("“This week” folds its own: the week in its words and its folded list's caption", () => {
+    const view = foldView(2, 2);
+    expect([view.week?.helping, view.week?.rest?.count]).toEqual([2, 2]);
+    const html = render({ ...view, first: "week" }, { more: true });
+    expect(html).toMatch(/<div data-waiver-list="week" data-rated="false">/);
+    expect(textOf(FOLD.exec(html)?.[4] ?? "")).toBe("2 more pickups that don't help you this week (hide)");
+    expect(textOf(listOf(html, "rest")?.[2] ?? "")).toBe("Pickups that don't help you in week 4");
   });
 });
 
