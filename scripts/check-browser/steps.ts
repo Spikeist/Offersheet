@@ -77,8 +77,9 @@
  *   lists: only the rows that help above the fold, their main number above 0 (or the line saying none helps), then "N more
  *   pickups that don't help you (show)", 44 px, collapsed; a tap shows as many rows as it says right after it, each one move
  *   that doesn't help, "(hide)" with aria-expanded true and aria-controls naming them, keyboard focus kept on the button; another
- *   tap folds them, focus kept (waiverListChecks; contracts.ts waiverSplitProblems, waiverFoldProblems). "Show all N" counts
- *   the rows that help, so it's checked only when more help than show at first.
+ *   tap folds them, focus kept (waiverListChecks; contracts.ts waiverSplitProblems, waiverFoldProblems); and, with the fold open,
+ *   no trade value in the section (pageValueLeaks: the League step's scan no longer reaches the folded rows). "Show all N"
+ *   counts the rows that help, so it's checked only when more help than show at first.
  * - Settings (5.2, §6.1, §2 question 5): "What does your league reward?" with the planner's three answers and hint; the
  *   read-only playoff weight going from "Working it out…" to "N.N×, set automatically from your odds." within about 15 s,
  *   worked out by the page's own engine worker without a request off the site; "Protect my trade value" without a number.
@@ -1776,7 +1777,7 @@ async function waiverListChecks(ctx: StepContext, step: string, r: WaiversRead, 
   const name = `“${label}”`;
   const helping = r.moves ?? [];
   const main = r.rated ? "Helps you" : "Lineup gain";
-  if (!r.list || (!helping.length && r.none == null && !r.rest)) {
+  if (!r.list || (!helping.length && !r.none && !r.rest)) {
     report.skip(step, `the waiver rows: ${name} lists none`);
     return;
   }
