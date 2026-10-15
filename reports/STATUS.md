@@ -1,7 +1,7 @@
 # Status: Offer Sheet (folder: fantasy-trade-finder)
 
-**Current phase:** Checkpoint 7c approved and tagged `checkpoint-7c` on 2026-10-09 (the launch candidate). Checkpoint 7d (the planner's reply to Checkpoint 7c) approved and tagged `checkpoint-7d` on 2026-10-14. **Offer Sheet is live** at https://offersheet.vercel.app since 2026-10-14: production serves `checkpoint-7d` (offersheet-e50m4rlg3-parker-daniels.vercel.app), deployed after Parker's "go" through `npm run prod:deploy`; `--verify` passes every check.
-**Last updated:** 2026-10-14
+**Current phase:** Checkpoint 7c approved and tagged `checkpoint-7c` on 2026-10-09 (the launch candidate). Checkpoint 7d (the planner's reply to Checkpoint 7c) approved and tagged `checkpoint-7d` on 2026-10-14. **Offer Sheet is live** at https://offersheet.vercel.app since 2026-10-14: production serves `checkpoint-7d` (offersheet-e50m4rlg3-parker-daniels.vercel.app), deployed after Parker's "go" through `npm run prod:deploy`; `--verify` passes every check. **Checkpoint 7e** (the planner's reply to Checkpoint 7d: launch-week fixes) is done and waits for Parker's approval (`reports/checkpoint-7e.md`); production keeps serving `checkpoint-7d` until his go.
+**Last updated:** 2026-10-15
 
 | Phase | State |
 |---|---|
@@ -16,8 +16,19 @@
 | 7b: The planner's reply to Checkpoint 7a, readiness (B4), go/no-go | ✅ approved (tag `checkpoint-7b`). See `reports/checkpoint-7b.md` and `reports/planner-reply-7b.md`. |
 | 7c: The planner's reply to Checkpoint 7b: the launch candidate | ✅ approved 2026-10-09 (tag `checkpoint-7c`). See `reports/checkpoint-7c.md` and `reports/planner-reply-7c.md`. |
 | 7d: The planner's reply to Checkpoint 7c | ✅ approved 2026-10-14 (tag `checkpoint-7d`). See `reports/checkpoint-7d.md`. |
+| 7e: The planner's reply to Checkpoint 7d: launch-week fixes | ✅ done, waiting for Parker's approval (then tag `checkpoint-7e`; production deploys it after his go). See `reports/checkpoint-7e.md` and `reports/planner-reply-7d.md`. |
 | 7: Production | ✅ live since 2026-10-14: `checkpoint-7d` (offersheet-e50m4rlg3-parker-daniels.vercel.app), `npm run prod:deploy -- --verify --checkpoint checkpoint-7d` all ✅; rollback target the landing page (offersheet-dtgsgk03x-parker-daniels.vercel.app) until the next production deploy |
 | 5–6 | ⏸ after the launch (order: 5 → 6) |
+
+## Phase 7e (done; waiting for approval)
+- [x] 1.1: 20,000 seasons for every number a page prints (the top 5's Helps you spread 1–2 across seeds, 3 at 5,000); the search still ranks on 5,000
+- [x] 1.2: K and D/ST without the season-to-date weight (the 49ers/Giants case explained)
+- [x] 2.1–2.3: no credit for moves made either way; every roster move on the card; IR-return releases decided from that week on (Parker's week-7 release stays Pierce: a planner question)
+- [x] 3.1–3.5: Waiver upgrades as one move a row rated by Helps you, "Drop from the same position", untouchables never dropped (lock icons), "Expected back" with the user's own week
+- [x] 4.1–4.2: "How to offer it" as offers in order (built in the worker when opened); "Helps you N now · M if done after this week's games"
+- [x] Four build waves (A–D), each reviewed and fixed, and a final five-way review (21 findings: 15 fixed, 1 not a defect, 5 the lead's calls); CLAUDE.md updated (Section 17's Phase 7e entry, Section 19's normal deploy)
+- [x] Gate green (283 files, 5,468 tests, typecheck, lint, build, leak check 0 hard hits); `npm run check:browser -- --live --team 3` 162 passed, 0 failed (its card step's Copy lookup fixed for the offers' messages); `npm run prod:deploy -- --ref HEAD` on 38a1c8e: all 14 checks ✅
+- [ ] Parker's approval, then the tag `checkpoint-7e`; production after his go (`reports/beta-infrastructure.md`, "A normal deploy")
 
 ## Phase 7d (done; approved 2026-10-14)
 - [x] Answer 5: "Helps both" needs Helps you of at least 10 too
@@ -65,16 +76,15 @@
 - Stable copy: `npm run stable` (http://127.0.0.1:3000; serves the newest checkpoint tag: `checkpoint-7d` from its first run after the 2026-10-14 tag, which reinstalls and rebuilds); development: `npm run dev` (http://127.0.0.1:3001)
 - Protected preview: `npm run preview:deploy -- --live` (previews only; refuses production, uncommitted files and leaks)
 - The beta's infrastructure, limits, free-tier arithmetic and the launch-day steps: `reports/beta-infrastructure.md`
-- Trade search on Parker's league (top 10, B₃ and ω per goal, his prizes, open roster spots, Helps both): `reports/trade-report.md` (`npm run trade:report -- --dump data-local/parker-league-4c --team 3 --prizes 2000,1600,900`; `--live` fetches the league instead)
-- League model, season odds, the automatic playoff weight and his places under his prizes: `reports/league-report.md` (`npm run league:report -- --dump data-local/parker-league-4c --team 3 --prizes 2000,1600,900`)
-- Production deploy: the dry run, `npm run prod:deploy -- --checkpoint <the launch tag>` (read-only, before the go), then, only after the go, `npm run prod:deploy -- --live --checkpoint <the launch tag>`; the launch tag is `checkpoint-7d` if Parker approves Checkpoint 7d in time, else `checkpoint-7c` (CLAUDE.md §19)
+- Trade search on Parker's league (top 10, B₃ and ω per goal, his prizes, open roster spots, Helps both): `reports/trade-report.md` (`npm run trade:report -- --dump data-local/parker-league-7e --team 3 --prizes 2000,1600,900`, the week-6 dump; since Checkpoint 7e also offers in order; `--live` fetches the league instead)
+- League model, season odds, the automatic playoff weight and his places under his prizes: `reports/league-report.md` (`npm run league:report -- --dump data-local/parker-league-7e --team 3 --prizes 2000,1600,900`)
+- Production deploy (a normal deploy since launch: `reports/beta-infrastructure.md`, "A normal deploy"): the dry run, `npm run prod:deploy -- --checkpoint <the approved tag>` (read-only, before the go), then, only after the go, `npm run prod:deploy -- --live --checkpoint <the approved tag>`, `--verify` to ask its checks again, then the phone check (CLAUDE.md §19)
 - Production browser check: `npm run build`, then `npm run check:browser -- --live --team 3`
 - The shared store's readers, read-only (`READONLY_STORE_URL` and `READONLY_STORE_TOKEN` typed into .env.local by hand; add `--env production` after launch, except for `snapshot:pull`, which reads production by default): `npm run beta:log -- --live`, `npm run usage:report -- --live`, `npm run feedback:report -- --live`, `npm run snapshot:pull -- --live`
 
 ## Waiting on Parker
-- After the launch (2026-10-14): open https://offersheet.vercel.app on your phone and import your league; after 20:00 UTC the daily cron's first run (`npm run beta:log -- --live --env production`, once the read-only store variables below are typed in). `npm run stable` serves `checkpoint-7d` from its next run.
-- Launch day, Tuesday, October 13, 2026, before the go (`reports/beta-infrastructure.md`, "Launch-day steps"): production's SESSION_SECRET and CRON_SECRET (`npm run vercel:secret`); the three firewall rules published, in this order: "Deny cross-site API requests" first (`/api/` with the header `sec-fetch-site` equal to `cross-site` → Deny; required since the planner's reply to Checkpoint 7c, answer 4), then the `/api/*` rate limit answering 429, then the image-optimizer deny (⚠️ the dry run asks what each rule answers, not their order: check the order on Vercel's Firewall page before publishing); Next's check; then the dry run, `npm run prod:deploy -- --checkpoint <the launch tag>`. After the go: `npm run prod:deploy -- --live --checkpoint <the launch tag>` (`checkpoint-7d` if approved in time, else `checkpoint-7c`).
+- Checkpoint 7e: approve it (then I tag `checkpoint-7e`), then your go for production: `npm run prod:deploy -- --checkpoint checkpoint-7e` before it, `npm run prod:deploy -- --live --checkpoint checkpoint-7e` after it, then reload any open Offer Sheet tab and check your phone (`reports/checkpoint-7e.md`).
+- `npm run stable` serves `checkpoint-7d` from its next run (`checkpoint-7e` once it's tagged). The cron's first production run finished on 2026-10-14 (the planner: DONE, 3.2 s).
 - In Settings for your league: "What does your league reward?" → "Several prizes", with 2000, 1600 and 900.
 - After launch, to read the beta's usage: type the values of Vercel's `KV_REST_API_URL` and `KV_REST_API_READ_ONLY_TOKEN` into .env.local as `READONLY_STORE_URL` and `READONLY_STORE_TOKEN`.
 - `SLEEPER_USERNAME` is still blank, so Sleeper runs on the public test league.
-- Until launch, running `npm run snapshot:projections` on Wednesday nights keeps the pre-game projections Phase 6 needs (the cron takes over in production).
