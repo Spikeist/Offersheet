@@ -813,10 +813,11 @@ export interface TradeSearchProgress {
   /**
    * Checkpoint 7e (planner reply to Checkpoint 7d, item 1.1; search.ts, "The shown pass"): "shown" while the "rank" stage
    * plays out the ideas the lists show on the shown block's config.simulation.shownSims seasons (most of that stage's time),
-   * which tradeView.ts progressView names. Still the "rank" stage, so a re-filter reads as one (the Trade Finder's
-   * refilterProgress). Absent otherwise.
+   * which tradeView.ts progressView names. Since Checkpoint 7f (search.ts, "Merged cards"; the review of the speed track):
+   * "offers" while the merge works out a card's "How to offer it", which it names too. Still the "rank" stage, so a
+   * re-filter reads as one (the Trade Finder's refilterProgress). Absent otherwise.
    */
-  part?: "shown";
+  part?: "shown" | "offers";
 }
 
 export interface TradeSearchResult {

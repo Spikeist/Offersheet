@@ -34,6 +34,7 @@ import {
   addCandidates,
   analyzeTrade,
   buildTradeContext,
+  coreInOrder,
   evaluateExact,
   lastOfferVersions,
   preScreenOrder,
@@ -543,6 +544,53 @@ describe("determinism, versions, the Analyzer and the search", () => {
     const keyOrder = evaluateExact(I1, trade("3", ["qx1", "wb1"], ["wa3"]), 2);
     if ("illegal" in keyOrder) throw new Error(keyOrder.illegal);
     expect(ab.screen.b).toBe(simulateTrade(I1, keyOrder, "screen", SETTINGS.lambda, SETTINGS.protectValue, rewardFor(I1, SETTINGS)).b);
+  });
+
+  it("⚠️ since Checkpoint 7f a version asked for in another order than it was evaluated in lists its per-player facts in that order too: the same version evaluated in the order asked, deep-equal (the review of the merge, MERGE-4)", () => {
+    const versions = new Map<string, TradeVersion>();
+    // Neither side in key order (qx1 before wb1, wa3 before wb3), so the version is evaluated afresh in another order.
+    const asked = trade("3", ["wb1", "qx1"], ["wb3", "wa3"]);
+    const v = tradeVersion(I1, asked, { settings: SETTINGS, maxPerSide: 2, versions }) as TradeVersion;
+    const cached = versions.get(v.screen.key) as TradeVersion;
+    expect(sideIds(cached.screen.proposal.get)).toEqual(["wa3", "wb3"]);
+    expect(cached.screen.detail.premium?.map((f) => f.playerId)).toEqual(["wa3", "wb3"]);
+    for (const core of [v.screen, v.x.evaluation]) {
+      expect(sideIds(core.proposal.give)).toEqual(["wb1", "qx1"]);
+      expect(sideIds(core.proposal.get)).toEqual(["wb3", "wa3"]);
+      expect(core.detail.premium?.map((f) => f.playerId)).toEqual(["wb3", "wa3"]);
+    }
+    // Evaluated in the order asked from the start: the very same evaluation and numbers, facts and all.
+    const own = evaluateExact(I1, asked, 2);
+    if ("illegal" in own) throw new Error(own.illegal);
+    expect(v.x.evaluation).toEqual(own.evaluation);
+    expect(v.screen).toEqual(simulateTrade(I1, own, "screen", SETTINGS.lambda, SETTINGS.protectValue, rewardFor(I1, SETTINGS)));
+  });
+
+  it("coreInOrder: premium, hotGiven and flags.injured follow the players I get, hotReceived those I give, an id the trade doesn't hold after them; nothing else changes (Checkpoint 7f; the review of the merge, MERGE-4)", () => {
+    const core = ranked(I1, trade("3", ["qx1", "wb1"], ["wa3", "wb3"])).screen;
+    const fact = (playerId: string, rank: number) => ({ playerId, e: 0.05, rank, elite: false, harderToGet: false });
+    // Made-up lists in the evaluation's order (the hand league has no hot or injured player), one with an id the trade doesn't hold.
+    const made = {
+      ...core,
+      detail: { ...core.detail, hotReceived: ["qx1", "wb1"], hotGiven: ["wa3", "x9", "wb3"], premium: [fact("wa3", 1), fact("wb3", 2)] },
+      flags: { ...core.flags, injured: ["wa3", "wb3"] },
+    };
+    const out = coreInOrder(made, trade("3", ["wb1", "qx1"], ["wb3", "wa3"]));
+    expect(sideIds(out.proposal.give)).toEqual(["wb1", "qx1"]);
+    expect(sideIds(out.proposal.get)).toEqual(["wb3", "wa3"]);
+    expect(out.detail.hotReceived).toEqual(["wb1", "qx1"]);
+    expect(out.detail.hotGiven).toEqual(["wb3", "wa3", "x9"]);
+    expect(out.detail.premium).toEqual([fact("wb3", 2), fact("wa3", 1)]);
+    expect(out.flags.injured).toEqual(["wb3", "wa3"]);
+    expect({ ...out, proposal: made.proposal, detail: made.detail, flags: made.flags }).toEqual(made);
+    // The core it was given is untouched, and its own order gives the same lists back.
+    expect(made.detail.hotReceived).toEqual(["qx1", "wb1"]);
+    const plain = { ...made, detail: { ...made.detail, hotGiven: ["wa3", "wb3"] } };
+    expect(coreInOrder(plain, plain.proposal)).toEqual(plain);
+    // An older evaluation without a premium keeps it absent.
+    const { premium: _premium, ...older } = made.detail;
+    void _premium;
+    expect("premium" in coreInOrder({ ...made, detail: older }, made.proposal).detail).toBe(false);
   });
 
   it("since Checkpoint 7e the Analyzer gives no steps: its pitch names the trade itself (the card's \"How to offer it\" is worked out when it's opened)", () => {

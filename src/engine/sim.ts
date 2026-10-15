@@ -68,8 +68,8 @@
  *   count of SimState but its working space and the matrix), another matrix (another buffer or start: a matrix drawn again,
  *   or none given, which draws its own), or more seasons than asked makes simulateSeason throw an Error, never a
  *   RangeError (the callers read a RangeError as a setup they can't simulate: a progress that doesn't fit is a caller's
- *   bug, never a silent number). Keeping and checking cost about 35–45 µs a run (the digest), against 15–20 ms for 5,000
- *   seasons of Parker's leagues.
+ *   bug, never a silent number). Keeping and checking cost about 35–45 µs a run (the digest), against about 11.5 ms for
+ *   5,000 seasons of Parker's league and 15 ms of his 12-team one (Node; the review of the speed track).
  *
  * Regular season
  * - Records start from the platform's W-L-T, points for (PF) and points against (PA). Each remaining game

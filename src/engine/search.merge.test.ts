@@ -7,13 +7,16 @@
  * card of its list below it; each list is the finalists ranked by hand without the merged trades, which the filler rule reads
  * as kept (rank.ts RankOptions.shownElsewhere), then ranked again on the numbers its cards print; a re-filter equals a fresh
  * search at both minimums; TradeSearchOptions.mergeCards false gives Checkpoint 7e's lists, worked out by hand the same way
- * (until Checkpoint 7e search.fold.test.ts: the folding of cards whose steps named another card, gone with the steps); and the
- * ladder the search kept for a card is the one worked out on demand from its state and from its trade on a fresh context.
+ * (until Checkpoint 7e search.fold.test.ts: the folding of cards whose steps named another card, gone with the steps); the
+ * ladder the search kept for a card is the one worked out on demand from its state and from its trade on a fresh context, its
+ * offers' versions evaluated in the key's order or in another (the review of the merge, MERGE-4), deep-equal; and the "rank"
+ * stage's progress ends at its own count, every unit done, reading part "offers" while the merge works a ladder out.
+ * search.merge.release.test.ts drives the release rule (a merged trade given back), which no search here takes.
  */
 import { describe, expect, it } from "vitest";
 import { helpsBoth } from "./benefit";
-import { assetValue, buildTradeContext, type TradeContext } from "./evaluate";
-import { buildOfferLadder, ladderJobOfSearch, offerLadderOfProposal, offerLadderOfSearch } from "./offers";
+import { assetValue, buildTradeContext, evaluateExact, rewardFor, simulateTrade, tradeInternals, type TradeContext } from "./evaluate";
+import { buildOfferLadder, ladderJobOfProposal, ladderJobOfSearch, offerLadderOfProposal, offerLadderOfSearch, type LadderJob } from "./offers";
 import { compareOverall, rankTrades } from "./rank";
 import { rankCaps, runRefilter, runTradeSearch, searchStateOf, type SearchState } from "./search";
 import { defaultTradeSettings, type TradeSettings } from "./settings";
@@ -111,14 +114,21 @@ describe("merged cards (Checkpoint 7f; planner reply to Checkpoint 7e, decision 
       const merged = r.merged;
       if (!merged) throw new Error("no merge");
       // 0. Progress: the "rank" stage's bar never goes back though later rounds and the ladders' steps add units (each one
-      // counted as planned and done at once), and ends done.
+      // counted as planned and done at once), and ends done: its last event is the count itself, since a card the rounds took
+      // off its list left its Plan B's unit out of the total (the review of the merge: the bar stood at 79 of 82 before a last
+      // event set it done). While the merge works a ladder out the bar reads part "offers" (the review of the speed track:
+      // it read "shown", the ideas being played out); otherwise "shown", the pass having a block of its own.
       const rank = progress.filter((p) => p.stage === "rank");
       for (let i = 1; i < rank.length; i++) {
         const a = rank[i - 1] as TradeSearchProgress;
         const b = rank[i] as TradeSearchProgress;
         expect(b.done / b.total, `${lg.seed} step ${i}`).toBeGreaterThanOrEqual(a.done / a.total - 1e-12);
       }
-      expect((rank.at(-1) as TradeSearchProgress).done).toBe((rank.at(-1) as TradeSearchProgress).total);
+      const last = rank.at(-1) as TradeSearchProgress;
+      expect(last.done).toBe(last.total);
+      expect(last.part).toBe("shown");
+      for (const p of rank.slice(1)) expect(["shown", "offers"]).toContain(p.part);
+      expect(rank.some((p) => p.part === "offers"), `${lg.seed}: a ladder worked out`).toBe(true); // a fact of the synthetic data
       // Something merged (a fact of the synthetic data) and nothing given back; the counts.
       expect(merged.overall.length + merged.helpsBoth.length).toBeGreaterThan(0);
       expect(merged.released).toBe(0);
@@ -176,15 +186,33 @@ describe("merged cards (Checkpoint 7f; planner reply to Checkpoint 7e, decision 
       expect(plain.dropped && "merged" in plain.dropped).toBe(false);
       expect(searchStateOf(plain)?.ladders?.size).toBe(0);
 
-      // 6. Each kept ladder is the one worked out on demand from the state and from the card's trade on a fresh context.
+      // 6. Each kept ladder is the one worked out on demand from the state and from the card's trade on a fresh context, and
+      // (the review of the merge, MERGE-4) on a fresh context whose versions of its offers were evaluated in another order,
+      // each side's players reversed: deep-equal, every offer's per-player facts in its own order (evaluate.ts coreInOrder).
       const league = smallLeague(lg.seed, {}, lg.teams);
       const fresh = buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 8 });
       const cards = [...r.trades, ...(r.helpsBoth?.trades ?? [])];
+      const settings = at(lg.minChance);
+      let reordered = 0;
       for (const [key, kept] of st.ladders ?? new Map<string, OfferLadder>()) {
         const card = cards.find((t) => t.key === key) as TradeEvaluation;
         expect(buildOfferLadder(ladderJobOfSearch(st, card)), key).toEqual(kept);
-        expect(offerLadderOfProposal(fresh, card.proposal, { settings: at(lg.minChance), page: "finder" }), key).toEqual(kept);
+        expect(offerLadderOfProposal(fresh, card.proposal, { settings, page: "finder" }), key).toEqual(kept);
+        const other = buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 8 });
+        const job = ladderJobOfProposal(other, card.proposal, { settings, page: "finder" }) as LadderJob;
+        const I = tradeInternals(other);
+        for (const s of kept.steps) {
+          if (s.kind === "suggested") continue;
+          const p = s.evaluation.proposal;
+          if (p.give.length > 1 || p.get.length > 1) reordered++;
+          const x = evaluateExact(I, { partnerId: p.partnerId, give: [...p.give].reverse(), get: [...p.get].reverse() }, job.legalMax);
+          if ("illegal" in x) throw new Error(`${key}: ${x.illegal}`);
+          job.store.versions.set(s.evaluation.key, { x, screen: simulateTrade(I, x, "screen", settings.lambda, settings.protectValue, rewardFor(I, settings)) });
+        }
+        expect(buildOfferLadder(job), `${key} (versions in another order)`).toEqual(kept);
       }
+      // Offers whose players were reversed on a side (two or more there): a fact of the synthetic data.
+      expect(reordered, `smallLeague ${lg.seed}: offers with two players on a side`).toBeGreaterThan(0);
     });
   }
 

@@ -352,7 +352,7 @@ describe("re-filtering, determinism and the shown block at the ranking block's s
     expect(st.shownByKey.size).toBe(runs);
   });
 
-  it("progress: under the \"rank\" stage only moving forward, marked part \"shown\" while the pass plays the ideas out, ending done", () => {
+  it("progress: under the \"rank\" stage only moving forward, marked part \"shown\" while the pass plays the ideas out (\"offers\" while the merge works a ladder out, since Checkpoint 7f), ending done", () => {
     const progress: TradeSearchProgress[] = [];
     const league = smallLeague(23);
     const ctx = buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 8 });
@@ -361,8 +361,9 @@ describe("re-filtering, determinism and the shown block at the ranking block's s
     expect(rank[0]).toEqual({ stage: "rank", done: 0, total: 1 });
     const rest = rank.slice(1);
     expect(rest.length).toBeGreaterThan(1);
+    // "offers" while the merge works a ladder out (Checkpoint 7f; search.merge.test.ts pins it on leagues that merge).
     for (const p of rest) {
-      expect(p.part).toBe("shown");
+      expect(["shown", "offers"]).toContain(p.part);
       expect(p.done).toBeLessThanOrEqual(p.total);
     }
     // The bar's share of the stage never goes back (the review's SHOWN-5: the pass restarted it at 0).
@@ -373,6 +374,7 @@ describe("re-filtering, determinism and the shown block at the ranking block's s
     }
     const last = rest.at(-1) as TradeSearchProgress;
     expect(last.done).toBe(last.total);
+    expect(last.part).toBe("shown");
   });
 
   it("deterministic: the same search on a fresh context gives the same result", () => {
