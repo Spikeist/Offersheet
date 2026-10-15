@@ -781,7 +781,6 @@ describe("agreementAside and agreementPercent: the averaging test in words (Chec
 
   it("prints a whole percent, or one decimal when that whole percent is the bar's, so a gap beside the bar never reads as the bar", () => {
     // Oct 9 (week 5): 10.03% with kickers and D/STs, 9.86% without; both read "10%" as whole percents.
-    expect(agreementPercent(0.10026)).toBe("10.0%");
     expect(agreementPercent(0.09855)).toBe("9.9%");
     expect(agreementPercent(config.projections.espnSleeperAgreement)).toBe("10.0%");
     expect(agreementPercent(0.095)).toBe("9.5%");
@@ -793,6 +792,30 @@ describe("agreementAside and agreementPercent: the averaging test in words (Chec
     // Another bar.
     expect(agreementPercent(0.2, 0.2)).toBe("20.0%");
     expect(agreementPercent(0.1, 0.2)).toBe("10%");
+  });
+
+  it("prints two decimals where one would be the bar's, so a gap from 10.00% to 10.05% never reads “10.0%, more than the 10% we allow” (review of Checkpoint 7f, AVERAGING-1)", () => {
+    // Oct 9 with kickers and D/STs, 10.026%: it read "10.0%" beside "more than the 10% we allow".
+    expect(agreementPercent(0.10026)).toBe("10.03%");
+    expect(agreementPercent(0.1003)).toBe("10.03%");
+    expect(agreementPercent(0.10049)).toBe("10.05%");
+    expect(agreementPercent(0.0996)).toBe("9.96%");
+    expect(agreementPercent(0.09951)).toBe("9.95%");
+    // ⚠️ Ours: within 0.005 points of the bar, the nearest hundredth on the verdict's side (two decimals would print the bar).
+    expect(agreementPercent(0.10001)).toBe("10.01%");
+    expect(agreementPercent(0.100049)).toBe("10.01%");
+    expect(agreementPercent(0.099951)).toBe("9.99%");
+    // The bar itself: one decimal (it passes: within).
+    expect(agreementPercent(0.1)).toBe("10.0%");
+    // Every gap in the band reads on its own side of the bar: over the bar above 10, under it below, never 10 itself.
+    const bar = config.projections.espnSleeperAgreement;
+    for (let k = 1; k < 500; k++)
+      for (const gap of [bar + k * 1e-6, bar - k * 1e-6]) {
+        const text = agreementPercent(gap);
+        const shown = Number.parseFloat(text);
+        expect(shown, `${gap} → ${text}`).not.toBe(bar * 100);
+        expect(shown > bar * 100, `${gap} → ${text}`).toBe(gap > bar);
+      }
   });
 });
 

@@ -35,12 +35,16 @@
  * The rows that don't help fold (Checkpoint 7f; planner reply to Checkpoint 7e, item 3: "Show the rows that rate above 0,
  * followed by a collapsed “N more pickups that don't help you (show).”"): a row helps when its main number as printed is
  * above 0 (WaiverRowView.helps): Helps you on the rated season list, the lineup gain on the one-week lists and, ⚠️ ours, on a
- * season list waiting for its rating or whose rating failed (the number each row shows then). The rows that help come first
- * and show (the first config.waivers.rowsShown of them, then "Show all"); the rest fold behind one button ("42 more pickups
- * that don't help you (show)": WaiverListView.rest), on every list (⚠️ the lead's call: the one-week lists print "No gain" on
- * most of their rows too), the moves that can't be made last among them (⚠️ ours); when none helps, a line says so
- * (WaiverListView.noneHelps). The engine's order puts them so already (waivers.ts compareRatedRows, compareWaiverRows); the
- * view partitions the rows stably anyway, so the rule holds whatever the order.
+ * season list waiting for its rating or whose rating failed (the number each row shows then). Above the fold, the rows that
+ * help, then the moves that can't be made ("Can't add", "No room": review of Checkpoint 7f, WAIVERS-1, the lead's ruling:
+ * what they'd add is unknown, not none, and their sentence says how to make them, so folded as "pickups that don't help
+ * you" they read false and hid the "Drop from the same position" hint where it matters), the first config.waivers.rowsShown
+ * of them, then "Show all"; the "No gain" rows fold behind one button ("42 more pickups that don't help you (show)":
+ * WaiverListView.rest), on every list (⚠️ the lead's call: the one-week lists print "No gain" on most of their rows too). When
+ * none helps, a line says so (WaiverListView.noneHelps): "No pickup helps you …", or, with a move that can't be made shown,
+ * "No pickup you can make helps you …". The engine's order puts the rows that help first already (waivers.ts
+ * compareRatedRows, compareWaiverRows) and the moves that can't be made last; the view partitions the rows stably, so each
+ * group keeps the engine's order.
  *
  * Above the lists (Checkpoint 7e): "Drop from the same position" (item 3.2; WaiversView.samePosition, the setting the lists
  * were built with: the page shows the switch as the browser holds it now) and my untouchables, never suggested as drops
@@ -129,10 +133,20 @@ export const WAIVERS_NONE_HELPS: Readonly<Record<WaiverListWhen, string>> = {
 };
 
 /**
+ * Instead of the rows that help when none does but a move that can't be made shows under it (review of Checkpoint 7f,
+ * WAIVERS-1: such a move might help once it can be made, which its own sentence says how to do).
+ */
+export const WAIVERS_NONE_YOU_CAN_MAKE: Readonly<Record<WaiverListWhen, string>> = {
+  ros: "No pickup you can make helps you over the rest of the season.",
+  thisWeek: "No pickup you can make helps you this week.",
+  nextWeek: "No pickup you can make helps you next week.",
+};
+
+/**
  * The fold's button (Checkpoint 7f; planner reply to Checkpoint 7e, item 3: "a collapsed “N more pickups that don't help you
  * (show).”"): "42 more pickups that don't help you (show)", "(hide)" once open, "1 more pickup that doesn't help you", the
  * week on a one-week list ("… help you this week (show)", "… next week"), and no "more" when no row helps ("21 pickups that
- * don't help you (show)").
+ * don't help you (show)", a move that can't be made above it or not). N counts the "No gain" rows it folds.
  */
 export function waiversRestText(n: number, when: WaiverListWhen, opts: { more: boolean; open: boolean }): string {
   const what = n === 1 ? "pickup that doesn't" : "pickups that don't";
@@ -214,18 +228,30 @@ export interface WaiverListView {
   underWay: string | null;
   /** The column heading of the week's projection: "Wk 5". */
   weekLabel: string;
-  /** The rows that help first (`helping` of them), then those that don't, then the moves that can't be made (the file header). */
+  /**
+   * The rows that help first (`helping` of them), then the moves that can't be made (`blocked`), the two above the fold, then
+   * the "No gain" rows, folded (the file header).
+   */
   rows: WaiverRowView[];
   /** Checkpoint 7f (item 3): how many rows help, the first ones of `rows` (WaiverRowView.helps). */
   helping: number;
-  /** Rows that help shown before "Show all" (config.waivers.rowsShown); the rows that don't help are folded (`rest`). */
+  /**
+   * Review of Checkpoint 7f (WAIVERS-1): how many moves that can't be made come right after the rows that help, above the fold
+   * too ("Can't add", "No room": WaiverRowView.blocked).
+   */
+  blocked: number;
+  /** Rows above the fold shown before "Show all" (config.waivers.rowsShown); the "No gain" rows are folded (`rest`). */
   shown: number;
   /**
    * Checkpoint 7f (item 3): the rows that don't help, folded behind one button: how many, the button's words collapsed and
-   * open (waiversRestText), and the folded list's caption for screen readers. Null when every row helps.
+   * open (waiversRestText), and the folded list's caption for screen readers. Null when no row reads "No gain". Since the
+   * review of Checkpoint 7f (WAIVERS-1) only the "No gain" rows: the moves that can't be made show above the fold.
    */
   rest: { count: number; show: string; hide: string; caption: string } | null;
-  /** Checkpoint 7f (item 3): when the list has rows and none helps, the line instead of them (WAIVERS_NONE_HELPS); else null. */
+  /**
+   * Checkpoint 7f (item 3): when the list has rows and none helps, the line instead of them (WAIVERS_NONE_HELPS; with a move
+   * that can't be made above the fold, WAIVERS_NONE_YOU_CAN_MAKE); else null.
+   */
   noneHelps: string | null;
   /** Shown when there's no row. */
   empty: string;
@@ -265,7 +291,10 @@ export interface WaiverRowView {
   dropText: string | null;
   /** The row's main number: Helps you on a rated list, else the lineup gain (with its label: "Helps you", "Lineup gain"). */
   main: { label: string; text: string; positive: boolean; title: string };
-  /** Checkpoint 7f (item 3): the row helps, its main number as printed above 0 (`main.positive`): it shows; else it's folded. */
+  /**
+   * Checkpoint 7f (item 3): the row helps, its main number as printed above 0 (`main.positive`): it shows; else it's folded,
+   * unless it's a move that can't be made (`blocked`), which shows after the rows that help (review of Checkpoint 7f, WAIVERS-1).
+   */
   helps: boolean;
   /** The second number: "Outscores R. Doubs by 18", "R. Doubs outscores him by 3", "No drop needed: 77 points"; null when he can't be added. */
   outscores: string | null;
@@ -403,7 +432,9 @@ function weekLabel(input: WaiversInput, list: WaiverList): string {
  * value or long-term value it counts too (WaiverListRating.weighs; no number: CLAUDE.md §2.9), and how many seasons are
  * behind its rows (`rated` and `finished`: its rows with a rating, and those played out on the whole shown block; the final
  * review of Checkpoint 7e, UI-F-5: it said "the others" when every move was finished, and how many times each move is played
- * out when no move could be made).
+ * out when no move could be made). Since the review of Checkpoint 7f (INTEGRATION-7) it doesn't count the finished moves ("The
+ * 6 best moves are …" above a list showing 3, the others folded as "No gain"): "The best moves are played out 20,000 times,
+ * the others 1,000 times." (⚠️ ours: "The best move is …" when exactly one was), or "Each move is played out 20,000 times."
  */
 function ratingNote(r: WaiverListRating, span: string, counts: { rated: number; finished: number }): string {
   const weighs =
@@ -418,7 +449,7 @@ function ratingNote(r: WaiverListRating, span: string, counts: { rated: number; 
     counts.rated === 0
       ? ""
       : counts.finished > 0 && others > 0
-        ? ` The ${counts.finished === 1 ? "best move is" : `${counts.finished} best moves are`} played out ${fmtWhole(r.shownSims)} times, the others ${fmtWhole(r.screenSims)} times.`
+        ? ` The ${counts.finished === 1 ? "best move is" : "best moves are"} played out ${fmtWhole(r.shownSims)} times, the others ${fmtWhole(r.screenSims)} times.`
         : ` ${each} played out ${fmtWhole(counts.finished > 0 ? r.shownSims : r.screenSims)} times.`;
   return `Helps you: how much each move raises your chances at what your league rewards over ${span}, from simulated seasons, on the same scale as trade ideas.${weighs}${sims} Outscores: his rest-of-season points against the player you'd drop.`;
 }
@@ -451,17 +482,19 @@ function listView(input: WaiversInput, list: WaiverList, mode: WaiverListMode, t
         ? `Lineup gain: what adding him adds to your starting lineup in ${span}, ${how}, after dropping the player named (the same one as for the rest of the season when he's on that list, among players whose games haven't started). Outscores: his projection for the games still to play against the player you'd drop. Players whose games have started are locked: yours stay in the best lineup you could have set before kickoff.`
         : `Lineup gain: what adding him adds to your starting lineup in ${span}, ${how}, after dropping the player named (the same one as for the rest of the season when he's on that list). Outscores: his projection ${when} against the player you'd drop.`;
   const weekIndex = model.weeks.indexOf(pickupWeek);
-  // The rows that help first, then those that don't, then the moves that can't be made (Checkpoint 7f, item 3; the file
-  // header), each group in the engine's order (which puts them so already: the sort is stable).
-  const rows = list.rows
+  // The rows that help first, then the moves that can't be made, both above the fold, then the "No gain" rows, folded
+  // (Checkpoint 7f, item 3, and its review, WAIVERS-1; the file header), each group in the engine's order (the sort is
+  // stable).
+  const placed = list.rows
     .map((r) => {
       const view = rowView(input, list, r, mode, span, weekIndex, pickupWeek, rating, when);
-      return { view, place: view.helps ? 0 : r.gain !== null ? 1 : 2 };
+      return { view, place: view.helps ? 0 : r.gain === null ? 1 : 2 };
     })
-    .sort((a, b) => a.place - b.place)
-    .map((x) => x.view);
-  const helping = rows.filter((r) => r.helps).length;
-  const folded = rows.length - helping;
+    .sort((a, b) => a.place - b.place);
+  const rows = placed.map((x) => x.view);
+  const helping = placed.filter((x) => x.place === 0).length;
+  const blocked = placed.filter((x) => x.place === 1).length;
+  const folded = rows.length - helping - blocked;
   const which: WaiverListWhen = mode === "ros" ? "ros" : nextWeek ? "nextWeek" : "thisWeek";
   const underWay =
     underWayWeek === null ? null : mode === "underWay" ? `Week ${underWayWeek} is under way: this list counts only its games still to play.` : nextWeek ? `Week ${underWayWeek} is under way, so this list is for week ${pickupWeek}.` : null;
@@ -477,6 +510,7 @@ function listView(input: WaiversInput, list: WaiverList, mode: WaiverListMode, t
     weekLabel: `Wk ${pickupWeek}`,
     rows,
     helping,
+    blocked,
     shown: Math.max(1, Math.floor(config.waivers.rowsShown)),
     rest:
       folded > 0
@@ -487,7 +521,7 @@ function listView(input: WaiversInput, list: WaiverList, mode: WaiverListMode, t
             caption: mode === "ros" ? "Pickups that don't help you over the rest of the season" : mode === "underWay" ? `Pickups that don't help you in week ${pickupWeek}'s games still to play` : `Pickups that don't help you in week ${pickupWeek}`,
           }
         : null,
-    noneHelps: rows.length > 0 && helping === 0 ? WAIVERS_NONE_HELPS[which] : null,
+    noneHelps: rows.length > 0 && helping === 0 ? (blocked > 0 ? WAIVERS_NONE_YOU_CAN_MAKE : WAIVERS_NONE_HELPS)[which] : null,
     empty:
       mode === "ros"
         ? "No free agent projects for more rest-of-season points than one of your players at his position."

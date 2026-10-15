@@ -6,7 +6,9 @@
  * as 0), "No room", who and why when none of mine at his position plays ("No TE of yours plays in week 4 (T. Block:
  * bye)"), the waiver status ("On waivers until Wed", "Free agent now", none on Sleeper), opponents on the one-week lists,
  * the D/ST label, and nothing once my redraft season is over. Checkpoint 7f (planner reply to Checkpoint 7e, item 3): the
- * rows that help first, the rest folded behind "N more pickups that don't help you (show)", on every list.
+ * rows that help first, then (its review, WAIVERS-1) the moves that can't be made, the "No gain" rows folded behind "N more
+ * pickups that don't help you (show)", on every list; the rating note without a count of the moves played out longest
+ * (INTEGRATION-7).
  */
 import { describe, expect, it } from "vitest";
 import { config } from "@/engine/config";
@@ -33,6 +35,7 @@ import {
   WAIVERS_PICK_TEAM,
   WAIVERS_SECTION_ID,
   WAIVERS_NONE_HELPS,
+  WAIVERS_NONE_YOU_CAN_MAKE,
   WAIVERS_SEASON_OVER,
   buildWaiversView,
   positionPlural,
@@ -448,7 +451,10 @@ describe("Checkpoint 7e: one move per row, Helps you, the switch and the untouch
       expect(rv?.ros?.note).toContain("Helps you: how much each move raises your chances at what your league rewards over weeks 6–10, from simulated seasons, on the same scale as trade ideas.");
       // The trade value a move gives up only (the final review of Checkpoint 7e, ENG-7E-2: a gain counts as none).
       expect(rv?.ros?.note).toContain("It counts the trade value you'd give up too, as your “Protect my trade value” setting asks.");
-      expect(rv?.ros?.note).toContain("The 2 best moves are played out 400 times, the others 100 times.");
+      // No count of the moves played out longest (review of Checkpoint 7f, INTEGRATION-7: "The 6 best moves …" above a list
+      // showing 3, the others folded as "No gain").
+      expect(rv?.ros?.note).toContain("The best moves are played out 400 times, the others 100 times.");
+      expect(rv?.ros?.note).not.toMatch(/The \d+ best moves/);
       // The one-week list stays in points.
       for (const r of rv?.week?.rows ?? []) if (!r.blocked) expect(r.main.label).toBe("Lineup gain");
     });
@@ -502,6 +508,13 @@ describe("Checkpoint 7e: one move per row, Helps you, the switch and the untouch
       const note = buildWaiversView({ snapshot: l.snapshot, model: every, inputs, timeZone: NY, now: TEST_NOW.toISOString() })?.ros?.note ?? "";
       expect(note).toContain("Each move is played out 400 times.");
       expect(note).not.toContain("the others");
+      // One move played out longest: "The best move is", still without a count (⚠️ ours: the review of Checkpoint 7f,
+      // INTEGRATION-7, dropped the count; one move is one).
+      const ONE: LeagueModelConfig = { ...RATED, waivers: { ...config.waivers, ratingScreenSims: 100, ratingFinishRows: 1 } };
+      const one = buildLeagueModel(l.snapshot, inputs, { now: TEST_NOW, sims: 400, waiverRating: true }, ONE);
+      expect(one.waiverUpgrades?.ros?.rows.filter((r) => r.rating?.sims === 400)).toHaveLength(1);
+      const oneNote = buildWaiversView({ snapshot: l.snapshot, model: one, inputs, timeZone: NY, now: TEST_NOW.toISOString() })?.ros?.note ?? "";
+      expect(oneNote).toContain("The best move is played out 400 times, the others 100 times.");
       // No move rated (every one blocked, say): no count at all.
       const ros = model.waiverUpgrades?.ros;
       if (!ros) throw new Error("no list");
@@ -525,8 +538,11 @@ describe("Checkpoint 7e: one move per row, Helps you, the switch and the untouch
       expect(ros.helping).toBeGreaterThan(0);
       expect(ros.helping).toBeLessThan(ros.rows.length);
       expect(ros.rows.slice(0, ros.helping).every((r) => r.helps && r.main.positive)).toBe(true);
-      expect(ros.rows.slice(ros.helping).every((r) => !r.helps && (r.main.text === NO_GAIN_TEXT || r.blocked !== null))).toBe(true);
-      const folded = ros.rows.length - ros.helping;
+      // Then the moves that can't be made, above the fold too (review of Checkpoint 7f, WAIVERS-1), then the "No gain" rows.
+      const above = ros.helping + ros.blocked;
+      expect(ros.rows.slice(ros.helping, above).every((r) => !r.helps && r.blocked !== null)).toBe(true);
+      expect(ros.rows.slice(above).every((r) => !r.helps && r.blocked === null && r.main.text === NO_GAIN_TEXT)).toBe(true);
+      const folded = ros.rows.length - above;
       expect(ros.rest).toEqual({
         count: folded,
         show: `${folded} more ${folded === 1 ? "pickup that doesn't" : "pickups that don't"} help you (show)`,
@@ -535,7 +551,8 @@ describe("Checkpoint 7e: one move per row, Helps you, the switch and the untouch
       });
       expect(ros.noneHelps).toBeNull();
       // The engine's order puts them so already; the view keeps it within each group (a stable partition): the first row,
-      // made to print no gain where it stands in the engine's order, moves behind every row that helps, the others in order.
+      // made to print no gain where it stands in the engine's order, moves behind every row that helps (and every move that
+      // can't be made), the first of the "No gain" rows, the others in order.
       const first = ros.rows[0];
       const engine = model.waiverUpgrades?.ros;
       if (!first || !engine) throw new Error("no row");
@@ -543,7 +560,7 @@ describe("Checkpoint 7e: one move per row, Helps you, the switch and the untouch
       const m: LeagueModel = { ...model, waiverUpgrades: { ...(model.waiverUpgrades as NonNullable<LeagueModel["waiverUpgrades"]>), ros: { ...engine, rows } } };
       const demoted = buildWaiversView({ snapshot: l.snapshot, model: m, inputs, timeZone: NY, now: TEST_NOW.toISOString() })?.ros;
       expect(demoted?.helping).toBe(ros.helping - 1);
-      expect(demoted?.rows.map((r) => r.id)).toEqual([...ros.rows.slice(1, ros.helping), first, ...ros.rows.slice(ros.helping)].map((r) => r.id));
+      expect(demoted?.rows.map((r) => r.id)).toEqual([...ros.rows.slice(1, ros.helping), ...ros.rows.slice(ros.helping, above), first, ...ros.rows.slice(above)].map((r) => r.id));
     });
 
     it("Checkpoint 7f: waiting for its rating (or when it fails), the season list folds by the number each row shows then: the lineup gain (⚠️ ours)", () => {
@@ -634,22 +651,56 @@ describe("Checkpoint 7f: the rows that don't help fold (planner reply to Checkpo
     }
   });
 
-  it("a move that can't be made folds, after the rows that print no gain (⚠️ ours), whatever the order it comes in", () => {
-    const base = setup();
+  /** A list with Frankie Burst made a move only untouchables could make room for (`also`: another free agent made one too). */
+  const withBlocked = (freeAgents: TestPlayer[] = FAS, also: string | null = null) => {
+    const base = setup({ freeAgents });
     const ros = base.model.waiverUpgrades?.ros;
     if (!ros) throw new Error("no list");
-    // Frankie Burst, the list's first row, made a move only untouchables could make room for.
-    const blocked: WaiverBlocked = { why: "untouchable", atPosition: true, otherPosition: false, untouchable: ["r2"] };
-    const rows = ros.rows.map((r) => (r.playerId === "fa1" ? { ...r, gain: null, drop: null, dropPoints: null, depthOnly: false, blocked } : r));
-    expect(rows[0]?.playerId).toBe("fa1");
+    const blocked: WaiverBlocked = { why: "untouchable", atPosition: true, otherPosition: true, untouchable: ["r2"] };
+    const rows = ros.rows.map((r) => (r.playerId === "fa1" || r.playerId === also ? { ...r, gain: null, drop: null, dropPoints: null, depthOnly: false, blocked } : r));
     const model: LeagueModel = { ...base.model, waiverUpgrades: { ...(base.model.waiverUpgrades as NonNullable<LeagueModel["waiverUpgrades"]>), ros: { ...ros, rows } } };
-    const v = buildWaiversView({ snapshot: base.snapshot, model, inputs: base.inputs, timeZone: NY, now: TEST_NOW.toISOString() })?.ros;
+    return { engine: rows, view: buildWaiversView({ snapshot: base.snapshot, model, inputs: base.inputs, timeZone: NY, now: TEST_NOW.toISOString() })?.ros };
+  };
+
+  it("a move that can't be made shows above the fold, after the rows that help, and the fold holds only the “No gain” rows (review of Checkpoint 7f, WAIVERS-1)", () => {
+    // The engine lists Frankie Burst first; he can't be added now, and Fred Depth reads "No gain".
+    const { engine, view: v } = withBlocked();
+    expect(engine[0]?.playerId).toBe("fa1");
     expect(v?.rows.map((r) => [r.name, r.main.text])).toEqual([
-      ["Fred Depth", NO_GAIN_TEXT],
       ["Frankie Burst", CANT_ADD_TEXT],
+      ["Fred Depth", NO_GAIN_TEXT],
     ]);
-    expect(v?.helping).toBe(0);
-    expect(v?.noneHelps).toBe("No pickup helps you over the rest of the season.");
-    expect(v?.rest?.show).toBe("2 pickups that don't help you (show)");
+    expect([v?.helping, v?.blocked]).toEqual([0, 1]);
+    // None helps, a move that can't be made shown: the line says no pickup you can make helps (his sentence says how to make his).
+    expect(v?.noneHelps).toBe("No pickup you can make helps you over the rest of the season.");
+    expect(v?.rows[0]?.blocked?.hint).toBe(SAME_POSITION_HINT);
+    // The fold counts the "No gain" row alone, without "more" (no row helps).
+    expect(v?.rest).toEqual({ count: 1, show: "1 pickup that doesn't help you (show)", hide: "1 pickup that doesn't help you (hide)", caption: "Pickups that don't help you over the rest of the season" });
+    expect(WAIVERS_NONE_YOU_CAN_MAKE).toEqual({
+      ros: "No pickup you can make helps you over the rest of the season.",
+      thisWeek: "No pickup you can make helps you this week.",
+      nextWeek: "No pickup you can make helps you next week.",
+    });
+  });
+
+  it("rows that help, then the moves that can't be made, each in the engine's order, then the “No gain” rows folded, “more” as a row helps", () => {
+    // Rex Block and Ray Boot help too, then can't be added: they move behind Frankie Burst, the one that helps.
+    const fas = [...FAS, p("fa8", "RB", 12, "Rex Block"), p("fa9", "RB", 11, "Ray Boot")];
+    const { view: v } = withBlocked(fas, "fa8");
+    // The engine's order: Frankie Burst, Rex Block, Ray Boot (by gain), then Fred Depth.
+    expect(v?.rows.map((r) => r.name)).toEqual(["Ray Boot", "Frankie Burst", "Rex Block", "Fred Depth"]);
+    expect(v?.helping).toBe(1);
+    expect(v?.rows.slice(0, v.helping).every((r) => r.helps)).toBe(true);
+    expect(v?.rows.slice(v.helping, v.helping + v.blocked).map((r) => r.main.text)).toEqual([CANT_ADD_TEXT, CANT_ADD_TEXT]);
+    expect(v?.rows.slice((v?.helping ?? 0) + (v?.blocked ?? 0)).map((r) => r.main.text)).toEqual([NO_GAIN_TEXT]);
+    expect(v?.blocked).toBe(2);
+    expect(v?.noneHelps).toBeNull();
+    expect(v?.rest?.show).toBe("1 more pickup that doesn't help you (show)");
+    // Every move can't be made: no fold, the line, then the moves.
+    const only = withBlocked([p("fa1", "RB", 13, "Frankie Burst")]).view;
+    expect([only?.helping, only?.blocked, only?.rest]).toEqual([0, 1, null]);
+    expect(only?.noneHelps).toBe(WAIVERS_NONE_YOU_CAN_MAKE.ros);
+    // No move that can't be made: the line as before (WAIVERS_NONE_HELPS).
+    expect(view(setup({ freeAgents: [p("fa5", "RB", 6.5, "Fred Depth")] }))?.ros?.noneHelps).toBe(WAIVERS_NONE_HELPS.ros);
   });
 });

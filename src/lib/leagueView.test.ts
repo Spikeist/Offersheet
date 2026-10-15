@@ -169,7 +169,7 @@ describe("buildLeagueView: header (§14 item 3)", () => {
     const mixed = withSources({ sleeper: 30, espn: 3 }, { meanRelDiff: 0.14, players: 26, week: 12 });
     expect(mixed.label).toBe("Sleeper");
     expect(mixed.text).toContain(
-      "start from Sleeper's projection, scored with your league's rules (ESPN's own for 3 players Sleeper doesn't project). ESPN's own projections differ from Sleeper's by 14% on average this week, more than the 10% we allow, so we don't average them in.",
+      "start from Sleeper's projection, scored with your league's rules (ESPN's own for 3 players Sleeper doesn't project). ESPN's own projections differ from Sleeper's by 14% on average this week, more than the 10% we allow, so we don't average ESPN's in.",
     );
     expect(mixed.text).toContain("adjusted for the matchup");
     // Last resorts.
@@ -186,14 +186,26 @@ describe("buildLeagueView: header (§14 item 3)", () => {
       return of(f).explain[0]?.text ?? "";
     };
     const averaged = { "espn+sleeper": 25, sleeper: 8 };
-    expect(explainer(true, { meanRelDiff: 0.04, players: 22, week: 12, leftOut: ["K", "DEF"] }, averaged)).toContain("averaged with ESPN's own projection (they agree within 4% on average this week, kickers and D/STs aside)");
+    // The positions left aside in parentheses with the players compared, as the Import Report words it, and, averaged, that
+    // theirs are averaged too (review of Checkpoint 7f, the averaging reviewer's note: "kickers and D/STs aside" read as if
+    // they weren't averaged).
+    const avg = explainer(true, { meanRelDiff: 0.04, players: 22, week: 12, leftOut: ["K", "DEF"] }, averaged);
+    expect(avg).toContain("averaged with ESPN's own projection (they agree within 4% on average this week over 22 rostered players, kickers and D/STs aside, though theirs are averaged too)");
     expect(explainer(false, { meanRelDiff: 0.14, players: 22, week: 12, leftOut: ["K", "DEF"] }, { sleeper: 33 })).toContain(
-      "ESPN's own projections differ from Sleeper's by 14% on average this week, kickers and D/STs aside, more than the 10% we allow, so we don't average them in.",
+      "ESPN's own projections differ from Sleeper's by 14% on average this week (22 rostered players, kickers and D/STs aside), more than the 10% we allow, so we don't average ESPN's in.",
     );
-    expect(explainer(false, { meanRelDiff: 0.14, players: 24, week: 12, leftOut: ["K"] }, { sleeper: 33 })).toContain("by 14% on average this week, kickers aside, more than the 10% we allow");
-    // Beside the bar: one decimal (Oct 9's league read 9.86% without kickers and D/STs).
-    expect(explainer(true, { meanRelDiff: 0.09855, players: 22, week: 12, leftOut: ["K", "DEF"] }, averaged)).toContain("(they agree within 9.9% on average this week, kickers and D/STs aside)");
-    expect(explainer(false, { meanRelDiff: 0.1033, players: 22, week: 12, leftOut: ["K", "DEF"] }, { sleeper: 33 })).toContain("differ from Sleeper's by 10.3% on average this week, kickers and D/STs aside, more than the 10% we allow");
+    expect(explainer(false, { meanRelDiff: 0.14, players: 24, week: 12, leftOut: ["K"] }, { sleeper: 33 })).toContain("by 14% on average this week (24 rostered players, kickers aside), more than the 10% we allow, so we don't average ESPN's in");
+    // Nowhere does "kickers and D/STs aside" sit right before "averaged" or "them", in either branch.
+    for (const text of [avg, explainer(false, { meanRelDiff: 0.14, players: 22, week: 12, leftOut: ["K", "DEF"] }, { sleeper: 33 })]) {
+      expect(text).not.toMatch(/aside[),]* (more than [^,]*, )?so we don't average them/);
+      expect(text).not.toContain("so we don't average them in");
+    }
+    // Beside the bar: one decimal (Oct 9's league read 9.86% without kickers and D/STs), two where one would be the bar's.
+    expect(explainer(true, { meanRelDiff: 0.09855, players: 22, week: 12, leftOut: ["K", "DEF"] }, averaged)).toContain("(they agree within 9.9% on average this week over 22 rostered players, kickers and D/STs aside, though theirs are averaged too)");
+    expect(explainer(false, { meanRelDiff: 0.1033, players: 22, week: 12, leftOut: ["K", "DEF"] }, { sleeper: 33 })).toContain("differ from Sleeper's by 10.3% on average this week (22 rostered players, kickers and D/STs aside), more than the 10% we allow");
+    expect(explainer(false, { meanRelDiff: 0.10026, players: 22, week: 12, leftOut: ["K", "DEF"] }, { sleeper: 33 })).toContain("differ from Sleeper's by 10.03% on average this week (22 rostered players, kickers and D/STs aside), more than the 10% we allow");
+    // Nothing left aside: no parentheses (the text before Checkpoint 7f but for "ESPN's").
+    expect(explainer(true, { meanRelDiff: 0.04, players: 22, week: 12 }, averaged)).toContain("averaged with ESPN's own projection (they agree within 4% on average this week)");
   });
 
   it("labels a keeper league's values as the redraft (perception) list it shows (§9)", () => {

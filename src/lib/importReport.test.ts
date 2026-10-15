@@ -1075,6 +1075,14 @@ describe("buildImportReport: the League page's projection source (§6)", () => {
     expect(notesFor(over)).toEqual([
       "Projection source: Sleeper's projections, scored with your league's rules. ESPN's own projections differ from them by 10.3% on average in week 4 (2 rostered players), more than the 10% we allow, so we don't average them in.",
     ]);
+    // Just over the bar, 10.03% (3.009 / 30): two decimals, never "10.0%, more than the 10% we allow" (review of Checkpoint
+    // 7f, AVERAGING-1); just under it, 9.96%, likewise.
+    const edge = inputs({ "9001": { sleeper: { 4: 20 }, espn: { 4: 23.009 }, actual: {} }, "9004": { sleeper: { 4: 10 }, espn: { 4: 10 }, actual: {} } });
+    expect(notesFor(edge)).toEqual([
+      "Projection source: Sleeper's projections, scored with your league's rules. ESPN's own projections differ from them by 10.03% on average in week 4 (2 rostered players), more than the 10% we allow, so we don't average them in.",
+    ]);
+    const within = inputs({ "9001": { sleeper: { 4: 20 }, espn: { 4: 22.988 }, actual: {} }, "9004": { sleeper: { 4: 10 }, espn: { 4: 10 }, actual: {} } });
+    expect(notesFor(within)).toEqual(["Projection source: ESPN's and Sleeper's projections, averaged. They differ by 9.96% on average in week 4 (2 rostered players), within the 10% we allow."]);
   });
 
   it("says why ESPN's projections weren't averaged when they're missing", () => {

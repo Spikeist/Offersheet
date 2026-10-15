@@ -20,8 +20,9 @@
  * - 6.2: the waiver view's toggle (waiverToggleKind), and the header's six links in two rows at 375 px (rowCount); since
  *   Checkpoint 7e (planner reply to Checkpoint 7d, items 3.1–3.4) each of its rows read as one move, with Helps you on the
  *   rated "Rest of season" and a lock next to each drop (waiverMoveProblems); since Checkpoint 7f (planner reply to
- *   Checkpoint 7e, item 3) only the rows that help shown, the rest folded behind "N more pickups that don't help you (show)"
- *   (waiverSplitProblems, waiverFoldProblems, WAIVER_REST_TEXT).
+ *   Checkpoint 7e, item 3) only the rows that help shown, then (its review, WAIVERS-1) the moves that can't be made, the
+ *   "No gain" rows folded behind "N more pickups that don't help you (show)" (waiverSplitProblems, waiverFoldProblems,
+ *   WAIVER_REST_TEXT), every row of the list accounted for (waiverTotalProblems: review of Checkpoint 7f, WAIVERS-3).
  * - The Trade Analyzer's "Back to the Trade Finder" isn't prefetched (requestNamesAddress: which requests name its
  *   address, team id included).
  *
@@ -956,15 +957,43 @@ const WAIVER_NONE_TEXT: Readonly<Record<string, string>> = {
   "Next week": "No pickup helps you next week.",
 };
 
+/** The line when no row helps but a move that can't be made shows above the fold (waiversView.ts WAIVERS_NONE_YOU_CAN_MAKE; review of Checkpoint 7f, WAIVERS-1). */
+const WAIVER_NONE_MAKE_TEXT: Readonly<Record<string, string>> = {
+  "Rest of season": "No pickup you can make helps you over the rest of the season.",
+  "This week": "No pickup you can make helps you this week.",
+  "Next week": "No pickup you can make helps you next week.",
+};
+
+/** A move that can't be made, by its main number as printed ("Can't add", "No room"). */
+const waiverCantMake = (m: Pick<WaiverMoveRead, "mainValue">): boolean => m.mainValue === "Can't add" || m.mainValue === "No room";
+
+/**
+ * Whether a row's main number reads above 0 as printed (pure; Checkpoint 7f, item 3, and its review, WAIVERS-3): Helps you a
+ * whole number from 1; a lineup gain "+0.1 pts" or more, its number parsed (digits, thousands grouped by commas, a decimal
+ * part), so "+0.0 pts", "+0 pts", "+.0 pts" or "+0,0 pts" never pass.
+ */
+export function waiverRowHelps(m: Pick<WaiverMoveRead, "main" | "mainValue">): boolean {
+  if (m.main === "Helps you") return /^[1-9]\d{0,2}$/.test(m.mainValue);
+  const g = /^\+(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)? pts$/.exec(m.mainValue);
+  return !!g && Number(`${(g[1] ?? "").replace(/,/g, "")}${g[2] ?? ""}`) > 0;
+}
+
 /** A list's fold as inPage.ts READ_WAIVERS reads it (Checkpoint 7f; no names). */
 export interface WaiverFoldRead {
   /** The fold's button: its words, aria-expanded, aria-controls, size, and whether it has keyboard focus; null without one. */
   rest: { text: string; expanded: string | null; controls: string | null; height: number; width: number; focused: boolean } | null;
-  /** The rows that help in the page (the first config.waivers.rowsShown until "Show all"), and the folded rows (none while it's collapsed). */
+  /**
+   * The rows above the fold in the page (the first config.waivers.rowsShown until "Show all"), how many of them help (since
+   * the review of Checkpoint 7f the moves that can't be made show there too, after them), and the folded rows (none while
+   * it's collapsed).
+   */
   rows: number;
+  helping: number;
   restRows: number;
   /** The folded rows' list's id when it's in the page, else null. */
   restId: string | null;
+  /** Whether the folded rows' list is the next element after the fold button's wrapper (null while it isn't there). */
+  restAfter: boolean | null;
   /** The line when no row helps ("No pickup helps you …"), else null. */
   none: string | null;
 }
@@ -973,8 +1002,9 @@ export interface WaiverFoldRead {
  * Problems with a list's fold (pure; Checkpoint 7f, item 3), `label` the list's toggle label ("Rest of season", "This week",
  * "Next week"): its words (WAIVER_REST_TEXT; "pickup that doesn't" with 1, "pickups that don't" otherwise; "more" exactly when
  * a row helps; the week a one-week list names; "(show)" while collapsed, "(hide)" while open, aria-expanded saying which; its
- * count the folded rows in the page once it's open, none before), a 44 px tap target, and aria-controls naming the folded
- * list exactly while that list is there.
+ * count at least 1, and the folded rows in the page once it's open, none before), a 44 px tap target, aria-controls naming the
+ * folded list exactly while that list is there, and that list right after the button's own block (review of Checkpoint 7f,
+ * WAIVERS-3: the count and the place weren't read).
  */
 export function waiverFoldProblems(read: WaiverFoldRead, label: string): string[] {
   const b = read.rest;
@@ -986,8 +1016,9 @@ export function waiverFoldProblems(read: WaiverFoldRead, label: string): string[
   if (!m) problems.push(`the fold's button reads “${b.text}”`);
   else {
     const n = Number(m[1]);
+    if (n < 1) problems.push(`“${b.text}” folds no row`);
     if (m[3] !== (n === 1 ? "pickup that doesn't" : "pickups that don't")) problems.push(`“${b.text}” doesn't agree with its number`);
-    if (!!m[2] !== read.rows > 0) problems.push(read.rows > 0 ? `“${b.text}” lacks “more”, though rows that help show above it` : `“${b.text}” says “more”, though no row helps`);
+    if (!!m[2] !== read.helping > 0) problems.push(read.helping > 0 ? `“${b.text}” lacks “more”, though rows that help show above it` : `“${b.text}” says “more”, though no row helps`);
     const week = label === "This week" ? " this week" : label === "Next week" ? " next week" : "";
     if ((m[4] ?? "") !== week) problems.push(`“${b.text}” doesn't name the weeks of “${label}”`);
     if ((m[5] === "hide") !== open) problems.push(`“${b.text}” with aria-expanded ${b.expanded ?? "missing"}`);
@@ -996,34 +1027,54 @@ export function waiverFoldProblems(read: WaiverFoldRead, label: string): string[
   if (!open && read.restRows > 0) problems.push(`${read.restRows} folded rows show while “${b.text}” is collapsed`);
   if (b.height < 43.5 || b.width < 24) problems.push(`the fold's button is ${b.width} × ${b.height} px, under 44 px tall or 24 px wide`);
   if (open ? !read.restId || b.controls !== read.restId : b.controls !== null) problems.push(open ? `the fold's aria-controls (${b.controls ?? "missing"}) doesn't name its list (${read.restId ?? "missing"})` : `the fold's aria-controls names ${b.controls ?? "?"} while its list isn't there`);
+  if (read.restAfter === false) problems.push(`the folded rows aren't right after “${b.text}”`);
   return problems;
 }
 
 /**
- * Problems with how a list splits its rows (pure; Checkpoint 7f, item 3): every row shown above the fold helps, its main
- * number above 0 as printed (Helps you a whole number from 1, a lineup gain "+2.5 pts"); every folded row doesn't ("No gain",
- * or "Can't add" or "No room" for a move that can't be made, those last); and the line saying none helps (in `label`'s words)
- * exactly when no row shows above the fold.
+ * Problems with how a list splits its rows (pure; Checkpoint 7f, item 3, and its review, WAIVERS-1): every row shown above
+ * the fold helps, its main number above 0 as printed (waiverRowHelps), or is a move that can't be made ("Can't add", "No
+ * room"), those after the rows that help; every folded row reads "No gain"; and the line saying none helps exactly when no
+ * row above the fold helps, in `label`'s words: "No pickup you can make helps you …" when a move that can't be made shows
+ * there, "No pickup helps you …" when nothing does.
  */
-export function waiverSplitProblems(helping: readonly WaiverMoveRead[], rest: readonly WaiverMoveRead[], none: string | null, label: string): string[] {
+export function waiverSplitProblems(shown: readonly WaiverMoveRead[], rest: readonly WaiverMoveRead[], none: string | null, label: string): string[] {
   const problems: string[] = [];
-  helping.forEach((m, i) => {
-    const positive = m.main === "Helps you" ? /^[1-9]\d{0,2}$/.test(m.mainValue) : /^\+[\d,.]+ pts$/.test(m.mainValue);
-    if (!positive) problems.push(`row ${i + 1} shows above the fold with ${m.main || "(no label)"} “${m.mainValue}”`);
+  let cant = false;
+  shown.forEach((m, i) => {
+    if (waiverCantMake(m)) cant = true;
+    else if (!waiverRowHelps(m)) problems.push(`row ${i + 1} shows above the fold with ${m.main || "(no label)"} “${m.mainValue}”`);
+    else if (cant) problems.push(`row ${i + 1} helps, but shows after a move that can't be made`);
   });
-  let blocked = false;
   rest.forEach((m, i) => {
     const row = `folded row ${i + 1}`;
-    const cant = m.mainValue === "Can't add" || m.mainValue === "No room";
-    if (!cant && m.mainValue !== "No gain") problems.push(`${row} reads ${m.main || "(no label)"} “${m.mainValue}”, though it's folded as not helping`);
-    else if (cant) blocked = true;
-    else if (blocked) problems.push(`${row} reads “No gain” after a move that can't be made`);
+    if (waiverCantMake(m)) problems.push(`${row} reads “${m.mainValue}”: a move that can't be made shows above the fold`);
+    else if (m.mainValue !== "No gain") problems.push(`${row} reads ${m.main || "(no label)"} “${m.mainValue}”, though it's folded as not helping`);
   });
-  const want = WAIVER_NONE_TEXT[label] ?? null;
-  if (helping.length === 0 && none === null) problems.push(`no row shows above the fold, and no line says none helps (“${want ?? "?"}”)`);
-  if (helping.length > 0 && none !== null) problems.push(`“${none}” shows beside ${helping.length === 1 ? "1 row that helps" : `${helping.length} rows that help`}`);
+  const helping = shown.filter((m) => !waiverCantMake(m) && waiverRowHelps(m)).length;
+  const want = (cant ? WAIVER_NONE_MAKE_TEXT : WAIVER_NONE_TEXT)[label] ?? null;
+  if (helping === 0 && none === null) problems.push(`no row that helps shows above the fold, and no line says none helps (“${want ?? "?"}”)`);
+  if (helping > 0 && none !== null) problems.push(`“${none}” shows beside ${helping === 1 ? "1 row that helps" : `${helping} rows that help`}`);
   if (none !== null && none !== want) problems.push(`the line reads “${none}”, not “${want ?? "?"}”`);
   return problems;
+}
+
+/**
+ * Problems with how many rows a list accounts for (pure; review of Checkpoint 7f, WAIVERS-3: a page that dropped its fold, and
+ * the rows in it, read as a list whose every row shows): the list says how many rows it has (`total`, its data-waiver-total),
+ * and every one is above the fold (`above`: "Show all N"'s N, else the rows in the page) or counted by the fold's button
+ * (`foldText`, null without one).
+ */
+export function waiverTotalProblems(total: number | null, above: number, foldText: string | null): string[] {
+  if (total === null || !Number.isInteger(total) || total < 0) return ["the list doesn't say how many rows it has (data-waiver-total)"];
+  const m = foldText === null ? null : WAIVER_REST_TEXT.exec(foldText);
+  const folded = m ? Number(m[1]) : 0;
+  if (above + folded === total) return [];
+  return [
+    foldText === null
+      ? `the list has ${total} rows, but ${above} show above the fold and no button folds the others`
+      : `the list has ${total} rows, but ${above} show above the fold and “${foldText}” folds ${folded}`,
+  ];
 }
 
 /**
