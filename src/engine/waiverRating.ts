@@ -16,7 +16,9 @@
  *   free agent, one team isn't run again per row).
  * - Both on the same seasons (common random numbers: the change is the move's alone): the first config.waivers.
  *   ratingScreenSims seasons of the shown block to screen (the planner: "screen with 1,000 seasons"), the whole shown block
- *   (config.simulation.shownSims, item 1.1's count) to finish (below).
+ *   (config.simulation.shownSims, item 1.1's count) to finish (below). ⚠️ Ours (Checkpoint 7f; sim.ts, "Continuing a run"):
+ *   a finishing run continues the same score's screening run, its first seasons, so it plays only the seasons screening
+ *   didn't; its numbers are the full run's, bit for bit.
  *
  * B (WaiverRaterInputs.benefitOf, league.ts: benefit.benefit, as for trades): B_win from my P(playoffs) and prize components'
  * changes under the league's reward ("What does your league reward?" with its prizes), plus in a redraft league the market
@@ -49,7 +51,7 @@ import { tradeScore } from "./benefit";
 import type { WaiverListRating, WaiverRowRating } from "./leagueModel";
 import { runPrizeDeltas, type PrizeDeltas, type PrizeOdds } from "./reward";
 import type { SimSetupResult } from "./season";
-import { simulateSeason, type SimNormals } from "./sim";
+import { simulateSeason, type SimNormals, type SimProgress } from "./sim";
 import type { WeeklyScore } from "./teamValue";
 import type { WaiverRater, WaiverRatingResult, WaiverRatingRow } from "./waivers";
 
@@ -166,19 +168,22 @@ export function createWaiverRater(x: WaiverRaterInputs, cfg: WaiverRaterConfig):
     const sd = Float64Array.from(simWeekToModelWeek, (k) => score.sd[k] as number);
     return { mean, sd, key: `${mean.join(",")}|${sd.join(",")}` };
   };
-  /** My odds from the setup with my row replaced (`row`; null: the setup's own, the before), on `normals`. */
-  const runOn = (row: SimRow | null, normals: SimNormals): MyRun => {
+  /**
+   * My odds from the setup with my row replaced (`row`; null: the setup's own, the before), on `normals`, with the run's
+   * progress when `prefix` keeps it, or continuing one (Checkpoint 7f: below).
+   */
+  const runOn = (row: SimRow | null, normals: SimNormals, prefix: { keep?: boolean; resume?: SimProgress }): { run: MyRun; progress?: SimProgress } => {
     const mean = [...setup.mean];
     const sd = [...setup.sd];
     if (row) {
       mean[x.myIndex] = row.mean;
       sd[x.myIndex] = row.sd;
     }
-    const res = simulateSeason({ ...setup, mean, sd }, { sims: normals.sims, seed: x.seed, normals });
+    const res = simulateSeason({ ...setup, mean, sd }, { sims: normals.sims, seed: x.seed, normals, ...prefix });
     const o = res.teams[x.myIndex];
     const playoffsKnown = x.built.playoffsKnown && res.playoffsKnown;
     const known = (v: number | undefined, ok: boolean): number | null => (ok && v !== undefined && Number.isFinite(v) ? v : null);
-    return {
+    const run: MyRun = {
       pPlayoffs: o?.pPlayoffs ?? 0,
       prizes: {
         first: known(o?.pTitle, playoffsKnown),
@@ -188,25 +193,35 @@ export function createWaiverRater(x: WaiverRaterInputs, cfg: WaiverRaterConfig):
         pointsLeader: o?.pPointsLeader ?? 0,
       },
     };
+    return { run, ...(res.progress ? { progress: res.progress } : {}) };
   };
+  // ⚠️ Ours (Checkpoint 7f; sim.ts, "Continuing a run"): the screening seasons are the shown block's first ones (the same matrix
+  // from its season 0), so each finishing run continues the same row's screening run, playing only the seasons screening
+  // didn't (its numbers are the full run's, bit for bit).
+  const resumes = screen !== shown && screen.z.buffer === shown.z.buffer && screen.z.byteOffset === shown.z.byteOffset;
   // The before score's own row (the setup's): its key is the before run's in both memos, so a move that changes nothing reads it.
   const beforeRow: SimRow = {
     mean: setup.mean[x.myIndex] as Float64Array,
     sd: setup.sd[x.myIndex] as Float64Array,
     key: `${(setup.mean[x.myIndex] as Float64Array).join(",")}|${(setup.sd[x.myIndex] as Float64Array).join(",")}`,
   };
-  /** A block's runs by row key, the before run first (made when first asked). */
-  const block = (normals: SimNormals) => {
-    const memo = new Map<string, MyRun>();
+  /**
+   * A block's runs by row key, the before run first (made when first asked). The screening block's keep their progress
+   * (`keep`), and the shown block's continue the same row's (`prior`: the screening block's) when there is one.
+   */
+  type Block = { of: (row: SimRow) => MyRun; before: () => MyRun; runs: () => number; progressOf: (key: string) => SimProgress | undefined };
+  const block = (normals: SimNormals, keep: boolean, prior: Block | null): Block => {
+    const memo = new Map<string, { run: MyRun; progress?: SimProgress }>();
     const of = (row: SimRow): MyRun => {
       let r = memo.get(row.key);
       if (!r) {
-        r = runOn(row === beforeRow ? null : row, normals);
+        const from = prior?.progressOf(row.key);
+        r = runOn(row === beforeRow ? null : row, normals, from ? { resume: from } : { keep });
         memo.set(row.key, r);
       }
-      return r;
+      return r.run;
     };
-    return { of, before: () => of(beforeRow), runs: () => memo.size };
+    return { of, before: () => of(beforeRow), runs: () => memo.size, progressOf: (key) => memo.get(key)?.progress };
   };
   const change = (before: MyRun, after: MyRun): WaiverRunChange => ({
     dPO: after.pPlayoffs - before.pPlayoffs,
@@ -217,8 +232,8 @@ export function createWaiverRater(x: WaiverRaterInputs, cfg: WaiverRaterConfig):
   return {
     rate(rows: readonly WaiverRatingRow[]): WaiverRatingResult {
       x.onStage?.("start");
-      const onScreen = block(screen);
-      const onShown = block(shown);
+      const onScreen = block(screen, resumes, null);
+      const onShown = block(shown, false, resumes ? onScreen : null);
       // Each option's score as the simulator reads it, once (screening and finishing share it).
       const rowsByMove = new Map<string, SimRow | null>();
       const simRowOf = (add: string, drop: string | null): SimRow | null => {

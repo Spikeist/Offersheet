@@ -339,7 +339,9 @@
  *        won and the points title, HelpsCalibration.dPrizes), LeagueModel.helpsCalibration (ΔPO₃, ΔCH₃). benefit.helpsScale
  *        turns them into B₃ for a reward and λ, the scale of Helps you and Overall, so +3 points a week reads 63 under any
  *        split. The trade context runs the same function on its shown block (the same seasons and setup), so its B₃ for the
- *        numbers it shows is the League model's exactly. Null without odds or a team.
+ *        numbers it shows is the League model's exactly (since Checkpoint 7f continuing its own run on the ranking block, the
+ *        shown block's first seasons: helpsCalibrationRun, sim.ts's "Continuing a run"; the same numbers, bit for bit). Null
+ *        without odds or a team.
  *    The weekly high scores (Checkpoint 7c; season.ts buildSimSetup's highScores, sim.ts) are simulated only when the
  *    reward's weekly share pays (LeagueModel.reward): then in every run of steps 5c and 8 (ω's base and gained runs, the
  *    headline, the odds as rosters stand and the calibration), else in none, so the other goals' setups are exactly the
@@ -458,9 +460,9 @@ import { baseRateSourceCounts, espnSleeperAgreement, projectPlayer, staleReturnC
 import { finalLineups, returnerSpec, valueShareFrom, type FinalLineups, type FutureKeep, type ReturnerSetup } from "./returners";
 import { userReturnWeeks, type ReturnWeekSettings } from "./returnWeeks";
 import { assertWeeklyMeasured, paidPrizesKnown, paysWeekly, prizeOddsOf, rewardOf, runPrizeDeltas, type PrizeDeltas, type Reward } from "./reward";
-import { buildSimSetup, oddsSkippedWarning, pickupSeasonModel, seasonOdds, shownSimsOf, type SeasonConfig, type SeasonModel } from "./season";
+import { buildSimSetup, oddsSkippedWarning, pickupSeasonModel, seasonOdds, seasonOddsWith, shownSimsOf, type SeasonConfig, type SeasonModel } from "./season";
 import { defaultTradeSettings, normalizeTradeSettings, type TradeSettings } from "./settings";
-import { simNormals, type SimNormals } from "./sim";
+import { simNormals, type SimNormals, type SimProgress } from "./sim";
 import {
   addGainExact,
   addRowsGain,
@@ -3161,12 +3163,23 @@ export interface SeasonRun {
 }
 
 /**
+ * Checkpoint 7f (sim.ts's header, "Continuing a run"): a run that is the prefix of a longer one, on the first seasons of the
+ * same matrix (`keep`: hand back its progress), or the longer run continuing a prefix's progress (`resume`): the trade
+ * context's calibration runs on its ranking block, then on its shown block. The numbers are a full run's either way.
+ */
+export interface RunPrefix {
+  keep?: boolean;
+  resume?: SimProgress;
+}
+
+/**
  * My odds' changes from `gain` more projected points a week in the model weeks `at` (indexes into the season's weeks; σ
  * unchanged, every other team as it is), simulated on `run`, which must be the seasons `base` was simulated on (common random
  * numbers: the change is the gain's alone), with the high scores `base` was simulated with: the "Helps you" calibration (step
  * 8c) and the automatic playoff weight's two runs (step 5c). Null when my team isn't in `base`, the gain isn't a number, or
  * the run has no odds; ΔCH null when either title chance is unknown; every prize component's change in dPrizes (reward.ts
- * runPrizeDeltas: null where either side is unknown, and the weekly high scores' unless `run` simulated them).
+ * runPrizeDeltas: null where either side is unknown, and the weekly high scores' unless `run` simulated them). `prefix`
+ * (Checkpoint 7f): the run kept as a prefix (its progress handed back) or continuing one.
  */
 function gainedOdds(
   snapshot: LeagueSnapshot,
@@ -3177,16 +3190,19 @@ function gainedOdds(
   at: (week: number) => boolean,
   gain: number,
   cfg: SeasonConfig,
-): { dPO: number; dCH: number | null; dPrizes: PrizeDeltas } | null {
+  prefix: RunPrefix = {},
+): { dPO: number; dCH: number | null; dPrizes: PrizeDeltas; progress?: SimProgress } | null {
   const before = base.teams.find((t) => t.teamId === myTeamId);
   if (!before || !Number.isFinite(gain)) return null;
   const teams = season.teams.map((t) => (t.id === myTeamId ? { id: t.id, score: { mean: t.score.mean.map((m, w) => (at(w) ? m + gain : m)), sd: [...t.score.sd] } } : t));
-  const after = seasonOdds(snapshot, { ...season, teams }, run, cfg)?.teams.find((t) => t.teamId === myTeamId);
-  if (!after) return null;
+  const ran = seasonOddsWith(snapshot, { ...season, teams }, { ...run, ...prefix }, cfg);
+  const after = ran?.odds.teams.find((t) => t.teamId === myTeamId);
+  if (!ran || !after) return null;
   return {
     dPO: after.pPlayoffs - before.pPlayoffs,
     dCH: after.pTitle !== null && before.pTitle !== null ? after.pTitle - before.pTitle : null,
     dPrizes: runPrizeDeltas(prizeOddsOf(before), prizeOddsOf(after), run.highScores === true),
+    ...(ran.res.progress ? { progress: ran.res.progress } : {}),
   };
 }
 
@@ -3197,7 +3213,8 @@ function gainedOdds(
  * the gain's alone; `run.highScores` the same as `base`'s), and that team's odds' changes against `base`. Any team: mine for
  * "Helps you" (the League model runs it on its own seasons against LeagueModel.odds; the trade context, evaluate.ts, on its
  * shown block against its baseline, the same setup and seasons, so the two give the same numbers bit for bit, and since
- * Checkpoint 7e on its ranking block too), and since Checkpoint 7c a trade partner's for "Helps them" (planner reply to
+ * Checkpoint 7e on its ranking block too, whose run its run on the shown block continues since Checkpoint 7f:
+ * helpsCalibrationRun), and since Checkpoint 7c a trade partner's for "Helps them" (planner reply to
  * Checkpoint 7b, §7; evaluate.ts partnerCalibrationOf, on either of the trade context's blocks). Null when the team isn't in `base`, the gain isn't a number, or the run has no odds. ΔCH
  * null when either title chance is unknown; every prize component's change in dPrizes (the weekly high scores' null unless
  * `run` simulated them: reward.ts runPrizeDeltas).
@@ -3211,10 +3228,29 @@ export function helpsCalibrationOf(
   from: number,
   cfg: SeasonConfig & { readonly benefit: { readonly helpsGain: number } } = config,
 ): HelpsCalibration | null {
+  return helpsCalibrationRun(snapshot, season, teamId, base, run, from, cfg).calibration;
+}
+
+/**
+ * helpsCalibrationOf with its run's progress (Checkpoint 7f; sim.ts's header, "Continuing a run"): `prefix.keep` hands it
+ * back (the trade context's calibration runs on its ranking block: evaluate.ts), `prefix.resume` continues a run of the same
+ * team's gain from one (the same calibration on its shown block, whose first seasons are the ranking block's). The calibration
+ * is helpsCalibrationOf's, bit for bit, either way.
+ */
+export function helpsCalibrationRun(
+  snapshot: LeagueSnapshot,
+  season: SeasonModel,
+  teamId: string,
+  base: SeasonOdds,
+  run: SeasonRun,
+  from: number,
+  cfg: SeasonConfig & { readonly benefit: { readonly helpsGain: number } } = config,
+  prefix: RunPrefix = {},
+): { calibration: HelpsCalibration | null; progress?: SimProgress } {
   const gain = cfg.benefit.helpsGain;
   const start = Number.isFinite(from) ? Math.max(0, Math.floor(from)) : 0;
-  const d = gainedOdds(snapshot, season, teamId, base, run, (w) => w >= start, gain, cfg);
-  return d ? { gain, from: start, dPO: d.dPO, dCH: d.dCH, dPrizes: d.dPrizes } : null;
+  const d = gainedOdds(snapshot, season, teamId, base, run, (w) => w >= start, gain, cfg, prefix);
+  return { calibration: d ? { gain, from: start, dPO: d.dPO, dCH: d.dCH, dPrizes: d.dPrizes } : null, ...(d?.progress ? { progress: d.progress } : {}) };
 }
 
 // ---------------------------------------------------------------------------------------------

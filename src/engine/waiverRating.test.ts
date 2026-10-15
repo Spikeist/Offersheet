@@ -17,7 +17,7 @@ import { marketGain } from "./market";
 import { prizeOddsOf, runPrizeDeltas } from "./reward";
 import { buildSimSetup, pickupSeasonModel, seasonOdds, type SeasonModel } from "./season";
 import { defaultTradeSettings } from "./settings";
-import { simNormals } from "./sim";
+import { simNormals, simulateSeason } from "./sim";
 import type { TableRow, WeeklyScore } from "./teamValue";
 import { TEST_NOW } from "./testLeague";
 import { smallLeague } from "./trade.testing";
@@ -244,6 +244,56 @@ describe("the rater on its own (createWaiverRater)", () => {
     // "up2" scores as the before ("same"): no new run. Screening: before, down, up; shown: before, up.
     expect(result.runs).toEqual({ screen: 3, shown: 2 });
     expect(result.info).toEqual({ b3: c.scale.b3, screenSims: 100, shownSims: SIMS, finished: 1, weighs: null });
+  });
+
+  it("Checkpoint 7f (⚠️ ours): a finishing run continues its screening run, and its changes are the full runs' on the shown block, bit for bit", () => {
+    // The changes benefitOf is handed, by stage: screening's until "screen" ends, finishing's after.
+    let stage = "start";
+    const finishing: WaiverRunChange[] = [];
+    const rater = createWaiverRater(
+      {
+        built,
+        myIndex,
+        normals,
+        seed: config.simulation.seed,
+        highScores: false,
+        scoreAfter: (add) => (add === "up" ? plus(5) : add === "down" ? plus(-5) : before),
+        benefitOf: (_add, _drop, ch) => {
+          if (stage === "screen") finishing.push(ch);
+          return { b: 100 * ch.dPO };
+        },
+        b3: c.scale.b3,
+        weighs: null,
+        onStage: (s) => {
+          stage = s;
+        },
+      },
+      { waivers: { ratingScreenSims: 100, ratingFinishRows: 2 } },
+    );
+    rater.rate([
+      { playerId: "down", points: 1, options: [{ drop: "a", keep: 0 }] },
+      { playerId: "up", points: 1, options: [{ drop: "a", keep: 0 }] },
+    ]);
+    // Full runs on all SIMS seasons, made here with no progress: my odds with my row replaced by a score's.
+    const full = (score: WeeklyScore) => {
+      const row = (xs: Float64Array) => Float64Array.from(built.simWeekToModelWeek, (k) => xs[k] as number);
+      const mean = built.setup.mean.map((m, i) => (i === myIndex ? row(score.mean) : m));
+      const sd = built.setup.sd.map((s, i) => (i === myIndex ? row(score.sd) : s));
+      const o = simulateSeason({ ...built.setup, mean, sd }, { sims: SIMS, seed: config.simulation.seed, normals }).teams[myIndex];
+      if (!o) throw new Error("no odds");
+      return o;
+    };
+    const base = full(before);
+    // Finished in B's order: "up" (the better), then "down".
+    expect(finishing).toHaveLength(2);
+    for (const [ch, score] of [
+      [finishing[0], plus(5)],
+      [finishing[1], plus(-5)],
+    ] as const) {
+      const after = full(score);
+      expect(Object.is(ch?.dPO, after.pPlayoffs - base.pPlayoffs)).toBe(true);
+      expect(Object.is(ch?.dCH, after.pTitle - base.pTitle)).toBe(true);
+    }
   });
 
   it("finishes no row screened below the floor (review of wave C, RC-ENG-5: it prints no gain either way), and keeps each row's B_win (UI-C-2)", () => {

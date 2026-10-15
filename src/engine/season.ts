@@ -126,7 +126,7 @@
 import { config } from "./config";
 import type { LeagueModel, SeasonOdds, TeamModel, TeamOdds, WeekOdds } from "./leagueModel";
 import type { LeagueSettings, LeagueSnapshot, Matchup, SeedingTiebreaker } from "./model";
-import { bracketGames, simulateSeason, standingsOrder, type SimGame, type SimNormals, type SimPlayedGame, type SimPlayoffResult, type SimSetup, type SimTeam } from "./sim";
+import { bracketGames, simulateSeason, standingsOrder, type SimGame, type SimNormals, type SimPlayedGame, type SimPlayoffResult, type SimProgress, type SimResult, type SimSetup, type SimTeam } from "./sim";
 
 /** The config keys this module reads (config.simulation), widened from config's `as const` literals. */
 export interface SeasonConfig {
@@ -769,13 +769,29 @@ function eliminatedTeams(built: SimSetupResult, best: readonly number[]): boolea
  * regular season has no schedule (oddsSkippedWarning gives the warning), or when `sims` is below 1.
  */
 export function seasonOdds(snapshot: LeagueSnapshot, model: SeasonModel, opts: { sims?: number; seed?: number; normals?: SimNormals; highScores?: boolean } = {}, cfg: SeasonConfig = config): SeasonOdds | null {
+  return seasonOddsWith(snapshot, model, opts, cfg)?.odds ?? null;
+}
+
+/**
+ * seasonOdds with the simulator's own result behind the odds (Checkpoint 7f; sim.ts's header, "Continuing a run"), which
+ * evaluate.ts reads its baseline from as it reads a trade's run (runSim's reading), and the run's progress: `keep` hands it
+ * back (SimResult.progress), `resume` continues a run of the same model on the first seasons of the same `normals` from one
+ * (a progress kept from it: evaluate.ts's ranking block, then its shown block). The odds are seasonOdds' bit for bit
+ * either way. Null where seasonOdds is.
+ */
+export function seasonOddsWith(
+  snapshot: LeagueSnapshot,
+  model: SeasonModel,
+  opts: { sims?: number; seed?: number; normals?: SimNormals; highScores?: boolean; keep?: boolean; resume?: SimProgress } = {},
+  cfg: SeasonConfig = config,
+): { odds: SeasonOdds; res: SimResult } | null {
   const sims = Math.floor(opts.sims ?? shownSimsOf(cfg));
   if (!(sims >= 1)) return null;
   const seed = opts.seed ?? cfg.simulation.seed;
   const built = buildSimSetup(snapshot, model, { highScores: opts.highScores === true });
   if (!built) return null;
   const { setup, teamIds } = built;
-  const res = simulateSeason(setup, { sims, seed, ...(opts.normals ? { normals: opts.normals } : {}) });
+  const res = simulateSeason(setup, { sims, seed, ...(opts.normals ? { normals: opts.normals } : {}), ...(opts.resume ? { resume: opts.resume } : {}), ...(opts.keep ? { keep: true } : {}) });
   const order = standingsOrder(setup);
   const rank = new Array<number>(teamIds.length).fill(0);
   order.forEach((t, k) => {
@@ -838,7 +854,7 @@ export function seasonOdds(snapshot: LeagueSnapshot, model: SeasonModel, opts: {
   const notes = [`Odds from ${thousands(sims)} simulated seasons.`, ...built.notes];
   if (!res.playoffsKnown && built.playoffsKnown) notes.push("Some playoff games already played have no result we can match to the bracket, so bye and title odds are unknown.");
   notes.push(...built.warnings);
-  return {
+  const odds: SeasonOdds = {
     sims,
     seed,
     playoffTeams: N,
@@ -854,4 +870,5 @@ export function seasonOdds(snapshot: LeagueSnapshot, model: SeasonModel, opts: {
     weekly,
     notes,
   };
+  return { odds, res };
 }
