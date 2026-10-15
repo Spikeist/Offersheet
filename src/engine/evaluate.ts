@@ -482,7 +482,7 @@ import {
   type TableRow,
   type WeeklyScore,
 } from "./teamValue";
-import type { AssumedMove, LaterNumbers, OddsBefore, OpenSpot, PartnerNumbers, PickupOf, RosterChange, RosterMove, RosterMoves, SlotChange, TradeAsset, TradeDetail, TradeEvaluation, TradeEvaluationCore, TradeProposal } from "./tradeModel";
+import type { AssumedMove, AssumedRelease, LaterNumbers, NearTieRelease, OddsBefore, OpenSpot, PartnerNumbers, PickupOf, RosterChange, RosterMove, RosterMoves, SlotChange, TradeAsset, TradeDetail, TradeEvaluation, TradeEvaluationCore, TradeProposal } from "./tradeModel";
 
 /** Gains closer than this are ties or zero (float noise, not a tunable). */
 const EPS = 1e-9;
@@ -2913,10 +2913,14 @@ function pickupSpots(moves: readonly Pick<FaStep, "add" | "drop">[]): Map<string
  * - Later weeks (finding moves-before-release-unnamed): at each IR player's return where the "before" and the roster after the
  *   trade release different players (Displacement, one per returner), the release after the trade with the "before"'s
  *   ("release": `instead`, `kept` when he's still on my roster then), or, when the roster after the trade releases nobody
- *   then, the player the "before" would ("keepAtReturn", when he's still on my roster), by week.
+ *   then, the player the "before" would ("keepAtReturn", when he's still on my roster), by week. A release the near-tie rule
+ *   decided after the trade says why (`nearTie`: Checkpoint 7f, planner reply to Checkpoint 7e, answer 4: "keep the rule, but
+ *   the card must say why"; returners.Displacement.keptInstead, and whether the player released is mine as imported).
  * - Assumed with or without the trade: the League page's pickups my roster after the trade holds too, each with the drop the
  *   "before" makes for him (none named when that player is traded away), then the either-way moves, then the players dropped
- *   in both versions whom none of those names.
+ *   in both versions whom none of those names; and (Checkpoint 7f, the lead's R3) at each return where the two release the
+ *   same player from the same week, that release, by week, with why when the near-tie rule decided it after the trade
+ *   (`assumedLater`).
  */
 function myRosterMoves(
   I: TradeInternals,
@@ -3135,16 +3139,26 @@ function myRosterMoves(
   // Whether a player is still on my roster after the trade at week index `from`: the returner himself while he's mine, else
   // one it holds this week and doesn't release by then.
   const stays = (id: string, returner: string, from: number) => (id === returner ? !given.has(id) : after.has(id) && !((goes.get(id) ?? Number.POSITIVE_INFINITY) <= from));
+  // Why the near-tie rule released him after the trade (Checkpoint 7f; planner reply to Checkpoint 7e, answer 4): the player the
+  // lineup alone would have released, and whether the released one is mine as imported (the League page's lock is there).
+  const nearTieOf = (d: Displacement): { nearTie?: NearTieRelease } =>
+    d.keptInstead !== undefined ? { nearTie: { keptInstead: d.keptInstead, lockable: me.roster.includes(d.id) || me.ir.includes(d.id) } } : {};
   const later: { from: number; move: RosterMove }[] = [];
+  const alike: { from: number; release: AssumedRelease }[] = [];
   for (const returner of new Set([...relAfter.keys(), ...relBefore.keys()])) {
     const a = relAfter.get(returner);
     const b = relBefore.get(returner);
-    if (a && b && a.id === b.id && a.from === b.from) continue;
+    if (a && b && a.id === b.id && a.from === b.from) {
+      // The same release with or without the trade (the lead's R3): said after the assumed line, not as the trade's move.
+      const week = weeks[a.from];
+      if (week !== undefined) alike.push({ from: a.from, release: { week, player: a.id, returner, ...nearTieOf(a) } });
+      continue;
+    }
     if (a) {
       const week = weeks[a.from];
       if (week === undefined) continue;
       const other = b && b.id !== a.id ? { instead: b.id, kept: stays(b.id, returner, a.from) } : {};
-      later.push({ from: a.from, move: { kind: "release", week, player: a.id, returner, ...other } });
+      later.push({ from: a.from, move: { kind: "release", week, player: a.id, returner, ...other, ...nearTieOf(a) } });
     } else if (b) {
       const week = weeks[b.from];
       if (week === undefined || !stays(b.id, returner, b.from)) continue;
@@ -3165,7 +3179,8 @@ function myRosterMoves(
     assumed.push({ add: p, drop, ...ew(p) });
   }
   for (const id of asStands) if (cuts.has(id) && !after.has(id) && !given.has(id) && !dropsNamed.has(id)) assumed.push({ add: null, drop: id });
-  return { moves, assumed };
+  alike.sort((x, y) => x.from - y.from);
+  return { moves, assumed, ...(alike.length ? { assumedLater: alike.map((l) => l.release) } : {}) };
 }
 
 /** An exactly evaluated trade with what its simulation needs. */

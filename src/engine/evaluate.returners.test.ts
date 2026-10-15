@@ -347,4 +347,43 @@ describe("my roster moves at an IR return the trade changes (Checkpoint 7e, item
     // My IR RB himself, for nothing: no return to make room for, so wc1 stays.
     expect(evaluate(["ir1"], [])).toEqual({ moves: [{ kind: "keepAtReturn", week: 7, player: "wc1", returner: "ir1", returnerStays: false }], assumed: [] });
   });
+
+  it("Checkpoint 7f (the lead's R3): the same release with or without the trade is named as made either way, the lineup's without a reason", () => {
+    // A swap of starting WRs leaves my bench alone: wc1 still goes in week 7, with or without the trade.
+    expect(evaluate(["wa1"], ["wa2"])).toEqual({ moves: [], assumed: [], assumedLater: [{ week: 7, player: "wc1", returner: "ir1" }] });
+  });
+});
+
+describe("Checkpoint 7f (planner reply to Checkpoint 7e, answer 4: \"keep the rule, but the card must say why\"): a release the near-tie rule decides carries why", () => {
+  // My IR RB (9, back in week 7) needs a roster spot then. On my bench, rc1 (RB 4.1, worth 420) starts at FLEX in week 8, my
+  // RB1's bye, ahead of tx (TE 3.9, worth 3,000), who never starts from week 7 on: losing rc1 costs a fraction of a point, well
+  // within the near-tie tolerance, and tx is worth far more, so the rule releases rc1 where the lineup alone would release tx.
+  const nearTie = (spec: TestLeagueSpec) => {
+    const t = spec.teams[0] as { roster: TestPlayer[]; ir?: TestPlayer[] };
+    t.roster = t.roster.map((x) => (x.id === "ra1" ? { ...x, nflTeam: "BYE" } : x.id === "wc1" ? flat("tx", "TE", 3.9, { value: 3000 }) : x));
+    t.ir = [irRb(1)];
+    spec.byeWeek = { BYE: 8 };
+  };
+
+  it("my baseline's release names the player kept instead; a trade that leaves it names it as made either way, with the reason and the lock (he's mine)", () => {
+    const { I, me } = context(nearTie, { playoffWeightSims: 0 });
+    expect(me.base.displaced).toEqual([{ id: "rc1", from: 2, returner: "ir1", keptInstead: "tx" }]);
+    const x = evaluateExact(I, trade("2", ["wa1"], ["wa2"]), 4);
+    if ("illegal" in x) throw new Error(x.illegal);
+    expect(x.evaluation.myMoves).toEqual({ moves: [], assumed: [], assumedLater: [{ week: 7, player: "rc1", returner: "ir1", nearTie: { keptInstead: "tx", lockable: true } }] });
+    expect(movesMismatch(I, x)).toEqual([]);
+  });
+
+  it("a release the trade changes says why, never offering the lock for a player the trade brings in; the partner's lines keep their shape", () => {
+    const { I } = context(nearTie, { playoffWeightSims: 0 });
+    // Their bench RB for mine: he starts in week 8 ahead of tx as mine did, so the rule releases him (worth less than W then)
+    // and keeps tx; without the trade, rc1 would go then.
+    const x = evaluateExact(I, trade("2", ["rc1"], ["rc2"]), 4);
+    if ("illegal" in x) throw new Error(x.illegal);
+    expect(x.mine.displaced).toEqual([{ id: "rc2", from: 2, returner: "ir1", keptInstead: "tx" }]);
+    expect(x.evaluation.myMoves).toEqual({ moves: [{ kind: "release", week: 7, player: "rc2", returner: "ir1", instead: "rc1", kept: false, nearTie: { keptInstead: "tx", lockable: false } }], assumed: [] });
+    expect(movesMismatch(I, x)).toEqual([]);
+    // The partner's displacements, when it has any, are worded from rosterChangeOf: its id, week and returner only.
+    for (const d of x.evaluation.required.partner.displaced ?? []) expect(Object.keys(d).sort()).toEqual(["playerId", "returner", "week"]);
+  });
 });

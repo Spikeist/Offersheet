@@ -1093,3 +1093,12 @@ return [...document.querySelectorAll("main article")].map((a) =>
 export const READ_MY_ODDS = String.raw`
 return [...document.querySelectorAll("main p")].map(visibleText).filter((t) => t.startsWith("Your odds:") || t.startsWith("As rosters stand:"));
 `;
+
+/**
+ * Every line about a release at an IR player's return the page shows (Checkpoint 7f; planner reply to Checkpoint 7e, answer 4):
+ * "Week 7, when Alec Pierce returns from IR: …", a card's roster moves, its Plan B box's and its offers', or the League page's
+ * "Returns from IR" (list items, cleaned: the cleaning prelude before it). contracts.ts releaseLineProblems reads them.
+ */
+export const READ_RELEASE_LINES = String.raw`
+return [...document.querySelectorAll("main li")].map((li) => clean(txt(li))).filter((t) => / returns from IR: /.test(t));
+`;

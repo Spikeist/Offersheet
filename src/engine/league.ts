@@ -2984,8 +2984,12 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
     const score = scores[ti] as WeeklyScore;
     const withPickups = pickupScores[ti] as WeeklyScore;
     const final = finals[ti] as FinalLineups;
-    /** Step 5b's displacements with NFL weeks (TeamModel.displaced): the page's likely starters mirror them. */
-    const released = (f: FinalLineups): TeamDisplacement[] => f.displaced.map((d) => ({ id: d.id, week: weeks.weeks[d.from] as number, returner: d.returner }));
+    /**
+     * Step 5b's displacements with NFL weeks (TeamModel.displaced): the page's likely starters mirror them, and my roster card
+     * says what happens at each of my returns, with the player the near-tie rule kept instead (Checkpoint 7f).
+     */
+    const released = (f: FinalLineups): TeamDisplacement[] =>
+      f.displaced.map((d) => ({ id: d.id, week: weeks.weeks[d.from] as number, returner: d.returner, ...(d.keptInstead !== undefined ? { keptInstead: d.keptInstead } : {}) }));
     return {
       id: t.team.id,
       ev: lineupValues(final.ev.lv, tw, weeks),

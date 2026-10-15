@@ -155,6 +155,7 @@ import {
   READ_NAV_LINKS,
   READ_NOTICE_BANNERS,
   READ_PRIZE_LEAGUE,
+  READ_RELEASE_LINES,
   READ_SETTINGS_PRIZES,
   READ_SETTINGS_SCORING,
   READ_TRADING_LEAGUE,
@@ -199,6 +200,7 @@ import {
   PLAYOFF_WEIGHT_RANGE,
   playoffWeightRead,
   prizeGroupProblems,
+  releaseLineProblems,
   requestNamesAddress,
   rowCount,
   valueLeaks,
@@ -1061,6 +1063,32 @@ export async function leagueStep(ctx: StepContext): Promise<void> {
   await fantasyCalcDomCheck(ctx, step);
   // Checkpoint 7c: my odds carry a top-N chance exactly when the saved prizes call for one.
   await myOddsChecks(ctx, step);
+  // Checkpoint 7f: my roster card's "Returns from IR" reads as the cards word a release.
+  await releaseLineChecks(ctx, step, "your roster's returns from IR");
+}
+
+/**
+ * Every line about a release at an IR return on the page as it stands (Checkpoint 7f; planner reply to Checkpoint 7e, answer 4:
+ * "keep the rule, but the card must say why"; inPage.ts READ_RELEASE_LINES) reads as the cards word it (contracts.ts
+ * releaseLineProblems): a reason in the planner's shape, never after "instead of dropping someone else", and a release made with
+ * or without the trade saying so. A skip when the page shows none (no IR player of mine, or room for every return).
+ */
+async function releaseLineChecks(ctx: StepContext, step: string, where: string): Promise<void> {
+  const { page, report } = ctx;
+  const lines = await page.run<string[]>(cleaning(ctx) + READ_RELEASE_LINES);
+  if (!lines.length) {
+    report.skip(step, `${where}: no release at an IR return to read`);
+    return;
+  }
+  const reasons = lines.filter((l) => l.includes(" are nearly even for your lineup")).length;
+  const problems = releaseLineProblems(lines);
+  report.check(
+    step,
+    problems.length === 0,
+    `${where}: ${pl(lines.length, "release line")} at an IR return read as the cards word them (${reasons} with the near-tie rule's reason)`,
+    `${where}: a release line at an IR return doesn't read as it should`,
+    problems,
+  );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1303,6 +1331,8 @@ export async function cardStep(ctx: StepContext): Promise<void> {
   }
   // Checkpoint 7e (item 4.2): the cards' "now or after this week" lines, once they're all in, in the default sort.
   await nowOrLaterChecks(ctx, step, "finder");
+  // Checkpoint 7f: the cards' and boxes' releases at IR returns, with the near-tie rule's reason when it decided one.
+  await releaseLineChecks(ctx, step, "the trade ideas' roster moves");
 
   // The sorts: each reorders the ideas from the highest down (sortInversions), and none starts a new search. Checkpoint 7c
   // (planner reply to Checkpoint 7b, §7): in every sort the "Helps both" tag shows on exactly the cards that help both teams

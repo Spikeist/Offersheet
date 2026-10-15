@@ -4,8 +4,9 @@
  * odds and my remaining schedule with each week's risk (§8), the team table with needs and trade chips,
  * the positional strength heatmap, best trade partners, "Streaming picks this week" (§7 streaming
  * positions), every roster (headed by what its team streams and how many free-agent pickups would help it, which
- * its body lists, §7; above them, how free agents are shared out, one team each: Phase 4b) with rest-of-season points
- * and a week-by-week breakdown (§6 step 7), the best free agents, and
+ * its body lists, §7, and on mine after them whom the odds assume I release at each IR return, with why when the
+ * near-tie rule decided it: Checkpoint 7f; above them, how free agents are shared out, one team each: Phase 4b) with
+ * rest-of-season points and a week-by-week breakdown (§6 step 7), the best free agents, and
  * "how these numbers work". Every word and number comes from buildLeagueView();
  * this file only arranges it, mobile-first (375 px). Every set of values carries its own
  * "Values: FantasyCalc" link (§2.9): the header, the team table, the rosters and the free agents (the
@@ -22,7 +23,7 @@
  */
 import Link from "next/link";
 import type { Ref } from "react";
-import { FREE_AGENT_PICKUPS_LABEL, WAIVER_ORDER_LABEL, type FreeAgentPickups, type LeagueView as LeagueViewModel } from "@/lib/leagueView";
+import { FREE_AGENT_PICKUPS_LABEL, RETURNS_FROM_IR_LABEL, WAIVER_ORDER_LABEL, type FreeAgentPickups, type LeagueView as LeagueViewModel } from "@/lib/leagueView";
 import { NOTICES_TITLE } from "@/lib/notices";
 import type { RefreshControl } from "../import/ReportView";
 import { Badge, Callout, Card, CardTitle, FOCUS_TARGET, Facts, cx } from "../ui";
@@ -188,6 +189,7 @@ function Rosters({ view }: ViewProps) {
           </summary>
           <div className="border-t border-line px-4 pb-3 sm:px-5">
             {r.pickups ? <PickupsList pickups={r.pickups} teamName={r.name} /> : null}
+            {r.returns ? <ReturnsList lines={r.returns} teamName={r.name} /> : null}
             <PlayerTable players={r.players} caption={`${r.name}: players with rest-of-season points`} showLineupCost lineupCostTitle={view.lineupCostTitle} split={view.playoffsLeft} />
           </div>
         </details>
@@ -229,6 +231,29 @@ function PickupsList({ pickups, teamName }: { pickups: FreeAgentPickups; teamNam
           </li>
         ))}
       </ol>
+    </div>
+  );
+}
+
+/**
+ * My IR players' returns as the odds assume them (Checkpoint 7f; planner reply to Checkpoint 7e, answer 4; RosterCard.returns),
+ * after the pickups on my roster card, one line each in a trade card's words: whom I release, and why when the near-tie rule
+ * decided it. Its "Lock … to keep him instead." points at the lock on this same card.
+ */
+function ReturnsList({ lines, teamName }: { lines: readonly string[]; teamName: string }) {
+  return (
+    <div className="mt-3">
+      <h3 className="text-sm font-extrabold">
+        {RETURNS_FROM_IR_LABEL}
+        <span className="sr-only">{` for ${teamName}`}</span>
+      </h3>
+      <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm leading-snug">
+        {lines.map((line) => (
+          <li key={line} className="break-words">
+            {line}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

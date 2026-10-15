@@ -1040,9 +1040,9 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
     expect(how()).not.toContain("Offer first");
   });
 
-  it("explains the roster moves box on both pages (Checkpoint 7e; planner reply to Checkpoint 7d, item 2.2)", () => {
+  it("explains the roster moves box on both pages (Checkpoint 7e; planner reply to Checkpoint 7d, item 2.2), and since Checkpoint 7f why a release can name the less valuable of two nearly even players, and the releases made either way (planner reply to Checkpoint 7e, answer 4)", () => {
     const box =
-      "Roster moves these numbers assume lists, in order, each move to your roster that the card's numbers count on, with its reason and its week: a player you'd drop to stay within your league's limits or to make room, a free agent for a roster spot the trade opens, a waiver move the trade makes worthwhile, and who you'd release when a player comes back from IR. Moves you'd make with or without the trade, like the pickups the League page suggests, are named on one line at the end and aren't counted for the trade;";
+      "Roster moves these numbers assume lists, in order, each move to your roster that the card's numbers count on, with its reason and its week: a player you'd drop to stay within your league's limits or to make room, a free agent for a roster spot the trade opens, a waiver move the trade makes worthwhile, and who you'd release when a player comes back from IR (when two of your players are nearly even for your lineup from then on, the one with less trade value goes, and the line says why). Moves you'd make with or without the trade, like the pickups the League page suggests or such a release, are named at the end and aren't counted for the trade;";
     expect(how()).toContain(`${box} when one isn't on the League page's list, the idea's odds start from your odds with it, and the card says so. The other team's moves follow yours.`);
     expect(how(undefined, "analyzer")).toContain(`${box} when one isn't on the League page's list, your odds before this trade count it too. The other team's moves follow yours.`);
     expect(rosterMovesWords("finder")).not.toMatch(/either-way|V\*|baseline/);

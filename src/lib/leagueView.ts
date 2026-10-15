@@ -91,6 +91,12 @@
  * costs, trade chips and partners are all measured from the team after these pickups, and the explainer says so, in the
  * same lineups.
  *
+ * Returns from IR (Checkpoint 7f; planner reply to Checkpoint 7e, answer 4: "keep the rule, but the card must say why"; the
+ * lead's R2): my roster card, after its pickups, says whom the odds assume I release at each of my IR players' returns
+ * (RosterCard.returns: TeamModel.displacedWithPickups), in a trade card's words (tradeView.ts releaseLine), with why when
+ * the near-tie rule decided it ("He and Marvin Harrison Jr. are nearly even for your lineup, and Harrison Jr. has more trade
+ * value. Lock Pierce to keep him instead."): the lock is on that same card. Until then no page said who goes.
+ *
  * Trade chips (§7; planner reply to Checkpoint 2, answer 2) replaced Phase 2's surplus chips: a chip
  * reads "C. McCaffrey: worth +33 to Team 2 · costs you 6.1 pts/wk" (his gap: what Team 2 would gain minus
  * what his team would lose, in lineup points; then what his own team loses per week: planner reply to
@@ -206,8 +212,9 @@ import { fmtNum, fmtSigned, fmtWhole, formatShortDateTime, plural, recordText } 
 import { allocationBasis, inactiveWindowText, waiverOrderText } from "./importReport";
 import { INJURY_LABEL, PLATFORM_LABEL, posLabel } from "./labels";
 import type { MyTeamSource } from "./myTeam";
+import { shortName } from "./names";
 import { buildDataNotices } from "./notices";
-import { HARDER_TO_GET_TAG, finderHref, harderToGetWho, premiumReasons, titleOddsText, topChance, topPlacesOf } from "./tradeView";
+import { HARDER_TO_GET_TAG, finderHref, harderToGetWho, premiumReasons, releaseLine, titleOddsText, topChance, topPlacesOf } from "./tradeView";
 
 /** The "Harder to get" tag's words and reasons are shared with the trade cards (src/lib/tradeView.ts). */
 export { HARDER_TO_GET_TAG, premiumReasons };
@@ -530,6 +537,9 @@ export interface ReturnWeekOption {
 /** How a team's free-agent pickups are introduced on its roster (CLAUDE.md §14 item 3, Phase 4). */
 export const FREE_AGENT_PICKUPS_LABEL = "Free-agent pickups that would help";
 
+/** The heading of my IR players' returns on my roster card (RosterCard.returns; Checkpoint 7f). */
+export const RETURNS_FROM_IR_LABEL = "Returns from IR";
+
 /** One free-agent pickup of a team (TeamModel.faMoves), for its roster. */
 export interface FreeAgentPickup {
   /** "add Floopy Freeman (RB, CAR), drop Tobias Thimble", or "add Floopy Freeman (RB, CAR) into an open spot". */
@@ -565,6 +575,17 @@ export interface RosterCard {
   streams: string | null;
   /** The free-agent pickups that would help the team (§7 V*), or null when none does. */
   pickups: FreeAgentPickups | null;
+  /**
+   * Checkpoint 7f (planner reply to Checkpoint 7e, answer 4: "keep the rule, but the card must say why"; the lead's R2), my
+   * roster card only, under RETURNS_FROM_IR_LABEL after the pickups: what the odds assume at each of my IR players' returns
+   * (TeamModel.displacedWithPickups, the team after its pickups), one line each in a trade card's words (tradeView.ts
+   * releaseLine): "Week 7, when Alec Pierce returns from IR: release him instead of dropping someone else.", and when the
+   * near-tie rule decided it, why ("Week 7, when Alec Pierce returns from IR: release him. He and Marvin Harrison Jr. are
+   * nearly even for your lineup, and Harrison Jr. has more trade value. Lock Pierce to keep him instead.", the lock offered
+   * for a player on my active roster or IR, whose lock is on this card). Null for every other team, and when nobody is
+   * released (or a model built before Phase 7b, which doesn't say).
+   */
+  returns: string[] | null;
   /**
    * Phase 7a (planner reply to Checkpoint 4c, A4; the file header): "Inactive: no transactions in the last 5 weeks, so no
    * free-agent pickups are assumed." for a team the engine treats as inactive; null for every other team.
@@ -867,25 +888,8 @@ function weekSpan(weeks: readonly number[]): string {
   return first === last ? `week ${first}` : `weeks ${first}–${last}`;
 }
 
-const SUFFIX = /^(jr\.?|sr\.?|ii|iii|iv|v)$/i;
-/** Words that belong to the last name ("St. Brown", "Van Noy", "De La Cruz"). */
-const PARTICLE = /^(st\.?|van|von|vander|der|den|de|da|di|du|del|della|la|le)$/i;
-
-/**
- * "Justin Jefferson" → "J. Jefferson": first initial and last name, suffixes and middle names
- * dropped ("Travis Etienne Jr." → "T. Etienne"), name particles kept ("Amon-Ra St. Brown" →
- * "A. St. Brown"). Team defenses stay as they are.
- */
-export function shortName(name: string, pos?: Pos): string {
-  const trimmed = name.trim();
-  if (pos === "DEF") return trimmed;
-  const parts = trimmed.split(/\s+/);
-  while (parts.length > 2 && SUFFIX.test(parts[parts.length - 1] ?? "")) parts.pop();
-  if (parts.length < 2) return trimmed;
-  let start = parts.length - 1;
-  while (start > 1 && PARTICLE.test(parts[start - 1] ?? "")) start--;
-  return `${(parts[0] ?? "").charAt(0)}. ${parts.slice(start).join(" ")}`;
-}
+/** "Justin Jefferson" → "J. Jefferson" (src/lib/names.ts since Checkpoint 7f, beside surname). */
+export { shortName };
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 
@@ -1326,6 +1330,20 @@ function freeAgentPickups(snapshot: LeagueSnapshot, team: TeamModel | undefined,
     summary: `${items.length}, ${lineupPts(total)}`,
     text: `${FREE_AGENT_PICKUPS_LABEL}: ${items.map((i) => `${i.move}: ${i.gain}`).join("; ")}`,
   };
+}
+
+/**
+ * My IR players' returns as the odds assume them (RosterCard.returns; Checkpoint 7f, the lead's R2): each release of my team
+ * after its pickups (TeamModel.displacedWithPickups), by week, in a trade card's words (tradeView.ts releaseLine), why when
+ * the near-tie rule decided it (TeamDisplacement.keptInstead), "Lock … to keep him instead." for a player on my active
+ * roster or IR as imported (where this card's lock is; not a free agent my pickups add). Null when nobody is released.
+ */
+function returnsFromIr(snapshot: LeagueSnapshot, team: TeamModel | undefined, roster: Team): string[] | null {
+  const mine = new Set([...roster.roster, ...roster.ir]);
+  const lines = (team?.displacedWithPickups ?? [])
+    .filter((d) => d && typeof d.id === "string" && typeof d.returner === "string")
+    .map((d) => releaseLine({ week: d.week, player: d.id, returner: d.returner, ...(typeof d.keptInstead === "string" ? { nearTie: { keptInstead: d.keptInstead, lockable: mine.has(d.id) } } : {}) }, snapshot));
+  return lines.length ? lines : null;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2925,6 +2943,7 @@ export function buildLeagueView(input: LeagueViewInput): LeagueView {
       summary,
       streams: model.weeks.length ? streamsText(model, id, snapshot.platform) : null,
       pickups: freeAgentPickups(snapshot, t, scenarioJudged, playoffWeighted),
+      returns: id === myTeamId ? returnsFromIr(snapshot, t, team) : null,
       inactive: inactive.has(id) ? inactiveText : null,
       players: [...active, ...ir, ...taxi],
     };

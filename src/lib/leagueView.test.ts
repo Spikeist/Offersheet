@@ -27,6 +27,7 @@ import {
   FREE_AGENT_PICKUPS_LABEL,
   HARDER_TO_GET_TAG,
   ODDS_BASIS_TEXT,
+  RETURNS_FROM_IR_LABEL,
   RISKY_BYES,
   RISKY_WIN_CHANCE,
   SEASON_OVER_PARTNERS_TEXT,
@@ -1983,6 +1984,62 @@ describe("buildLeagueView: each team's free-agent pickups (§7 V*, TeamModel.faM
     expect(withMoves("1", [move("903", "999", 3, null)])?.items[0]?.move).toBe(`add ${nameOf("903")} (WR), drop Unknown player (999)`);
     expect(withMoves("3", [move("LV", null, 3, null)])?.items[0]?.move).toBe("add Unknown player (LV) into an open spot");
     expect(withMoves("3", [move("904", null, 3, null)])?.items[0]?.move).toBe(`add ${nameOf("904")} (K, LV) into an open spot`);
+  });
+});
+
+describe("buildLeagueView: my IR players' returns (Checkpoint 7f; planner reply to Checkpoint 7e, answer 4, the lead's R2; RosterCard.returns)", () => {
+  /** The fixture with these releases after each team's pickups (TeamModel.displacedWithPickups), for team 1 (mine) unless told. */
+  const withReleases = (released: NonNullable<TeamModel["displacedWithPickups"]>, teamId = "1", opts: Parameters<typeof leagueFixture>[0] = {}) => {
+    const f = leagueFixture(opts);
+    f.model.teams = f.model.teams.map((t) => (t.id === teamId ? { ...t, displacedWithPickups: released } : t));
+    return f;
+  };
+  const returns = (f: LeagueFixture, teamId = "1") => of(f).rosters.find((r) => r.teamId === teamId)?.returns;
+  const when = `Week 15, when ${nameOf("107")} returns from IR`;
+
+  it("says whom the odds release at each of my returns, in a trade card's words, and why when the near-tie rule decided it", () => {
+    expect(RETURNS_FROM_IR_LABEL).toBe("Returns from IR");
+    // The lineup decided: the card's words, the returner himself "instead of dropping someone else".
+    expect(returns(withReleases([{ id: "107", week: 15, returner: "107" }]))).toEqual([`${when}: release him instead of dropping someone else.`]);
+    expect(returns(withReleases([{ id: "108", week: 15, returner: "107" }]))).toEqual([`${when}: release ${nameOf("108")} (TE).`]);
+    // The rule decided: the reason, and the lock for my player (it's on this card).
+    expect(returns(withReleases([{ id: "107", week: 15, returner: "107", keptInstead: "106" }]))).toEqual([
+      `${when}: release him. He and ${nameOf("106")} are nearly even for your lineup, and Spoons has more trade value. Lock Fiddlesticks to keep him instead.`,
+    ]);
+    expect(returns(withReleases([{ id: "108", week: 15, returner: "107", keptInstead: "106" }]))).toEqual([
+      `${when}: release ${nameOf("108")} (TE). He and ${nameOf("106")} are nearly even for your lineup, and Spoons has more trade value. Lock Thimble to keep him instead.`,
+    ]);
+    // A free agent my pickups add (not on my roster as imported): no lock to offer.
+    expect(returns(withReleases([{ id: "901", week: 15, returner: "107", keptInstead: "106" }]))).toEqual([
+      `${when}: release ${nameOf("901")} (RB). He and ${nameOf("106")} are nearly even for your lineup, and Spoons has more trade value.`,
+    ]);
+    // Two of my players on IR, two returns: one line each, in the engine's order (by week).
+    const two = withReleases([
+      { id: "108", week: 15, returner: "107" },
+      { id: "105", week: 16, returner: "103", keptInstead: "106" },
+    ]);
+    two.snapshot = { ...two.snapshot, teams: two.snapshot.teams.map((t) => (t.id === "1" ? { ...t, roster: t.roster.filter((id) => id !== "103"), ir: [...t.ir, "103"] } : t)) };
+    expect(returns(two)).toEqual([
+      `${when}: release ${nameOf("108")} (TE).`,
+      `Week 16, when ${nameOf("103")} returns from IR: release ${nameOf("105")} (WR). He and ${nameOf("106")} are nearly even for your lineup, and Spoons has more trade value. Lock Oddfellow to keep him instead.`,
+    ]);
+  });
+
+  it("only on my roster card, from the odds' own roster (after the pickups); none without a release, without a team of mine, or in a model that doesn't say", () => {
+    // Another team's release: its card says nothing (the lock and the advice are mine).
+    const theirs = withReleases([{ id: "206", week: 15, returner: "206", keptInstead: "205" }], "2");
+    expect(returns(theirs, "2")).toBeNull();
+    expect(of(theirs).rosters.every((r) => r.returns === null)).toBe(true);
+    // As rosters stand (TeamModel.displaced) isn't what the odds count: no line from it alone.
+    const asStands = leagueFixture();
+    asStands.model.teams = asStands.model.teams.map((t) => (t.id === "1" ? { ...t, displaced: [{ id: "108", week: 15, returner: "107" }] } : t));
+    expect(returns(asStands)).toBeNull();
+    // Nobody released, or a model built before Phase 7b (no field).
+    expect(returns(withReleases([]))).toBeNull();
+    expect(returns(leagueFixture())).toBeNull();
+    // No team of mine: no card is mine.
+    const noTeam = withReleases([{ id: "107", week: 15, returner: "107" }], "1", { myTeamId: null });
+    expect(of(noTeam).rosters.every((r) => r.returns === null)).toBe(true);
   });
 });
 

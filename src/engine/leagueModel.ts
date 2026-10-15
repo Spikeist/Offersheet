@@ -637,6 +637,12 @@ export interface TeamDisplacement {
   week: number;
   /** The returner who takes the spot. */
   returner: string;
+  /**
+   * Checkpoint 7f (planner reply to Checkpoint 7e, answer 4): the player the lineup alone would have released, kept for his
+   * trade value, when the near-tie rule decided this release (returners.Displacement.keptInstead); my roster card says so
+   * (leagueView.ts RosterCard.returns). Absent: the lineup decided it, or a model built before Checkpoint 7f.
+   */
+  keptInstead?: string;
 }
 
 /** A rostered player's star premium for his owner (TeamModel.premiums). */
