@@ -937,6 +937,16 @@ export const WAIVER_SHOW_ALL = String.raw`[...document.querySelectorAll("#waiver
 export const WAIVER_REST = String.raw`document.querySelector("#waivers button[data-waiver-more]")`;
 
 /**
+ * The waiver section's every word, hover texts and labels included, the league's names replaced (after a cleaning prelude:
+ * cleanCall). Checkpoint 7f: read with the fold open, so the rows that don't help (their "Why no gain" lines among them),
+ * which the League step's own scan of the page no longer reaches while they're folded, are read for trade values too.
+ */
+export const READ_WAIVERS_TEXT = String.raw`
+const s = document.getElementById("waivers");
+return s ? clean(pageText(s, { all: true, attributes: true })) : "";
+`;
+
+/**
  * Before the Settings page opens (a client-side navigation keeps the document): records every value its "Playoff weeks
  * count:" line takes, with when (window.__pw), so a "Working it out…" too brief to poll is still seen (planner reply to
  * Checkpoint 7a, §6.1).

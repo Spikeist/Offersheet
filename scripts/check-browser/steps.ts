@@ -158,6 +158,7 @@ import {
   READ_SETTINGS_SCORING,
   READ_TRADING_LEAGUE,
   READ_WAIVERS,
+  READ_WAIVERS_TEXT,
   sanitizeCall,
   STOP_PLAYOFF_WEIGHT,
   typePrize,
@@ -1766,7 +1767,9 @@ function foldRead(r: WaiversRead): WaiverFoldRead {
  * that helps reads as one move with its main number above 0 (Helps you on a rated list, the lineup gain otherwise:
  * waiverMoveProblems, waiverSplitProblems), or a line says none does; then the fold (waiverFoldProblems): tapped, its rows
  * appear right after it, as many as it says, each one move that doesn't help, and keyboard focus stays on its button; tapped
- * again, they go and focus stays. A list with nothing folded: a skip line.
+ * again, they go and focus stays. A list with nothing folded: a skip line. ⚠️ Ours: while it's open, the section is read for
+ * trade values (pageValueLeaks, the League step's own rule), since the League step's scan of the page no longer reaches the
+ * rows that don't help (their "Why no gain" lines among them) while they're folded.
  */
 async function waiverListChecks(ctx: StepContext, step: string, r: WaiversRead, label: string): Promise<void> {
   const { page, report } = ctx;
@@ -1794,6 +1797,7 @@ async function waiverListChecks(ctx: StepContext, step: string, r: WaiversRead, 
   await page.click(WAIVER_REST, `“${closed.text}”`);
   const opened = await page.waitFor<boolean>(waiverFoldOpen(true), 5_000, "the fold to open").catch(() => false);
   const open = await page.run<WaiversRead>(READ_WAIVERS);
+  const leaks = opened ? pageValueLeaks(await page.run<string>(cleaning(ctx) + READ_WAIVERS_TEXT)) : [];
   await page.click(WAIVER_REST, `“${open.rest?.text ?? closed.text}”`);
   const shut = await page.waitFor<boolean>(waiverFoldOpen(false), 5_000, "the fold to close").catch(() => false);
   const after = await page.run<WaiversRead>(READ_WAIVERS);
@@ -1816,6 +1820,14 @@ async function waiverListChecks(ctx: StepContext, step: string, r: WaiversRead, 
     `${pl(problems.length, "problem")} with ${name}'s fold`,
     problems,
   );
+  if (opened)
+    report.check(
+      step,
+      leaks.length === 0,
+      `no trade-market number or value comparison in ${name} with its fold open (hover texts included)`,
+      `${pl(leaks.length, "trade value")} in ${name}'s folded rows: Offer Sheet never displays FantasyCalc's values (their condition 4)`,
+      leaks,
+    );
 }
 
 /** Why the section didn't count as revealed, in words. */
