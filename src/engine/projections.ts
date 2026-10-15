@@ -533,11 +533,21 @@ export function agreementAside(leftOut: readonly Pos[] | undefined): string {
 /**
  * The averaging test's gap (meanRelDiff) as a text states it: a whole percent, or one decimal when that whole percent is
  * the bar's ("10.0%", "9.9%"), so a gap beside the bar never reads "differ by 10%, more than the 10% we allow" (Checkpoint
- * 7f; ⚠️ the lead's call: Oct 9's 10.03% read just that).
+ * 7f; ⚠️ the lead's call: Oct 9's 10.03% read just that). Two decimals when the one decimal is the bar's too and the gap
+ * isn't the bar itself ("10.03%", "9.96%"; review of Checkpoint 7f, AVERAGING-1: a gap from 10.00% to 10.05% still read
+ * "10.0%, more than the 10% we allow"). ⚠️ Ours: within 0.005 points of the bar, where two decimals would print the bar too,
+ * the nearest hundredth on the verdict's side ("10.01%" over it, "9.99%" under it). The bar itself reads "10.0%".
  */
 export function agreementPercent(meanRelDiff: number, bar: number = config.projections.espnSleeperAgreement): string {
-  const whole = Math.round(meanRelDiff * 100);
-  return whole === Math.round(bar * 100) ? `${(meanRelDiff * 100).toFixed(1)}%` : `${whole}%`;
+  const gap = meanRelDiff * 100;
+  const at = bar * 100;
+  const whole = Math.round(gap);
+  if (whole !== Math.round(at)) return `${whole}%`;
+  const one = gap.toFixed(1);
+  if (one !== at.toFixed(1) || meanRelDiff === bar) return `${one}%`;
+  const two = gap.toFixed(2);
+  if (two !== at.toFixed(2)) return `${two}%`;
+  return `${(at + (meanRelDiff > bar ? 0.01 : -0.01)).toFixed(2)}%`;
 }
 
 /** Players by base-rate source (ProjectionSummary.sources). */

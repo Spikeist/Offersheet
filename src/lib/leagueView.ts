@@ -2336,7 +2336,11 @@ interface ProjectionSource {
  * Where the base rates actually came from (§6 step 1; model.projection.sources counts players by
  * source), rather than assuming Sleeper: ESPN's own projections carry an ESPN league when Sleeper's
  * didn't load, and Sleeper's season projections or points so far are last resorts. The ESPN/Sleeper gap is
- * worded as the engine words it (projections.ts agreementPercent and agreementAside: "9.9%", kickers and D/STs aside).
+ * worded as the engine words it (projections.ts agreementPercent and agreementAside: "9.9%", kickers and D/STs aside). Since
+ * the review of Checkpoint 7f (the averaging reviewer's note: "kickers and D/STs aside" next to "averaged" and "so we don't
+ * average them in" read as if they weren't averaged, which they are once the test passes) the positions left aside go in
+ * parentheses with the players compared, as the Import Report words it ("115 rostered players, kickers and D/STs aside"),
+ * "though theirs are averaged too" when averaged, and "so we don't average ESPN's in" when not.
  */
 function projectionSource(snapshot: LeagueSnapshot, model: LeagueModel): ProjectionSource {
   const s = model.projection.sources;
@@ -2346,17 +2350,20 @@ function projectionSource(snapshot: LeagueSnapshot, model: LeagueModel): Project
   const scored = "scored with your league's rules";
   const espnFor = espnAlone ? `ESPN's own for ${plural(espnAlone, "player")} Sleeper doesn't project` : "";
   const aside = agreementAside(agreement?.leftOut);
+  // The players compared, with the positions the test left aside (only when it left some: nothing to say otherwise).
+  const compared = agreement && aside ? `${plural(agreement.players, "rostered player")}${aside}` : "";
   if (model.projection.espnAveraged && s["espn+sleeper"] > 0) {
+    const within = `they agree within ${agreementPercent(agreement?.meanRelDiff ?? 0)} on average this week${compared ? ` over ${compared}, though theirs are averaged too` : ""}`;
     return {
       label: "ESPN and Sleeper, averaged",
-      from: `Sleeper's projection, ${scored}, averaged with ESPN's own projection (they agree within ${agreementPercent(agreement?.meanRelDiff ?? 0)} on average this week${aside})${espnFor ? `; ${espnFor}` : ""}`,
+      from: `Sleeper's projection, ${scored}, averaged with ESPN's own projection (${within})${espnFor ? `; ${espnFor}` : ""}`,
       sleeperWeekly: true,
     };
   }
   if (sleeper > 0 && sleeper >= espnAlone) {
     let from = `Sleeper's projection, ${scored}${espnFor ? ` (${espnFor})` : ""}`;
     if (snapshot.platform === "espn" && agreement) {
-      from += `. ESPN's own projections differ from Sleeper's by ${agreementPercent(agreement.meanRelDiff)} on average this week${aside}, more than the ${pct(config.projections.espnSleeperAgreement)} we allow, so we don't average them in`;
+      from += `. ESPN's own projections differ from Sleeper's by ${agreementPercent(agreement.meanRelDiff)} on average this week${compared ? ` (${compared})` : ""}, more than the ${pct(config.projections.espnSleeperAgreement)} we allow, so we don't average ESPN's in`;
     }
     return { label: "Sleeper", from, sleeperWeekly: true };
   }
