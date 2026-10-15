@@ -635,6 +635,26 @@ describe("LeagueView rosters", () => {
     expect(html).toContain(`<abbr title="Rest-of-season lineup points his team would lose without him, with playoff weeks counted ${w}×">Lineup cost</abbr>`);
   });
 
+  it("Checkpoint 7f (planner reply to Checkpoint 7e, answer 4; the lead's R2): lists whom the odds release at each of my IR returns after my pickups, with why when the near-tie rule decided it, on my roster card only", () => {
+    const f = leagueFixture();
+    f.model.teams = f.model.teams.map((t) =>
+      t.id === "1" ? { ...t, displacedWithPickups: [{ id: "108", week: 15, returner: "107", keptInstead: "106" }] } : t.id === "2" ? { ...t, displacedWithPickups: [{ id: "205", week: 16, returner: "206" }] } : t,
+    );
+    const view = buildLeagueView({ ...f, myTeamSource: "platform", timeZone: "America/Chicago", now: NOW });
+    const page = renderToStaticMarkup(createElement(LeagueView, { view, refresh }));
+    const mine = between(page, '<span class="block font-extrabold break-words">Moonbeam Mudcats', "</details>");
+    // After the pickups, before the players, under a heading that names the team for screen readers.
+    expect(mine).toContain(
+      '<h3 class="text-sm font-extrabold">Returns from IR<span class="sr-only"> for Moonbeam Mudcats</span></h3><ul class="mt-1 list-disc space-y-0.5 pl-5 text-sm leading-snug"><li class="break-words">Week 15, when Humbert Fiddlesticks returns from IR: release Tobias Thimble (TE). He and Wiggleton Spoons are nearly even for your lineup, and Spoons has more trade value. Lock Thimble to keep him instead.</li></ul>',
+    );
+    expect(mine.indexOf("Free-agent pickups that would help<span")).toBeLessThan(mine.indexOf("Returns from IR"));
+    expect(mine.indexOf("Returns from IR")).toBeLessThan(mine.indexOf("<table"));
+    // Another team's release: nothing on its card (the default fixture has none at all).
+    expect(between(page, '<span class="block font-extrabold break-words">Gravel Gophers', "</details>")).not.toContain("Returns from IR");
+    expect(page.match(/Returns from IR/g)).toHaveLength(1);
+    expect(html).not.toContain("Returns from IR");
+  });
+
   it("makes each player's name cell the row header, so moving down a column says whose number it is", () => {
     const rows = [...html.matchAll(/<tr class="border-b border-line"><(t[hd])[^>]*>/g)];
     // Every player row in every roster and free-agent table: 9 + 7 + 7 + 6 rostered, 5 free agents (2 RBs, a WR, 2 D/STs).

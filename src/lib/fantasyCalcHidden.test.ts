@@ -269,6 +269,20 @@ describe("no trade value shows on the trade pages (planner reply to Checkpoint 7
     }
   });
 
+  it("shows none in a release's reason (Checkpoint 7f; planner reply to Checkpoint 7e, answer 4): which of two nearly even players has more trade value, in words, on a card and its Plan B box", () => {
+    const nearTie = { keptInstead: "105", lockable: true };
+    const myMoves = { moves: [{ kind: "release" as const, week: 15, player: "108", returner: "107", instead: "106", kept: true, nearTie }], assumed: [], assumedLater: [{ week: 16, player: "106", returner: "107", nearTie }] };
+    const e = worded(trade({ key: "release", planB: planBFixture({ partnerId: "2", give: ["105"], get: ["203"] }), detail: { terms: acceptanceTerms({ value: 0.5 }) } }), snapshot, f);
+    const withReleases: TradeEvaluation = { ...e, myMoves, ...(e.planB ? { planB: { ...e.planB, myMoves } } : {}) };
+    const card = buildTradeCard(withReleases, { snapshot, fantasyCalc: FC, baseline: { pPlayoffs: 0.62, pTitle: 0.09 } });
+    const html = renderToStaticMarkup(createElement(TradeCard, { card, rank: 1, feedback: NONE, onFeedback: saved, showAnalyzerLink: true }));
+    expectHidden("a card with a release's reason", html);
+    for (const s of stringsOf(card)) expectHidden("a card with a release's reason (its view)", s);
+    // The reason is there, in words, on the card's moves and its box's.
+    expect(card.required.join(" ")).toContain("are nearly even for your lineup, and Oddfellow has more trade value.");
+    expect(card.planB?.moves.join(" ")).toContain("with or without this trade. He and Glimmer Oddfellow are nearly even for your lineup");
+  });
+
   it("shows none in “How to offer it” (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1): each offer's players, its Helps you and chance, its roster moves and its own message, and as a version the feedback asks about", () => {
     for (const [trades, snap] of [
       [redraft, snapshot],
@@ -456,6 +470,17 @@ describe("no trade value shows on the League page (planner reply to Checkpoint 7
       // The credit stays (§2.9).
       expect(html).toContain("Values: FantasyCalc");
     }
+  });
+
+  it("shows none in my roster card's returns from IR (Checkpoint 7f; planner reply to Checkpoint 7e, answer 4): which player has more trade value, in words", () => {
+    const f = distinctive((x) => {
+      x.model.teams = x.model.teams.map((t) => (t.id === "1" ? { ...t, displacedWithPickups: [{ id: "108", week: 15, returner: "107", keptInstead: "106" }] } : t));
+    });
+    const { view, html } = page(f);
+    expectHidden("my roster card's returns from IR", html);
+    for (const s of stringsOf(view)) expectHidden("the League page's view, returns from IR", s);
+    expect(view.rosters.find((r) => r.isMine)?.returns?.[0]).toContain("are nearly even for your lineup, and Spoons has more trade value.");
+    expect(html).toContain("Returns from IR");
   });
 });
 

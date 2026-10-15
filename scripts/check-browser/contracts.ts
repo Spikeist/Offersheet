@@ -691,6 +691,33 @@ export function nowOrLaterProblems(cards: readonly NowOrLaterRead[], want: { min
   return out;
 }
 
+/**
+ * A release at an IR return with the near-tie rule's reason after it (Checkpoint 7f; planner reply to Checkpoint 7e, answer 4:
+ * "Week 7, when Alec Pierce returns from IR: release him. He and Marvin Harrison Jr. are nearly even for your lineup, and
+ * Harrison Jr. has more trade value. Lock Pierce to keep him instead."; tradeView.ts releaseReason).
+ */
+export const RELEASE_REASON = /^(?:Week \d+, )?[Ww]hen .+ returns from IR: .+\. (?:He|.+) and .+ are nearly even for your lineup, and .+ has more trade value\.(?: Lock .+ to keep (?:him|it) instead\.)?$/;
+
+/** A release made with or without the trade (the lead's R3: "Week 7, when Alec Pierce returns from IR: release him, with or without this trade."), a reason after it or not. */
+export const RELEASE_EITHER_WAY = /^(?:Week \d+, )?[Ww]hen .+ returns from IR: release .+, with or without this trade\.(?: .+)?$/;
+
+/**
+ * What's wrong with the page's lines about a release at an IR return (Checkpoint 7f; inPage.ts READ_RELEASE_LINES: a card's
+ * roster moves, a Plan B box's and an offer's, the League page's "Returns from IR"): a line with the near-tie rule's reason reads
+ * as RELEASE_REASON and never keeps "instead of dropping someone else" (the planner's "release him."); a release made with or
+ * without the trade reads as RELEASE_EITHER_WAY. Empty when every line is right.
+ */
+export function releaseLineProblems(lines: readonly string[]): string[] {
+  const out: string[] = [];
+  for (const line of lines) {
+    const reason = line.includes(" are nearly even for your lineup");
+    if (reason && !RELEASE_REASON.test(line)) out.push(`a release's reason reads “${line}”`);
+    if (reason && line.includes("instead of dropping someone else")) out.push(`a release with a reason still says “instead of dropping someone else”: “${line}”`);
+    if (line.includes("with or without this trade") && !RELEASE_EITHER_WAY.test(line)) out.push(`a release made either way reads “${line}”`);
+  }
+  return out;
+}
+
 /** One offer of a card's "How to offer it" as the page prints it (Checkpoint 7e; inPage.ts offersData). */
 export interface OfferRead {
   /** Its label: "Open with", "Then", "The suggested trade" ("The trade you built" in the Analyzer), "Last offer". */

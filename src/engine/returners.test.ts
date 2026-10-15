@@ -8,11 +8,25 @@ import { config } from "./config";
 import { prepareSlots } from "./lineup";
 import type { InjuryStatus, Pos, SlotDef } from "./model";
 import { instanceIndex, slotInstances } from "./needs";
-import { rosterKey, type StreamSpec } from "./optimizer";
+import { fillCount, rosterKey, type StreamSpec } from "./optimizer";
 import { weeklySd } from "./projections";
 import { activeSpots, finalLineups, irAfterTrade, irEligibleStatuses, returnerSpec, tradeActiveSpots, valueShareFrom, type ReturnerSetup } from "./returners";
 import { mulberry32 } from "./rng";
-import { lowestKeepValue, maskedRow, scenarioValues, scenarioValuesMasked, solveEvWeeks, solveEvWeeksMasked, streamRow, teamEval, type ScenarioCells, type ScenarioValues, type TableRow } from "./teamValue";
+import {
+  evRemovalCosts,
+  lowestKeepValue,
+  maskedRow,
+  scenarioRemovalCosts,
+  scenarioValues,
+  scenarioValuesMasked,
+  solveEvWeeks,
+  solveEvWeeksMasked,
+  streamRow,
+  teamEval,
+  type ScenarioCells,
+  type ScenarioValues,
+  type TableRow,
+} from "./teamValue";
 import { TEST_LINEUP } from "./testLeague";
 
 const slot = (name: string, count: number, eligible: Pos[]): SlotDef => ({ slot: name, count, eligible });
@@ -384,7 +398,8 @@ describe("finalLineups: the roster spot a returner needs from his week (final ev
     // wr1's bye in week 4 puts the bench WR (3) in the lineup, so from week 3 he costs 3 to lose; the bench RB and rb2 (benched
     // by the returning RB) cost nothing; the tolerance is 2 × 3 weeks = 6. Values left at week 3: rb2 2000, the bench RB 235,
     // the bench WR 225. With W 500 in every week both bench players floor at W and the lower keep value goes (the bench RB);
-    // with W 200 from week 3 on (the best free agent's value left then), the bench WR, worth less then, goes.
+    // with W 200 from week 3 on (the best free agent's value left then), the bench WR, worth less then, goes: the near-tie
+    // rule decided it, so the bench RB, the lineup's own pick, is the one kept instead (Checkpoint 7f).
     const bye = (r: TableRow): TableRow => (r.id === "wr1" ? { ...r, ev: Float64Array.from(r.ev, (x, w) => (w === 4 ? 0 : x)), cond: Float64Array.from(r.cond, (x, w) => (w === 4 ? 0 : x)) } : r);
     const values = { ...VALUES, rbB: 470, wrB: 450 };
     const asked: number[] = [];
@@ -398,7 +413,7 @@ describe("finalLineups: the roster spot a returner needs from his week (final ev
         return 200;
       },
     });
-    expect(finalLineups(then.setup, then.roster, then.spec, then.raw).displaced).toEqual([{ id: "wrB", from: 3, returner: "back" }]);
+    expect(finalLineups(then.setup, then.roster, then.spec, then.raw).displaced).toEqual([{ id: "wrB", from: 3, returner: "back", keptInstead: "rbB" }]);
     expect(asked).toEqual([3]);
   });
 
@@ -605,6 +620,107 @@ describe("finalLineups' keep: my untouchables are never released at a return (Ch
       expect(finalLineups(b.setup, b.roster, b.spec, b.raw).displaced, `${S} scenarios`).toEqual([{ id: "rbB", from: 2, returner: "back" }]);
       expect(finalLineups(b.setup, b.roster, b.spec, b.raw, ["rbB"]).displaced, `${S} scenarios`).toEqual([{ id: "rb2", from: 2, returner: "back" }]);
     }
+  });
+});
+
+describe("Displacement.keptInstead: the player the lineup alone would have released, when the near-tie rule decided (Checkpoint 7f; planner reply to Checkpoint 7e, answer 4)", () => {
+  // Parker's week-7 return in made-up rows: the returning TE (2 points a week from his return, week index 2) starts only in
+  // week 3, the TE's bye, so he costs 2.0 to lose from then; a bench RB who never starts costs nothing but is worth more than
+  // W then (965 × 4/6 = 643 against W 418), the returner less (243). The tolerance: 0.6 a week over weeks 2–5, 2.4.
+  const teBye = (r: TableRow): TableRow => (r.id === "te" ? { ...r, ev: Float64Array.from(r.ev, (x, w) => (w === 3 ? 0 : x)), cond: Float64Array.from(r.cond, (x, w) => (w === 3 ? 0 : x)) } : r);
+  const starters = (S: number) => team8(S).filter((r) => r.id !== "rbB" && r.id !== "wrB").map(teBye);
+  const back = (S: number) => [{ row: row("ret", "TE", 2, { from: 2, S }), at: 2 }];
+  const values = { ...VALUES, rbK: 965, rbK2: 1500, ret: 243 };
+  const near = { nearTie: 0.6, floor: 418 };
+
+  it("the rule releases the returner over a bench player nearly even for the lineup and worth more: keptInstead names the bench player; the lineups are the masked roster's, as without it", () => {
+    for (const S of [0, 8]) {
+      const b = build({ active: [...starters(S), row("rbK", "RB", 5, { S })], returners: back(S), max: 7, values, S, ...near });
+      const f = finalLineups(b.setup, b.roster, b.spec, b.raw);
+      expect(f.displaced, `${S} scenarios`).toEqual([{ id: "ret", from: 2, returner: "ret", keptInstead: "rbK" }]);
+      expect(plain(f.ev.lv), `${S} scenarios`).toEqual(plain(solveEvWeeks(f.team, W).lv));
+      if (S > 0) expectSameScen(f.scen as ScenarioValues, scenarioValues(f.team, W, S, b.setup.index, true, true), `${S} scenarios`);
+      // Exact ties (the lineup alone) release the player kept instead.
+      const exact = build({ active: [...starters(S), row("rbK", "RB", 5, { S })], returners: back(S), max: 7, values, S });
+      expect(finalLineups(exact.setup, exact.roster, exact.spec, exact.raw).displaced, `${S} scenarios`).toEqual([{ id: "rbK", from: 2, returner: "ret" }]);
+    }
+  });
+
+  it("no keptInstead when the lineup decides: the bench player worth at most W then (he goes himself), keep values farther apart than the tolerance, or long-term values (exact ties)", () => {
+    const active = [...starters(0), row("rbK", "RB", 5)];
+    const cheap = build({ active, returners: back(0), max: 7, values: { ...values, rbK: 600 }, ...near });
+    expect(finalLineups(cheap.setup, cheap.roster, cheap.spec, cheap.raw).displaced).toEqual([{ id: "rbK", from: 2, returner: "ret" }]);
+    const far = build({ active, returners: back(0), max: 7, values, nearTie: 0.4, floor: 418 });
+    expect(finalLineups(far.setup, far.roster, far.spec, far.raw).displaced).toEqual([{ id: "rbK", from: 2, returner: "ret" }]);
+    const future = build({ active, returners: back(0), max: 7, values, ...near, future: { value: (id: string) => (id === "ret" ? 50 : 900), top: 10000 } });
+    const g = finalLineups(future.setup, future.roster, future.spec, future.raw);
+    expect(g.displaced).toHaveLength(1);
+    expect(g.displaced[0]?.keptInstead).toBeUndefined();
+  });
+
+  it("never names one of my untouchables: kept, the bench player isn't a candidate and the next one is kept instead; locking the player released leaves someone to release", () => {
+    const active = [...starters(0), row("rbK", "RB", 5), row("rbK2", "RB", 4)];
+    const b = build({ active, returners: back(0), max: 8, values, ...near });
+    // Both bench backs cost nothing; on the lineup alone the one worth less from the return on goes (rbK 643, rbK2 1000).
+    expect(finalLineups(b.setup, b.roster, b.spec, b.raw).displaced).toEqual([{ id: "ret", from: 2, returner: "ret", keptInstead: "rbK" }]);
+    expect(finalLineups(b.setup, b.roster, b.spec, b.raw, ["rbK"]).displaced).toEqual([{ id: "ret", from: 2, returner: "ret", keptInstead: "rbK2" }]);
+    // "Lock Pierce to keep him instead": the returner kept, the bench back worth less from his return on goes, by the lineup.
+    expect(finalLineups(b.setup, b.roster, b.spec, b.raw, ["ret"]).displaced).toEqual([{ id: "rbK", from: 2, returner: "ret" }]);
+  });
+
+  it("property, 200 random rosters (one returner, near-ties, EV and scenarios): the release is the rule's over the header's candidates and the lineups the masked roster's, as without the field; keptInstead is exactly the release on the lineup alone when that's another player, nearly even and worth more from the return on; locking the release leaves someone to go", () => {
+    const rand = mulberry32(20261015);
+    const positions: Pos[] = ["QB", "RB", "RB", "WR", "WR", "TE"];
+    let decided = 0;
+    for (let trial = 0; trial < 200; trial++) {
+      const S = trial % 2 === 0 ? 0 : 1 + Math.floor(rand() * 12);
+      const starters = positions.map((pos, k) => ({ ...randomRow(rand, `a${k}`, W, S), pos, eligible: [pos] }));
+      const bench = Array.from({ length: 1 + Math.floor(rand() * 4) }, (_, k) => randomRow(rand, `b${k}`, W, S)).map((r) => ({ ...r, eligible: [r.pos] }));
+      const active = [...starters, ...bench];
+      const at = Math.floor(rand() * W);
+      const draw = { ...randomRow(rand, "ret", W, S), pos: positions[Math.floor(rand() * positions.length)] as Pos };
+      const ret: TableRow = { ...draw, eligible: [draw.pos] };
+      const nearTie = 0.5 + 3 * rand();
+      const floor = Math.floor(rand() * 4000);
+      const vals: Record<string, number> = Object.fromEntries([...active, ret].map((r) => [r.id, Math.floor(rand() * 9000)]));
+      const opts = { active, returners: [{ row: ret, at }], max: active.length, values: vals, S, floor };
+      const b = build({ ...opts, nearTie });
+      const f = finalLineups(b.setup, b.roster, b.spec, b.raw);
+      // The decision as returners.ts's header defines it, on the raw lineups (one returner: nothing released before him): keep
+      // values from his return on, the lineup-fill rule, values from then on, the tolerance over those weeks.
+      const wf = Float64Array.from({ length: W }, (_, w) => (w >= at ? 1 : 0));
+      const costs = S > 0 ? scenarioRemovalCosts((b.raw.scen as ScenarioValues).cells as ScenarioCells, wf) : evRemovalCosts(b.raw.ev, wf);
+      const index = new Map(b.raw.ev.team.rows.map((r, k) => [r.id, k] as const));
+      const live = [...b.roster, "ret"];
+      const entries = (ids: readonly string[]) => ids.map((id) => ({ id, pos: (b.rows.get(id) as TableRow).pos, eligible: (b.rows.get(id) as TableRow).eligible }));
+      const fill = fillCount(entries(live), b.setup.slots);
+      const valueOf = (id: string) => (vals[id] ?? 0) * valueShareFrom((b.rows.get(id) as TableRow).ev, b.setup.weights, at);
+      const cands = live.filter((id) => fillCount(entries(live.filter((x) => x !== id)), b.setup.slots) >= fill).map((id) => ({ id, keep: costs[index.get(id) as number] as number, value: valueOf(id) }));
+      const tie = nearTie * (W - at);
+      const pick = lowestKeepValue(cands, tie, floor) as string;
+      const kept = lowestKeepValue(cands, 0) as string;
+      expect(f.displaced, `trial ${trial}`).toEqual([{ id: pick, from: at, returner: "ret", ...(kept !== pick ? { keptInstead: kept } : {}) }]);
+      const masked = teamEval(b.raw.ev.team.rows.map((r) => (r.id === pick ? maskedRow(r, at) : r)), b.setup.slots);
+      expect(plain(f.ev.lv), `trial ${trial}`).toEqual(plain(solveEvWeeks(masked, W).lv));
+      if (S > 0) expect(plain(f.scen?.mean), `trial ${trial}`).toEqual(plain(scenarioValues(masked, W, S, b.setup.index, true, true).mean));
+      const keep = (id: string) => cands.find((c) => c.id === id)?.keep as number;
+      if (kept !== pick) {
+        decided++;
+        // Nearly even for the lineup from the return on, and worth more then (floored at W): the card's sentence holds.
+        expect(keep(kept), `trial ${trial}`).toBeLessThanOrEqual(keep(pick) + 1e-9);
+        expect(keep(pick) - keep(kept), `trial ${trial}`).toBeLessThanOrEqual(tie + 1e-9);
+        expect(Math.max(valueOf(kept), floor), `trial ${trial}`).toBeGreaterThan(Math.max(valueOf(pick), floor));
+      }
+      // Exact ties release the player kept instead (or the same one, with no reason).
+      const exact = build(opts);
+      expect(finalLineups(exact.setup, exact.roster, exact.spec, exact.raw).displaced, `trial ${trial}`).toEqual([{ id: kept, from: at, returner: "ret" }]);
+      // "Lock him to keep him instead": someone else goes at that return.
+      const locked = finalLineups(b.setup, b.roster, b.spec, b.raw, [pick]).displaced;
+      expect(locked.map((d) => [d.from, d.returner]), `trial ${trial}`).toEqual([[at, "ret"]]);
+      expect(locked[0]?.id, `trial ${trial}`).not.toBe(pick);
+      expect(locked[0]?.keptInstead, `trial ${trial}`).not.toBe(pick);
+    }
+    expect(decided).toBeGreaterThan(20);
   });
 });
 

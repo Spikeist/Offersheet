@@ -39,6 +39,9 @@
  *    weights from R on): among the candidates within that of the lowest keep value, the lowest perception value floored at
  *    the waiver credit W goes (ReturnerSetup.valueFloor; then the lower keep value), so a return releases a near-free bench
  *    player worth at most W rather than a tradable one, and between players worth at most W the lineup decides as before.
+ *    When the rule's pick isn't the lineup's (the lowest keep value, exact ties only), the displacement names the player
+ *    kept instead (Displacement.keptInstead; Checkpoint 7f, planner reply to Checkpoint 7e, answer 4: "keep the rule, but
+ *    the card must say why").
  *    Everything the choice reads is from R on (Checkpoint 7e; planner reply to Checkpoint 7d, item 2.3: "A decision that
  *    happens in a future week compares players over the weeks from then on, not from today"). The keep values and the
  *    near-ties' tolerance already were; the trade values the ties compare were today's, so a player who plays only before
@@ -184,6 +187,16 @@ export interface Displacement {
   readonly id: string;
   readonly from: number;
   readonly returner: string;
+  /**
+   * Checkpoint 7f (planner reply to Checkpoint 7e, answer 4: "keep the rule, but the card must say why"): the near-tie rule
+   * decided this release, and this is the player the lineup alone would have released (teamValue.lowestKeepValue with no
+   * tolerance), kept for his trade value. By the rule's own order his keep value is below `id`'s by at most the tolerance
+   * and his trade value from the return week on, floored at W, is above `id`'s (the file header, item 2), so "the two are
+   * nearly even for your lineup, and he has more trade value" (tradeView.ts releaseReason) holds. Never one the team keeps
+   * (my untouchables aren't candidates). Absent: the lineup decided it (exact ties by value, as before), and always with
+   * long-term values (exact ties only). It only adds: the pick, the lineups and every number are as without it.
+   */
+  readonly keptInstead?: string;
 }
 
 /** A final evaluation: the displacements, the rows priced (masked copies in place) and their lineups. */
@@ -314,12 +327,11 @@ export function finalLineups(setup: ReturnerSetup, roster: readonly string[], sp
     let tie = 0;
     if (!fut && Number.isFinite(perWeek) && perWeek > 0) for (let w = from; w < W; w++) tie += Math.max(0, (wf[w] as number) || 0) * perWeek;
     const valueFrom = (id: string) => (setup.dropValue(id) || 0) * valueShareFrom((team.rows[at.get(id) as number] as TableRow).ev, setup.weights, from);
-    const pick = lowestKeepValue(
-      candidates.map((id) => ({ id, keep: keep(id), value: valueFrom(id) })),
-      tie,
-      setup.valueFloorFrom ? setup.valueFloorFrom(from) : (setup.valueFloor ?? 0),
-    );
+    const cands = candidates.map((id) => ({ id, keep: keep(id), value: valueFrom(id) }));
+    const pick = lowestKeepValue(cands, tie, setup.valueFloorFrom ? setup.valueFloorFrom(from) : (setup.valueFloor ?? 0));
     if (pick === null) continue; // ⚠️ nobody can go: the roster runs over
+    // The pick on the lineup alone (Checkpoint 7f, Displacement.keptInstead): when it differs, the near-tie rule decided.
+    const plain = tie > 0 ? lowestKeepValue(cands, 0) : pick;
     const k = at.get(pick) as number;
     const rows = [...team.rows];
     rows[k] = maskedRow(rows[k] as TableRow, from);
@@ -329,7 +341,7 @@ export function finalLineups(setup: ReturnerSetup, roster: readonly string[], sp
     team = next;
     live.splice(live.indexOf(pick), 1);
     bump(pick, -1);
-    displaced.push({ id: pick, from, returner: ret.id });
+    displaced.push({ id: pick, from, returner: ret.id, ...(plain !== null && plain !== pick ? { keptInstead: plain } : {}) });
   }
   return displaced.length ? { displaced, team, ev, scen } : fast;
 }

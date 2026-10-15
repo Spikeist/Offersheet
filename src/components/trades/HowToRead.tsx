@@ -137,7 +137,10 @@ export function nowOrLaterWords(): string {
 /**
  * The roster moves box in words (Checkpoint 7e: planner reply to Checkpoint 7d, item 2.2, "Each card lists every roster move
  * its numbers assume, in order, each with its reason and its week"; wave B's box, which How to read hadn't explained): what
- * its lines are, the line of moves made either way, and (item 2.1) whose odds then start from them.
+ * its lines are, the line of moves made either way, and (item 2.1) whose odds then start from them. Checkpoint 7f (planner
+ * reply to Checkpoint 7e, answer 4: "keep the rule, but the card must say why"): when the near-tie rule decides a release at
+ * an IR return, the line says why (tradeView.ts releaseReason), and a release made with or without the trade is named at the
+ * end too (RosterMoves.assumedLater), so the moves made either way are no longer on one line.
  */
 export function rosterMovesWords(page: HowToReadPage): string {
   const either =
@@ -147,7 +150,8 @@ export function rosterMovesWords(page: HowToReadPage): string {
   return (
     "lists, in order, each move to your roster that the card's numbers count on, with its reason and its week: a player you'd drop to stay within your " +
     "league's limits or to make room, a free agent for a roster spot the trade opens, a waiver move the trade makes worthwhile, and who you'd release when a " +
-    `player comes back from IR. Moves you'd make with or without the trade, like the pickups the League page suggests, are named on one line at the end and aren't counted for the trade; ${either} ` +
+    "player comes back from IR (when two of your players are nearly even for your lineup from then on, the one with less trade value goes, and the line says why). " +
+    `Moves you'd make with or without the trade, like the pickups the League page suggests or such a release, are named at the end and aren't counted for the trade; ${either} ` +
     "The other team's moves follow yours."
   );
 }

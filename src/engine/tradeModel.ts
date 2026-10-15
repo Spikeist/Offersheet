@@ -133,6 +133,37 @@ export interface RosterMoves {
    * pickup here names (`add` null). Empty: none.
    */
   assumed: AssumedMove[];
+  /**
+   * Checkpoint 7f (planner reply to Checkpoint 7e, answer 4; the lead's R3): the releases at an IR player's return made with or
+   * without the trade (the "before" and my roster after the trade release the same player from the same week for the same
+   * returner, so no move above names them), by week, each with why when the near-tie rule decided it after the trade. Absent
+   * or empty: none (or an evaluation made before Checkpoint 7f).
+   */
+  assumedLater?: AssumedRelease[];
+}
+
+/**
+ * Why the near-tie rule released a player at an IR player's return (Checkpoint 7f; planner reply to Checkpoint 7e, answer 4:
+ * "keep the rule, but the card must say why"; returners.Displacement.keptInstead): `keptInstead`, the player the lineup alone
+ * would have released, kept for his trade value (the two are nearly even for my lineup from the return on, and he's worth
+ * more then); `lockable` when the player released is on my active roster or IR as imported, where the League page's lock is
+ * (the card's "Lock Pierce to keep him instead."), not one the trade brings in or a pickup after it.
+ */
+export interface NearTieRelease {
+  keptInstead: string;
+  lockable: boolean;
+}
+
+/**
+ * A release at an IR player's return my numbers assume with or without the trade (RosterMoves.assumedLater; Checkpoint 7f):
+ * from `week`, when `returner` comes back from IR, `player` goes (the returner himself when he's the one released), in the
+ * trade's "before" and after the trade alike; `nearTie` when the near-tie rule decided it after the trade.
+ */
+export interface AssumedRelease {
+  week: number;
+  player: string;
+  returner: string;
+  nearTie?: NearTieRelease;
 }
 
 /**
@@ -177,7 +208,8 @@ export interface PickupOf {
  *   on my roster (null otherwise).
  * - "release": from `week`, when `returner` comes back from IR, `player` goes (the returner himself when he's the one
  *   released), where the "before" releases nobody then, or `instead` (review of wave B, finding moves-before-release-unnamed):
- *   `kept` when that player is still on my roster then (the trade keeps him), else he's gone by then.
+ *   `kept` when that player is still on my roster then (the trade keeps him), else he's gone by then; `nearTie` when the
+ *   near-tie rule decided this release (Checkpoint 7f; planner reply to Checkpoint 7e, answer 4: NearTieRelease).
  * - "keepAtReturn": at `returner`'s return in `week` the "before" releases `player`, and my roster after the trade releases
  *   nobody (`returnerStays`: he's still mine, so the trade leaves room; else the trade sends him away).
  * - "drop", "keep", "add": a difference the moves above don't explain (none on any test league: a safety net, so the list
@@ -192,7 +224,7 @@ export type RosterMove =
   | { kind: "waiver"; week: number; add: string; drop: string | null; starts?: number[]; received?: true; insteadOf?: string; insteadOfEitherWay?: true }
   | { kind: "pickupDrop"; week: number; add: string; drop: string | null; instead: string | null; received?: true; eitherWay?: true }
   | { kind: "skip"; week: number; add: string; keep: string | null; why: "unneeded" | "taken" | "spot"; by?: string[]; eitherWay?: true }
-  | { kind: "release"; week: number; player: string; returner: string; instead?: string; kept?: boolean }
+  | { kind: "release"; week: number; player: string; returner: string; instead?: string; kept?: boolean; nearTie?: NearTieRelease }
   | { kind: "keepAtReturn"; week: number; player: string; returner: string; returnerStays: boolean }
   | { kind: "drop"; week: number; player: string; received?: true }
   | { kind: "keep"; week: number; player: string }

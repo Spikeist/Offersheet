@@ -113,6 +113,8 @@ import {
   possessive,
   premiumReasons,
   progressView,
+  releaseLine,
+  releaseReason,
   readAnalyzerDraft,
   readAnalyzerFrom,
   readFinderPartner,
@@ -501,6 +503,115 @@ describe("buildTradeCard (§13: what each card shows)", () => {
     expect(lines({ moves: [], assumed: [{ add: "901", drop: null }] }, jr)).toEqual(["Assumed with or without this trade: add Kyle Pitts Sr."]);
     // An either-way move alone: its own line, worded as one the League page doesn't list.
     expect(lines({ moves: [], assumed: [{ add: "902", drop: "105", eitherWay: true }] }, jr)).toEqual(["Assumed with or without this trade, though the League page doesn't list it: add Waverly Waiver, drop Marvin Harrison Jr."]);
+  });
+
+  describe("Checkpoint 7f (planner reply to Checkpoint 7e, answer 4: “keep the rule, but the card must say why”): a release the near-tie rule decided, with why", () => {
+    const lines = (myMoves: NonNullable<TradeEvaluation["myMoves"]>, snap = snapshot) => buildTradeCard({ ...evaluation(), myMoves }, { snapshot: snap, fantasyCalc: FC }).required;
+    const rename = (names: Record<string, string>) => ({ ...snapshot, players: { ...snapshot.players, ...Object.fromEntries(Object.entries(names).map(([id, name]) => [id, { ...(snapshot.players[id] as PlayerInfo), name }])) } });
+    // Parker's week-7 return (NFL names are public): Alec Pierce on my IR, Marvin Harrison Jr. on my bench, Kyle Pitts Sr. my TE.
+    const pierce = rename({ "107": "Alec Pierce", "105": "Marvin Harrison Jr.", "108": "Kyle Pitts Sr." });
+    const harrison = { keptInstead: "105", lockable: true };
+    const reason = "Marvin Harrison Jr. are nearly even for your lineup, and Harrison Jr. has more trade value.";
+
+    it("the planner's sentence word for word when the returner himself goes, and the same rule for every other line", () => {
+      expect(
+        lines(
+          {
+            moves: [
+              { kind: "release", week: 7, player: "107", returner: "107", nearTie: harrison },
+              { kind: "release", week: 7, player: "108", returner: "107", nearTie: harrison },
+              // The line ends naming another player: the reason names the player released by his surname.
+              { kind: "release", week: 7, player: "107", returner: "107", instead: "108", kept: true, nearTie: harrison },
+              { kind: "release", week: 7, player: "108", returner: "107", instead: "107", kept: true, nearTie: harrison },
+              { kind: "release", week: 7, player: "107", returner: "107", instead: "108", kept: false, nearTie: harrison },
+              // The player kept is the one the line already named (the "before"'s release, the returner): his surname both times.
+              { kind: "release", week: 7, player: "107", returner: "107", instead: "105", kept: true, nearTie: harrison },
+              { kind: "release", week: 7, player: "108", returner: "107", nearTie: { keptInstead: "107", lockable: true } },
+            ],
+            assumed: [],
+          },
+          pierce,
+        ),
+      ).toEqual([
+        "Week 7, when Alec Pierce returns from IR: release him. He and Marvin Harrison Jr. are nearly even for your lineup, and Harrison Jr. has more trade value. Lock Pierce to keep him instead.",
+        `Week 7, when Alec Pierce returns from IR: release Kyle Pitts Sr. (TE). He and ${reason} Lock Pitts Sr. to keep him instead.`,
+        `Week 7, when Alec Pierce returns from IR: release him and keep Kyle Pitts Sr. (TE). Pierce and ${reason} Lock Pierce to keep him instead.`,
+        `Week 7, when Alec Pierce returns from IR: release Kyle Pitts Sr. (TE) and keep Alec Pierce. Pitts Sr. and ${reason} Lock Pitts Sr. to keep him instead.`,
+        `Week 7, when Alec Pierce returns from IR: release him; without this trade, Kyle Pitts Sr. (TE) would go then. Pierce and ${reason} Lock Pierce to keep him instead.`,
+        "Week 7, when Alec Pierce returns from IR: release him and keep Marvin Harrison Jr. (WR). Pierce and Harrison Jr. are nearly even for your lineup, and Harrison Jr. has more trade value. Lock Pierce to keep him instead.",
+        "Week 7, when Alec Pierce returns from IR: release Kyle Pitts Sr. (TE). He and Pierce are nearly even for your lineup, and Pierce has more trade value. Lock Pitts Sr. to keep him instead.",
+      ]);
+    });
+
+    it("no lock for a player the trade brings in; a D/ST by its name, “it”; two players sharing a surname by their full names", () => {
+      const moves = (m: NonNullable<TradeEvaluation["myMoves"]>["moves"], snap = pierce) => lines({ moves: m, assumed: [] }, snap);
+      expect(moves([{ kind: "release", week: 7, player: "204", returner: "107", nearTie: { keptInstead: "105", lockable: false } }])).toEqual([
+        `Week 7, when Alec Pierce returns from IR: release Cornelius Snoot (RB). He and ${reason}`,
+      ]);
+      expect(moves([{ kind: "release", week: 7, player: "MIN", returner: "107", nearTie: harrison }])).toEqual([
+        `Week 7, when Alec Pierce returns from IR: release Vikings D/ST (D/ST). Vikings D/ST and ${reason} Lock Vikings D/ST to keep it instead.`,
+      ]);
+      const twins = rename({ "107": "Alec Pierce", "106": "Kevin Pitts Sr.", "108": "Kyle Pitts Sr." });
+      expect(moves([{ kind: "release", week: 7, player: "108", returner: "107", instead: "107", kept: true, nearTie: { keptInstead: "106", lockable: true } }], twins)).toEqual([
+        "Week 7, when Alec Pierce returns from IR: release Kyle Pitts Sr. (TE) and keep Alec Pierce. Kyle Pitts Sr. and Kevin Pitts Sr. are nearly even for your lineup, and Kevin Pitts Sr. has more trade value. Lock Kyle Pitts Sr. to keep him instead.",
+      ]);
+      // A player no longer in the league's data: the release as before, no reason (nobody to name).
+      expect(moves([{ kind: "release", week: 7, player: "108", returner: "107", nearTie: { keptInstead: "gone", lockable: true } }])).toEqual(["Week 7, when Alec Pierce returns from IR: release Kyle Pitts Sr. (TE)."]);
+      // An open spot's fill released again at a return keeps it in the spot's sentence, with no reason (a free agent added for
+      // the spot until then needs none).
+      expect(
+        moves([
+          { kind: "openSpot", week: 6, spot: { playerId: "901", pos: "RB" } },
+          { kind: "release", week: 7, player: "901", returner: "107", nearTie: harrison },
+        ]),
+      ).toEqual(["Open roster spot: add Floopy Freeman, the best available RB, until Alec Pierce comes back from IR in week 7."]);
+      // Without nearTie, the words of Checkpoint 7e (the tests above).
+      expect(moves([{ kind: "release", week: 7, player: "107", returner: "107" }])).toEqual(["Week 7, when Alec Pierce returns from IR: release him instead of dropping someone else."]);
+    });
+
+    it("the lead's R3: each release made with or without the trade, after the assumed lines, by week, with why when the rule decided it", () => {
+      expect(
+        lines(
+          {
+            moves: [{ kind: "makeRoom", week: 6, drop: ["106"], for: ["203"] }],
+            assumed: [
+              { add: "901", drop: "108" },
+              { add: "902", drop: null, eitherWay: true },
+            ],
+            assumedLater: [
+              { week: 7, player: "107", returner: "107", nearTie: harrison },
+              { week: 9, player: "108", returner: "107" },
+              { week: 11, player: "107", returner: "107" },
+            ],
+          },
+          pierce,
+        ),
+      ).toEqual([
+        "Make room for Ignatius Fumblewick: drop Wiggleton Spoons (WR).",
+        "Assumed with or without this trade: add Floopy Freeman, drop Kyle Pitts Sr.",
+        "Also assumed with or without this trade, though the League page doesn't list it: add Waverly Waiver.",
+        `Week 7, when Alec Pierce returns from IR: release him, with or without this trade. He and ${reason} Lock Pierce to keep him instead.`,
+        "Week 9, when Alec Pierce returns from IR: release Kyle Pitts Sr. (TE), with or without this trade.",
+        "Week 11, when Alec Pierce returns from IR: release him, with or without this trade.",
+      ]);
+      // Alone, the releases made either way are the whole list; a Plan B box words its own the same way.
+      expect(lines({ moves: [], assumed: [], assumedLater: [{ week: 7, player: "108", returner: "107", nearTie: harrison }] }, pierce)).toEqual([
+        `Week 7, when Alec Pierce returns from IR: release Kyle Pitts Sr. (TE), with or without this trade. He and ${reason} Lock Pitts Sr. to keep him instead.`,
+      ]);
+      const box = planBView({ ...planBFixture({ give: ["106"], get: ["205"] }), myMoves: { moves: [], assumed: [], assumedLater: [{ week: 7, player: "107", returner: "107", nearTie: harrison }] } }, pierce);
+      expect(box?.moves).toEqual([`Week 7, when Alec Pierce returns from IR: release him, with or without this trade. He and ${reason} Lock Pierce to keep him instead.`]);
+    });
+
+    it("releaseLine and releaseReason, the League page's words (RosterCard.returns): the line, then why", () => {
+      expect(releaseLine({ week: 7, player: "107", returner: "107" }, pierce)).toBe("Week 7, when Alec Pierce returns from IR: release him instead of dropping someone else.");
+      expect(releaseLine({ week: 7, player: "107", returner: "107", nearTie: harrison }, pierce)).toBe(
+        "Week 7, when Alec Pierce returns from IR: release him. He and Marvin Harrison Jr. are nearly even for your lineup, and Harrison Jr. has more trade value. Lock Pierce to keep him instead.",
+      );
+      expect(releaseLine({ week: Number.NaN, player: "108", returner: "107" }, pierce)).toBe("When Alec Pierce returns from IR: release Kyle Pitts Sr. (TE).");
+      expect(releaseReason("108", harrison, pierce, { endsOnReleased: false })).toBe(`Pitts Sr. and ${reason} Lock Pitts Sr. to keep him instead.`);
+      expect(releaseReason("108", { keptInstead: "105", lockable: false }, pierce, { endsOnReleased: true, named: ["105"] })).toBe("He and Harrison Jr. are nearly even for your lineup, and Harrison Jr. has more trade value.");
+      expect(releaseReason("nobody", harrison, pierce, { endsOnReleased: true })).toBe("");
+    });
   });
 
   it("Checkpoint 7e (item 2.1): a trade with either-way moves prints its odds from its own before, and its Plan B box lists its moves", () => {
