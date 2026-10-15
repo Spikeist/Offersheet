@@ -8,7 +8,7 @@ import { WAIVER_RESET_BEFORE_GAMES as SLEEPER_WAIVER_RESET_BEFORE_GAMES, WAIVER_
 import { inactiveTeams } from "@/engine/acceptance";
 import { config } from "@/engine/config";
 import type { ModelInputs, PlayerInputs } from "@/engine/inputs";
-import { allocationOrder } from "@/engine/league";
+import { allocationOrder, projectLeaguePlayers } from "@/engine/league";
 import { fantasyCalcFormat } from "@/engine/market";
 import type { LeagueSettings, LeagueSnapshot, PlayerInfo, Scoring, Team } from "@/engine/model";
 import type { ImportResponse } from "./api";
@@ -1054,6 +1054,26 @@ describe("buildImportReport: the League page's projection source (§6)", () => {
     const disagree = inputs({ "9001": { sleeper: { 4: 20 }, espn: { 4: 30 }, actual: {} }, "9004": { sleeper: { 4: 10 }, espn: { 4: 10 }, actual: {} } });
     expect(notesFor(disagree)).toEqual([
       "Projection source: Sleeper's projections, scored with your league's rules. ESPN's own projections differ from them by 33% on average in week 4 (2 rostered players), more than the 10% we allow, so we don't average them in.",
+    ]);
+  });
+
+  it("leaves kickers and D/STs out of the test, as the League model does, and says so (planner reply to Checkpoint 7e, item 6)", () => {
+    // Team 2's kicker: ESPN projects him at twice Sleeper's line, which alone would have sunk the test ((1 + 0.5 + 6) / 36 ≈ 21%).
+    const agree = inputs({ "9001": { sleeper: { 4: 20 }, espn: { 4: 21 }, actual: {} }, "9004": { sleeper: { 4: 10 }, espn: { 4: 10.5 }, actual: {} }, "espn:31337": { sleeper: { 4: 6 }, espn: { 4: 12 }, actual: {} } });
+    expect(notesFor(agree)).toEqual(["Projection source: ESPN's and Sleeper's projections, averaged. They differ by 5% on average in week 4 (2 rostered players, kickers aside), within the 10% we allow."]);
+    // The very numbers the League model reads (both callers pass the players' positions).
+    expect(projectLeaguePlayers(snapshot(), agree, new Date("2026-09-30T02:00:00.000Z")).agreement?.agreement).toStrictEqual({ meanRelDiff: 0.05, players: 2, week: 4, leftOut: ["K"] });
+    // Only the kicker has both: nothing is compared.
+    const only = inputs({ "9001": { sleeper: { 4: 20 }, actual: {} }, "espn:31337": { sleeper: { 4: 6 }, espn: { 4: 12 }, actual: {} } });
+    expect(notesFor(only)).toEqual(["Projection source: Sleeper's projections, scored with your league's rules. No rostered player had both ESPN's and Sleeper's projection in week 4, kickers aside, so they aren't averaged."]);
+  });
+
+  it("states a gap beside the bar to one decimal, so it never reads as the bar itself", () => {
+    const under = inputs({ "9001": { sleeper: { 4: 20 }, espn: { 4: 22.9 }, actual: {} }, "9004": { sleeper: { 4: 10 }, espn: { 4: 10.06 }, actual: {} } });
+    expect(notesFor(under)).toEqual(["Projection source: ESPN's and Sleeper's projections, averaged. They differ by 9.9% on average in week 4 (2 rostered players), within the 10% we allow."]);
+    const over = inputs({ "9001": { sleeper: { 4: 20 }, espn: { 4: 23.1 }, actual: {} }, "9004": { sleeper: { 4: 10 }, espn: { 4: 10 }, actual: {} } });
+    expect(notesFor(over)).toEqual([
+      "Projection source: Sleeper's projections, scored with your league's rules. ESPN's own projections differ from them by 10.3% on average in week 4 (2 rostered players), more than the 10% we allow, so we don't average them in.",
     ]);
   });
 

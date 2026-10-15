@@ -188,6 +188,7 @@ import { prepareLeagueSlots } from "@/engine/lineup";
 import { fantasyCalcFallbackText, fantasyCalcFormatLabel } from "@/engine/market";
 import { POSITIONS, type InjuryStatus, type LeagueSettings, type LeagueSnapshot, type PlayerInfo, type Pos, type Team } from "@/engine/model";
 import { returnersOf } from "@/engine/optimizer";
+import { agreementAside } from "@/engine/projections";
 import { finalLineups } from "@/engine/returners";
 import { buildSimSetup, pickupSeasonModel, playoffRounds, seasonOdds, shownSimsOf, type SeasonModel, type SimSetupResult } from "@/engine/season";
 import { simNormals, simulateSeason, type SimNormals, type SimResult, type SimSetup } from "@/engine/sim";
@@ -2243,7 +2244,7 @@ function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueMode
   if (head.pre4c) L.push(`- Waiver order used: ${waiverOrderText(snapshot)}. ${pre4cText(head.pre4c, model.myTeamId, teamName)}`);
   else L.push(`- Waiver order used: ${waiverOrderText(snapshot)}${waiverRanksPre4c(snapshot) ? " (⚠️ this data comes from before the 4c adapter: its waiver ranks are ESPN's live order on the day of the import; the free-agent optimizer's section says more)" : ""}`);
   const ag = model.projection.agreement;
-  L.push(`- ESPN vs Sleeper projections, week ${ag?.week ?? snapshot.currentWeek}: ${ag ? `Σ|ESPN − Sleeper| / Σ Sleeper = ${fmt(100 * ag.meanRelDiff)}% over ${ag.players} rostered players` : "not compared"} → ${model.projection.espnAveraged ? "averaged" : "Sleeper only"} (§6: average only within ${100 * config.projections.espnSleeperAgreement}%)`);
+  L.push(`- ESPN vs Sleeper projections, week ${ag?.week ?? snapshot.currentWeek}: ${ag ? `Σ|ESPN − Sleeper| / Σ Sleeper = ${fmt(100 * ag.meanRelDiff)}% over ${ag.players} rostered players${agreementAside(ag.leftOut)}` : "not compared"} → ${model.projection.espnAveraged ? "averaged" : "Sleeper only"} (§6: average only within ${100 * config.projections.espnSleeperAgreement}%)`);
   if (model.projection.disagreements.length) L.push(`- Sources disagree by more than ${100 * config.projections.sourceDisagreementLog}% on: ${model.projection.disagreements.map((d) => `${playerLabel(players[d.playerId], d.playerId)} ESPN ${fmt(d.espn)} vs Sleeper ${fmt(d.sleeper)}`).join("; ")}`);
   L.push(`- Base rates by source: ${Object.entries(model.projection.sources).filter(([, n]) => n > 0).map(([k, n]) => `${k} ${n}`).join(", ")}`);
   for (const n of inputs.notes) L.push(`- Note: ${n}`);

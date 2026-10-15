@@ -12,9 +12,10 @@
  *   where it is > 0 (PlayerInputs.sleeper carries lookbackWeeks past weeks for this), else in the
  *   nearest later remaining week. A null or 0 week is a stub (bye, injured, unprojected), never a base
  *   rate: an injured star keeps his last healthy projection. In ESPN leagues, when the two sources agree
- *   league-wide (espnSleeperAgreement) and ESPN projects him in that same week, proj_now is the average
- *   of ESPN's league-scored value and Sleeper's. Fallbacks, in order: ESPN alone (no Sleeper week at
- *   all), Sleeper's season projection per game, actual points per game, nothing (b = 0). b is never < 0.
+ *   league-wide (espnSleeperAgreement, kickers and D/STs aside) and ESPN projects him in that same week,
+ *   proj_now is the average of ESPN's league-scored value and Sleeper's (a kicker's or a D/ST's too).
+ *   Fallbacks, in order: ESPN alone (no Sleeper week at all), Sleeper's season projection per game,
+ *   actual points per game, nothing (b = 0). b is never < 0.
  * - Step 2, week shape m_w = clamp(S_w / mean S, weekShapeClamp), the mean taken over the REMAINING
  *   weeks with S > 0. Past weeks get a shape too, so m_now can take the matchup out of proj_now. A week
  *   without a positive Sleeper value has m = 1, and so does every week when no remaining week has one.
@@ -27,6 +28,12 @@
  *
  * The ESPN/Sleeper agreement check (§6 "agree within 10% on average across the league's rostered
  * players") is a ratio of sums, Σ|E − S| / Σ S, so bench players with tiny projections don't dominate.
+ * Since the planner's reply to Checkpoint 7e (item 6: "If K and D/ST are what push it over, leave them out of the test.")
+ * its sums leave out the positions config.projections.espnSleeperAgreementExcluded names, K and DEF, when given the
+ * players' positions (both callers give them: the League model's, league.ts projectLeaguePlayers, and the Import Report's
+ * note). On every saved day of Parker's two leagues ESPN projected nearly every kicker above Sleeper's line and most D/STs
+ * below it: a difference in how the two sources project those positions, not about players' roles, which the test is meant
+ * to measure. They're still logged, and averaged like every other player once the test passes.
  *
  * Conflicting ESPN signals (§6 step 3; planner reply to Checkpoint 2, answer 6): a PROBABLE, QUESTIONABLE
  * or DOUBTFUL player whose ESPN return date is 2+ weeks away gets Sleeper as the tiebreaker
@@ -85,6 +92,11 @@ export interface ProjectionConfig {
   actualFullGames: number;
   weekShapeClamp: readonly [number, number];
   espnSleeperAgreement: number;
+  /**
+   * Positions the averaging test leaves out of its sums when it's given the players' positions (config: K and DEF; planner
+   * reply to Checkpoint 7e, item 6). Absent (a test's own config): none.
+   */
+  espnSleeperAgreementExcluded?: readonly Pos[];
   sourceDisagreementLog: number;
   /** §6 step 3 "Conflicting ESPN signals": Sleeper's projection this week at this share of the healthy base rate or more makes an ESPN return date stale. */
   staleReturnShare: number;
@@ -442,6 +454,12 @@ export interface SourceAgreement {
   /** Average ESPN with Sleeper (§6): Σ|E − S| / Σ S ≤ config.projections.espnSleeperAgreement. False when no player has both. */
   agree: boolean;
   agreement: ProjectionSummary["agreement"];
+  /**
+   * The positions left out of the sums (cfg.espnSleeperAgreementExcluded) that had a player both sources project, in the
+   * config's order; absent when none was. agreement.leftOut repeats it; this one also says it when nobody else was compared
+   * (agreement null), so "no rostered player has both" can say whom it leaves aside.
+   */
+  leftOut?: Pos[];
   /** Players whose sources differ by more than sourceDisagreementLog of the larger value, largest gap first (§6 "log"). */
   disagreements: ProjectionSummary["disagreements"];
 }
@@ -450,8 +468,19 @@ export interface SourceAgreement {
  * §6 step 1, ESPN leagues: do ESPN's league-scored projections and Sleeper's (× league scoring) agree
  * within config.projections.espnSleeperAgreement on average? Measured in `week` (currentWeek) over the
  * rostered players both sources project (> 0) that week, as the ratio of sums Σ|E − S| / Σ S.
+ * With `positions` (the snapshot's players), a player whose position cfg.espnSleeperAgreementExcluded names (K and DEF:
+ * planner reply to Checkpoint 7e, item 6) is left out of the sums and the count, never out of the disagreement log; a
+ * player `positions` doesn't know counts. Without it every player counts, as before Checkpoint 7f.
  */
-export function espnSleeperAgreement(rosteredIds: Iterable<string>, players: Readonly<Record<string, PlayerInputs>>, week: number, cfg: ProjectionConfig = config.projections): SourceAgreement {
+export function espnSleeperAgreement(
+  rosteredIds: Iterable<string>,
+  players: Readonly<Record<string, PlayerInputs>>,
+  week: number,
+  cfg: ProjectionConfig = config.projections,
+  positions?: Readonly<Record<string, { readonly pos: Pos } | undefined>>,
+): SourceAgreement {
+  const excluded = new Set(positions ? (cfg.espnSleeperAgreementExcluded ?? []) : []);
+  const leftOutSeen = new Set<Pos>();
   let absDiff = 0;
   let sleeperSum = 0;
   let n = 0;
@@ -464,17 +493,51 @@ export function espnSleeperAgreement(rosteredIds: Iterable<string>, players: Rea
     const e = inputs?.espn?.[week];
     const s = inputs?.sleeper[week];
     if (!isProjected(e) || !isProjected(s)) continue;
+    const gap = Math.abs(e - s) / Math.max(e, s);
+    if (gap > cfg.sourceDisagreementLog) gaps.push({ gap, row: { playerId: id, espn: e, sleeper: s, week } });
+    const pos = positions?.[id]?.pos;
+    if (pos !== undefined && excluded.has(pos)) {
+      leftOutSeen.add(pos);
+      continue;
+    }
     n++;
     absDiff += Math.abs(e - s);
     sleeperSum += s;
-    const gap = Math.abs(e - s) / Math.max(e, s);
-    if (gap > cfg.sourceDisagreementLog) gaps.push({ gap, row: { playerId: id, espn: e, sleeper: s, week } });
   }
   gaps.sort((a, b) => b.gap - a.gap || (a.row.playerId < b.row.playerId ? -1 : a.row.playerId > b.row.playerId ? 1 : 0));
   const disagreements = gaps.map((g) => g.row);
-  if (n === 0) return { agree: false, agreement: null, disagreements };
+  const leftOut = [...excluded].filter((pos) => leftOutSeen.has(pos));
+  const aside = leftOut.length ? { leftOut } : {};
+  if (n === 0) return { agree: false, agreement: null, ...aside, disagreements };
   const meanRelDiff = absDiff / sleeperSum;
-  return { agree: meanRelDiff <= cfg.espnSleeperAgreement, agreement: { meanRelDiff, players: n, week }, disagreements };
+  const agreement = { meanRelDiff, players: n, week, ...(leftOut.length ? { leftOut: [...leftOut] } : {}) };
+  return { agree: meanRelDiff <= cfg.espnSleeperAgreement, agreement, ...aside, disagreements };
+}
+
+/** The averaging test's left-out positions as a sentence names them: only ESPN leagues compare, so a team defense is a "D/ST". */
+const LEFT_OUT_WORDS: Readonly<Partial<Record<Pos, string>>> = { K: "kickers", P: "punters", DEF: "D/STs" };
+
+/**
+ * ", kickers and D/STs aside" (", kickers aside" when no D/ST had both projections): the positions the averaging test left
+ * out of its sums (SourceAgreement.leftOut, ProjectionSummary.agreement.leftOut), for every text that states its result: the
+ * League model's warning, the Import Report's projection note, the League page's explainer and league-report's line. ""
+ * when it left none out.
+ */
+export function agreementAside(leftOut: readonly Pos[] | undefined): string {
+  const words = (leftOut ?? []).map((pos) => LEFT_OUT_WORDS[pos] ?? `${pos}s`);
+  if (!words.length) return "";
+  const list = words.length > 1 ? `${words.slice(0, -1).join(", ")} and ${words.at(-1)}` : words[0];
+  return `, ${list} aside`;
+}
+
+/**
+ * The averaging test's gap (meanRelDiff) as a text states it: a whole percent, or one decimal when that whole percent is
+ * the bar's ("10.0%", "9.9%"), so a gap beside the bar never reads "differ by 10%, more than the 10% we allow" (Checkpoint
+ * 7f; ⚠️ the lead's call: Oct 9's 10.03% read just that).
+ */
+export function agreementPercent(meanRelDiff: number, bar: number = config.projections.espnSleeperAgreement): string {
+  const whole = Math.round(meanRelDiff * 100);
+  return whole === Math.round(bar * 100) ? `${(meanRelDiff * 100).toFixed(1)}%` : `${whole}%`;
 }
 
 /** Players by base-rate source (ProjectionSummary.sources). */

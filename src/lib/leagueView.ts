@@ -198,7 +198,7 @@ import type {
 import { prepareLeagueSlots, solveLineup, type LineupPlayer } from "@/engine/lineup";
 import { fantasyCalcFallbackText, fantasyCalcFormat, fantasyCalcFormatLabel, noteDay } from "@/engine/market";
 import { POSITIONS, type InjuryStatus, type LeagueSettings, type LeagueSnapshot, type Platform, type PlayerInfo, type Pos, type Team } from "@/engine/model";
-import { actualWeightFor } from "@/engine/projections";
+import { actualWeightFor, agreementAside, agreementPercent } from "@/engine/projections";
 import { TITLE_ONLY, prizeStillMovable, type Reward } from "@/engine/reward";
 import { RETURN_WEEK_MAX } from "@/engine/settings";
 import { DIVISION_RULE_ASSUMED, weekList, weekUnderWayNote } from "@/engine/season";
@@ -2317,7 +2317,8 @@ interface ProjectionSource {
 /**
  * Where the base rates actually came from (§6 step 1; model.projection.sources counts players by
  * source), rather than assuming Sleeper: ESPN's own projections carry an ESPN league when Sleeper's
- * didn't load, and Sleeper's season projections or points so far are last resorts.
+ * didn't load, and Sleeper's season projections or points so far are last resorts. The ESPN/Sleeper gap is
+ * worded as the engine words it (projections.ts agreementPercent and agreementAside: "9.9%", kickers and D/STs aside).
  */
 function projectionSource(snapshot: LeagueSnapshot, model: LeagueModel): ProjectionSource {
   const s = model.projection.sources;
@@ -2326,17 +2327,18 @@ function projectionSource(snapshot: LeagueSnapshot, model: LeagueModel): Project
   const espnAlone = s.espn;
   const scored = "scored with your league's rules";
   const espnFor = espnAlone ? `ESPN's own for ${plural(espnAlone, "player")} Sleeper doesn't project` : "";
+  const aside = agreementAside(agreement?.leftOut);
   if (model.projection.espnAveraged && s["espn+sleeper"] > 0) {
     return {
       label: "ESPN and Sleeper, averaged",
-      from: `Sleeper's projection, ${scored}, averaged with ESPN's own projection (they agree within ${pct(agreement?.meanRelDiff ?? 0)} on average this week)${espnFor ? `; ${espnFor}` : ""}`,
+      from: `Sleeper's projection, ${scored}, averaged with ESPN's own projection (they agree within ${agreementPercent(agreement?.meanRelDiff ?? 0)} on average this week${aside})${espnFor ? `; ${espnFor}` : ""}`,
       sleeperWeekly: true,
     };
   }
   if (sleeper > 0 && sleeper >= espnAlone) {
     let from = `Sleeper's projection, ${scored}${espnFor ? ` (${espnFor})` : ""}`;
     if (snapshot.platform === "espn" && agreement) {
-      from += `. ESPN's own projections differ from Sleeper's by ${pct(agreement.meanRelDiff)} on average this week, more than the ${pct(config.projections.espnSleeperAgreement)} we allow, so we don't average them in`;
+      from += `. ESPN's own projections differ from Sleeper's by ${agreementPercent(agreement.meanRelDiff)} on average this week${aside}, more than the ${pct(config.projections.espnSleeperAgreement)} we allow, so we don't average them in`;
     }
     return { label: "Sleeper", from, sleeperWeekly: true };
   }

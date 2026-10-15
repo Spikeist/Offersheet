@@ -33,7 +33,7 @@ import { config } from "@/engine/config";
 import type { ModelInputs } from "@/engine/inputs";
 import { fantasyCalcFormat, fantasyCalcFormatLabel } from "@/engine/market";
 import { POSITIONS, type ImportWarning, type LeagueSettings, type LeagueSnapshot, type Platform, type Pos, type Scoring, type ScoringRule, type SeedingTiebreaker, type StatExpr, type Team, type UnknownSetting } from "@/engine/model";
-import { espnSleeperAgreement } from "@/engine/projections";
+import { agreementAside, agreementPercent, espnSleeperAgreement } from "@/engine/projections";
 import { rateFor, ruleApplies } from "@/engine/scoring";
 import { reseedRuleAssumed } from "@/engine/season";
 import { browserFetchLimits } from "@/server/limits";
@@ -918,8 +918,9 @@ const pct = (x: number) => `${Math.round(x * 100)}%`;
 /**
  * Which projections the League page uses (§6): Sleeper's × league scoring; in ESPN leagues averaged
  * with ESPN's own league-scored projections only when the two agree within
- * config.projections.espnSleeperAgreement on average over rostered players in the inputs' week
- * (the engine's espnSleeperAgreement: the same test the League model runs).
+ * config.projections.espnSleeperAgreement on average over rostered players in the inputs' week, kickers and D/STs aside
+ * (the engine's espnSleeperAgreement with the players' positions: the same test the League model runs), worded as the
+ * engine words it (projections.ts agreementAside, and agreementPercent: one decimal beside the bar).
  */
 function projectionNote(snapshot: LeagueSnapshot, model: ModelInputs): string | null {
   if (model.currentWeek > model.lastWeek) return null; // the season is over: nothing is projected
@@ -934,12 +935,14 @@ function projectionNote(snapshot: LeagueSnapshot, model: ModelInputs): string | 
   if (snapshot.platform !== "espn") return `${sleeperOnly}.`;
   if (!model.espnProjections) return `${sleeperOnly}. ESPN's own projections didn't load, so they aren't averaged in.`;
   const rostered = snapshot.teams.flatMap((t) => [...t.roster, ...t.ir, ...t.taxi]);
-  const { agree, agreement } = espnSleeperAgreement(rostered, model.players, model.currentWeek);
+  const { agree, agreement, leftOut } = espnSleeperAgreement(rostered, model.players, model.currentWeek, config.projections, snapshot.players);
   const limit = pct(config.projections.espnSleeperAgreement);
-  if (!agreement) return `${sleeperOnly}. No rostered player had both ESPN's and Sleeper's projection in week ${model.currentWeek}, so they aren't averaged.`;
-  const measured = `in week ${agreement.week} (${plural(agreement.players, "rostered player")})`;
-  if (agree) return `Projection source: ESPN's and Sleeper's projections, averaged. They differ by ${pct(agreement.meanRelDiff)} on average ${measured}, within the ${limit} we allow.`;
-  return `${sleeperOnly}. ESPN's own projections differ from them by ${pct(agreement.meanRelDiff)} on average ${measured}, more than the ${limit} we allow, so we don't average them in.`;
+  const aside = agreementAside(leftOut);
+  if (!agreement) return `${sleeperOnly}. No rostered player had both ESPN's and Sleeper's projection in week ${model.currentWeek}${aside}, so they aren't averaged.`;
+  const measured = `in week ${agreement.week} (${plural(agreement.players, "rostered player")}${aside})`;
+  const gap = agreementPercent(agreement.meanRelDiff);
+  if (agree) return `Projection source: ESPN's and Sleeper's projections, averaged. They differ by ${gap} on average ${measured}, within the ${limit} we allow.`;
+  return `${sleeperOnly}. ESPN's own projections differ from them by ${gap} on average ${measured}, more than the ${limit} we allow, so we don't average them in.`;
 }
 
 /**

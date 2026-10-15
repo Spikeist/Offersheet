@@ -178,6 +178,23 @@ describe("buildLeagueView: header (§14 item 3)", () => {
     expect(withSources({}).label).toBe("none loaded");
   });
 
+  it("says the averaging test left kickers and D/STs aside, and states a gap beside the bar to one decimal (planner reply to Checkpoint 7e, item 6)", () => {
+    const explainer = (espnAveraged: boolean, agreement: LeagueFixture["model"]["projection"]["agreement"], sources: Partial<Record<BaseRateSource, number>>) => {
+      const f = leagueFixture();
+      f.model.projection = { ...f.model.projection, espnAveraged, agreement, sources: { ...SOURCES, ...sources } };
+      return of(f).explain[0]?.text ?? "";
+    };
+    const averaged = { "espn+sleeper": 25, sleeper: 8 };
+    expect(explainer(true, { meanRelDiff: 0.04, players: 22, week: 12, leftOut: ["K", "DEF"] }, averaged)).toContain("averaged with ESPN's own projection (they agree within 4% on average this week, kickers and D/STs aside)");
+    expect(explainer(false, { meanRelDiff: 0.14, players: 22, week: 12, leftOut: ["K", "DEF"] }, { sleeper: 33 })).toContain(
+      "ESPN's own projections differ from Sleeper's by 14% on average this week, kickers and D/STs aside, more than the 10% we allow, so we don't average them in.",
+    );
+    expect(explainer(false, { meanRelDiff: 0.14, players: 24, week: 12, leftOut: ["K"] }, { sleeper: 33 })).toContain("by 14% on average this week, kickers aside, more than the 10% we allow");
+    // Beside the bar: one decimal (Oct 9's league read 9.86% without kickers and D/STs).
+    expect(explainer(true, { meanRelDiff: 0.09855, players: 22, week: 12, leftOut: ["K", "DEF"] }, averaged)).toContain("(they agree within 9.9% on average this week, kickers and D/STs aside)");
+    expect(explainer(false, { meanRelDiff: 0.1033, players: 22, week: 12, leftOut: ["K", "DEF"] }, { sleeper: 33 })).toContain("differ from Sleeper's by 10.3% on average this week, kickers and D/STs aside, more than the 10% we allow");
+  });
+
   it("labels a keeper league's values as the redraft (perception) list it shows (§9)", () => {
     const f = leagueFixture();
     f.snapshot = { ...f.snapshot, settings: { ...f.snapshot.settings, leagueType: "keeper" } };
