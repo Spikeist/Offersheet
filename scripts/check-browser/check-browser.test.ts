@@ -747,6 +747,7 @@ describe("Checkpoint 7b: notices in plain words (§5.1)", () => {
       "e.g. a bye week; A.J. Brown and D.J. Moore; St. Louis vs. LV; Marvin Harrison Jr. (WR, ARI); C. McCaffrey",
       "D/ST, W/R/T, SUPER_FLEX, half-PPR, 12.5 pts, 1,283.7 lineup points, iPhone, DynastyProcess, JaMarr Chase, DeVonta Smith",
       "Projection source: ESPN's and Sleeper's projections, averaged. They differ by 6% on average in week 5 (160 rostered players), within the 10% we allow.",
+      "Projection source: Sleeper's projections, scored with your league's rules. ESPN's own projections differ from them by 11% on average in week 6 (115 rostered players, kickers and D/STs aside), more than the 10% we allow, so we don't average them in.",
       "Our reading of ESPN's setting: not yet checked on a league like yours. Read from ESPN's keeper count: ESPN has no dynasty setting.",
     ])
       expect(noticeLeaks(plain), plain).toEqual([]);

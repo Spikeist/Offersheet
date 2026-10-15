@@ -103,6 +103,15 @@ export const config = {
     weekShapeClamp: [0.8, 1.2] as const,
     /** Average ESPN with Sleeper × rules only if they agree within this on average (planner reply 14). */
     espnSleeperAgreement: 0.1,
+    /**
+     * Positions the ESPN/Sleeper averaging test leaves out of its sums (planner reply to Checkpoint 7e, item 6: "If K and D/ST
+     * are what push it over, leave them out of the test."). On all 12 saved readings of Parker's two leagues (Sept 30 to
+     * Oct 15) ESPN projected nearly every kicker above Sleeper's line scored by the league's rules (by 0.9–1.7 points a kicker
+     * on average) and most D/STs below it, so they raised the league's gap on every reading, and on Oct 9 (week 5) they took
+     * it over the bar (10.03% with them, 9.86% without). The test only: once it passes they're averaged like every other
+     * player, and their disagreements are still logged.
+     */
+    espnSleeperAgreementExcluded: ["K", "DEF"] as readonly Pos[],
     /** Log players whose two sources disagree by more than this. */
     sourceDisagreementLog: 0.4,
     /**

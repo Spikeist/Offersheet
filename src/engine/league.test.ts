@@ -32,7 +32,7 @@ import { prepareLeagueSlots, prepareSlots } from "./lineup";
 import type { LeagueSnapshot, Pos, SlotDef, Transaction } from "./model";
 import { surplusScores } from "./needs";
 import { FULL_POOL, applyStep, createOptimizer, poolRestriction, type PoolRestriction, type StreamSpec } from "./optimizer";
-import { gameTimeBaseRate, priorHealthyBaseRate, weeklySd } from "./projections";
+import { espnSleeperAgreement, gameTimeBaseRate, priorHealthyBaseRate, weeklySd } from "./projections";
 import { rewardOf } from "./reward";
 import { defaultTradeSettings, type TradeSettings } from "./settings";
 import {
@@ -1542,6 +1542,36 @@ describe("players, projections and warnings (§6; the League page's rosters)", (
     // Sleeper leagues never compare.
     const sleeper = buildLeagueModel({ ...agree.snapshot, platform: "sleeper" }, agree.inputs, { now: TEST_NOW, scenarios: 0 }, NO_RISK);
     expect(sleeper.projection).toMatchObject({ espnAveraged: false, agreement: null, disagreements: [] });
+  });
+
+  it("leaves kickers and D/STs out of the averaging test, then averages them like every other player (planner reply to Checkpoint 7e, item 6)", () => {
+    // No season simulation: these one-team leagues have no schedule (it would add its own warning).
+    const opts = { now: TEST_NOW, scenarios: 0, sims: 0 };
+    const close = (id: string, pts: number, espn: number) => p(id, "QB", pts, { espn: { 4: espn } });
+    // ESPN projects the kicker at twice Sleeper's line and the D/ST a point under it.
+    const kicker = p("k", "K", 6, { espn: { 4: 12 } });
+    const dst = p("d", "DEF", 5, { espn: { 4: 4 } });
+    const agree = buildTestLeague({ platform: "espn", espnProjections: true, teams: [team("1", [close("a", 20, 21), close("b", 10, 10), kicker, dst])] });
+    // With them the gap would be (1 + 0 + 6 + 1) / 41 ≈ 20%: Sleeper's alone, as before Checkpoint 7f.
+    expect(espnSleeperAgreement(["a", "b", "k", "d"], agree.inputs.players, 4).agree).toBe(false);
+    const m = buildLeagueModel(agree.snapshot, agree.inputs, opts, NO_RISK);
+    expect(m.projection.espnAveraged).toBe(true);
+    expect(m.projection.agreement).toStrictEqual({ meanRelDiff: 1 / 30, players: 2, week: 4, leftOut: ["K", "DEF"] });
+    // Once it passes, the kicker and the D/ST are averaged too (their base rates are the projections alone: α 0).
+    expect(m.players.k?.base).toMatchObject({ source: "espn+sleeper", b: 9 });
+    expect(m.players.d?.base).toMatchObject({ source: "espn+sleeper", b: 4.5 });
+    expect(m.projection.sources["espn+sleeper"]).toBe(4);
+    // Their disagreements are still logged (the kicker's: 6 / 12 = 0.5).
+    expect(m.projection.disagreements.map((d) => d.playerId)).toEqual(["k"]);
+    expect(m.warnings).toEqual([]);
+    // Apart, the warning says whom the test left aside, and states a gap beside the bar to one decimal.
+    const apart = buildTestLeague({ platform: "espn", espnProjections: true, teams: [team("1", [close("a", 20, 30), close("b", 10, 10), kicker])] });
+    expect(buildLeagueModel(apart.snapshot, apart.inputs, opts, NO_RISK).warnings).toEqual(["ESPN's projections differ from Sleeper's by 33% on average this week, kickers aside (more than 10%), so projections use Sleeper's alone."]);
+    const edge = buildTestLeague({ platform: "espn", espnProjections: true, teams: [team("1", [close("a", 20, 23.1), close("b", 10, 10), dst])] });
+    expect(buildLeagueModel(edge.snapshot, edge.inputs, opts, NO_RISK).warnings).toEqual(["ESPN's projections differ from Sleeper's by 10.3% on average this week, D/STs aside (more than 10%), so projections use Sleeper's alone."]);
+    // Nobody else has both: nothing to compare, and the warning names whom it left aside.
+    const only = buildTestLeague({ platform: "espn", espnProjections: true, teams: [team("1", [p("a", "QB", 20, { espn: { 3: 21 } }), kicker])] });
+    expect(buildLeagueModel(only.snapshot, only.inputs, opts, NO_RISK).warnings).toEqual(["ESPN's and Sleeper's projections couldn't be compared this week (no rostered player has both, kickers aside), so projections use Sleeper's alone."]);
   });
 
   it("words the ESPN/Sleeper note from what loaded: no comparison claimed without Sleeper's projections, and no note once the season is over", () => {

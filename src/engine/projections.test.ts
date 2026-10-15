@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { config } from "./config";
 import type { PlayerInputs } from "./inputs";
-import { POSITIONS } from "./model";
+import { POSITIONS, type Pos } from "./model";
 import {
   actualWeightFor,
+  agreementAside,
+  agreementPercent,
   baseRate,
   baseRateSourceCounts,
   espnSleeperAgreement,
@@ -698,6 +700,99 @@ describe("espnSleeperAgreement (§6 step 1, ESPN leagues)", () => {
     // Equal gaps: by player id, whatever the roster order.
     const tied = { b: both(5, 10), a: both(10, 5) };
     expect(espnSleeperAgreement(["b", "a"], tied, 4).disagreements.map((d) => d.playerId)).toEqual(["a", "b"]);
+  });
+
+  describe("kickers and D/STs aside (planner reply to Checkpoint 7e, item 6: config.projections.espnSleeperAgreementExcluded)", () => {
+    const at = (pos: Pos) => ({ pos });
+
+    it("reads K and DEF from config", () => {
+      expect(config.projections.espnSleeperAgreementExcluded).toEqual(["K", "DEF"]);
+    });
+
+    it("leaves the configured positions out of its sums and count, never out of the disagreement log", () => {
+      // ESPN projects the kicker at twice Sleeper's line: he alone would sink the test.
+      const players = { qb: both(20, 21), wr: both(10, 10), k: both(12, 6) };
+      const ids = ["qb", "wr", "k"];
+      const logged = [{ playerId: "k", espn: 12, sleeper: 6, week: 4 }]; // 6 / 12 = 0.5 > sourceDisagreementLog
+      const everyone = espnSleeperAgreement(ids, players, 4);
+      expect(everyone).toStrictEqual({ agree: false, agreement: { meanRelDiff: 7 / 37, players: 3, week: 4 }, disagreements: logged });
+      const aside = espnSleeperAgreement(ids, players, 4, config.projections, { qb: at("QB"), wr: at("WR"), k: at("K") });
+      expect(aside).toStrictEqual({ agree: true, agreement: { meanRelDiff: 1 / 31, players: 2, week: 4, leftOut: ["K"] }, leftOut: ["K"], disagreements: logged });
+    });
+
+    it("counts everyone without positions, with no or an empty exclusion list, or for an id the positions don't know", () => {
+      const players = { qb: both(20, 21), k: both(12, 6) };
+      const all = { agree: false, agreement: { meanRelDiff: 7 / 27, players: 2, week: 4 }, disagreements: [{ playerId: "k", espn: 12, sleeper: 6, week: 4 }] };
+      const positions = { qb: at("QB"), k: at("K") };
+      expect(espnSleeperAgreement(["qb", "k"], players, 4)).toStrictEqual(all);
+      const empty: ProjectionConfig = { ...config.projections, espnSleeperAgreementExcluded: [] };
+      expect(espnSleeperAgreement(["qb", "k"], players, 4, empty, positions)).toStrictEqual(all);
+      const own: ProjectionConfig = { ...config.projections, espnSleeperAgreementExcluded: undefined };
+      expect(espnSleeperAgreement(["qb", "k"], players, 4, own, positions)).toStrictEqual(all);
+      expect(espnSleeperAgreement(["qb", "k"], players, 4, config.projections, { qb: at("QB") })).toStrictEqual(all);
+    });
+
+    it("is the test without positions bit for bit when no rostered player is at an excluded position", () => {
+      const pairs: [number, number, Pos][] = [
+        [13.9, 13.5, "QB"],
+        [21.2, 19.8, "RB"],
+        [6.1, 6.9, "WR"],
+        [9.4, 8.6, "TE"],
+        [15, 16.2, "WR"],
+        [1.5, 0.5, "RB"],
+      ];
+      const players = Object.fromEntries(pairs.map(([e, s], i) => [`p${i}`, both(e, s)]));
+      const positions = Object.fromEntries(pairs.map(([, , pos], i) => [`p${i}`, at(pos)]));
+      const without = espnSleeperAgreement(Object.keys(players), players, 4);
+      expect(espnSleeperAgreement(Object.keys(players), players, 4, config.projections, positions)).toStrictEqual(without);
+    });
+
+    it("lists the positions left out in the config's order, whatever the roster order, and compares nobody when only they have both", () => {
+      const players = { d: both(4, 5), k: both(12, 6), qb: both(null, 20) };
+      const positions = { d: at("DEF"), k: at("K"), qb: at("QB") };
+      expect(espnSleeperAgreement(["d", "k", "qb"], players, 4, config.projections, positions)).toStrictEqual({
+        agree: false,
+        agreement: null,
+        leftOut: ["K", "DEF"],
+        disagreements: [{ playerId: "k", espn: 12, sleeper: 6, week: 4 }],
+      });
+      // A kicker without both projections is no kicker left out.
+      const withQb = { ...players, qb: both(21, 20), k: both(12, null) };
+      expect(espnSleeperAgreement(["d", "k", "qb"], withQb, 4, config.projections, positions)).toStrictEqual({
+        agree: true,
+        agreement: { meanRelDiff: 1 / 20, players: 1, week: 4, leftOut: ["DEF"] },
+        leftOut: ["DEF"],
+        disagreements: [],
+      });
+    });
+  });
+});
+
+describe("agreementAside and agreementPercent: the averaging test in words (Checkpoint 7f)", () => {
+  it("names the positions left aside, a team defense as ESPN's D/ST", () => {
+    expect(agreementAside(undefined)).toBe("");
+    expect(agreementAside([])).toBe("");
+    expect(agreementAside(["K"])).toBe(", kickers aside");
+    expect(agreementAside(["DEF"])).toBe(", D/STs aside");
+    expect(agreementAside(["K", "DEF"])).toBe(", kickers and D/STs aside");
+    expect(agreementAside(["P", "K", "DEF"])).toBe(", punters, kickers and D/STs aside");
+    expect(agreementAside(["QB"])).toBe(", QBs aside");
+  });
+
+  it("prints a whole percent, or one decimal when that whole percent is the bar's, so a gap beside the bar never reads as the bar", () => {
+    // Oct 9 (week 5): 10.03% with kickers and D/STs, 9.86% without; both read "10%" as whole percents.
+    expect(agreementPercent(0.10026)).toBe("10.0%");
+    expect(agreementPercent(0.09855)).toBe("9.9%");
+    expect(agreementPercent(config.projections.espnSleeperAgreement)).toBe("10.0%");
+    expect(agreementPercent(0.095)).toBe("9.5%");
+    expect(agreementPercent(0.1049)).toBe("10.5%");
+    // Away from the bar: whole percents, as before.
+    expect(agreementPercent(0.0949)).toBe("9%");
+    expect(agreementPercent(0.11684)).toBe("12%");
+    expect(agreementPercent(1 / 30)).toBe("3%");
+    // Another bar.
+    expect(agreementPercent(0.2, 0.2)).toBe("20.0%");
+    expect(agreementPercent(0.1, 0.2)).toBe("10%");
   });
 });
 
