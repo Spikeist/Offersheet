@@ -47,6 +47,30 @@
  *   aren't just noise: comparing two runs on different draws would add their luck to the delta, and the
  *   shared draws take it out. Each delta is still an estimate from `sims` seasons.
  *
+ * Continuing a run (Checkpoint 7f; planner reply to Checkpoint 7e, answer 2: "simulate only the 15,000 seasons the ranking
+ * run doesn't already cover"; SimOptions.keep and resume, SimProgress)
+ * - A run on the first seasons of a matrix can be carried on to more of them. SimOptions.keep hands back its state after
+ *   its last season (SimResult.progress); a run of the same setup and options on the same matrix (the same buffer and start,
+ *   more seasons) given it as SimOptions.resume plays only the seasons after it, into the same running sums in the same
+ *   order, so its result is the full run's, bit for bit (sim.resume.test.ts, on every kind of setup this file plays). Season
+ *   n reads nothing of the matrix but its own draws, z[n], and nothing of the setup but what simulateSeason flattened into
+ *   SimState, the same in both runs. evaluate.ts continues each run on the ranking block (the shown block's first finalSims
+ *   seasons) on the shown block; waiverRating.ts each screening run on the whole shown block.
+ * - What simulateOne carries from one season to the next is exactly what SimProgress holds: the 13 accumulators, the two
+ *   sticky flags (simulateSeason's unknownPlayoffs, SimState.thirdUnknown) and SimState.medianOrder, the median sort's
+ *   starting order (its order is total, so the start can't change a result; carried all the same, so nothing leans on
+ *   that). Everything else it writes is rewritten before it's read, every season: the scores of the cells it draws (the
+ *   exact title mode reads no other cell), the records, the standings and seeds, the bracket's slots and chances, the
+ *   places' working arrays. ⚠️ The invariant this rests on: anything simulateOne comes to carry across seasons (a cache, an
+ *   adaptive start, a running stream of its own) must join SimProgress, or a continued run would quietly differ from a
+ *   full one; sim.resume.test.ts compares the two bit for bit on every kind of setup, so such a change fails it.
+ * - A progress continues only its own run. One from another setup as simulateOne reads it (stateDigest: every array and
+ *   count of SimState but its working space and the matrix), another matrix (another buffer or start: a matrix drawn again,
+ *   or none given, which draws its own), or more seasons than asked makes simulateSeason throw an Error, never a
+ *   RangeError (the callers read a RangeError as a setup they can't simulate: a progress that doesn't fit is a caller's
+ *   bug, never a silent number). Keeping and checking cost about 35–45 µs a run (the digest), against 15–20 ms for 5,000
+ *   seasons of Parker's leagues.
+ *
  * Regular season
  * - Records start from the platform's W-L-T, points for (PF) and points against (PA). Each remaining game
  *   adds a W and an L (exactly equal scores: a T for both, never a flipped coin), PF (the team's own
@@ -315,6 +339,42 @@ export interface SimOptions {
   titleMode?: SimTitleMode;
   /** A re-seeding bracket is exact from the first round with at most this many teams left (2, 4 or 8); default config.simulation.exactReseedTeams. */
   exactReseedTeams?: number;
+  /**
+   * Checkpoint 7f (the file header's "Continuing a run"): continue a run from its state after its first resume.sims seasons
+   * (SimResult.progress of a run of this setup with these options on the first seasons of `normals`: the same buffer and
+   * start), playing only seasons resume.sims … sims − 1; the result is the full run's, bit for bit. A progress of another
+   * setup or matrix, one given without `normals`, or one of more seasons than `sims` throws an Error.
+   */
+  resume?: SimProgress;
+  /** Checkpoint 7f: hand back the run's state after its last season (SimResult.progress), for a run of more seasons to continue. */
+  keep?: boolean;
+}
+
+/** The accumulators simulateOne adds to (SimState), which a SimProgress carries. */
+const ACC_KEYS = ["cPlayoffs", "cBye", "cTitle", "sumW", "sumL", "sumT", "cSeed", "cWeekWin", "cMedianWin", "cSecond", "cThird", "cHigh", "cLeader"] as const;
+type AccKey = (typeof ACC_KEYS)[number];
+
+/**
+ * A run's state after its first `sims` seasons (Checkpoint 7f; the file header's "Continuing a run"): everything simulateOne
+ * carries from one season to the next, and which run it was (its setup's digest, its matrix). Opaque: simulateSeason makes
+ * it (SimOptions.keep) and reads it (SimOptions.resume), and a resume never changes it, so one progress can be continued
+ * more than once.
+ */
+export interface SimProgress {
+  /** The seasons played: 0 … sims − 1. */
+  readonly sims: number;
+  /** stateDigest of the run's SimState: everything simulateOne reads but the matrix and its working space. */
+  readonly digest: string;
+  /** The matrix the seasons came from: its buffer, and where its season 0 starts in it. */
+  readonly buffer: ArrayBufferLike;
+  readonly byteOffset: number;
+  /** The accumulators after those seasons. */
+  readonly acc: Readonly<Record<AccKey, Float64Array>>;
+  /** The median sort's starting order after them (SimState.medianOrder). */
+  readonly medianOrder: Int32Array;
+  /** The sticky flags: a playoff round over without a result (simulateSeason's), a 3rd-place game that can't be known (SimState's). */
+  readonly unknownPlayoffs: boolean;
+  readonly thirdUnknown: boolean;
 }
 
 /** The common-random-numbers matrix: standard normals, z[n][w][t] at n·weeks·teams + w·teams + t. */
@@ -359,6 +419,8 @@ export interface SimResult {
    * and can't be known (its round over without a result). It never makes the title or 2nd place unknown.
    */
   thirdKnown: boolean;
+  /** Checkpoint 7f: the run's state after its last season, when SimOptions.keep asked for it (the file header's "Continuing a run"). */
+  progress?: SimProgress;
 }
 
 /** The rng key of the season matrix: sim n draws from streamFor(seed, SEASON_STREAM, n). */
@@ -509,7 +571,9 @@ function missingWeek(weeks: readonly number[], weekIndex: ReadonlyMap<number, nu
  * typed arrays, the working arrays every sim resets, and the accumulators. The per-sim work is the
  * module-level simulateOne(st, n): the JIT optimizes it like any hot function and reuses that code
  * for every later call, where one long loop inside simulateSeason would be recompiled on the fly
- * (on-stack replacement) at the start of each call.
+ * (on-stack replacement) at the start of each call. Checkpoint 7f (the file header's "Continuing a run"): stateDigest
+ * reads every field of the setup part, so a field added there joins it; a field simulateOne carries from one sim to the
+ * next joins SimProgress.
  */
 interface SimState {
   // Shape.
@@ -1343,10 +1407,59 @@ export function standingsOrder(setup: SimSetup): number[] {
   return order;
 }
 
+/**
+ * A digest of everything simulateOne reads but the matrix and its working space (Checkpoint 7f; the file header's
+ * "Continuing a run"): SimState's setup part, every count and flag and every flattened array (the scores' means and SDs and
+ * the cells drawn, the starting records, the games, median and points-only weeks, the standings rules, the bracket and its
+ * exact chances, the places' rule, the high-score periods), and the accumulators' sizes. Two 32-bit lanes (FNV-1a, and a
+ * rotate-and-multiply) over their 32-bit words, a Float64Array's by its bit patterns (every last bit, -0 and NaN told apart):
+ * a progress continues a run only when its digest is the run's.
+ */
+function stateDigest(st: SimState): string {
+  let h1 = 0x811c9dc5;
+  let h2 = 0x84222325;
+  const word = (x: number): void => {
+    h1 = Math.imul(h1 ^ x, 0x01000193) >>> 0;
+    h2 = Math.imul(((h2 << 5) | (h2 >>> 27)) ^ x, 0x5bd1e995) >>> 0;
+  };
+  // An array's length, then its contents word by word.
+  const words = (a: Float64Array | Int32Array): void => {
+    word(a.length);
+    const u = new Uint32Array(a.buffer, a.byteOffset, a.byteLength >>> 2);
+    for (let i = 0; i < u.length; i++) word(u[i] as number);
+  };
+  const bytes = (a: Uint8Array): void => {
+    word(a.length);
+    for (let i = 0; i < a.length; i++) word(a[i] as number);
+  };
+  const third = st.thirdRule === "game" ? 0 : st.thirdRule === "bySeed" ? 1 : 2;
+  const counts = [st.T, st.WT, st.pointsOnly ? 1 : 0, st.medianWinners, st.divisionWinnersFirst ? 1 : 0, st.D, st.N, st.B, st.R, st.byes, st.bracketPlayed ? 1 : 0];
+  for (const x of [...counts, st.reseed ? 1 : 0, st.exact ? 1 : 0, st.exactFrom, st.semiRound, st.finalRound, third, st.cWeekWin.length]) word(x | 0);
+  word(st.hierarchy.length);
+  for (const x of st.hierarchy) word(x);
+  const scores = [st.meanF, st.sdF, st.scoreCells];
+  const records = [st.baseW, st.baseL, st.baseT, st.basePF, st.basePA, st.h2hWinsBase, st.divWinsBase];
+  const weeks = [st.gameA, st.gameB, st.gameStart, st.gameWeek, st.gameSlot, st.medianWeek, st.medianSlot, st.pfWeek, st.hsStart, st.hsWeek];
+  const standings = [st.divOf, st.h2hMeetings, st.divGames];
+  const bracket = [st.seedSlots, st.resultWinner, st.winP];
+  for (const a of [...scores, ...records, ...weeks, ...standings, ...bracket]) words(a);
+  bytes(st.gameSame);
+  word(st.roundWeek.length);
+  for (const rw of st.roundWeek) words(rw);
+  return `${h1.toString(16).padStart(8, "0")}${h2.toString(16).padStart(8, "0")}`;
+}
+
 /** Simulates the rest of the season `opts.sims` times (§8). See the file header for every rule. */
 export function simulateSeason(setup: SimSetup, opts: SimOptions): SimResult {
   const fn = "simulateSeason";
   const sims = wholeCount(fn, "sims", opts.sims, 1);
+  // Checkpoint 7f (the file header's "Continuing a run"): a progress continues only its own run, on its own matrix, to as many
+  // seasons or more. An Error, never a RangeError: the callers read a RangeError as a setup they can't simulate.
+  const resume = opts.resume;
+  if (resume) {
+    if (!opts.normals) throw new Error(`${fn}: a run continues only on the matrix of normals its progress came from (none given)`);
+    if (!(resume.sims <= sims)) throw new Error(`${fn}: can't continue a progress of ${resume.sims} seasons to ${sims}`);
+  }
   const T = setup.teams.length;
   const W = setup.weeks.length;
   const WT = W * T;
@@ -1379,6 +1492,7 @@ export function simulateSeason(setup: SimSetup, opts: SimOptions): SimResult {
   if (normals.weeks !== W || normals.teams !== T || normals.sims < sims || normals.z.length < sims * WT)
     throw new RangeError(`${fn}: the normals matrix (${normals.sims} sims × ${normals.weeks} weeks × ${normals.teams} teams) doesn't fit ${sims} sims × ${W} weeks × ${T} teams`);
   const z = normals.z;
+  if (resume && (resume.buffer !== z.buffer || resume.byteOffset !== z.byteOffset)) throw new Error(`${fn}: the progress came from another matrix of normals`);
 
   // Divisions as dense indexes (-1 = none), in ascending order of the division numbers.
   const divisionNumbers = [...new Set(setup.teams.map((tm) => tm.division).filter((d): d is number => d !== null && Number.isFinite(d)))].sort((a, b) => a - b);
@@ -1686,8 +1800,33 @@ export function simulateSeason(setup: SimSetup, opts: SimOptions): SimResult {
     cHigh: new Float64Array(T),
     cLeader: new Float64Array(T),
   };
+  // The sims: from the first, or (Checkpoint 7f; the file header's "Continuing a run") from a progress of this very run, its
+  // accumulators, flags and median order copied in (the progress itself left as it was); this run's own state handed back
+  // when SimOptions.keep asks for it (st's own arrays: nothing else holds them once this returns).
+  const digest = resume || opts.keep ? stateDigest(st) : "";
   let unknownPlayoffs = false;
-  for (let n = 0; n < sims; n++) if (!simulateOne(st, n)) unknownPlayoffs = true;
+  let first = 0;
+  if (resume) {
+    if (resume.digest !== digest) throw new Error(`${fn}: the progress came from another setup`);
+    for (const k of ACC_KEYS) st[k].set(resume.acc[k]);
+    st.medianOrder.set(resume.medianOrder);
+    st.thirdUnknown = resume.thirdUnknown;
+    unknownPlayoffs = resume.unknownPlayoffs;
+    first = resume.sims;
+  }
+  for (let n = first; n < sims; n++) if (!simulateOne(st, n)) unknownPlayoffs = true;
+  const progress: SimProgress | null = opts.keep
+    ? {
+        sims,
+        digest,
+        buffer: z.buffer,
+        byteOffset: z.byteOffset,
+        acc: Object.fromEntries(ACC_KEYS.map((k) => [k, st[k]])) as Record<AccKey, Float64Array>,
+        medianOrder: st.medianOrder,
+        unknownPlayoffs,
+        thirdUnknown: st.thirdUnknown,
+      }
+    : null;
 
   // ---- Averages.
   const { cPlayoffs, cBye, cTitle, sumW, sumL, sumT, cSeed, cWeekWin, cMedianWin, cSecond, cThird, cHigh, cLeader } = st;
@@ -1711,5 +1850,5 @@ export function simulateSeason(setup: SimSetup, opts: SimOptions): SimResult {
     pWin: Float64Array.from({ length: T }, (_, t) => (hasGame[s * T + t] === 1 ? (cWeekWin[s * T + t] as number) / sims : Number.NaN)),
     pMedianWin: isMedianSlot[s] === 1 ? Float64Array.from({ length: T }, (_, t) => (cMedianWin[s * T + t] as number) / sims) : null,
   }));
-  return { sims, teams, weekly, playoffsKnown: !unknownPlayoffs, thirdKnown };
+  return { sims, teams, weekly, playoffsKnown: !unknownPlayoffs, thirdKnown, ...(progress ? { progress } : {}) };
 }

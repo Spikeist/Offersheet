@@ -65,6 +65,20 @@
  *   shown block's; SimState.rank.partners, the ranking block's). Every stage reads one block's scale: the screening and
  *   ranking stages the ranking block's B₃ and partners' scales (so the search ranks as it did on 5,000 seasons), the shown
  *   stage the shown block's (scaleBlockOf).
+ * - Checkpoint 7f (planner reply to Checkpoint 7e, answer 2: "simulate only the 15,000 seasons the ranking run doesn't
+ *   already cover"; sim.ts, "Continuing a run"): the ranking block is the shown block's first seasons, so a run on the shown
+ *   block continues the same run on the ranking block (SimState.resume), into the same running sums in the same order: its
+ *   numbers are the full run's, bit for bit, the baseline still LeagueModel.odds exactly. The context makes its ranking
+ *   block's baseline and calibration first, keeping their progress, and its shown block's continue them (the baseline on
+ *   each block is read off those very runs: until then runSim played each again). runSim keeps each ranking run's progress
+ *   by its rows (rankProgressOf: the side evaluations, which the context memoizes), and a run of the same rows on the shown
+ *   block continues it: every card and Plan B box of a search, a trade's own "before", a re-filter's new cards, an offer's
+ *   version and the Analyzer's trade when the search ranked them; each partner's scale likewise (partnerCalibrationOf).
+ *   Rows no ranking run had play every season: "now or after this week" (this week as before the trade, another setup), a
+ *   trade the search never ranked, the Analyzer before any search. The progress is kept for the context's life (about 5 KB a
+ *   run: +0.3–0.7 MB of heap after a search on Parker's leagues, against 135–150 MB for the search). TradeContextOptions.resume
+ *   false plays every run in full (tests and reports). On Parker's leagues (Oct 14, Node) the shown pass plays 390,000
+ *   seasons where it played 520,000 (league 1) and 315,000 where it played 420,000 (league 2).
  * - Once: partner profiles (acceptance.partnerProfile, P(playoffs) from the shown block's baseline), hot players, the
  *   deadline urgency, perception values and the waiver credit W (the League model's), long-term values and MyDynTotal
  *   when they loaded (benefit.futureValuesLoaded; since Checkpoint 7c every team's long-term total too, for "Helps
@@ -302,7 +316,8 @@
  *
  * The simulation (M4): the baseline SimSetup with my team's and the partner's mean and SD rows replaced by their
  * after-V* scores (every other team, and the week in progress, unchanged), simulateSeason on the screening block, the
- * ranking block ("final") or the shown block (Checkpoint 7e); ΔPO, ΔCH (null when title odds are unknown: benefit's titleMissing rule), ΔEW and (Checkpoint 7c)
+ * ranking block ("final") or the shown block (Checkpoint 7e; since Checkpoint 7f a run on the shown block continues the same
+ * rows' run on the ranking block when there was one: runSim); ΔPO, ΔCH (null when title odds are unknown: benefit's titleMissing rule), ΔEW and (Checkpoint 7c)
  * every prize component's change (TradeEvaluation.dPrizes, reward.ts runPrizeDeltas: P(2nd), P(3rd), the weekly high scores
  * won, unknown unless the context simulated them, the points title) against the baseline on the same block.
  * TradeDetail.winChance (Phase 4c; planner reply to
@@ -333,7 +348,8 @@
  * reads mine; B_future,P from the trade's own long-term package, ExactTrade.partnerDynasty), its scale B_ref,P benefit.ts
  * partnerScale on the partner's own calibration run (partnerCalibrationOf: league.ts helpsCalibrationOf with its id on the
  * stage's scale block, made once per partner, block and context, about 12 ms on Parker's league at 5,000 seasons, about 45
- * at 20,000), and Helps them their ratio as printed
+ * at 20,000, three quarters of that since Checkpoint 7f when it continues the partner's run on the ranking block), and Helps
+ * them their ratio as printed
  * (TradeEvaluation.them). It weighs nothing in B, the chance they accept or Overall.
  * ⚠️ κ = 0 when the trade values are our own estimates (Phase 4c lead decision; valuesEstimated: FantasyCalc's curve
  * fallback, MarketInputs.fallback kind "curve"): g_mkt(me) is then computed from values the model derives from its own
@@ -430,7 +446,7 @@ import {
 import { config } from "./config";
 import { explainTrade, injuryTags, tagContextOf, type ExplainContext } from "./explain";
 import type { ModelInputs } from "./inputs";
-import { ODDS_REFUSED_WARNING, buildLeagueModelWithContext, claimedBy, finalRunLineups, helpsCalibrationOf, nearTieRos, pickupScore, type FaAllocationMode, type LeagueContext, type TeamBase, type TeamWork } from "./league";
+import { ODDS_REFUSED_WARNING, buildLeagueModelWithContext, claimedBy, finalRunLineups, helpsCalibrationRun, nearTieRos, pickupScore, type FaAllocationMode, type LeagueContext, type TeamBase, type TeamWork } from "./league";
 import type { HelpsCalibration, LeagueModel, PlayerPremium, SeasonOdds, SlotInstance } from "./leagueModel";
 import { marketValues, valuesForTerm, waiverCredit, type ActiveSpots } from "./market";
 import { lineupTotal, prepareRoster } from "./lineup";
@@ -439,10 +455,10 @@ import { POSITIONS, type InjuryStatus, type LeagueSnapshot, type PlayerInfo, typ
 import { FULL_POOL, applyStep, fillCount, poolRestriction, returnersOf, rosterKey, type FaStep, type OptimizedRoster, type PoolRestriction, type StreamSpec } from "./optimizer";
 import { leaguePremiums, perceivedPackage, premiumFacts } from "./premium";
 import { activeSpots, irAfterTrade, irEligibleStatuses, type Displacement, type FinalLineups } from "./returners";
-import { buildSimSetup, oddsSkippedWarning, pickupSeasonModel, seasonOdds, shownSimsOf, type SeasonModel, type SimSetupResult } from "./season";
+import { buildSimSetup, oddsSkippedWarning, pickupSeasonModel, seasonOddsWith, shownSimsOf, type SeasonModel, type SimSetupResult } from "./season";
 import { paysWeekly, prizeStillMovable, rewardOf, runPrizeDeltas, type PrizeOdds, type Reward } from "./reward";
 import { PRIZE_KEYS, defaultTradeSettings, normalizeTradeSettings, type ProtectValue, type TradeSettings } from "./settings";
-import { simNormals, simulateSeason, type SimNormals, type SimTeamOdds } from "./sim";
+import { simNormals, simulateSeason, type SimNormals, type SimProgress, type SimResult, type SimTeamOdds } from "./sim";
 import {
   addGainExact,
   addFloors,
@@ -525,6 +541,14 @@ export interface TradeContextOptions {
    * of wave B, finding B-5): the app never sets it.
    */
   eitherWay?: boolean;
+  /**
+   * Checkpoint 7f (planner reply to Checkpoint 7e, answer 2; the file header, "One SimSetup … in three blocks"): true (the
+   * default) plays a run on the shown block from the same run's progress on the ranking block, the shown block's first
+   * finalSims seasons, so only the seasons the ranking block doesn't hold are played (sim.ts, "Continuing a run": the full
+   * run's numbers, bit for bit); false plays every run on the shown block in full, for tests and reports that compare the
+   * two: the app never sets it.
+   */
+  resume?: boolean;
 }
 
 /** TradeContextOptions.openSpotFill. */
@@ -759,11 +783,39 @@ export interface SimState extends BlockScale {
    * same seasons (config.simulation.shownSims at most finalSims), so nothing is simulated twice.
    */
   rank: BlockScale;
+  /**
+   * Checkpoint 7f (planner reply to Checkpoint 7e, answer 2: "simulate only the 15,000 seasons the ranking run doesn't already
+   * cover"; the file header): whether a run on the shown block continues the same run on the ranking block, its first
+   * finalSims seasons (sim.ts SimOptions.resume: the full run's numbers, bit for bit): the two blocks aren't one, and
+   * TradeContextOptions.resume isn't false. Runs on the ranking block keep their progress only then.
+   */
+  resume: boolean;
+  /**
+   * Checkpoint 7f: each run's progress on the ranking block by its rows (rankProgressOf: my row's side evaluation, then the
+   * partner's; a key of its own for a row the run doesn't replace), for the same rows' run on the shown block to continue.
+   * Kept for the context's life, as its side evaluations are (sideEval's memo), so a re-filter's cards, an offer's version
+   * the search ranked and the Analyzer on a card's trade continue theirs too.
+   */
+  rankRuns: WeakMap<object, WeakMap<object, SimProgress>>;
+  /** Checkpoint 7f: each partner's calibration run's progress on the ranking block (partnerCalibrationOf), by team id, for its run on the shown block to continue. */
+  partnerProgress: Map<string, SimProgress>;
 }
 
 /** A scale block's baseline and calibration runs: the shown block's (SimState's own fields) or the ranking block's (SimState.rank). */
 function blockScale(sim: SimState, block: ScaleBlock): BlockScale {
   return block === "shown" ? sim : sim.rank;
+}
+
+/** SimState.rankRuns' key for a row a run doesn't replace (the baseline's own: no side evaluation of mine, or no partner's). */
+const NO_ROW: object = Object.freeze({});
+
+/**
+ * The progress a run of these rows on the shown block continues (Checkpoint 7f; runSim): the same rows' run on the ranking
+ * block (SimState.rankRuns: `mine` my row's side evaluation, `theirs` the partner's; null, a row the run doesn't replace).
+ * Undefined when that run wasn't made, or kept nothing (SimState.resume false).
+ */
+export function rankProgressOf(sim: Pick<SimState, "rankRuns">, mine: SideEval | null, theirs: SideEval | null): SimProgress | undefined {
+  return sim.rankRuns.get(mine ?? NO_ROW)?.get(theirs ?? NO_ROW);
 }
 
 /** Everything a search or an Analyzer call reads. Mutable only through its memos. */
@@ -1159,10 +1211,19 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
           const final: SimNormals = same ? shown : { sims: finalSims, weeks: Wk, teams: T, z: shown.z.subarray(0, finalSims * per) };
           const blocks: Record<SimStage, SimNormals> = { screen, final, shown };
           const on = (normals: SimNormals) => ({ sims: normals.sims, seed: simSeed, normals, highScores });
-          const odds = seasonOdds(snapshot, seasonModel, on(shown));
-          // The ranking block's own baseline (the same setup on its seasons; the shown one when they're the same seasons).
-          const rankOdds = same ? odds : seasonOdds(snapshot, seasonModel, on(final));
-          if (odds && rankOdds) {
+          // Checkpoint 7f (planner reply to Checkpoint 7e, answer 2; sim.ts, "Continuing a run"): the ranking block is the shown
+          // block's first seasons, the same matrix from its season 0, so a run on the shown block continues the same run on
+          // the ranking block and plays only the seasons the ranking block doesn't hold (TradeContextOptions.resume false:
+          // every one in full); runs on the ranking block keep their progress for it.
+          const resume = !same && opts.resume !== false && final.z.buffer === shown.z.buffer && final.z.byteOffset === shown.z.byteOffset;
+          // The baseline on the ranking block (the same setup on its seasons), then on the shown block continuing it, whose
+          // odds are LeagueModel.odds exactly; one run when the two are the same seasons.
+          const rankRun = same ? null : seasonOddsWith(snapshot, seasonModel, { ...on(final), keep: resume });
+          const shownRun = seasonOddsWith(snapshot, seasonModel, { ...on(shown), ...(rankRun?.res.progress ? { resume: rankRun.res.progress } : {}) });
+          const ranking = same ? shownRun : rankRun;
+          if (shownRun && ranking) {
+            const odds = shownRun.odds;
+            const rankOdds = ranking.odds;
             const unknown: MyOdds = { pPlayoffs: 0, pTitle: null, expWins: 0, prizes: { first: null, second: null, third: null, weeklyHigh: 0, pointsLeader: 0 }, weekly: [], teams: [] };
             const partners = new Map<string, HelpsCalibration | null>();
             const sim: SimState = {
@@ -1176,16 +1237,23 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
               season: seasonModel,
               partners,
               rank: same ? { odds, calibration: null, partners } : { odds: rankOdds, calibration: null, partners: new Map() },
+              resume,
+              rankRuns: new WeakMap(),
+              partnerProgress: new Map(),
             };
             I.sim = sim;
             if (I.me) {
               sim.base.screen = runSim(I, null, null, "screen");
-              sim.base.shown = runSim(I, null, null, "shown");
-              sim.base.final = same ? sim.base.shown : runSim(I, null, null, "final");
-              // The "Helps you" calibration (B₃'s run): the League model's step 8c on the same block and setup, on the shown
-              // block (LeagueModel.helpsCalibration exactly) and on the ranking block.
-              sim.calibration = helpsCalibrationOf(snapshot, seasonModel, I.me.id, odds, on(shown), tw.from);
-              sim.rank.calibration = same ? sim.calibration : helpsCalibrationOf(snapshot, seasonModel, I.me.id, rankOdds, on(final), tw.from);
+              // The baseline's runs on the shown and ranking blocks are the very runs behind `odds` and `rankOdds` (the same setup,
+              // season.buildSimSetup of the same season model, on the same seasons), read as runSim reads a run (Checkpoint 7f:
+              // until then runSim played each of them again).
+              sim.base.shown = myOddsOf(I, shownRun.res);
+              sim.base.final = same ? sim.base.shown : myOddsOf(I, ranking.res);
+              // The "Helps you" calibration (B₃'s run): the League model's step 8c on the same block and setup, on the ranking
+              // block, then on the shown block continuing it (LeagueModel.helpsCalibration exactly).
+              const rankCal = same ? null : helpsCalibrationRun(snapshot, seasonModel, I.me.id, rankOdds, on(final), tw.from, config, { keep: resume });
+              sim.calibration = helpsCalibrationRun(snapshot, seasonModel, I.me.id, odds, on(shown), tw.from, config, rankCal?.progress ? { resume: rankCal.progress } : {}).calibration;
+              sim.rank.calibration = rankCal ? rankCal.calibration : sim.calibration;
             }
           }
         }
@@ -3278,7 +3346,12 @@ export function evaluateExact(I: TradeInternals, proposal: TradeProposal, maxPer
  * My odds with my team's and `partner`'s score rows replaced (null rows: the baseline's), `sims` seasons on the shared
  * matrix, and (Checkpoint 7c, "Helps them") every team's from the same run (MyOdds.teams, by the same rules: mine are its
  * entry for my team). P(title) is null when the league's title odds are unknown (season.ts's rules), and P(2nd) with it;
- * P(3rd) also when the 3rd-place game can't be known (season.ts seasonOdds' rules, Checkpoint 7c).
+ * P(3rd) also when the 3rd-place game can't be known (season.ts seasonOdds' rules, Checkpoint 7c). Checkpoint 7f (planner
+ * reply to Checkpoint 7e, answer 2; the file header, "One SimSetup … in three blocks"): with SimState.resume, a run on the
+ * ranking block keeps its progress by its rows (the side evaluations, which the context memoizes: sideEval), and the same
+ * rows' run on the shown block continues it (rankProgressOf), playing only the seasons the ranking block doesn't hold (sim.ts,
+ * "Continuing a run": the full run's numbers, bit for bit); rows no ranking run had (a trade the search never ranked, "now or
+ * after this week"'s own rows, the Analyzer before any search) play every season.
  */
 function runSim(I: TradeInternals, mine: SideEval | null, theirs: { partner: TeamState; side: SideEval } | null, stage: SimStage): MyOdds {
   const sim = I.sim as SimState;
@@ -3301,7 +3374,27 @@ function runSim(I: TradeInternals, mine: SideEval | null, theirs: { partner: Tea
     sd[theirs.partner.index] = r.sd;
   }
   const normals = sim.blocks[stage];
-  const res = simulateSeason({ ...setup, mean, sd }, { sims: normals.sims, seed: sim.seed, normals });
+  const keep = sim.resume && stage === "final";
+  const prior = sim.resume && stage === "shown" ? rankProgressOf(sim, mine, theirs?.side ?? null) : undefined;
+  const res = simulateSeason({ ...setup, mean, sd }, { sims: normals.sims, seed: sim.seed, normals, ...(prior ? { resume: prior } : {}), ...(keep ? { keep } : {}) });
+  if (res.progress) {
+    const key = mine ?? NO_ROW;
+    const byPartner = sim.rankRuns.get(key) ?? new WeakMap<object, SimProgress>();
+    byPartner.set(theirs?.side ?? NO_ROW, res.progress);
+    sim.rankRuns.set(key, byPartner);
+  }
+  return myOddsOf(I, res);
+}
+
+/**
+ * A run's numbers as runSim reads them: my odds, my win chance by week and every team's odds from it (MyOdds). Also the
+ * context's baseline on the shown and ranking blocks, read from the very runs behind SimState.odds and rank.odds (the same
+ * setup on the same seasons; buildTradeContext).
+ */
+function myOddsOf(I: TradeInternals, res: SimResult): MyOdds {
+  const sim = I.sim as SimState;
+  const me = I.me as TeamState;
+  const { setup } = sim.built;
   const playoffsKnown = sim.built.playoffsKnown && res.playoffsKnown;
   const known = (x: number | undefined, ok: boolean): number | null => (ok && x !== undefined && Number.isFinite(x) ? x : null);
   // One team's odds from this run (absent: a team the run doesn't list, read as nothing).
@@ -3402,6 +3495,9 @@ export function helpsScaleOf(I: Pick<TradeInternals, "sim" | "me" | "snapshot" |
  * them and every League model build would otherwise pay one run per team (about 12 ms each on Parker's league at 5,000
  * seasons). Null without odds, for a team the odds don't list, and (⚠️ ours) when the simulator refuses the run (a
  * RangeError: Helps them is then unknown for that partner rather than the search failing, as a refused baseline gives no odds).
+ * Checkpoint 7f (runSim's rule): with SimState.resume its run on the ranking block keeps its progress
+ * (SimState.partnerProgress), and its run on the shown block continues it (league.ts helpsCalibrationRun), playing only the
+ * seasons the ranking block doesn't hold; made first on the shown block (the Analyzer before any search), it plays them all.
  */
 export function partnerCalibrationOf(I: Pick<TradeInternals, "sim" | "snapshot" | "from">, teamId: string, block: ScaleBlock = "shown"): HelpsCalibration | null {
   const sim = I.sim;
@@ -3412,7 +3508,11 @@ export function partnerCalibrationOf(I: Pick<TradeInternals, "sim" | "snapshot" 
   let run: HelpsCalibration | null = null;
   try {
     const normals = sim.blocks[block];
-    run = helpsCalibrationOf(I.snapshot, sim.season, teamId, at.odds, { sims: normals.sims, seed: sim.seed, normals, highScores: sim.highScores }, I.from);
+    const prior = sim.resume && block === "shown" ? sim.partnerProgress.get(teamId) : undefined;
+    const prefix = prior ? { resume: prior } : { keep: sim.resume && block === "final" };
+    const r = helpsCalibrationRun(I.snapshot, sim.season, teamId, at.odds, { sims: normals.sims, seed: sim.seed, normals, highScores: sim.highScores }, I.from, config, prefix);
+    run = r.calibration;
+    if (r.progress) sim.partnerProgress.set(teamId, r.progress);
   } catch (err) {
     if (!(err instanceof RangeError)) throw err;
   }
