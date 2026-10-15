@@ -43,8 +43,9 @@
  *    tagged by the search's own rule, taggerOf), and its trade value (tradeValueText: g_mkt(me) and B's market term in
  *    points a week on the card's scale, TradeEvaluation.marketWeekly; planner reply to Checkpoint 7a, §2 question 5); the
  *    counts over the top 10 and every card, the Plan B boxes receiving an injury-tagged player among them (cardCounts;
- *    Checkpoint 7e: no card has steps, its "How to offer it" is section 11's); the pattern note (TradeSearchResult.pattern)
- *    when it shows.
+ *    Checkpoint 7e: no card has steps, its "How to offer it" is section 11's), the ideas hidden and those the variety rules
+ *    dropped, and since Checkpoint 7f those merged into another idea's offers (TradeSearchResult.dropped.merged: section
+ *    11); the pattern note (TradeSearchResult.pattern) when it shows.
  * 2. "What does your league reward?" (planner change 8; Checkpoint 7c, planner reply to Checkpoint 7b, §6: "how his top 5
  *    changed from 'Only the champion'"): the search the app runs under "Several prizes" on the league's split (--prizes;
  *    ⚠️ the prefilled split, config.benefit.prizesDefault, without it: prizesSettingsOf), on the trade context the app builds
@@ -157,19 +158,28 @@
  *    "Offers in order: the list for Parker's top 3 cards, with Helps you and the chance at each step, and the time to build
  *    it"; LadderSection, laddersOf, ladderRuns): under each setting (section 1's search, and section 2's under "Several prizes" on the split), the
  *    first LADDER_CARDS cards' offers in order, as the engine worker builds them when the card's "How to offer it" is opened
- *    (offers.ts, on the search's own state: its get pool for the partner, the versions it evaluated, the card's Plan B
- *    barred): each offer's place, players, Helps you and the chance as printed (with its label; "goes through" when the veto
- *    cuts it), "also trade idea N" when it is another card of the list, by its place there (the lead's call, wave D: the
- *    card's "Also shown as trade idea N."; "also “Helps both” idea N" for a card of that list alone), and the ladder's build
+ *    (offers.ts, on the search's own state: its get pool for the partner, the versions it evaluated; until Checkpoint 7f the
+ *    card's Plan B barred): each offer's place, players, Helps you and the chance as printed (with its label; "goes through"
+ *    when the veto cuts it), "also trade idea N" when it is another card of the list, by its place there (the lead's call,
+ *    wave D: the card's "Also shown as trade idea N."; "also “Helps both” idea N" for a card of that list alone), since
+ *    Checkpoint 7f "merged: was trade idea N" when it is a trade the search merged into a card (by its place on the list
+ *    without the merge), and the ladder's build
  *    time: each card's first open, right after each run's own search (laddersOf, the cards opened in order as in the
  *    worker: under section 1's setting after each of section 4's
  *    timed runs, under the split after each of ladderRuns' runs), the median over the runs (the review of wave D, D-ENG-10:
- *    this said "the median of LADDER_RUNS builds each on a fresh ladder store", which nothing measured); the candidates
+ *    this said "the median of LADDER_RUNS builds each on a fresh ladder store", which nothing measured), or since Checkpoint
+ *    7f "kept" for a ladder the search's merge read (handed back as it is; its time is the search's "offers"); the candidates
  *    there were and how many the pre-screen let through to be played out (offers.ts preScreened; the review of wave D,
  *    D-ENG-1); and on the first TOP_DETAIL cards every candidate played out (ladderBetter, offers.ts ladderChoice's
  *    `every`): whether the pre-screen picks the same offers, and (⚠️ the lead's question, "how often a variant prints a
  *    higher Helps you and a higher chance than its card") the candidates that print both higher (those with a higher printed
  *    chance, the same on every block, simulated on the card's block), which the ladder's chance rules keep out.
+ *    Checkpoint 7f (planner reply to Checkpoint 7e, decision 3, merged cards; mergeSection): under each setting the search's
+ *    merges against the same search without them (TradeSearchOptions.mergeCards false, on the same context): each merged trade
+ *    with its numbers, its place without the merge, the card it went into and its place among that card's offers; the cards that
+ *    came in and those that left otherwise; the pairs kept with a label (a card whose offers hold a card above it, the holder
+ *    below: the lead's call, policy (a)); the rounds, the ladders the merge read and their time ("offers": section 4's warm
+ *    median under section 1's setting, section 2's one search under the split).
  *
  * Phase 7b (planner reply to Checkpoint 7a, §6.1): the settings line names the playoff weeks' weight ω every ROS(T) of the
  * search reads, set automatically from my odds under my goal (league.ts step 5c; league-report's playoffWeightSummary: the
@@ -202,14 +212,15 @@ import { buildLeagueModel, firstKickoff } from "@/engine/league";
 import type { BaseRateSource, FaMove, HelpsCalibration, LeagueModel, SeasonOdds, TeamOdds } from "@/engine/leagueModel";
 import { neutralThrowIns } from "@/engine/market";
 import type { InjuryStatus, LeagueSnapshot } from "@/engine/model";
-import { ladderChoice, ladderJobOfSearch, offerLadderOfSearch, printedOf, type LadderCandidate, type LadderChoice } from "@/engine/offers";
+import { ladderChoice, ladderJobOfSearch, ladderNeighbors, offerFeasible, offerLadderOfSearch, printedOf, type LadderCandidate, type LadderChoice } from "@/engine/offers";
 import { eliteIds, perceivedPackage, teamPremiums } from "@/engine/premium";
+import { compareOverall } from "@/engine/rank";
 import { atMostWaiverCredit, buildPools, helpsBothLaneOf, helpsBothPoolOf, leanCompanions, partnerCandidates, runRefilter, runTradeSearch, searchStateOf, shortlistOf, type SearchState } from "@/engine/search";
 import { prizePeriods, type Reward } from "@/engine/reward";
 import { buildSimSetup, pickupSeasonModel, shownSimsOf } from "@/engine/season";
 import { GOALS, PROTECT_VALUE_LEVELS, defaultTradeSettings, normalizeTradeSettings, type Goal, type PrizeAmounts, type TradeSettings } from "@/engine/settings";
 import { simNormals } from "@/engine/sim";
-import type { HelpsBothList, InjuryTag, OfferLadder, OfferStep, OfferStepKind, OpenSpot, TradeAsset, TradeDetail, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeSearchResult, TradeSearchStage } from "@/engine/tradeModel";
+import type { HelpsBothList, InjuryTag, MergedCards, MergedTrade, OfferLadder, OfferStep, OfferStepKind, OpenSpot, TradeAsset, TradeDetail, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeSearchResult, TradeSearchStage } from "@/engine/tradeModel";
 import { waiverOrderText } from "@/lib/importReport";
 import { acceptText, injuryTagText, knownTagsOf, planBView, seasonEndOf, topChance, topPlacesOf, weeklyLine, type PlanBView } from "@/lib/tradeView";
 import { FileCache } from "@/server/cache";
@@ -443,7 +454,7 @@ export interface Tick {
  * simulation (search.ts: one per partner of the exact trades), and each final run by a "simFinal" yield, in
  * SearchState.finals' order, so an extra's final run (SearchState.helpsBothExtras) is the time up to its yield. ⚠️ The first
  * final run's time also holds the choice of the finalists (finalistsOf), so an extra there counts the median of the other
- * final runs. The second list's own work (its ranking, Plan B and words; its steps too until Checkpoint 7e) is interleaved with the Overall list's in one
+ * final runs. The second list's own work (its ranking, since Checkpoint 7f its merge's ladders, Plan B and words; its steps too until Checkpoint 7e) is interleaved with the Overall list's in one
  * stage, so it's measured against a search without "Helps them" instead (helpsBothCost).
  */
 export interface HelpsBothParts {
@@ -1732,7 +1743,7 @@ export interface HelpsBothCost {
   /** The partner calibration runs and the extras' final runs, each read off its run's progress (helpsBothParts): section 4's cold run and the median of its timed runs. */
   calibrations: { count: number; cold: number | null; warm: number | null };
   extras: { count: number; cold: number | null; warm: number | null };
-  /** The second list's own work (its ranking, Plan B and words; its steps too until Checkpoint 7e), warm only: the ranking stage (rank + steps) with Helps them less without, medians (⚠️ a difference of medians). */
+  /** The second list's own work (its ranking, since Checkpoint 7f its merge's ladders, Plan B and words; its steps too until Checkpoint 7e), warm only: the ranking stage (rank + steps + shown + offers) with Helps them less without, medians (⚠️ a difference of medians). */
   secondList: number | null;
   /** What Helps both adds to a search: the three parts (cold: the cold run's own calibration and extra runs and the warm second list, ⚠️). */
   extra: { cold: number | null; warm: number | null };
@@ -1777,8 +1788,8 @@ export function helpsBothCost(main: Runtime, without: Runtime): HelpsBothCost {
   const untouched = (r: RuntimeRun): number | null => (UNTOUCHED_STAGES.every((k) => finite(r.search[k])) ? UNTOUCHED_STAGES.reduce((acc, k) => acc + (r.search[k] as number), 0) : null);
   const sum = (xs: readonly (number | null)[]): number | null => (xs.every(finite) ? xs.reduce((s: number, x) => s + (x as number), 0) : null);
   // Since Checkpoint 7e the shown pass (its own timing, "shown": the second list's cards and boxes on the shown block, and each
-  // partner's "Helps them" scale there) is the second list's work too.
-  const rankSteps = (r: RuntimeRun): number => (r.search.rank ?? 0) + (r.search.steps ?? 0) + (r.search.shown ?? 0);
+  // partner's "Helps them" scale there) is the second list's work too, and since Checkpoint 7f its merge's ladders ("offers").
+  const rankSteps = (r: RuntimeRun): number => (r.search.rank ?? 0) + (r.search.steps ?? 0) + (r.search.shown ?? 0) + (r.search.offers ?? 0);
   const withRank = warm(main.runs, rankSteps);
   const withoutRank = warm(without.runs, rankSteps);
   const secondList = finite(withRank) && finite(withoutRank) ? withRank - withoutRank : null;
@@ -1962,7 +1973,8 @@ export interface LaneCost {
 
 /**
  * The stages the lane's rest is read from (search.ts: the extras' final runs, Plan B's pool and the second list come after the
- * screening simulation), and since Checkpoint 7e the shown pass ("shown", added when the run has it: laneCost).
+ * screening simulation), and since Checkpoint 7e the shown pass ("shown", added when the run has it: laneCost), since
+ * Checkpoint 7f the merge's ladders ("offers", the same way).
  */
 export const LANE_REST_STAGES = ["simFinal", "rank", "steps"] as const;
 
@@ -1975,7 +1987,7 @@ export function laneCost(main: Runtime, noLane: Runtime): LaneCost {
     const xs = rows.map((r) => r.search.total).filter(finite);
     return xs.length >= 2 ? Math.max(...xs) - Math.min(...xs) : null;
   };
-  const rest = (r: RuntimeRun): number | null => (LANE_REST_STAGES.every((k) => finite(r.search[k])) ? LANE_REST_STAGES.reduce((acc, k) => acc + (r.search[k] as number), 0) + (r.search.shown ?? 0) : null);
+  const rest = (r: RuntimeRun): number | null => (LANE_REST_STAGES.every((k) => finite(r.search[k])) ? LANE_REST_STAGES.reduce((acc, k) => acc + (r.search[k] as number), 0) + (r.search.shown ?? 0) + (r.search.offers ?? 0) : null);
   const withRest = warm(main.runs, rest);
   const withoutRest = warm(noLane.runs, rest);
   const cold = main.cold.lane;
@@ -2084,7 +2096,8 @@ export const OFFER_WORDS: Readonly<Record<OfferStepKind, string>> = { open: "Ope
 /**
  * One card's offers in order (section 11; the file header): the card, its ladder (offers.ts, as the engine worker builds it),
  * the candidates there were (`candidates`) and the legal ones the pre-screen let through to be played out (`screened`), and
- * its first opens' build times, one per run (laddersOf).
+ * its first opens' build times, one per run (laddersOf); since Checkpoint 7f whether the search kept it (`kept`: its merge
+ * read it, so a first open hands it back as it is, and its time is the search's "offers").
  */
 export interface LadderRow {
   card: TradeEvaluation;
@@ -2092,6 +2105,7 @@ export interface LadderRow {
   candidates: number;
   screened: number;
   ms: number[];
+  kept: boolean;
 }
 
 /** A candidate of a card's ladder that prints a higher Helps you and a higher chance than the card (ladderBetter). */
@@ -2114,10 +2128,103 @@ export interface LadderBetter {
   same: boolean;
 }
 
-/** Section 11 under one setting: the first LADDER_CARDS cards' ladders, and the first TOP_DETAIL cards' better variants. */
+/**
+ * Section 11 under one setting: the first LADDER_CARDS cards' ladders, the first TOP_DETAIL cards' better variants, and since
+ * Checkpoint 7f the merge (null when the search stopped before ranking).
+ */
 export interface LadderSetting {
   rows: LadderRow[];
   better: LadderBetter[];
+  merge: MergeSection | null;
+}
+
+/** One of a search's lists (section 11's merge). */
+export type ListName = "overall" | "helpsBoth";
+
+/**
+ * A trade merged into another card's "How to offer it" (section 11; Checkpoint 7f, planner reply to Checkpoint 7e, decision 3;
+ * search.ts, "Merged cards"): its numbers as it printed as a card, its place on its list without the merge (`was`; null: it
+ * came in after another merge), the card it went into with that card's place, and its own place among that card's offers.
+ */
+export interface MergeRow {
+  list: ListName;
+  trade: TradeEvaluationCore;
+  was: number | null;
+  into: TradeEvaluation;
+  intoPlace: number;
+  kind: MergedTrade["kind"];
+}
+
+/** A card whose offers hold a card of its list above it on Overall (the holder below): both stay, that offer labeled (the lead's call, policy (a)). */
+export interface LabelPair {
+  list: ListName;
+  holder: TradeEvaluation;
+  holderPlace: number;
+  held: TradeEvaluation;
+  heldPlace: number;
+  kind: OfferStepKind;
+}
+
+/**
+ * Section 11's merge under one setting (Checkpoint 7f; mergeSection): the search's merges (TradeSearchResult.merged) with a
+ * row each, against the same search without the merge (TradeSearchOptions.mergeCards false, Checkpoint 7e's lists): the cards
+ * each list shows that it didn't (`cameIn`) and the ones it showed that it doesn't, merged or not (`left`: the usual rules after
+ * a merge), the holder-below pairs kept with a label, each list's length both ways, and the merge's ladders' time (`ms`, the
+ * search's "offers" timing; null untimed).
+ */
+export interface MergeSection {
+  merged: MergedCards | null;
+  rows: MergeRow[];
+  cameIn: { list: ListName; card: TradeEvaluation; place: number }[];
+  left: { list: ListName; card: TradeEvaluation; was: number }[];
+  labels: LabelPair[];
+  cards: Record<ListName, { without: number; with: number }>;
+  ms: number | null;
+}
+
+/**
+ * Section 11's merge (the file header) from a search and the same search without the merge: each merged trade's row (its
+ * numbers from the search's own shown block, SearchState.shownByKey), the cards that came in, those that left without being
+ * merged, and the holder-below pairs: each card whose ladder can hold a card of its list above it on Overall (offers.ts
+ * ladderNeighbors and offerFeasible, as the search reads them), its ladder then read (offerLadderOfSearch).
+ */
+export function mergeSection(result: TradeSearchResult, unmerged: TradeSearchResult, ms: number | null): MergeSection | null {
+  const state = searchStateOf(result);
+  if (!state) return null;
+  const minChance = result.filter?.minChance ?? state.settings.minChance;
+  const lists: { list: ListName; cards: TradeEvaluation[]; before: TradeEvaluation[]; merged: MergedTrade[] }[] = [
+    { list: "overall", cards: result.trades, before: unmerged.trades, merged: result.merged?.overall ?? [] },
+    { list: "helpsBoth", cards: result.helpsBoth?.trades ?? [], before: unmerged.helpsBoth?.trades ?? [], merged: result.merged?.helpsBoth ?? [] },
+  ];
+  const placeIn = (list: readonly TradeEvaluation[], key: string): number | null => {
+    const i = list.findIndex((t) => t.key === key);
+    return i < 0 ? null : i + 1;
+  };
+  const out: MergeSection = { merged: result.merged ?? null, rows: [], cameIn: [], left: [], labels: [], cards: { overall: { without: unmerged.trades.length, with: result.trades.length }, helpsBoth: { without: unmerged.helpsBoth?.trades.length ?? 0, with: result.helpsBoth?.trades.length ?? 0 } }, ms };
+  for (const l of lists) {
+    const merged = new Set(l.merged.map((m) => m.key));
+    for (const m of l.merged) {
+      const into = l.cards.find((t) => t.key === m.into);
+      const trade = state.shownByKey.get(m.key) ?? state.finalByKey.get(m.key);
+      if (into && trade) out.rows.push({ list: l.list, trade, was: placeIn(l.before, m.key), into, intoPlace: placeIn(l.cards, m.into) as number, kind: m.kind });
+    }
+    l.cards.forEach((card, i) => {
+      if (placeIn(l.before, card.key) === null) out.cameIn.push({ list: l.list, card, place: i + 1 });
+    });
+    l.before.forEach((card, i) => {
+      if (placeIn(l.cards, card.key) === null && !merged.has(card.key)) out.left.push({ list: l.list, card, was: i + 1 });
+    });
+    l.cards.forEach((holder, i) => {
+      const above = l.cards.filter((x) => compareOverall(x, holder) < 0);
+      const can = ladderNeighbors(state, holder, above).some((n) => offerFeasible(holder, above.find((x) => x.key === n.key) as TradeEvaluation, n.kind, minChance));
+      if (!can) return;
+      for (const step of offerLadderOfSearch(result, holder.key)?.steps ?? []) {
+        const held = step.kind === "suggested" ? undefined : above.find((x) => x.key === step.evaluation.key);
+        if (held) out.labels.push({ list: l.list, holder, holderPlace: i + 1, held, heldPlace: placeIn(l.cards, held.key) as number, kind: step.kind });
+      }
+    });
+  }
+  return out;
 }
 
 /** Section 11 under section 1's setting (`title`) and section 2's split (`other`). */
@@ -2131,7 +2238,7 @@ export interface LadderSection {
  * them when each card's "How to offer it" is first opened: offers.ts offerLadderOfSearch on the search's own ladder store,
  * the cards in order (⚠️ so a card can reuse what an earlier one built on the same context, as in the worker), each timed
  * with the clock; and the candidates there were and the legal ones the pre-screen let through (offers.ts ladderChoice on the
- * same store and job, the card's Plan B barred: nothing built again but the candidates legality turns down). None for a
+ * same store and job: nothing built again but the candidates legality turns down). None for a
  * search that stopped before ranking.
  */
 export function laddersOf(result: TradeSearchResult, cards: number, clock: () => number): LadderRow[] {
@@ -2143,7 +2250,7 @@ export function laddersOf(result: TradeSearchResult, cards: number, clock: () =>
     const took = clock() - t0;
     if (!ladder) return [];
     const choice = ladderChoice(ladderJobOfSearch(state, card));
-    return [{ card, ladder, candidates: choice?.candidates ?? 0, screened: choice?.screened.length ?? 0, ms: [took] }];
+    return [{ card, ladder, candidates: choice?.candidates ?? 0, screened: choice?.screened.length ?? 0, ms: [took], kept: state.ladders?.has(card.key) ?? false }];
   });
 }
 
@@ -2176,7 +2283,7 @@ export function ladderRuns(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: 
  * ⚠️ The lead's question (the addendum for wave D, "a variant that prints a higher Helps you and a higher chance than the card
  * isn't in the ladder (it would be a better card, not a first offer); report how often one exists on Parker's top 10"): for
  * each of the first `cards` cards, its ladder's legal candidates, every one played out (offers.ts ladderChoice with `every`:
- * the variants and the lean version, on the search's own store, the card's Plan B barred), those that print a
+ * the variants and the lean version, on the search's own store), those that print a
  * higher chance than the card (the chance is the same on every block, so the screening block's numbers say it exactly), each
  * simulated on the card's block (offers.ts printedOf), and of them those that print a higher Helps you too; and whether the
  * ladder's pre-screen picks the same offers as every candidate does (the review of wave D, D-ENG-1: the pre-screen's check).
@@ -2203,14 +2310,19 @@ export function ladderBetter(result: TradeSearchResult, cards: number): LadderBe
   });
 }
 
-/** The console's word on section 11 (ladderSummary): the split's top cards, their offers and how long the first opens took. */
+/**
+ * The console's word on section 11 (ladderSummary): the split's top cards, their offers and how long the first opens took
+ * ("kept" for a ladder the search's merge read: Checkpoint 7f), and the split's merges.
+ */
 export function ladderSummary(s: LadderSection, other: string): string {
   const rows = s.other.rows;
   if (!rows.length) return `How to offer it: no cards under ${other}`;
   const offers = rows.map((r) => r.ladder.steps.length);
   const better = s.other.better.filter((b) => b.better.length > 0).length;
   const same = s.other.better.filter((b) => b.same).length;
-  return `How to offer it (${other}): the top ${rows.length} cards hold ${offers.join(" / ")} offers, built in ${rows.map((r) => ms(median(r.ms))).join(" / ")} (first opens, medians); ${better} of the top ${s.other.better.length} ${better === 1 ? "has" : "have"} a candidate printing a higher Helps you and a higher chance; the pre-screen picks every candidate's offers on ${same} of ${s.other.better.length}`;
+  const m = s.other.merge?.merged;
+  const merged = m ? `; ${m.overall.length + m.helpsBoth.length} merged into another card (${m.overall.length} on the Overall list)` : "";
+  return `How to offer it (${other}): the top ${rows.length} cards hold ${offers.join(" / ")} offers, built in ${rows.map((r) => (r.kept ? "kept" : ms(median(r.ms)))).join(" / ")} (first opens, medians); ${better} of the top ${s.other.better.length} ${better === 1 ? "has" : "have"} a candidate printing a higher Helps you and a higher chance; the pre-screen picks every candidate's offers on ${same} of ${s.other.better.length}${merged}`;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2345,9 +2457,13 @@ export function buildTradeReport(input: LeagueSnapshot, inputs: ModelInputs, opt
   // 1's setting from section 4's timed runs; the split's from runs of its own, each on a context and search of its own), and
   // on the top cards the candidates that print a higher Helps you and a higher chance than their card.
   const splitLadders = ladderRuns(snapshot, inputs, { ...runOpts, settings: prizesSettings }, LADDER_CARDS);
+  // Checkpoint 7f: each setting's merges against the same search without them (mergeCards false; on that setting's context:
+  // deterministic, so the same lists as on a context of its own), their time the search's own "offers" timing.
+  const unmerged = { title: runTradeSearch(ctx, { settings, mergeCards: false }), other: runTradeSearch(prizesCtx, { settings: prizesSettings, mergeCards: false }) };
+  const offersMs = (x: number | undefined | null): number | null => (finite(x) ? x : null);
   const ladders: LadderSection = {
-    title: { rows: mainLadders ?? [], better: ladderBetter(result, TOP_DETAIL) },
-    other: { rows: splitLadders.rows, better: ladderBetter(splitLadders.result, TOP_DETAIL) },
+    title: { rows: mainLadders ?? [], better: ladderBetter(result, TOP_DETAIL), merge: mergeSection(result, unmerged.title, offersMs(runtime.search.offers)) },
+    other: { rows: splitLadders.rows, better: ladderBetter(splitLadders.result, TOP_DETAIL), merge: mergeSection(splitLadders.result, unmerged.other, offersMs(goals.result.timings.offers)) },
   };
   lap("ladders");
   timing.total = clock() - start;
@@ -2392,7 +2508,7 @@ function renderHeader(L: string[], snapshot: LeagueSnapshot, inputs: ModelInputs
   const s = r.settings;
   const model = r.model;
   const me = r.result.myTeamId;
-  L.push("# Trade search: Parker's ESPN league (Checkpoint 7e)", "");
+  L.push("# Trade search: Parker's ESPN league (Checkpoint 7f)", "");
   L.push(
     `Generated by \`${opts.command ?? commandText("trade:report", [opts.mode === "live" ? "--live" : null])}\` on ${(opts.generatedAt ?? opts.now).toISOString().slice(0, 10)} through the real engine, as the app's Web Workers run it. Team, owner and league names are placeholders (you are Team ${me ?? "–"}); NFL player names are public.`,
     "",
@@ -2506,7 +2622,7 @@ function renderTop(L: string[], snapshot: LeagueSnapshot, inputs: ModelInputs, r
   const c10 = cardCounts(top, sc.tagsOf);
   const all = cardCounts(trades, sc.tagsOf);
   L.push(
-    `**Counts** (top ${c10.shown} / all ${all.shown} cards): with Plan B ${c10.planB} / ${all.planB}; receiving an injury-tagged player ${c10.injuredGet} / ${all.injuredGet}; Plan B boxes receiving one ${c10.planBInjuredGet} / ${all.planBInjuredGet}. Hidden: ${r.result.hidden.byBenefit} for B ≤ 0, ${r.result.hidden.byMarket} by the market guard, ${r.result.hidden.byChance ?? 0} under the minimum chance; dropped by the variety rules: ${r.result.dropped ? `${r.result.dropped.givenPlayer} by the given-player cap, ${r.result.dropped.partnerCap} by the partner cap, ${r.result.dropped.core} by the core rule, ${r.result.dropped.filler} as filler` : "–"}.`,
+    `**Counts** (top ${c10.shown} / all ${all.shown} cards): with Plan B ${c10.planB} / ${all.planB}; receiving an injury-tagged player ${c10.injuredGet} / ${all.injuredGet}; Plan B boxes receiving one ${c10.planBInjuredGet} / ${all.planBInjuredGet}. Hidden: ${r.result.hidden.byBenefit} for B ≤ 0, ${r.result.hidden.byMarket} by the market guard, ${r.result.hidden.byChance ?? 0} under the minimum chance; dropped by the variety rules: ${r.result.dropped ? `${r.result.dropped.givenPlayer} by the given-player cap, ${r.result.dropped.partnerCap} by the partner cap, ${r.result.dropped.core} by the core rule, ${r.result.dropped.filler} as filler` : "–"}; ${r.result.dropped?.merged ?? 0} merged into another idea's offers (Checkpoint 7f: section 11).`,
     "",
   );
   const p = r.result.pattern;
@@ -2588,7 +2704,7 @@ function renderScale(L: string[], r: Report): void {
 }
 
 function stagesTable(L: string[], main: Runtime, beams: Runtime): void {
-  const keys = ["setup", "screening", "exact", "simScreen", "simFinal", "rank", "steps", "shown", "total"];
+  const keys = ["setup", "screening", "exact", "simScreen", "simFinal", "rank", "steps", "shown", "offers", "total"];
   const fin = config.simulation.finalSims;
   const scr = config.simulation.screeningSims;
   const shown = shownSimsOf();
@@ -2601,6 +2717,7 @@ function stagesTable(L: string[], main: Runtime, beams: Runtime): void {
     rank: "ranking",
     steps: "Plan B and words (the steps too until Checkpoint 7e)",
     shown: `the shown pass (seasons 1–${thousands(shown)}: the cards and boxes shown, Checkpoint 7e)`,
+    offers: "the merge's ladders (Checkpoint 7f: worked out during the search, section 11)",
     total: "search, total",
   };
   L.push(`| Stage | Cold | Warm (median of ${main.runs.length}) | Beams alone (median of ${beams.runs.length}) |`, "|---|---|---|---|");
@@ -2936,13 +3053,13 @@ function renderHelpsBoth(L: string[], snapshot: LeagueSnapshot, inputs: ModelInp
   const many = (n: number, one: string, more: string): string => `${n} ${n === 1 ? one : more}`;
   const splitText = sp ? ` Under "${other}", section 2's one search (warm, ${ms(r.goals.result.timings.total)}): its ${many(sp.calibrations.count, "calibration run", "calibration runs")} ${ms(sp.calibrations.ms)} and its ${many(sp.extras.count, "extra's final run", "extras' final runs")} ${ms(sp.extras.ms)}.` : "";
   L.push(
-    `**The extra runtime** (⚠️ ours: under "${main}", section 4's runs, whose first is the process's only cold search, each timed one followed by the same search without "Helps them" on its own context: every partner's calibration run set to none in the context's memo, the engine test's way, so no calibration run (${h.without.calibrated} made), no extra (${h.without.extras}) and an empty second list (${h.without.list}); ${same}). The calibration runs and the extras' final runs are read off each run's own progress; Helps them's share of the ranking stage (since Checkpoint 7e the shown pass's too: the partners' scales on the shown block, which every card's tag reads, and the second list's cards played out there; then the second list's ranking, Plan B and words) is that stage's difference between the two sets, warm only (the cold extra adds the warm figure).${measured ? ` ${measured}` : ""}${splitText}`,
+    `**The extra runtime** (⚠️ ours: under "${main}", section 4's runs, whose first is the process's only cold search, each timed one followed by the same search without "Helps them" on its own context: every partner's calibration run set to none in the context's memo, the engine test's way, so no calibration run (${h.without.calibrated} made), no extra (${h.without.extras}) and an empty second list (${h.without.list}); ${same}). The calibration runs and the extras' final runs are read off each run's own progress; Helps them's share of the ranking stage (since Checkpoint 7e the shown pass's too: the partners' scales on the shown block, which every card's tag reads, and the second list's cards played out there; then the second list's ranking, since Checkpoint 7f its merge's ladders, Plan B and words) is that stage's difference between the two sets, warm only (the cold extra adds the warm figure).${measured ? ` ${measured}` : ""}${splitText}`,
     "",
   );
   L.push(`| | Cold | Warm (median of ${r.runtime.runs.length}) |`, "|---|---|---|");
   L.push(`| The partner calibration runs (${c.calibrations.count}, one per partner of the exact trades) | ${ms(c.calibrations.cold)} | ${ms(c.calibrations.warm)} |`);
   L.push(`| The extras' final runs (${c.extras.count}) | ${ms(c.extras.cold)} | ${ms(c.extras.warm)} |`);
-  L.push(`| Helps them's share of the ranking stage: the shown pass's partner scales and the second list's cards on ${thousands(shownSimsOf())} seasons, its ranking, Plan B and words | – | ${msSigned(c.secondList)} |`);
+  L.push(`| Helps them's share of the ranking stage: the shown pass's partner scales and the second list's cards on ${thousands(shownSimsOf())} seasons, its ranking, its merge's ladders, Plan B and words | – | ${msSigned(c.secondList)} |`);
   L.push(`| **The extra: the three parts** | ${c.extra.cold === null ? "–" : `≈ ${msChange(c.extra.cold)} ⚠️`} | ${c.extra.warm === null ? "–" : `${msChange(c.extra.warm)}${finite(c.without.warm) && c.without.warm > 0 ? ` (${signed((100 * c.extra.warm) / c.without.warm, 1)}%)` : ""}`} |`);
   L.push(`| Search total with "Helps them" (the app: section 4's) | ${ms(c.with.cold)} | ${ms(c.with.warm)} |`);
   L.push(`| Search total without (with, less the extra: ⚠️ derived) | ${ms(c.without.cold)} | ${ms(c.without.warm)} |`, "");
@@ -2998,13 +3115,13 @@ function renderLane(L: string[], r: Report, main: string, other: string): void {
       ? ` Under "${other}", section 2's one search (warm, ${ms(sp.with)}): the lane's exact evaluations ${ms(sp.parts.exact.ms)} and screening simulations ${ms(sp.parts.simScreen.ms)}; the search without the lane, on a context of its own, ${ms(sp.without)}${finite(sp.with) && finite(sp.without) ? ` (${msChange(sp.with - sp.without)} with it, one run each)` : ""}.`
       : "";
   L.push(
-    `**What the lane costs** (⚠️ ours: under "${main}", section 4's runs, each timed one followed by the same search without the lane on its own context, after the one without "Helps them"). Its exact evaluations and screening simulations are read off each run's own progress (⚠️ a batch of ${cs.yieldEverySims} simulations' time shared out evenly where the lane's begin inside one); the rest, the final simulation, ranking, the shown pass and Plan B with the lane less without (more extras' final runs and the displaced finalists' kept ones, a bigger Plan B pool and second list), is warm only (the cold extra adds the warm figure).${measured}${splitText}`,
+    `**What the lane costs** (⚠️ ours: under "${main}", section 4's runs, each timed one followed by the same search without the lane on its own context, after the one without "Helps them"). Its exact evaluations and screening simulations are read off each run's own progress (⚠️ a batch of ${cs.yieldEverySims} simulations' time shared out evenly where the lane's begin inside one); the rest, the final simulation, ranking, the shown pass, the merge's ladders and Plan B with the lane less without (more extras' final runs and the displaced finalists' kept ones, a bigger Plan B pool and second list), is warm only (the cold extra adds the warm figure).${measured}${splitText}`,
     "",
   );
   L.push(`| | Cold | Warm (median of ${r.runtime.runs.length}) |`, "|---|---|---|");
   L.push(`| The lane's exact evaluations (${c.exact.count}: its trades and their lean companions) | ${ms(c.exact.cold)} | ${ms(c.exact.warm)} |`);
   L.push(`| Their screening simulations (${c.simScreen.count}, the legal ones) | ${ms(c.simScreen.cold)} | ${ms(c.simScreen.warm)} |`);
-  L.push(`| The rest: final simulation, ranking, the shown pass and Plan B, with the lane less without | – | ${msSigned(c.rest)} |`);
+  L.push(`| The rest: final simulation, ranking, the shown pass, the merge's ladders and Plan B, with the lane less without | – | ${msSigned(c.rest)} |`);
   L.push(`| **The lane's extra: the three parts** | ${c.extra.cold === null ? "–" : `≈ ${msChange(c.extra.cold)} ⚠️`} | ${c.extra.warm === null ? "–" : `${msChange(c.extra.warm)}${finite(c.with.warm) && finite(c.extra.warm) && c.with.warm - c.extra.warm > 0 ? ` (${signed((100 * c.extra.warm) / (c.with.warm - c.extra.warm), 1)}%)` : ""}`} |`);
   L.push(`| Search total with the lane (the app: section 4's) | ${ms(c.with.cold)} | ${ms(c.with.warm)} |`);
   L.push(`| Search total without the lane (measured) | – | ${ms(c.measured.without)} |`, "");
@@ -3025,8 +3142,52 @@ export function alsoCardText(result: Pick<TradeSearchResult, "trades" | "helpsBo
 }
 
 /**
+ * An offer's mark in section 11 (the file header): "also trade idea N" when it's another card (alsoCardText), else since
+ * Checkpoint 7f "merged: was trade idea N" when the search merged it into a card, by its place on the list without the merge
+ * ("merged: was “Helps both” idea N" for one merged on that list alone; "merged" for one that came in only after another
+ * merge); null for none and for the suggested trade.
+ */
+export function offerMarkText(result: Pick<TradeSearchResult, "trades" | "helpsBoth">, merge: Pick<MergeSection, "rows"> | null, step: Pick<OfferStep, "kind" | "evaluation">): string | null {
+  const also = alsoCardText(result, step);
+  if (also || step.kind === "suggested") return also;
+  const rows = (merge?.rows ?? []).filter((r) => r.trade.key === step.evaluation.key);
+  const row = rows.find((r) => r.list === "overall") ?? rows[0];
+  if (!row) return null;
+  return row.was === null ? "merged" : `merged: was ${row.list === "overall" ? "trade idea" : "“Helps both” idea"} ${row.was}`;
+}
+
+/**
+ * Section 11's merge in words (Checkpoint 7f; mergeSection): the counts, each merged trade with the card it went into, the
+ * cards that came in and left, and the pairs kept with a label.
+ */
+export function mergeLines(snapshot: LeagueSnapshot, m: MergeSection | null, teamName: (id: string) => string): string[] {
+  if (!m) return ["**Merged cards**: the search stopped before ranking.", ""];
+  const list = (l: ListName) => (l === "overall" ? "Overall" : "“Helps both”");
+  const trade = (t: Pick<TradeEvaluation, "proposal" | "tradeScore" | "pAccept" | "pComplete" | "acceptLabel" | "overall"> & { detail: Pick<TradeDetail, "vetoRisk"> }) =>
+    `${teamName(t.proposal.partnerId)}: ${names(snapshot, playerIds(t.proposal.give))} → ${names(snapshot, playerIds(t.proposal.get))} (${threeNumbers(t)})`;
+  const c = m.merged;
+  const rounds = (n: number) => `${n} round${n === 1 ? "" : "s"}`;
+  const L: string[] = [
+    `**Merged cards** (planner reply to Checkpoint 7e, decision 3: a card whose "How to offer it" holds a card of its list below it on Overall takes it among its offers, and the next idea takes its place): ${
+      c
+        ? `${c.overall.length} merged on the Overall list (${rounds(c.rounds.overall)}), ${c.helpsBoth.length} on "Helps both" (${rounds(c.rounds.helpsBoth)}); ${c.ladders} ladder${c.ladders === 1 ? "" : "s"} read by the merge, worked out during the search${m.ms === null ? "" : ` in ${ms(m.ms)} (its "offers" timing)`}${c.released ? `; ${c.released} given back (in no offers of a card above it)` : ""}`
+        : "off"
+    }. The lists' cards without the merge → with it: Overall ${m.cards.overall.without} → ${m.cards.overall.with}, "Helps both" ${m.cards.helpsBoth.without} → ${m.cards.helpsBoth.with}.`,
+    "",
+  ];
+  for (const r of m.rows) L.push(`- ${list(r.list)}: ${trade(r.trade)}, ${r.was === null ? "a card only after another merge," : `idea ${r.was} without the merge,`} is now among the offers of idea ${r.intoPlace} (“${OFFER_WORDS[r.kind]}”), ${trade(r.into)}.`);
+  if (m.cameIn.length) L.push(`- Came in: ${m.cameIn.map((x) => `${list(x.list)} idea ${x.place}, ${trade(x.card)}`).join("; ")}.`);
+  if (m.left.length) L.push(`- Left, not merged (the usual rules after a merge): ${m.left.map((x) => `${list(x.list)} idea ${x.was} without the merge, ${trade(x.card)}`).join("; ")}.`);
+  if (m.labels.length) L.push(`- Kept with a label (⚠️ the lead's call: an idea whose offers hold an idea above it, which can't offer it back, so both stay and that offer says "Also shown as trade idea N."): ${m.labels.map((x) => `${list(x.list)} idea ${x.holderPlace}, ${trade(x.holder)}, offers idea ${x.heldPlace} (“${OFFER_WORDS[x.kind]}”)`).join("; ")}.`);
+  if (!m.rows.length && !m.labels.length) L.push("- No card's offers hold another card of its list.");
+  L.push("");
+  return L;
+}
+
+/**
  * One offer in the report's words: its place, its players with their tags (and "also trade idea N" when it's another card:
- * alsoCardText), Helps you and the chance as printed, and Helps them under a card tagged "Helps both".
+ * alsoCardText; since Checkpoint 7f "merged: was trade idea N" when it's a merged trade: offerMarkText), Helps you and the
+ * chance as printed, and Helps them under a card tagged "Helps both".
  */
 function offerLine(snapshot: LeagueSnapshot, inputs: ModelInputs, step: OfferStep, tagged: boolean, also: string | null): string {
   const e = step.evaluation;
@@ -3043,7 +3204,7 @@ function renderLadders(L: string[], snapshot: LeagueSnapshot, inputs: ModelInput
   const gain = Math.round(100 * st.minAcceptGain);
   L.push("## 11. How to offer it: offers in order", "");
   L.push(
-    `Planner reply to Checkpoint 7d, item 4.1: a card's "How to offer it" is up to ${o.maxSteps} offers to the same team, in order, worked out by the engine worker when it's opened (offers.ts, on the search's own state). **Open with**: the version best for you (the highest Helps you, at least the card's) that prints a chance of at least ${pctPlain(o.openMinChance, 0)} (or the minimum chance, when higher) and at least ${gain} points under the card's; **Then**: versions a little less good for you, each at least ${gain} points likelier than the one before and still ${gain} under the card; **The suggested trade**: the card; **Last offer**: the card plus a throw-in, at least ${gain} points likelier, keeping at least ${pctPlain(st.minBShare, 0)} of its B and never printing a higher Helps you than the card. Every offer helps you and passes the market guard, and under a card tagged "Helps both" helps both. The candidates: the card's own side with any 1 to ${r.settings.maxPerSide} players of that team's get pool H (the search's), and the lean version (the card without your cheapest throw-in in it); never the card's Plan B, which stays below the list ("If they won't move: try …"). ⚠️ Another card of the list can be an offer (the lead's call, wave D, in place of the review's barring, D-ENG-2 and UI-D-2), marked "also trade idea N" by its place on the list, as the card says it ("Also shown as trade idea N."). ⚠️ Pre-screened (the review of wave D, D-ENG-1): only the candidates whose quick estimate of the chance (the screening's fast method) lies within ${pctPlain(o.preScreenMargin, 0)} of the Open's and Then's window are played out, the most your lineup gains on the fast method first, at most ${o.preScreenMax}; on the first cards every candidate is played out too, to check it picks the same offers. Chosen on the screening block, each rule held on the numbers the offer prints (the shown block's ${thousands(shownSimsOf())} seasons, the card's). The chance as the card prints it, with its label ("goes through" when the veto cuts it). Built in: each card's first open right after a search, in Node, the median over the runs (under "${main}" section 4's ${r.runtime.runs.length} timed runs; under "${other}" as many of its own), each run on a trade context and search of its own; ⚠️ the cards opened in order, so a card can reuse what an earlier one built on the same context (the same partner's versions), as in the worker; the browser takes about ×1.24 (Checkpoint 7d's check:browser).`,
+    `Planner reply to Checkpoint 7d, item 4.1: a card's "How to offer it" is up to ${o.maxSteps} offers to the same team, in order, worked out by the engine worker when it's opened (offers.ts, on the search's own state). **Open with**: the version best for you (the highest Helps you, at least the card's) that prints a chance of at least ${pctPlain(o.openMinChance, 0)} (or the minimum chance, when higher) and at least ${gain} points under the card's; **Then**: versions a little less good for you, each at least ${gain} points likelier than the one before and still ${gain} under the card; **The suggested trade**: the card; **Last offer**: the card plus a throw-in, at least ${gain} points likelier, keeping at least ${pctPlain(st.minBShare, 0)} of its B and never printing a higher Helps you than the card. Every offer helps you and passes the market guard, and under a card tagged "Helps both" helps both. The candidates: the card's own side with any 1 to ${r.settings.maxPerSide} players of that team's get pool H (the search's), and the lean version (the card without your cheapest throw-in in it); never the card's Plan B, which stays below the list ("If they won't move: try …"; since Checkpoint 7f by the rules alone, nothing barred). ⚠️ Another card of the list can be an offer (the lead's call, wave D, in place of the review's barring, D-ENG-2 and UI-D-2), marked "also trade idea N" by its place on the list, as the card says it ("Also shown as trade idea N."); since Checkpoint 7f only one above it on Overall, which can't offer it back (the lead's call, policy (a)): one below it is merged into the card ("merged: was trade idea N", by its place without the merge; "Merged cards" below each setting). ⚠️ Pre-screened (the review of wave D, D-ENG-1): only the candidates whose quick estimate of the chance (the screening's fast method) lies within ${pctPlain(o.preScreenMargin, 0)} of the Open's and Then's window are played out, the most your lineup gains on the fast method first, at most ${o.preScreenMax}; on the first cards every candidate is played out too, to check it picks the same offers. Chosen on the screening block, each rule held on the numbers the offer prints (the shown block's ${thousands(shownSimsOf())} seasons, the card's). The chance as the card prints it, with its label ("goes through" when the veto cuts it). Built in: each card's first open right after a search, in Node, the median over the runs (under "${main}" section 4's ${r.runtime.runs.length} timed runs; under "${other}" as many of its own), each run on a trade context and search of its own; ⚠️ the cards opened in order, so a card can reuse what an earlier one built on the same context (the same partner's versions), as in the worker; the browser takes about ×1.24 (Checkpoint 7d's check:browser). "Kept" (Checkpoint 7f): the search's merge worked that ladder out, so a first open hands it back as it is (its time is the merge's, "offers").`,
     "",
   );
   const setting = (label: string, s: LadderSetting, result: TradeSearchResult): void => {
@@ -3055,13 +3216,15 @@ function renderLadders(L: string[], snapshot: LeagueSnapshot, inputs: ModelInput
     s.rows.forEach((row, i) => {
       const c = row.card;
       const tagged = helpsBoth(c);
-      L.push(`${i + 1}. ${teamName(c.proposal.partnerId)}: ${sideText(snapshot, inputs, c, "give")} → ${sideText(snapshot, inputs, c, "get")} (${threeNumbers(c)}${tagged ? `; Helps both, Helps them ${c.them?.helps ?? "–"}` : ""}): ${row.ladder.steps.length} offer${row.ladder.steps.length === 1 ? "" : "s"} from ${row.candidates} candidates, ${row.screened} legal ${row.screened === 1 ? "one" : "ones"} played out after the pre-screen, built in ${ms(median(row.ms))} (${row.ms.map(ms).join(" / ")})`);
-      row.ladder.steps.forEach((step, k) => L.push(`   ${k + 1}. ${offerLine(snapshot, inputs, step, tagged, alsoCardText(result, step))}`));
+      const built = row.kept ? `kept from the search (its merge read it), handed back in ${ms(median(row.ms))}` : `built in ${ms(median(row.ms))} (${row.ms.map(ms).join(" / ")})`;
+      L.push(`${i + 1}. ${teamName(c.proposal.partnerId)}: ${sideText(snapshot, inputs, c, "give")} → ${sideText(snapshot, inputs, c, "get")} (${threeNumbers(c)}${tagged ? `; Helps both, Helps them ${c.them?.helps ?? "–"}` : ""}): ${row.ladder.steps.length} offer${row.ladder.steps.length === 1 ? "" : "s"} from ${row.candidates} candidates, ${row.screened} legal ${row.screened === 1 ? "one" : "ones"} played out after the pre-screen, ${built}`);
+      row.ladder.steps.forEach((step, k) => L.push(`   ${k + 1}. ${offerLine(snapshot, inputs, step, tagged, offerMarkText(result, s.merge, step))}`));
       if (c.planB) L.push(`   If they won't move: try ${names(snapshot, playerIds(c.planB.proposal.give))} → ${names(snapshot, playerIds(c.planB.proposal.get))} (${boxNumbers(c.planB)})`);
     });
     const offers = s.rows.flatMap((row) => row.ladder.steps.filter((step) => step.kind !== "suggested"));
     const cards = offers.filter((step) => alsoCardText(result, step) !== null).length;
-    L.push("", `Of these ${offers.length} offer${offers.length === 1 ? "" : "s"} besides the cards themselves, ${cards} ${cards === 1 ? "is" : "are"} another card of the list.`);
+    const merged = offers.filter((step) => alsoCardText(result, step) === null && offerMarkText(result, s.merge, step) !== null).length;
+    L.push("", `Of these ${offers.length} offer${offers.length === 1 ? "" : "s"} besides the cards themselves, ${cards} ${cards === 1 ? "is" : "are"} another card of the list${merged ? ` and ${merged} ${merged === 1 ? "is a trade" : "are trades"} merged into ${merged === 1 ? "its card" : "their cards"}` : ""}.`);
     const withBetter = s.better.filter((b) => b.better.length > 0);
     const likelier = s.better.reduce((n, b) => n + b.likelier, 0);
     const list = withBetter.flatMap((b) => b.better.map((v) => `${names(snapshot, playerIds(b.card.proposal.give))} → ${names(snapshot, playerIds(b.card.proposal.get))} (${b.card.tradeScore ?? "–"}, ${chancePrinted(b.card.pComplete)}): ${v.kind === "lean" ? "its lean version" : "the variant"} ${names(snapshot, playerIds(v.proposal.give))} → ${names(snapshot, playerIds(v.proposal.get))} (${v.tradeScore ?? "–"}, ${chancePrinted(v.pComplete)})`));
@@ -3070,6 +3233,7 @@ function renderLadders(L: string[], snapshot: LeagueSnapshot, inputs: ModelInput
       `⚠️ Candidates that print a higher Helps you and a higher chance than their card (the lead's question; the ladder's chance rules keep them out: "a better card, not a first offer"), on the first ${s.better.length} cards: ${list.length ? `${list.length} on ${withBetter.length} card${withBetter.length === 1 ? "" : "s"}: ${list.join("; ")}` : "none"} (of ${s.better.reduce((n, b) => n + b.screened, 0)} legal candidates, every one played out, ${likelier} print a higher chance, each played out on the card's seasons). The pre-screen picks the offers every candidate gives on ${s.better.filter((b) => b.same).length} of these ${s.better.length} cards.`,
       "",
     );
+    L.push(...mergeLines(snapshot, s.merge, teamName));
   };
   setting(main, r.ladders.title, r.result);
   setting(`${other}${r.goals.reward ? ` (${prizesWords(r.goals.reward)})` : ""}`, r.ladders.other, r.goals.result);

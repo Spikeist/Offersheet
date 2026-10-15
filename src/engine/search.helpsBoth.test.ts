@@ -372,7 +372,8 @@ describe("the “Helps both” list (TradeSearchResult.helpsBoth)", { timeout: 1
   });
 
   it("an empty list is still a list (smallLeague(41): no trade helps both); a search stopped before ranking has none", () => {
-    expect(search(41, 0.1).helpsBoth).toEqual({ trades: [], qualifying: 0, byChance: 0, lowerWouldAdd: false, dropped: { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 } });
+    // Checkpoint 7f: `merged` counts the trades merged into another card (none here).
+    expect(search(41, 0.1).helpsBoth).toEqual({ trades: [], qualifying: 0, byChance: 0, lowerWouldAdd: false, dropped: { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0, merged: 0 } });
     const league = smallLeague(23);
     const none = runTradeSearch(buildTradeContext({ ...league.snapshot, myTeamId: null }, league.inputs, { now: TEST_NOW, scenarios: 0 }), { settings: at(0.1) });
     expect(none.helpsBoth).toBeUndefined();

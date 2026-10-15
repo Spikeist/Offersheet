@@ -4,12 +4,14 @@
  * players, placeholder teams): after a search answers, a card's "How to offer it" from the worker is the engine's own
  * (offers.ts offerLadderOfSearch on a fresh search of the same league: deterministic), timed, and survives the structured
  * clone a worker's postMessage makes; a second open is the ladder kept; the Analyzer's card and a card whose result the worker
- * doesn't keep are offers.ts offerLadderOfProposal's, on pages "analysis" and "finder".
+ * doesn't keep are offers.ts offerLadderOfProposal's, on pages "analysis" and "finder". Checkpoint 7f (search.ts, "Merged
+ * cards"): a card a trade was merged into gets the very ladder the search's merge read, holding that trade, and the same one
+ * worked out from its trade when the worker no longer keeps the result.
  */
 import { describe, expect, it } from "vitest";
 import { buildTradeContext } from "@/engine/evaluate";
 import { offerLadderOfProposal, offerLadderOfSearch } from "@/engine/offers";
-import { runTradeSearch } from "@/engine/search";
+import { runTradeSearch, searchStateOf } from "@/engine/search";
 import { defaultTradeSettings } from "@/engine/settings";
 import { TEST_NOW } from "@/engine/testLeague";
 import { smallLeague } from "@/engine/trade.testing";
@@ -72,7 +74,8 @@ describe("the worker's 'How to offer it' with the real engine (Checkpoint 7e, it
       handle(offers(++id, { kind: "search", resultId: 1, key: card.key }));
       const ladder = ladderOf(posted.find((r) => r.id === id));
       expect(untimed(ladder), card.key).toEqual(untimed(offerLadderOfSearch(fresh, card.key)));
-      expect(ladder.ms, card.key).toBeGreaterThan(0);
+      // Timed (a ladder the search kept for its merge takes next to nothing to hand back: Checkpoint 7f).
+      expect(ladder.ms, card.key).toBeGreaterThanOrEqual(0);
       expect(structuredClone(ladder)).toEqual(ladder);
       if (ladder.steps.length > 1) offered++;
       // A second open: the ladder kept.
@@ -93,5 +96,31 @@ describe("the worker's 'How to offer it' with the real engine (Checkpoint 7e, it
     const fresh = buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW, settings, scenarios: SCENARIOS });
     expect(ladderOf(posted.find((r) => r.id === 1))).toEqual(offerLadderOfProposal(fresh, card.proposal, { settings, page: "analysis" }));
     expect(ladderOf(posted.find((r) => r.id === 2))).toEqual(offerLadderOfProposal(fresh, card.proposal, { settings, page: "finder" }));
+  });
+
+  it("Checkpoint 7f: a card a trade was merged into gets the ladder the search's merge read, holding that trade; worked out from its trade when the result isn't kept, the same ladder (smallLeague 48 merges: a fact of the synthetic data)", { timeout: 300_000 }, async () => {
+    const merging = smallLeague(48);
+    const base = { ...job, snapshot: merging.snapshot, model: merging.inputs, myTeamId: merging.snapshot.myTeamId };
+    const posted: EngineResponse[] = [];
+    const handle = createEngineHandler((r) => posted.push(r), { buildContext: (snapshot, model, o) => buildTradeContext(snapshot, model, { ...o, scenarios: SCENARIOS }) });
+    handle({ type: "trades", id: 1, ...base, partnerId: null });
+    const answered = await until(posted, 1, ["trades", "error"]);
+    expect(answered.type, answered.type === "error" ? answered.detail : "").toBe("trades");
+    const result = (answered as Extract<EngineResponse, { type: "trades" }>).result as TradeSearchResult;
+    const merged = result.merged?.overall ?? [];
+    expect(merged.length).toBeGreaterThan(0);
+    const kept = searchStateOf(result)?.ladders;
+    let id = 10;
+    for (const keeper of new Set(merged.map((m) => m.into))) {
+      handle({ type: "offers", id: ++id, ...base, source: { kind: "search", resultId: 1, key: keeper } });
+      const ladder = ladderOf(posted.find((r) => r.id === id));
+      // The very ladder the merge read (no clock here, so nothing to set apart), holding each trade merged into the card.
+      expect(ladder, keeper).toBe(kept?.get(keeper));
+      for (const m of merged.filter((x) => x.into === keeper)) expect(ladder.steps.find((s) => s.evaluation.key === m.key)?.kind, m.key).toBe(m.kind);
+      // Its trade worked out afresh (a result the worker no longer keeps): the same offers.
+      const card = result.trades.find((t) => t.key === keeper);
+      handle({ type: "offers", id: ++id, ...base, source: { kind: "search", resultId: -1, key: keeper, ...(card ? { proposal: card.proposal } : {}) } });
+      expect(ladderOf(posted.find((r) => r.id === id)), keeper).toEqual(ladder);
+    }
   });
 });

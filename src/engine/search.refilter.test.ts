@@ -184,7 +184,8 @@ describe("refilterSearch: the finalists ranked again with another minimum (no ne
     expect(last.done).toBe(last.total);
     expect(last.total).toBeGreaterThanOrEqual(new Set([...r.trades, ...(r.helpsBoth?.trades ?? [])].map((t) => t.key)).size);
     for (const t of [...r.trades, ...(r.helpsBoth?.trades ?? [])]) for (const k of [t.key, ...(t.planB ? [t.planB.key] : [])]) expect(stateOf(r).shownByKey.has(k), k).toBe(true);
-    expect(Object.keys(r.timings)).toEqual(["rank", "steps", "shown", "total"]);
+    // Checkpoint 7f: "offers" too when the merge read a ladder (search.ts, "Merged cards").
+    expect(Object.keys(r.timings).sort()).toEqual(["rank", "steps", "shown", "total", ...((r.merged?.ladders ?? 0) > 0 ? ["offers"] : [])].sort());
     const it = refilterSearch(ctx, stateOf(search(0.1)), { minChance: 0.3 });
     expect(it.next().value).toEqual({ stage: "rank", done: 0, total: 1 });
     expect(it.return({} as TradeSearchResult).done).toBe(true);
@@ -207,11 +208,16 @@ describe("the pattern note's wiring (planner reply to Checkpoint 4b, change 6)",
     for (const minChance of [0, 0.1, 0.3]) {
       const r = search(minChance);
       const value = assetValue(I);
+      // Since Checkpoint 7f without the trades merged into an Overall card, which the filler rule reads as kept (and, as ever,
+      // without the "Helps both" extras).
+      const merged = new Set((r.merged?.overall ?? []).map((m) => m.key));
+      const extras = new Set(stateOf(r).helpsBothExtras);
+      const finals = stateOf(r).finals.map((c) => ({ ...c, reasons: [], pitch: "" }));
       const uncapped = rankTrades(
-        stateOf(r).finals.map((c) => ({ ...c, reasons: [], pitch: "" })),
+        finals.filter((c) => !merged.has(c.key) && !extras.has(c.key)),
         value,
         { ...rankCaps({ relaxed: false, onePartner: false }), perGivenPlayerInTop20: Number.POSITIVE_INFINITY },
-        { minChance },
+        { minChance, shownElsewhere: finals.filter((c) => merged.has(c.key)) },
       );
       // The list itself too (final review of Phase 4c, finding R7): the note says how many of his trades it shows.
       const expected = patternNote({ ...patternInputsOf(I, uncapped.trades), shown: r.trades });

@@ -666,7 +666,10 @@ export interface OfferStep {
   message: string;
 }
 
-/** "How to offer it" for one card (Checkpoint 7e, item 4.1), built on demand in the engine worker. */
+/**
+ * "How to offer it" for one card (Checkpoint 7e, item 4.1), built on demand in the engine worker; since Checkpoint 7f also
+ * during the search for a card the merge reads (search.ts, "Merged cards"), which the worker then hands back as it is.
+ */
 export interface OfferLadder {
   /** The card's key: its suggested trade's proposalKey. */
   cardKey: string;
@@ -674,6 +677,36 @@ export interface OfferLadder {
   steps: OfferStep[];
   /** How long the ladder took to build, in ms, when the engine had a clock. */
   ms?: number;
+}
+
+/**
+ * A trade folded into another card's "How to offer it" (Checkpoint 7f; planner reply to Checkpoint 7e, decision 3: "When one
+ * card's offer list contains another card's trade, merge them: Keep only the card with the higher Overall in the list. The
+ * other trade appears only inside that card's offer list."; search.ts, "Merged cards"): its key, the card that offers it
+ * (`into`, still on the list) and its place among that card's offers.
+ */
+export interface MergedTrade {
+  key: string;
+  into: string;
+  kind: Exclude<OfferStepKind, "suggested">;
+}
+
+/** A search's merged cards (TradeSearchResult.merged; search.ts, "Merged cards"). */
+export interface MergedCards {
+  /** Each list's trades folded into another card's offers, in the order they were folded. */
+  overall: MergedTrade[];
+  helpsBoth: MergedTrade[];
+  /** The rounds each list's merge took, the last one folding nothing (1: nothing folded). */
+  rounds: { overall: number; helpsBoth: number };
+  /**
+   * The ladders the merge read (each card with a card of its list below it among its possible offers, and to give a trade
+   * back, the cards above it that could offer it): worked out during the search, or read back when a re-filter of the same
+   * search at the same minimum chance had them already (offers.ts keeps each choice per search and minimum), so the count is
+   * the same either way.
+   */
+  ladders: number;
+  /** ⚠️ The trades folded and then given back, in no offers of a card above them on their list (the release rule; ours). */
+  released: number;
 }
 
 /** The star premium on one player the partner would give (§1 of the addendum), for the explanations and the tags. */
@@ -804,9 +837,10 @@ export interface TradeSearchResult {
    * cap in the top 20, over the per-core cap, filler variants (with the cards folded into another card's steps from the
    * final review of Phase 4c until Checkpoint 7e: search.ts foldedCards), and over Phase 4b's given-player cap in the top 20),
    * counted so a page can say so. The search always sets it (every key, 0 when it stops before ranking); optional only
-   * so that fakes needn't (end-of-Phase-4 review, finding 5).
+   * so that fakes needn't (end-of-Phase-4 review, finding 5). Checkpoint 7f: `merged`, the trades folded into another card's
+   * "How to offer it" (MergedCards.overall), whenever the search ranks with the merge on.
    */
-  dropped?: { partnerCap: number; core: number; filler: number; givenPlayer: number };
+  dropped?: { partnerCap: number; core: number; filler: number; givenPlayer: number; merged?: number };
   /**
    * Counts per stage: candidates screened, exactly evaluated, simulated on the screening block (config.simulation.
    * screeningSims) and on the ranking block (finalSims: the finalists and "Helps both" extras); and since Checkpoint 7e
@@ -823,7 +857,8 @@ export interface TradeSearchResult {
   /**
    * Phase 4c (planner reply to Checkpoint 4b, change 10): the minimum chance applied (TradeSettings.minChance, judged on
    * P_complete as the card prints it, before the diversity caps); `qualifying`: how many finalists pass the §10 guards and
-   * the minimum, before the caps; `few`: the list shows fewer than config.ranking.minChanceFew ideas and the same finalists
+   * the minimum, before the caps (since Checkpoint 7f the trades merged into another card among them, as Phase 4c counted the
+   * folded cards); `few`: the list shows fewer than config.ranking.minChanceFew ideas and the same finalists
    * would show more at a lower setting (never at "Any"), so the page suggests one. Absent when the search stopped before
    * ranking.
    */
@@ -850,6 +885,12 @@ export interface TradeSearchResult {
    * stopped before ranking, and on fakes.
    */
   helpsBoth?: HelpsBothList;
+  /**
+   * Checkpoint 7f (planner reply to Checkpoint 7e, decision 3; search.ts, "Merged cards"): each list's trades folded into
+   * another card's "How to offer it", for reports and tests. The search sets it whenever it ranks with the merge on
+   * (TradeSearchOptions.mergeCards, a report switch); absent otherwise, and on fakes.
+   */
+  merged?: MergedCards;
 }
 
 /**
@@ -858,13 +899,17 @@ export interface TradeSearchResult {
  * helps-both finalists among them, that help both teams on their final numbers (benefit.ts helpsBoth: Helps you and Helps
  * them each at least config.benefit.helpsThemMin, both as printed), in Helps-you order (B, highest first), after the §10
  * guards and the minimum chance, through §13's diversity rules in that order (rank.ts RankOptions order "helps", keep), and
- * until Checkpoint 7e the folding of cards that showed one plan. A card the Overall list shows too is the very same evaluation
+ * until Checkpoint 7e the folding of cards that showed one plan; since Checkpoint 7f the merge of a trade one of its cards
+ * offers into that card (search.ts, "Merged cards"). A card the Overall list shows too is the very same evaluation
  * (one Plan B and one set of words per card; until Checkpoint 7e one set of steps).
  */
 export interface HelpsBothList {
   /** At most config.search.resultsShown trades, Helps-you order. */
   trades: TradeEvaluation[];
-  /** The finalists that pass the guards, help both teams and meet the minimum chance, before the diversity rules (until Checkpoint 7e the folded cards included, as the Overall list counted them). */
+  /**
+   * The finalists that pass the guards, help both teams and meet the minimum chance, before the diversity rules (until
+   * Checkpoint 7e the folded cards included, as the Overall list counted them; since Checkpoint 7f the merged ones).
+   */
   qualifying: number;
   /** The finalists that help both teams and pass the guards but are under the minimum chance (the hidden line's count for this list). */
   byChance: number;
@@ -873,8 +918,11 @@ export interface HelpsBothList {
    * does, so a lower setting would add some (the page's suggestion); false at Any.
    */
   lowerWouldAdd: boolean;
-  /** Dropped by the diversity rules, as TradeSearchResult.dropped counts the Overall list's (until Checkpoint 7e the folded cards as filler). */
-  dropped: { partnerCap: number; core: number; filler: number; givenPlayer: number };
+  /**
+   * Dropped by the diversity rules, as TradeSearchResult.dropped counts the Overall list's (until Checkpoint 7e the folded
+   * cards as filler; since Checkpoint 7f `merged`, the trades merged into another card of this list, with the merge on).
+   */
+  dropped: { partnerCap: number; core: number; filler: number; givenPlayer: number; merged?: number };
 }
 
 /**

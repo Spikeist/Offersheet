@@ -3,7 +3,7 @@ import { displayAcceptance } from "./acceptance";
 import { helpsBoth } from "./benefit";
 import { config } from "./config";
 import { mulberry32 } from "./rng";
-import { assetId, helpsBothTrades, meetsMinChance, rankTrades, sortTrades, type RankConfig } from "./rank";
+import { assetId, compareOverall, helpsBothTrades, meetsMinChance, rankTrades, sortTrades, type RankConfig } from "./rank";
 import { titleDeltas } from "./reward";
 import { tradeEvaluation } from "./tradeTestFixtures";
 import type { TradeAsset, TradeEvaluation } from "./tradeModel";
@@ -457,6 +457,61 @@ describe("rankTrades: the minimum chance (planner reply to Checkpoint 4b, change
       expect(again.hidden).toEqual(first.hidden);
       expect(again.qualifying).toBe(first.qualifying);
     }
+  });
+});
+
+describe("trades shown elsewhere (Checkpoint 7f, merged cards: RankOptions.shownElsewhere; compareOverall)", () => {
+  // A trade folded into another card's "How to offer it": a filler reference only.
+  const folded = tradeEvaluation({ key: "folded", partnerId: "7", b: 5, pComplete: 0.6, give: ["p1"], get: ["p20"] });
+
+  it("a variant of one that only adds a filler player leaves as filler, as it would beside the card it was", () => {
+    const f = config.ranking.fillerCutoffFraction;
+    const filler = tradeEvaluation({ key: "filler", partnerId: "7", b: 5 * (1 + f) - 0.01, pComplete: 0.5, give: ["p1", "p2"], get: ["p20"] });
+    const other = tradeEvaluation({ key: "other", partnerId: "8", b: 2, pComplete: 0.5, give: ["p3"], get: ["p30"] });
+    const r = rankTrades([filler, other], byNumber, { ...rankCfg(), perCore: 10 }, { shownElsewhere: [folded] });
+    expect(keys(r.trades)).toEqual(["other"]);
+    expect(r.dropped.filler).toBe(1);
+    expect(r.qualifying).toBe(2);
+    // Without it the variant shows; a bigger variant ranked above the folded trade is no filler of it (rule a).
+    expect(keys(rankTrades([filler, other], byNumber, { ...rankCfg(), perCore: 10 }).trades)).toEqual(["filler", "other"]);
+    const ahead = { ...filler, key: "ahead", b: 5.5, pComplete: 0.7 };
+    expect(keys(rankTrades([ahead, other], byNumber, { ...rankCfg(), perCore: 10 }, { shownElsewhere: [folded] }).trades)).toEqual(["ahead", "other"]);
+  });
+
+  it("they take no place and count for no cap: the partner's, the core's, the given player's and the list's length", () => {
+    // Partner 7, my player p1 and (x) the core p1|p20: the folded trade has all three, and three trades share them (x is the
+    // folded trade plus p9 but no filler of it: likelier, and B 20% lower).
+    const same = (key: string, b: number, pComplete: number, get: string[]) => tradeEvaluation({ key, partnerId: "7", b, pComplete, give: ["p1"], get });
+    const list = [same("x", 4, 0.7, ["p20", "p9"]), same("y", 3.5, 0.5, ["p21"]), same("z", 3, 0.5, ["p22"])];
+    const cfg = { ...rankCfg(), perCore: 1, perPartnerInTop20: 3, perGivenPlayerInTop20: 3 };
+    const r = rankTrades(list, byNumber, cfg, { shownElsewhere: [folded] });
+    expect(keys(r.trades)).toEqual(["x", "y", "z"]);
+    expect(r.dropped).toEqual({ partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 });
+    // Room for two: the folded trade takes none of it.
+    expect(keys(rankTrades(list, byNumber, { ...cfg, resultsShown: 2 }, { shownElsewhere: [folded] }).trades)).toEqual(["x", "y"]);
+  });
+
+  it("one that isn't legal or has no known B is ignored; the input order never matters; in Helps-you order the same pairs are filler", () => {
+    const filler = tradeEvaluation({ key: "filler", partnerId: "7", b: 5.5, pComplete: 0.5, give: ["p1", "p2"], get: ["p20"] });
+    for (const x of [{ ...folded, illegal: "no" }, { ...folded, b: null }, { ...folded, b: Number.NaN }]) {
+      expect(keys(rankTrades([filler], byNumber, rankCfg(), { shownElsewhere: [x] }).trades)).toEqual(["filler"]);
+    }
+    const r = rankTrades([filler], byNumber, rankCfg(), { shownElsewhere: [folded], order: "helps" });
+    expect(keys(r.trades)).toEqual([]);
+    expect(r.dropped.filler).toBe(1);
+    const other = tradeEvaluation({ key: "other", partnerId: "8", b: 2, pComplete: 0.5, give: ["p3"], get: ["p30"] });
+    const first = rankTrades([filler, other], byNumber, rankCfg(), { shownElsewhere: [folded, other] });
+    for (let s = 1; s <= 3; s++) expect(rankTrades(shuffle([filler, other], s), byNumber, rankCfg(), { shownElsewhere: shuffle([folded, other], s) })).toEqual(first);
+  });
+
+  it("compareOverall is the Overall order: EG highest first, then the key", () => {
+    const a = tradeEvaluation({ key: "a", b: 4, pComplete: 0.5 }); // EG 2
+    const b = tradeEvaluation({ key: "b", b: 8, pComplete: 0.2 }); // EG 1.6
+    const c = tradeEvaluation({ key: "c", b: 2, pComplete: 1 }); // EG 2
+    expect([b, c, a].sort(compareOverall).map((t) => t.key)).toEqual(keys(sortTrades([b, c, a], "overall")));
+    expect(compareOverall(a, b)).toBeLessThan(0);
+    expect(compareOverall(a, c)).toBeLessThan(0);
+    expect(compareOverall(c, a)).toBeGreaterThan(0);
   });
 });
 

@@ -69,10 +69,11 @@
  *
  * "How to offer it" (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1): a card's offers in order are worked out in
  * the engine worker when its disclosure opens (onOffers: engineClient.ts offers, the card by the id of the request whose
- * result holds it and its key, at the moment that search was for; the worker keeps each ladder, so a second open is
- * instant), and worded for the card (tradeView.ts buildLadderView; TradeCard.tsx shows them). An offer that is another card
- * of the list says so with that card's place in the sort shown, "Also shown as trade idea 2." (the lead's call, wave D: the
- * list's places, Results' `places`).
+ * result holds it and its key, at the moment that search was for: finderOffersSource; the worker keeps each ladder, so a
+ * second open is instant, and since Checkpoint 7f hands back the very ladder the search's merge read when it did), and
+ * worded for the card (tradeView.ts buildLadderView; TradeCard.tsx shows them). An offer that is another card of the list
+ * says so with that card's place in the sort shown, "Also shown as trade idea 2." (the lead's call, wave D: the list's
+ * places, Results' `places`); a trade merged into the card (Checkpoint 7f) is no card, so it has no place.
  *
  * "Now or after this week" (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.2): once the search answers, the engine worker
  * works out what each card's Helps you would be if done after this week's games, and each card shows "Helps you 37 now · 41 if
@@ -113,7 +114,6 @@ import {
   finderTimingLines,
   isTradeSort,
   minChanceNote,
-  offersBarredOf,
   partnerOrNull,
   progressView,
   readFinderPartner,
@@ -129,6 +129,7 @@ import {
   type TradeCardView,
   type ValueFacts,
 } from "@/lib/tradeView";
+import type { OffersSource } from "@/workers/engine.worker";
 import { contextStillValid } from "@/workers/freshness";
 import { NoImportCard } from "../NoImportCard";
 import { leagueTag, useCurrentLeague, useSavedLeagueInputs } from "../league/useLeagueInputs";
@@ -225,6 +226,17 @@ export function runShown(progress: RunProgress | null, runTag: string | null, re
   const own = progress && progress.tag === runTag ? progress : null;
   const asRefilter = refilter && !own?.searching;
   return { view: own ? own.view : progressView(null, asRefilter ? "refilter" : "search"), refilter: asRefilter };
+}
+
+/**
+ * Which card a Trade Finder card's "How to offer it" is for (engine.worker.ts OffersSource; the header): the request whose
+ * result holds it (`resultId`: engineClient.ts searchResultIdOf, -1 when the worker no longer knows it), its key, and its trade
+ * in its own order, which the worker works the card out from when it no longer keeps the result (the review of wave D,
+ * D-ENG-3). Since Checkpoint 7f no keys barred (until then its Plan B's: a Plan B can't be an offer by the rules, so the
+ * engine bars nothing, offers.ts "The candidates").
+ */
+export function finderOffersSource(resultId: number, card: Pick<TradeCardView, "key" | "evaluation">): OffersSource {
+  return { kind: "search", resultId, key: card.key, proposal: card.evaluation.proposal };
 }
 
 type FocusTo = "status" | "stop" | "again";
@@ -557,16 +569,7 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
     (card: TradeCardView): Promise<LadderView> => {
       if (!pair || !myTeamId || !shownOutcome || !league) return Promise.reject(new Error("The trade ideas aren't loaded."));
       const client = tradeEngine(leagueId);
-      // With its trade in its own order and the keys none of its offers may be (its Plan B: another card of its list can be
-      // one, which the card labels), which the worker reads when it no longer keeps the result (the review of wave D, D-ENG-3
-      // and UI-D-4: tradeView.ts offersBarredOf).
-      const source = {
-        kind: "search" as const,
-        resultId: searchResultIdOf(client, shownOutcome.result),
-        key: card.key,
-        proposal: card.evaluation.proposal,
-        barred: offersBarredOf(card.evaluation),
-      };
+      const source = finderOffersSource(searchResultIdOf(client, shownOutcome.result), card);
       return client
         .offers({ snapshot: pair.snapshot, model: pair.inputs, myTeamId, nowIso: shownOutcome.nowIso, settings: shownOutcome.settings, source })
         .then((ladder) => buildLadderView(ladder, card, { snapshot: league, lastNflWeek, goal: shownOutcome.goal }));

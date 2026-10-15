@@ -304,15 +304,17 @@ describe("the lean companions (search.ts)", { timeout: 60_000 }, () => {
     // In the searches (EV lineups; run once, on first use): no box is a card, nor a card plus players worth at most W under the bar.
     // Under Plan B's rule before the review of wave D (the report switch otherTargetOnly false: the same players of theirs
     // first), whose boxes these facts were measured on, so barredFromBoxes' bar on a card plus a player of mine is exercised;
-    // since that review a box is a different target only (planB.ts), the last test below (`now`: the app's own search).
+    // since that review a box is a different target only (planB.ts), the last test below (`now`: the app's own search). `r`
+    // without Checkpoint 7f's merge (the report switch mergeCards false: the lists those facts were measured on; the merged
+    // trades' own bar is search.merge.test.ts's).
     type Searched = { seed: number; I: TradeInternals; r: TradeSearchResult; now: TradeSearchResult };
     let memo: Searched[] | null = null;
     const searched = (): Searched[] =>
       (memo ??= [6, 8, 12, 18, 59].map((seed) => {
-        if (seed === 6) return { seed, I: I6, r: runTradeSearch(ctx6, { settings, planB: { otherTargetOnly: false } }), now: withCompanions };
+        if (seed === 6) return { seed, I: I6, r: runTradeSearch(ctx6, { settings, planB: { otherTargetOnly: false }, mergeCards: false }), now: withCompanions };
         const lg = smallLeague(seed);
         const ctx = buildTradeContext(lg.snapshot, lg.inputs, { now: TEST_NOW, scenarios: 0, ...FIXED_OMEGA });
-        return { seed, I: tradeInternals(ctx), r: runTradeSearch(ctx, { settings, planB: { otherTargetOnly: false } }), now: runTradeSearch(ctx, { settings }) };
+        return { seed, I: tradeInternals(ctx), r: runTradeSearch(ctx, { settings, planB: { otherTargetOnly: false }, mergeCards: false }), now: runTradeSearch(ctx, { settings }) };
       }));
     const seedRun = (seed: number): Searched => searched().find((x) => x.seed === seed) as Searched;
 

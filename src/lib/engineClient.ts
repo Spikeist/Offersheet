@@ -48,9 +48,9 @@
  * for a card's offers in order (OfferLadder), worked out in the worker when the card's "How to offer it" is opened. A Trade
  * Finder card goes by the id of the request whose result holds it and its key: searchResultIdOf(client, result) gives that
  * id for a result this client handed out (-1 for any other: the worker then works the card out from its trade, the
- * Analyzer's way, with the keys the page bars, its Plan B: tradeView.ts offersBarredOf; another card of its list can be an
- * offer either way, the lead's call, wave D); the Analyzer's card by its proposal. The worker keeps each ladder, so a second
- * open answers at once.
+ * Analyzer's way, the same offers; nothing barred since Checkpoint 7f, so the page sends no keys to bar; another card of its
+ * list can be an offer either way, the lead's call, wave D); the Analyzer's card by its proposal. The worker keeps each
+ * ladder (since Checkpoint 7f a search's own for the cards its merge read), so a second open answers at once.
  */
 import type { LeagueModel, WaiverUpgrades } from "@/engine/leagueModel";
 import type { LaterNumbers, OfferLadder, TradeSearchProgress, TradeSearchResult } from "@/engine/tradeModel";
@@ -159,7 +159,7 @@ const resultOwners = new WeakMap<TradeSearchResult, { client: EngineClient; id: 
 /**
  * The id `client`'s worker knows a search result by (OffersRequest's source.resultId: the header), the id of the search or
  * re-filter request that brought it; -1 for a result `client` didn't hand out (another league's, or one from a client since
- * stopped), whose card the worker then works out from its trade (the source's proposal, else its key) and barred keys.
+ * stopped), whose card the worker then works out from its trade (the source's proposal, else its key).
  */
 export function searchResultIdOf(client: EngineClient, result: TradeSearchResult): number {
   const owner = resultOwners.get(result);

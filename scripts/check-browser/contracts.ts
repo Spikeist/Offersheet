@@ -832,6 +832,26 @@ export function offersAlsoProblems(read: Pick<OffersRead, "offers">, places: Rea
 }
 
 /**
+ * Merged ideas (pure; Checkpoint 7f, planner reply to Checkpoint 7e, decision 3: "When one card's offer list contains another
+ * card's trade, merge them: Keep only the card with the higher Overall in the list"; the lead's check:browser bullet): in the
+ * Overall sort, an idea's offers include no other idea of the list below it (`places`: the list's cards by key, each its place,
+ * 1 = first: inPage.ts cardPlaces; `cardKey`, the idea's own), since the merge would have shown that one among this idea's
+ * offers only. One above it can stay, labeled (it can't offer this one back: offersAlsoProblems checks its label). The
+ * suggested trade (its label one of `suggested`) is the idea itself. Each that breaks it, in words.
+ */
+export function offersMergeProblems(read: Pick<OffersRead, "offers">, places: Readonly<Record<string, number>>, cardKey: string, suggested: readonly string[]): string[] {
+  const own = places[cardKey];
+  if (own === undefined) return ["the idea isn't among the ideas shown"];
+  const out: string[] = [];
+  read.offers.forEach((o, i) => {
+    if (suggested.includes(o.label) || !o.key) return;
+    const place = places[o.key];
+    if (place !== undefined && place > own) out.push(`offer ${i + 1} (“${o.label}”) is trade idea ${place}, below this one (${own}) on Overall, which should show it among this idea's offers only`);
+  });
+  return out;
+}
+
+/**
  * My odds' lines on the League page (pure; leagueView.ts myOddsOf: "Your odds: 60% playoffs · 30% top 3 · 10.5% title"):
  * a top-N part exactly when `places`, the one it names, once a line; each line that reads otherwise, in words.
  */

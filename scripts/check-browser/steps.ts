@@ -26,7 +26,8 @@
  *    (contracts.ts offersProblems: the opening offer at least config.offers.openMinChance, each offer likelier than the one
  *    before by config.search.steps.minAcceptGain, Helps you above 0 and never rising), an offer that is another idea shown
  *    saying so with that idea's place ("Also shown as trade idea N.": contracts.ts offersAlsoProblems; the lead's call, wave
- *    D), each offer's Copy putting its own message on the clipboard (offersChecks).
+ *    D), since Checkpoint 7f none of its offers an idea below it on Overall (contracts.ts offersMergeProblems: the merge shows
+ *    those among its offers only), each offer's Copy putting its own message on the clipboard (offersChecks).
  * 6. Analyzer (the card's "Open in Analyzer"): it evaluates the same trade with the same three numbers as the card;
  *    both sides shown, no tag on mine; the layout; "Back to the Trade Finder" shows the ideas again. Then step "Waivers"
  *    (Phase 7b, below).
@@ -194,6 +195,7 @@ import {
   nowOrLaterProblems,
   oddsLabelProblems,
   offersAlsoProblems,
+  offersMergeProblems,
   offersProblems,
   pageValueLeaks,
   PARKER_QUIET_LINE,
@@ -1472,7 +1474,8 @@ export async function cardStep(ctx: StepContext): Promise<void> {
  * higher, each offer at least config.search.steps.minAcceptGain likelier than the one before, Helps you above 0 and never
  * rising, each with its own Copy); an offer that is another idea of the list says so with that idea's place, "Also shown as
  * trade idea N." (contracts.ts offersAlsoProblems, the places from the list's data-trade-key: the lead's call, wave D), and no
- * other offer does; each offer's Copy puts its own message on the clipboard; and every Plan B box the list
+ * other offer does; since Checkpoint 7f, in the Overall sort (the card step's sorts end on it), none is an idea below the first
+ * one (contracts.ts offersMergeProblems: merged ideas); each offer's Copy puts its own message on the clipboard; and every Plan B box the list
  * shows reads the planner's heading, "If they won't move: try …". Runs last in the card step: once open, the offers' messages
  * come before the card's own on the card. The tab's minimum chance is the default (a fresh browser: the Settings step runs
  * after this one).
@@ -1529,6 +1532,14 @@ async function offersChecks(ctx: StepContext, step: string, first: string): Prom
       "an offer's “Also shown as trade idea N.” is missing or wrong",
       alsoProblems,
     );
+    // Checkpoint 7f (planner reply to Checkpoint 7e, decision 3: merged ideas): in the Overall sort, the first idea's offers
+    // include no idea below it, which the merge shows among its offers only (contracts.ts offersMergeProblems).
+    const shown = await page.run<{ sort: string; key: string | null }>(`const s = document.getElementById("finder-sort"); const li = ${first}.closest("li[data-trade-key]"); return { sort: s ? s.value : "", key: li ? li.getAttribute("data-trade-key") : null };`, { cards: true });
+    if (shown.sort !== "overall" || !shown.key) report.skip(step, `the merge's check needs the Overall sort and the idea's key (the sort reads “${shown.sort}”)`);
+    else {
+      const mergeProblems = offersMergeProblems(read, places, shown.key, suggested);
+      report.check(step, mergeProblems.length === 0, "the first idea's offers include no idea below it on Overall (the merge shows those among its offers only)", "the first idea's offers include an idea below it on Overall", mergeProblems);
+    }
   }
   // Each offer's own message: opened, then Copy (a trusted tap) puts it on the clipboard.
   const copies: string[] = [];
