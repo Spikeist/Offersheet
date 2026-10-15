@@ -452,12 +452,16 @@ describe("trade report: what Helps both costs a search (section 10)", () => {
     return { on, off, stOn: searchStateOf(on) as SearchState, stOff: searchStateOf(off) as SearchState };
   };
 
-  it("keeps every \"Helps both\" extra of the search without the lane (review of the lane, LANE-2: smallLeague 13 at 10%, where the plain top 20 by B lost one and the list went 2 cards → 1), and counts the extras' pool with the lane's wider room (the final review, ENG-7D-2)", { timeout: 60_000 }, () => {
-    const { on, off, stOn, stOff } = laneSearches(13);
+  it("keeps every \"Helps both\" extra of the search without the lane (review of the lane, LANE-2: smallLeague 13 at 10%, where the plain top 20 by B lost one and the list went 2 cards → 1; smallLeague 23 since Checkpoint 7e), and counts the extras' pool with the lane's wider room (the final review, ENG-7D-2)", { timeout: 60_000 }, () => {
+    // smallLeague(23) (facts of the synthetic data; 13 until Checkpoint 7e, whose automatic playoff weight, measured on the
+    // shown block's 20,000 seasons, moved its finalists: its candidates fell to 18, under the 20): more trades help both on the
+    // screening run than the plain top 20 holds, the lane's among them.
+    const { on, off, stOn, stOff } = laneSearches(23);
     const shown = laneShown(on, off);
-    // Seven of the lane's long shots (each under 5% as printed) help both on the screening run. As the plain top 20 they took
-    // places among the extras, and one extra without the lane, a card of its list, lost its final run. Since the lead's fix each
-    // lane trade widens the room by one (search.ts finalistsOf), so every extra without the lane keeps its final run.
+    // On smallLeague(13), seven of the lane's long shots (each under 5% as printed) helped both on the screening run. As the
+    // plain top 20 they took places among the extras, and one extra without the lane, a card of its list, lost its final run.
+    // Since the lead's fix each lane trade widens the room by one (search.ts finalistsOf), so every extra without the lane keeps
+    // its final run.
     expect(shown.finalsLost).toEqual({ count: 0, listed: 0 });
     expect(shown.list.dropped).toBe(0);
     expect(shown.list.cards).toBeGreaterThanOrEqual(2);
@@ -482,8 +486,9 @@ describe("trade report: what Helps both costs a search (section 10)", () => {
     expect(c.finalists.total).toBe(ranked.size);
   });
 
-  it("counts the finalists the helps-both lane displaced, kept for the \"Helps both\" list, and words them apart (the final review, ENG-7D-1: smallLeague 45 at 10%, where a finalist the lane's trades push out helps both only on its final numbers)", { timeout: 60_000 }, () => {
-    const { on, off, stOn, stOff } = laneSearches(45);
+  it("counts the finalists the helps-both lane displaced, kept for the \"Helps both\" list, and words them apart (the final review, ENG-7D-1: smallLeague 45 at 10%, smallLeague 42 since Checkpoint 7e, where a finalist the lane's trades push out helps both only on its final numbers)", { timeout: 60_000 }, () => {
+    // smallLeague(42) (facts of the synthetic data; 45 until Checkpoint 7e: the search.helpsBoth.test.ts case moved with it).
+    const { on, off, stOn, stOff } = laneSearches(42);
     // Every final run without the lane whose Helps them is known (the list's candidates) is made with it too.
     expect(laneShown(on, off).finalsLost).toEqual({ count: 0, listed: 0 });
     const finalsOn = new Set(stOn.finals.map((f) => f.key));
@@ -610,7 +615,8 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     const mine = report.model.odds?.teams.find((t) => t.teamId === "1");
     // …and every prize component (Checkpoint 7c), the headline's too.
     expect(report.result.baseline).toEqual({ pPlayoffs: mine?.pPlayoffs, pTitle: mine?.pTitle, expWins: mine?.expWins, prizes: prizeOddsOf(mine as NonNullable<typeof mine>) });
-    expect(doc).toContain(`**Your baseline** (the trade search's: every team after its free-agent pickups in the waiver order above, seasons 1–5,000; it equals the League page's headline, section 7): playoffs ${pctPlain(mine?.pPlayoffs)}, title ${pctPlain(mine?.pTitle)}`);
+    // The shown block's seasons (Checkpoint 7e: the League page's headline and every card's "before").
+    expect(doc).toContain(`**Your baseline** (the trade search's: every team after its free-agent pickups in the waiver order above, seasons 1–20,000, the shown block; it equals the League page's headline, section 7): playoffs ${pctPlain(mine?.pPlayoffs)}, title ${pctPlain(mine?.pTitle)}`);
     expect(doc.split("\n").length).toBeLessThan(300);
   });
 
@@ -647,7 +653,7 @@ describe("trade report: the whole offline report on a synthetic league", () => {
       // The trade value column: B's market term in points a week on the card's scale (planner reply to Checkpoint 7a, §2 question 5).
       expect(t.marketWeekly as number).toBeCloseTo(config.benefit.protectValue.medium * Math.min(0.5, Math.max(-0.5, t.gMine)), 12);
       for (const g of t.flags.tagged ?? []) expect(row).toContain(`${snapshot.players[g.playerId]?.name} [${injuryTagText(g, end, "ESPN")}]`);
-      // The odds after are the baseline plus the trade's change on the same final block.
+      // The odds after are the baseline plus the trade's change on the same block (the shown block: Checkpoint 7e).
       expect(t.detail.winChance).toBeDefined();
     });
     // Garrett Wilson is questionable here: wherever he's given, the tag says so.
@@ -827,7 +833,7 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     }
     expect(s).toContain("| Gain | ΔPO | ΔCH | Only the champion: B / Helps | Several prizes: B / Helps | Making the playoffs: B / Helps | Checkpoint 3's B (0.35 / 0.65) |");
     expect(s.split("\n").filter((l) => l.startsWith("| +"))).toHaveLength(3);
-    expect(s).toContain("The trade context's own run (its final block) is the same run, bit for bit.");
+    expect(s).toContain("The trade context's own run (its shown block) is the same run, bit for bit.");
     expect(s).toContain("Its +3 row is the same run, bit for bit.");
     expect(s).not.toContain("bRef");
     // The dynasty scale in the intro (planner reply to Checkpoint 7a, §2 question 6: review SC-1's λ cap is gone), and the

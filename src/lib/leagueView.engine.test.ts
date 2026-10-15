@@ -108,7 +108,8 @@ describe("Parker's league (committed ESPN fixture, synthetic inputs, the real 20
     const playoffTeams = 6;
     const byes = 2;
     expect(snapshot.settings).toMatchObject({ playoffTeams, playoffByes: byes });
-    expect(before.odds).toMatchObject({ sims: config.simulation.finalSims, playoffTeams, byes, playoffsKnown: true });
+    // The League model plays the shown block's seasons (Checkpoint 7e, planner reply to Checkpoint 7d, item 1.1).
+    expect(before.odds).toMatchObject({ sims: config.simulation.shownSims, playoffTeams, byes, playoffsKnown: true });
     expect(standings).toMatchObject({ showPlayoffs: true, showBye: true });
     // The engine's own sums are exact (every season seats 6 teams, 2 byes, 1 champion).
     expect(sum(before.odds.teams.map((t) => t.pPlayoffs))).toBeCloseTo(playoffTeams, 9);
@@ -141,13 +142,14 @@ describe("Parker's league (committed ESPN fixture, synthetic inputs, the real 20
 
   it("lists the engine's notes under the standings: seasons simulated and the league's own rules (nothing assumed)", () => {
     expect(standings.notes).toEqual([
-      `Odds from ${fmtWhole(config.simulation.finalSims)} simulated seasons.`,
+      `Odds from ${fmtWhole(config.simulation.shownSims)} simulated seasons.`,
       "Ties in the standings go to points for, the league's rule.",
       "The playoff bracket is fixed: no re-seeding after each round.",
       "The top 2 seeds get a first-round bye.",
     ]);
     const explain = before.view.explain.find((e) => e.title === "Playoff odds")?.text ?? "";
-    expect(explain).toContain(`We play out the rest of the season ${fmtWhole(config.simulation.finalSims)} times.`);
+    expect(explain).toContain(`We play out the rest of the season ${fmtWhole(config.simulation.shownSims)} times.`);
+    expect(explain).toContain("We play out the rest of the season 20,000 times.");
     expect(explain).toContain("win percentage, then points for.");
     expect(explain).not.toContain("assumed");
   });

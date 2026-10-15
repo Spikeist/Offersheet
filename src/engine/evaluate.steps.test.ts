@@ -116,7 +116,8 @@ function ranked(I: TradeInternals, proposal: TradeProposal, settings: TradeSetti
 /** A version's step, as tradeSteps builds it (Phase 4c: with the version's acceptance features, for feedback). */
 const stepOf = (v: TradeVersion): TradeStep => {
   const c = v.screen;
-  return { proposal: c.proposal, key: c.key, b: c.b, tradeScore: c.tradeScore, pAccept: c.pAccept, pComplete: c.pComplete, acceptLabel: c.acceptLabel, gMine: c.gMine, gPartner: c.gPartner, required: c.required, detail: c.detail, features: c.features };
+  // Checkpoint 7e: the step's own B₃, the ranking block's its screening numbers are scored on (the review's SHOWN-4).
+  return { proposal: c.proposal, key: c.key, b: c.b, b3: c.b3, tradeScore: c.tradeScore, pAccept: c.pAccept, pComplete: c.pComplete, acceptLabel: c.acceptLabel, gMine: c.gMine, gPartner: c.gPartner, required: c.required, detail: c.detail, features: c.features };
 };
 
 const ctx = context();
@@ -713,8 +714,9 @@ describe("determinism, the Analyzer and the search", () => {
     const name = (id: string) => I1.snapshot.players[id]?.name as string;
     expect(a.evaluation?.pitch).toContain(name("wb1"));
     expect(a.evaluation?.pitch).not.toContain(name("qx1"));
-    // The card's numbers stay the analyzed trade's (5,000 seasons); the steps are on the screening block.
-    expect(a.evaluation?.sims).toBe(config.simulation.finalSims);
+    // The card's numbers stay the analyzed trade's (the shown block's seasons since Checkpoint 7e, config.simulation.shownSims:
+    // the Analyzer evaluates as the cards are shown); the steps are on the screening block.
+    expect(a.evaluation?.sims).toBe(config.simulation.shownSims);
     expect(steps?.ifNo.full.pComplete).toBe(a.evaluation?.pComplete);
   });
 

@@ -130,7 +130,18 @@ import { bracketGames, simulateSeason, standingsOrder, type SimGame, type SimNor
 
 /** The config keys this module reads (config.simulation), widened from config's `as const` literals. */
 export interface SeasonConfig {
-  readonly simulation: { readonly finalSims: number; readonly seed: number };
+  readonly simulation: { readonly finalSims: number; readonly shownSims: number; readonly seed: number };
+}
+
+/**
+ * The shown block's seasons (Checkpoint 7e; planner reply to Checkpoint 7d, item 1.1; config.simulation.shownSims): every
+ * number a page prints is simulated on seasons 1..this of the seed's matrix, so it is never fewer than the ranking block's
+ * finalSims (the first seasons of the same matrix: season n's draws depend only on the seed and n), and at least 1. The
+ * default of seasonOdds and of the League model's runs (league.ts steps 5c and 8).
+ */
+export function shownSimsOf(cfg: SeasonConfig = config): number {
+  const whole = (n: number): number => (Number.isFinite(n) ? Math.floor(n) : 0);
+  return Math.max(1, whole(cfg.simulation.finalSims), whole(cfg.simulation.shownSims));
 }
 
 /** What the setup reads from the League model: its weeks and each team's weekly score (a full LeagueModel fits). */
@@ -751,14 +762,14 @@ function eliminatedTeams(built: SimSetupResult, best: readonly number[]): boolea
 /**
  * A season's odds (§8; the file header): LeagueModel.oddsAsRostersStand on the League model itself, LeagueModel.odds
  * on pickupSeasonModel(model) (league.ts step 8b), the trade context's baseline on the same (evaluate.ts). The setup
- * from buildSimSetup, `sims` seasons (default config.simulation.finalSims) on the common-random-numbers matrix of
+ * from buildSimSetup, `sims` seasons (default the shown block's, shownSimsOf: Checkpoint 7e) on the common-random-numbers matrix of
  * `seed` (default config.simulation.seed), or on `normals` when given (both League model odds share it, and so do a
  * trade's "before" and "after"). `highScores` adds the weekly high-score periods (buildSimSetup; off by default: they
  * cost about 2.5% of a run each and change no other number). Null when nothing is left to simulate, when the rest of the
  * regular season has no schedule (oddsSkippedWarning gives the warning), or when `sims` is below 1.
  */
 export function seasonOdds(snapshot: LeagueSnapshot, model: SeasonModel, opts: { sims?: number; seed?: number; normals?: SimNormals; highScores?: boolean } = {}, cfg: SeasonConfig = config): SeasonOdds | null {
-  const sims = Math.floor(opts.sims ?? cfg.simulation.finalSims);
+  const sims = Math.floor(opts.sims ?? shownSimsOf(cfg));
   if (!(sims >= 1)) return null;
   const seed = opts.seed ?? cfg.simulation.seed;
   const built = buildSimSetup(snapshot, model, { highScores: opts.highScores === true });

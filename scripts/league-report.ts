@@ -38,7 +38,7 @@
  *   goal): the user's weekly score mean + 1, 3 and 6 points in every remaining week a trade can change (regular season and
  *   playoffs; ⚠️ a week in progress left out, as every trade's evaluation leaves it: evaluate.ts holds that week at the
  *   as-stands score before and after a trade), σ unchanged, on one common-random-numbers matrix (the League model's own:
- *   config.simulation.finalSims seasons from config.simulation.seed), from the one baseline (every team after its
+ *   the shown block's seasons since Checkpoint 7e, season.shownSimsOf, from config.simulation.seed), from the one baseline (every team after its
  *   pickups: TeamModel.scoreWithPickups, the seasons LeagueModel.odds simulates, the trade search's baseline): ΔPO, ΔCH
  *   and Δ expected wins, B = 100 × (w_PO ΔPO + w_S ΔE[S]) under each "What does your league reward?" goal (benefitWin,
  *   config.benefit.goals; Checkpoint 7c: ΔE[S] the change in my share of the prizes, src/engine/reward.ts, ΔCH under "Only
@@ -53,7 +53,7 @@
  *   value than you get). The +3 row is checked to equal the League model's own calibration run
  *   (LeagueModel.helpsCalibration, step 8c) bit for bit. Common
  *   random numbers compare every row with the baseline season by season, which takes out the noise of comparing separate
- *   runs, but each change is still a Monte Carlo estimate from finalSims seasons (another seed gives a somewhat different
+ *   runs, but each change is still a Monte Carlo estimate from the model's seasons (another seed gives a somewhat different
  *   B(+3)). So every change carries its standard error, by batch means: the run's seasons split into SE_BATCHES batches
  *   (batchRuns), the change computed in each batch alone (batchSe). B₃ gets B(+3)'s error. When title
  *   odds are unknown, the reason is given only when the report can confirm it (titleUnknownReason); otherwise it points
@@ -70,8 +70,8 @@
  *   seed: the largest |Δ| in each team's P(playoffs), P(bye), P(title) and expected wins (both odds: with pickups and as
  *   rosters stand), and in the simulator's weekly score inputs (TeamModel.score and scoreWithPickups), which must all be
  *   exactly 0.
- * - Simulation runtime: simNormals and simulateSeason at 1,000 and 5,000 seasons (config.simulation
- *   screeningSims and finalSims), and buildLeagueModel with and without the season simulation (expected-value
+ * - Simulation runtime: simNormals and simulateSeason at 1,000, 5,000 and 20,000 seasons (config.simulation
+ *   screeningSims, finalSims and, since Checkpoint 7e, shownSims, the League model's), and buildLeagueModel with and without the season simulation (expected-value
  *   lineups only, and S availability scenarios; both measuring the automatic playoff weight, as the app does), each the
  *   median of TIMING_RUNS runs after TIMING_WARMUPS warm-up.
  *
@@ -120,8 +120,8 @@
  * - One baseline everywhere (change 9): every odds reading is the headline, LeagueModel.odds (every team after its
  *   free-agent pickups), with LeagueModel.oddsAsRostersStand as the second line (the standings, the schedule's win
  *   chances, the scale check and its second set of rows, the no-op check). Seasons: the League model's own, seasons 1–
- *   finalSims of the seed's matrix, which are also the trade search's final block (its screening block is the next
- *   screeningSims).
+ *   shownSims of the seed's matrix (Checkpoint 7e), which are also the trade search's shown block (its ranking block the
+ *   first finalSims of them, its screening block the next screeningSims).
  * - Goals (change 8): B under each "What matters most" goal (config.benefit.goals through benefit.goalWeights, the
  *   default goal config.benefit.goalDefault) wherever the report computes B (benefitWin, the scale check). Checkpoint 7c
  *   (planner reply to Checkpoint 7b, §6): "Several prizes" in place of "Balanced", on the league's split from --prizes, else
@@ -189,7 +189,7 @@ import { fantasyCalcFallbackText, fantasyCalcFormatLabel } from "@/engine/market
 import { POSITIONS, type InjuryStatus, type LeagueSettings, type LeagueSnapshot, type PlayerInfo, type Pos, type Team } from "@/engine/model";
 import { returnersOf } from "@/engine/optimizer";
 import { finalLineups } from "@/engine/returners";
-import { buildSimSetup, pickupSeasonModel, playoffRounds, seasonOdds, type SeasonModel, type SimSetupResult } from "@/engine/season";
+import { buildSimSetup, pickupSeasonModel, playoffRounds, seasonOdds, shownSimsOf, type SeasonModel, type SimSetupResult } from "@/engine/season";
 import { simNormals, simulateSeason, type SimNormals, type SimResult, type SimSetup } from "@/engine/sim";
 import { GOALS, PRIZE_KEYS, PROTECT_VALUE_LEVELS, defaultTradeSettings, type Goal, type PrizeAmounts, type PrizeKey, type ProtectValue, type TradeSettings } from "@/engine/settings";
 import { evLineups, rosValue, scenarioLineups } from "@/engine/teamValue";
@@ -1298,7 +1298,7 @@ function oddsDelta(a: LeagueModel, b: LeagueModel): NoOpCheck["rebuilt"] {
 
 /** The no-op check (the file header): (a) on the model's own setup; (b) from a second model built like the first, every roster copied. */
 export function noOpCheck(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueModel, built: SimSetupResult, now: Date): NoOpCheck {
-  const sims = model.odds?.sims ?? config.simulation.finalSims;
+  const sims = model.odds?.sims ?? shownSimsOf();
   const seed = model.odds?.seed ?? config.simulation.seed;
   const sameSetup = { sims, ...compareSims(simulateSeason(built.setup, { sims, seed }), simulateSeason(built.setup, { sims, seed })) };
   const copied: LeagueSnapshot = { ...snapshot, teams: snapshot.teams.map((t) => ({ ...t, roster: [...t.roster], ir: [...t.ir], taxi: [...t.taxi] })) };
@@ -1342,18 +1342,19 @@ export interface BuildTiming {
 
 /**
  * buildLeagueModel with and without the season simulation, EV lineups only and with S scenarios: medians of `runs` builds
- * after `warmups`. Every variant measures the automatic playoff weight on finalSims seasons, as the app does
+ * after `warmups`. Every variant simulates and measures the automatic playoff weight on the shown block's seasons
+ * (season.shownSimsOf: Checkpoint 7e), as the app does
  * (playoffWeightSims; league.ts step 5c): with `sims` 0 alone it would default to 0, skip that measurement and build another
  * model (the fallback ω), so "without" would also leave out the ω runs and everything ω moves (review of Phase 7b).
  */
 export function buildTimings(snapshot: LeagueSnapshot, inputs: ModelInputs, now: Date, scenarios: number, clock: () => number, runs = TIMING_RUNS, warmups = TIMING_WARMUPS): BuildTiming[] {
-  const variants = [0, scenarios].flatMap((s) => [0, config.simulation.finalSims].map((sims) => ({ scenarios: s, sims })));
+  const variants = [0, scenarios].flatMap((s) => [0, shownSimsOf()].map((sims) => ({ scenarios: s, sims })));
   return variants.map((v) => {
     const totals: number[] = [];
     const stage: number[] = [];
     for (let i = 0; i < warmups + Math.max(1, runs); i++) {
       const t0 = clock();
-      const m = buildLeagueModel(snapshot, inputs, { now, scenarios: v.scenarios, sims: v.sims, playoffWeightSims: config.simulation.finalSims, clock });
+      const m = buildLeagueModel(snapshot, inputs, { now, scenarios: v.scenarios, sims: v.sims, playoffWeightSims: shownSimsOf(), clock });
       const dt = clock() - t0;
       if (i < warmups) continue;
       totals.push(dt);
@@ -1538,7 +1539,7 @@ export function seasonReport(snapshot: LeagueSnapshot, inputs: ModelInputs, mode
   const built = buildSimSetup(snapshot, pickups);
   const builds = buildRuns > 0 ? buildTimings(snapshot, inputs, now, model.scenarios, clock, buildRuns, warmups) : [];
   if (!odds || !built) return { odds, stand, built, schedule: null, scale: null, scaleStand: null, scaleMatchesModel: null, appB3: null, pickups: null, noOp: null, simTimings: [], buildTimings: builds, prizes: null };
-  // The League model's own seasons: both odds share the seed's first finalSims seasons (league.ts step 8b).
+  // The League model's own seasons: both odds share the seed's first shownSims seasons (league.ts step 8b; Checkpoint 7e).
   const run: SharedRun = { sims: odds.sims, seed: odds.seed, normals: simNormals(odds.seed, odds.sims, built.setup.weeks.length, built.setup.teams.length) };
   const me = model.myTeamId;
   const mine = model.teams.find((t) => t.id === me);
@@ -1565,7 +1566,7 @@ export function seasonReport(snapshot: LeagueSnapshot, inputs: ModelInputs, mode
     appB3: scale ? appHelpsScales(snapshot, inputs, model, now, { prizes, ...(prizesModel ? { models: { prizes: prizesModel } } : {}) }) : null,
     pickups: scale && scaleStand ? pickupsEffect(scale, scaleStand, run.sims) : null,
     noOp: noOpCheck(snapshot, inputs, model, built, now),
-    simTimings: [config.simulation.screeningSims, config.simulation.finalSims].map((sims) => simTiming(built.setup, odds.seed, sims, clock, runs, warmups)),
+    simTimings: [...new Set([config.simulation.screeningSims, config.simulation.finalSims, shownSimsOf()])].map((sims) => simTiming(built.setup, odds.seed, sims, clock, runs, warmups)),
     buildTimings: builds,
     prizes: prizes && prizesModel ? prizesReport(snapshot, model, prizesModel, prizes) : null,
   };
@@ -1598,7 +1599,7 @@ function renderStandings(L: string[], season: SeasonReport, snapshot: LeagueSnap
   const out = rows.some((t) => t.eliminated) ? ' "(out)" = certainly out of the title race.' : "";
   const stand = season.stand;
   L.push(
-    `Today's standings by the league's rules (rank), with each team's chance to make the playoffs (${odds.playoffTeams} teams)${showBye ? `, earn a first-round bye (the top ${odds.byes})` : ""} and win the title${pointsOnly ? "" : ", and its expected final regular-season record"}: ${thousands(odds.sims)} simulated seasons on the common-random-numbers matrix of seed ${odds.seed} (seasons 1–${thousands(odds.sims)}, which are also the trade search's final block; its screening block is the next ${thousands(config.simulation.screeningSims)}). The headline (Phase 4c, one baseline everywhere): every team after its free-agent pickups (TeamModel.scoreWithPickups, LeagueModel.odds), the odds every trade card's "before" reads. Weekly scores are drawn around each team's projected lineup (scenario lineups when scenarios ran; SD by the law of total variance).${stand ? ` "As rosters stand" is the second line (LeagueModel.oddsAsRostersStand: every team as it is today, TeamModel.score), on the same seasons.` : ""}${out}`,
+    `Today's standings by the league's rules (rank), with each team's chance to make the playoffs (${odds.playoffTeams} teams)${showBye ? `, earn a first-round bye (the top ${odds.byes})` : ""} and win the title${pointsOnly ? "" : ", and its expected final regular-season record"}: ${thousands(odds.sims)} simulated seasons on the common-random-numbers matrix of seed ${odds.seed} (seasons 1–${thousands(odds.sims)}, which are also the trade search's shown block, every card's numbers; its ranking block is the first ${thousands(config.simulation.finalSims)} of them, its screening block the next ${thousands(config.simulation.screeningSims)}). The headline (Phase 4c, one baseline everywhere): every team after its free-agent pickups (TeamModel.scoreWithPickups, LeagueModel.odds), the odds every trade card's "before" reads. Weekly scores are drawn around each team's projected lineup (scenario lineups when scenarios ran; SD by the law of total variance).${stand ? ` "As rosters stand" is the second line (LeagueModel.oddsAsRostersStand: every team as it is today, TeamModel.score), on the same seasons.` : ""}${out}`,
     "",
   );
   const standCols = stand ? " As rosters stand: playoffs | … title |" : "";
@@ -1958,7 +1959,7 @@ export function prizesLines(p: PrizesReport): string[] {
   }
   out.push(
     "",
-    `Each row is the League model the app builds under that setting: its own playoff-week weight ω (so its own free-agent pickups, lineup costs and trade chips) and its headline odds (every team after its pickups, the same ${thousands(p.model.odds?.sims ?? config.simulation.finalSims)} seasons: common random numbers), and B₃, the B of +${config.benefit.helpsGain} projected points a week under that setting (its "Helps you" scale: +${config.benefit.helpsGain} a week reads 63). Top 3 = P(1st) + P(2nd) + P(3rd).${weekly ? " The weekly high scores are simulated under the split only (it pays them)." : ""}`,
+    `Each row is the League model the app builds under that setting: its own playoff-week weight ω (so its own free-agent pickups, lineup costs and trade chips) and its headline odds (every team after its pickups, the same ${thousands(p.model.odds?.sims ?? shownSimsOf())} seasons: common random numbers), and B₃, the B of +${config.benefit.helpsGain} projected points a week under that setting (its "Helps you" scale: +${config.benefit.helpsGain} a week reads 63). Top 3 = P(1st) + P(2nd) + P(3rd).${weekly ? " The weekly high scores are simulated under the split only (it pays them)." : ""}`,
     "",
   );
   return out;
@@ -2016,7 +2017,7 @@ function renderRuntime(L: string[], season: SeasonReport): void {
   }
   if (season.buildTimings.length) {
     L.push(
-      `buildLeagueModel, the whole League model (the League page's Web Worker runs it), without and with its season simulation (the headline odds); both measure the automatic playoff weight on ${thousands(config.simulation.finalSims)} seasons, as the app does, so the difference is the season simulation's alone:`,
+      `buildLeagueModel, the whole League model (the League page's Web Worker runs it), without and with its season simulation (the headline odds); both measure the automatic playoff weight on ${thousands(shownSimsOf())} seasons, as the app does, so the difference is the season simulation's alone:`,
       "",
     );
     L.push("| Lineups | Without the season simulation | With it | The build's own \"season simulation\" stage |", "|---|---|---|---|");
@@ -2549,7 +2550,8 @@ async function main(): Promise<void> {
   const mine = oddsOf(model.odds, model.myTeamId ?? "");
   const stand = oddsOf(model.oddsAsRostersStand, model.myTeamId ?? "");
   const odds = mine ? `; with pickups: playoffs ${pct(mine.pPlayoffs)}, title ${pct(mine.pTitle)}${stand ? ` (as rosters stand ${pct(stand.pPlayoffs)}, ${pct(stand.pTitle)})` : ""}` : "";
-  const t5000 = sim.simTimings.find((t) => t.sims === config.simulation.finalSims);
+  // The League model's own count (the shown block's since Checkpoint 7e).
+  const t5000 = sim.simTimings.find((t) => t.sims === shownSimsOf());
   console.log(
     scrubEverything(
       `league report written: ${Object.keys(model.players).length} players, ${model.teams.length} teams, weeks ${model.weeks[0]}–${model.weeks.at(-1)}; Parker ${me ? `${fmt((me.scen ?? me.ev).ppw)} pts/wk${odds}` : "team unknown"}; playoff weeks × ${model.playoffWeight} (${model.playoffWeightAuto?.basis === "auto" ? "automatic" : `fallback${model.playoffWeightAuto?.reason ? `: ${model.playoffWeightAuto.reason}` : ""}`}); ${t5000 ? `${thousands(t5000.sims)} seasons ${msFine(t5000.total)}; ` : ""}timings ${Object.entries(timings).map(([k, v]) => `${k} ${ms(v)}`).join(", ")}${pre4c ? `; a dump from before the 4c adapter, put on the ${pre4c.waiverOrderUsed === "live" ? "dump's own order" : "weekly reset order"}` : ""}${prizesSummary(sim.prizes)}`,

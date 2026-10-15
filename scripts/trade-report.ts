@@ -187,7 +187,7 @@ import type { InjuryStatus, LeagueSnapshot } from "@/engine/model";
 import { eliteIds, perceivedPackage, teamPremiums } from "@/engine/premium";
 import { atMostWaiverCredit, buildPools, helpsBothLaneOf, helpsBothPoolOf, leanCompanions, partnerCandidates, runRefilter, runTradeSearch, searchStateOf, shortlistOf, type SearchState } from "@/engine/search";
 import { prizePeriods, type Reward } from "@/engine/reward";
-import { buildSimSetup, pickupSeasonModel } from "@/engine/season";
+import { buildSimSetup, pickupSeasonModel, shownSimsOf } from "@/engine/season";
 import { GOALS, PROTECT_VALUE_LEVELS, defaultTradeSettings, normalizeTradeSettings, type Goal, type PrizeAmounts, type TradeSettings } from "@/engine/settings";
 import { simNormals } from "@/engine/sim";
 import type { HelpsBothList, InjuryTag, OpenSpot, TradeAsset, TradeDetail, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeSearchResult, TradeSearchStage } from "@/engine/tradeModel";
@@ -503,11 +503,13 @@ export function laneParts(ticks: readonly Tick[], start: number, state: Pick<Sea
  * what it is without the second list"): before the search, every team's calibration run is set to none in the context's memo
  * (evaluate.ts SimState.partners), so no partner's scale is known: no calibration run, Helps them unknown on every trade, no
  * "Helps both" extra and an empty second list. What's left of the feature is each run's partner numbers from the same two
- * runs (evaluate.ts partnerNumbersOf), next to nothing. The context, changed in place, is returned.
+ * runs (evaluate.ts partnerNumbersOf), next to nothing. Since Checkpoint 7e on both blocks' memos (SimState.partners, the shown
+ * block's, and SimState.rank.partners, the ranking block's: the search chooses on the one and shows the other). The context,
+ * changed in place, is returned.
  */
 export function withoutHelpsThem(ctx: TradeContext): TradeContext {
   const I = tradeInternals(ctx);
-  if (I.sim) for (const t of I.teams) I.sim.partners.set(t.id, null);
+  if (I.sim) for (const t of I.teams) for (const runs of [I.sim.partners, I.sim.rank.partners]) runs.set(t.id, null);
   return ctx;
 }
 
@@ -1748,7 +1750,9 @@ export function helpsBothCost(main: Runtime, without: Runtime): HelpsBothCost {
   };
   const untouched = (r: RuntimeRun): number | null => (UNTOUCHED_STAGES.every((k) => finite(r.search[k])) ? UNTOUCHED_STAGES.reduce((acc, k) => acc + (r.search[k] as number), 0) : null);
   const sum = (xs: readonly (number | null)[]): number | null => (xs.every(finite) ? xs.reduce((s: number, x) => s + (x as number), 0) : null);
-  const rankSteps = (r: RuntimeRun): number => (r.search.rank ?? 0) + (r.search.steps ?? 0);
+  // Since Checkpoint 7e the shown pass (its own timing, "shown": the second list's cards and boxes on the shown block, and each
+  // partner's "Helps them" scale there) is the second list's work too.
+  const rankSteps = (r: RuntimeRun): number => (r.search.rank ?? 0) + (r.search.steps ?? 0) + (r.search.shown ?? 0);
   const withRank = warm(main.runs, rankSteps);
   const withoutRank = warm(without.runs, rankSteps);
   const secondList = finite(withRank) && finite(withoutRank) ? withRank - withoutRank : null;
@@ -1930,7 +1934,10 @@ export interface LaneCost {
   measured: { without: number | null; spread: number | null };
 }
 
-/** The stages the lane's rest is read from (search.ts: the extras' final runs, Plan B's pool and the second list come after the screening simulation). */
+/**
+ * The stages the lane's rest is read from (search.ts: the extras' final runs, Plan B's pool and the second list come after the
+ * screening simulation), and since Checkpoint 7e the shown pass ("shown", added when the run has it: laneCost).
+ */
 export const LANE_REST_STAGES = ["simFinal", "rank", "steps"] as const;
 
 export function laneCost(main: Runtime, noLane: Runtime): LaneCost {
@@ -1942,7 +1949,7 @@ export function laneCost(main: Runtime, noLane: Runtime): LaneCost {
     const xs = rows.map((r) => r.search.total).filter(finite);
     return xs.length >= 2 ? Math.max(...xs) - Math.min(...xs) : null;
   };
-  const rest = (r: RuntimeRun): number | null => (LANE_REST_STAGES.every((k) => finite(r.search[k])) ? LANE_REST_STAGES.reduce((acc, k) => acc + (r.search[k] as number), 0) : null);
+  const rest = (r: RuntimeRun): number | null => (LANE_REST_STAGES.every((k) => finite(r.search[k])) ? LANE_REST_STAGES.reduce((acc, k) => acc + (r.search[k] as number), 0) + (r.search.shown ?? 0) : null);
   const withRest = warm(main.runs, rest);
   const withoutRest = warm(noLane.runs, rest);
   const cold = main.cold.lane;
@@ -2222,7 +2229,7 @@ function renderHeader(L: string[], snapshot: LeagueSnapshot, inputs: ModelInputs
   );
   const b = r.result.baseline;
   const stand = r.odds.stand;
-  L.push(`**Your baseline** (the trade search's: every team after its free-agent pickups in the waiver order above, seasons 1–${thousands(config.simulation.finalSims)}; it ${r.odds.baselineEqual === false ? "does NOT equal ❌" : "equals"} the League page's headline, section 7): playoffs ${pctPlain(b.pPlayoffs)}, title ${pctPlain(b.pTitle)}, expected wins ${fmt(b.expWins, 2)}. As rosters stand: playoffs ${pctPlain(stand?.pPlayoffs)}, title ${pctPlain(stand?.pTitle)}.`, "");
+  L.push(`**Your baseline** (the trade search's: every team after its free-agent pickups in the waiver order above, seasons 1–${thousands(shownSimsOf())}, the shown block; it ${r.odds.baselineEqual === false ? "does NOT equal ❌" : "equals"} the League page's headline, section 7): playoffs ${pctPlain(b.pPlayoffs)}, title ${pctPlain(b.pTitle)}, expected wins ${fmt(b.expWins, 2)}. As rosters stand: playoffs ${pctPlain(stand?.pPlayoffs)}, title ${pctPlain(stand?.pTitle)}.`, "");
   const notes = [...new Set([...inputs.notes, ...r.ctx.notes, ...r.result.notes])];
   const warnings = [...new Set([...inputs.warnings.map((w) => `\`${w.code}\` ${w.message}`), ...r.ctx.warnings, ...r.result.warnings, ...model.warnings])];
   if (notes.length || warnings.length) {
@@ -2308,7 +2315,7 @@ function renderTop(L: string[], snapshot: LeagueSnapshot, inputs: ModelInputs, r
   }
   const b3 = top[0]?.b3 ?? null;
   L.push(
-    `The Trade Finder's first ${top.length} of ${trades.length} cards with the default settings, Overall order, Helps you and Overall on B₃ ${b3 === null ? "–" : fmt(b3, 2)} (section 3: ${HELPS_AT_GAIN} ≈ +${config.benefit.helpsGain} pts a week). The three numbers as the card prints them: Helps you / Chance they accept (with its label; "goes through" when the league vote's veto rule cuts it; under ${Math.round(100 * config.acceptance.displayStep)}% reads "<${Math.round(100 * config.acceptance.displayStep)}%") / Overall. Odds before → after: the search's baseline and the trade's change on the same ${thousands(config.simulation.finalSims)} seasons. Win chance by week: the weeks whose chance moves at least ${Math.round(100 * config.explain.weeklyLineMin)} points, at most ${config.explain.weeklyLineMax} (the largest), in week order. Injury tags in brackets are the card's words; the offer-first steps' players carry the same tags (the search's own rule), and a Plan B is quoted in its box's own words (tags in parentheses). Trade value: g_mkt(me), the model's own figure counting roster spots, and what "Protect my trade value" charges or credits for it in Helps you, in points a week on the card's scale (planner reply to Checkpoint 7a, §2 question 5: κ × clamp(g_mkt(me)), the Analyzer's "Trade value: … pts/week equivalent").`,
+    `The Trade Finder's first ${top.length} of ${trades.length} cards with the default settings, Overall order, Helps you and Overall on B₃ ${b3 === null ? "–" : fmt(b3, 2)} (section 3: ${HELPS_AT_GAIN} ≈ +${config.benefit.helpsGain} pts a week). The three numbers as the card prints them: Helps you / Chance they accept (with its label; "goes through" when the league vote's veto rule cuts it; under ${Math.round(100 * config.acceptance.displayStep)}% reads "<${Math.round(100 * config.acceptance.displayStep)}%") / Overall. Odds before → after: the search's baseline and the trade's change on the same ${thousands(shownSimsOf())} seasons (the shown block, Checkpoint 7e: the search ranks on the first ${thousands(config.simulation.finalSims)} of them). Win chance by week: the weeks whose chance moves at least ${Math.round(100 * config.explain.weeklyLineMin)} points, at most ${config.explain.weeklyLineMax} (the largest), in week order. Injury tags in brackets are the card's words; the offer-first steps' players carry the same tags (the search's own rule), and a Plan B is quoted in its box's own words (tags in parentheses). Trade value: g_mkt(me), the model's own figure counting roster spots, and what "Protect my trade value" charges or credits for it in Helps you, in points a week on the card's scale (planner reply to Checkpoint 7a, §2 question 5: κ × clamp(g_mkt(me)), the Analyzer's "Trade value: … pts/week equivalent").`,
     "",
   );
   L.push("| # | Partner | You give → you get | Helps / Chance / Overall | Title odds | Playoff odds | Win chance by week | Trade value |", "|---|---|---|---|---|---|---|---|");
@@ -2370,7 +2377,7 @@ function renderScale(L: string[], r: Report): void {
   const weeks = r.model.weeks.slice(cal.from);
   const matches = (m: boolean | null, what: string) => (m === null ? "" : ` ${what} ${m ? "is the same run, bit for bit." : "is NOT the same run."}`);
   L.push(
-    `Planner reply to Checkpoint 4c, A2: Helps you = round(100 × (1 − e^(−B / B₃))) and Overall = round(100 × (1 − e^(−B × P_complete / B₃))), B₃ = the B of +${gain} projected points a week in every week a trade can change (weeks ${weeks[0] ?? "–"}–${weeks.at(-1) ?? "–"}${cal.from > 0 ? `; week ${r.model.inProgressWeek} is under way, held as rosters stand in every trade` : ""}), regular season and playoffs, from the one baseline (every team after its pickups: LeagueModel.odds), on its ${thousands(config.simulation.finalSims)} seasons (common random numbers), under the same goal, floored at ${config.benefit.helpsFloor}; in a dynasty or keeper league with long-term values B_ref(λ) = (1 − λ) × that + λ × F₁₀, F₁₀ = ${fmt(config.benefit.bFutureScale * config.benefit.helpsFutureShare, 0)}, the B of +${Math.round(100 * config.benefit.helpsFutureShare)}% long-term value (planner reply to Checkpoint 7a, §2 question 6). "Protect my trade value" is priced on the same B₃ (question 5): B's market term = (B₃ / ${gain}) × κ × clamp(g_mkt(me)), κ ${PROTECT_VALUE_LEVELS.map((level) => protectValueWeight(level)).join(" / ")} points a week per 100% of trade value at Low / Medium / High, so the last column's 25%-more-value example costs the same points a week under every goal. The League model's run (LeagueModel.helpsCalibration): ΔPO₃ ${pts(cal.dPO, 2)}, ΔCH₃ ${cal.dCH === null ? "unknown" : pts(cal.dCH, 2)}.${matches(s.contextMatches, "The trade context's own run (its final block)")}`,
+    `Planner reply to Checkpoint 4c, A2: Helps you = round(100 × (1 − e^(−B / B₃))) and Overall = round(100 × (1 − e^(−B × P_complete / B₃))), B₃ = the B of +${gain} projected points a week in every week a trade can change (weeks ${weeks[0] ?? "–"}–${weeks.at(-1) ?? "–"}${cal.from > 0 ? `; week ${r.model.inProgressWeek} is under way, held as rosters stand in every trade` : ""}), regular season and playoffs, from the one baseline (every team after its pickups: LeagueModel.odds), on its ${thousands(shownSimsOf())} seasons (common random numbers), under the same goal, floored at ${config.benefit.helpsFloor}; in a dynasty or keeper league with long-term values B_ref(λ) = (1 − λ) × that + λ × F₁₀, F₁₀ = ${fmt(config.benefit.bFutureScale * config.benefit.helpsFutureShare, 0)}, the B of +${Math.round(100 * config.benefit.helpsFutureShare)}% long-term value (planner reply to Checkpoint 7a, §2 question 6). "Protect my trade value" is priced on the same B₃ (question 5): B's market term = (B₃ / ${gain}) × κ × clamp(g_mkt(me)), κ ${PROTECT_VALUE_LEVELS.map((level) => protectValueWeight(level)).join(" / ")} points a week per 100% of trade value at Low / Medium / High, so the last column's 25%-more-value example costs the same points a week under every goal. The League model's run (LeagueModel.helpsCalibration): ΔPO₃ ${pts(cal.dPO, 2)}, ΔCH₃ ${cal.dCH === null ? "unknown" : pts(cal.dCH, 2)}.${matches(s.contextMatches, "The trade context's own run (its shown block)")}`,
     "",
   );
   const kMedium = protectValueWeight("medium");
@@ -2407,17 +2414,19 @@ function renderScale(L: string[], r: Report): void {
 }
 
 function stagesTable(L: string[], main: Runtime, beams: Runtime): void {
-  const keys = ["setup", "screening", "exact", "simScreen", "simFinal", "rank", "steps", "total"];
+  const keys = ["setup", "screening", "exact", "simScreen", "simFinal", "rank", "steps", "shown", "total"];
   const fin = config.simulation.finalSims;
   const scr = config.simulation.screeningSims;
+  const shown = shownSimsOf();
   const label: Record<string, string> = {
     setup: "setup (pools)",
     screening: "screening",
     exact: "exact evaluation",
-    simScreen: `screening simulation (seasons ${thousands(fin + 1)}–${thousands(fin + scr)})`,
-    simFinal: `final simulation (seasons 1–${thousands(fin)})`,
+    simScreen: `screening simulation (seasons ${thousands(shown + 1)}–${thousands(shown + scr)})`,
+    simFinal: `final simulation, the ranking block (seasons 1–${thousands(fin)})`,
     rank: "ranking",
     steps: "steps, Plan B and words",
+    shown: `the shown pass (seasons 1–${thousands(shown)}: the cards and boxes shown, Checkpoint 7e)`,
     total: "search, total",
   };
   L.push(`| Stage | Cold | Warm (median of ${main.runs.length}) | Beams alone (median of ${beams.runs.length}) |`, "|---|---|---|---|");
@@ -2541,7 +2550,7 @@ function renderNeutral(L: string[], snapshot: LeagueSnapshot, cards: readonly Ne
   const summary = withLean.length
     ? `the lean version is likelier to be accepted on ${likelier.length} of ${withLean.length}${list(likelier)} and has the higher expected gain (B × the chance it goes through, what Overall scales) on ${better.length}${list(better)}; the search never evaluated ${unseen.length} of these ${withLean.length} lean versions exactly.`
     : "none has a lean version (every player in it is left out, or a side would be empty).";
-  L.push(`- **Neutral throw-ins** (${rule}): ${cards.length} card${cards.length === 1 ? "" : "s"}. Each card next to its lean version (the same trade without them, from the Analyzer on the cards' own seasons 1–${thousands(config.simulation.finalSims)}), unrounded: ${summary}`, "");
+  L.push(`- **Neutral throw-ins** (${rule}): ${cards.length} card${cards.length === 1 ? "" : "s"}. Each card next to its lean version (the same trade without them, from the Analyzer on the cards' own seasons 1–${thousands(shownSimsOf())}), unrounded: ${summary}`, "");
   L.push("| Card | Left out (value) | Chance they accept: card → lean | B: card → lean | Expected gain: card → lean | As printed: card · lean | The lean version in the search |", "|---|---|---|---|---|---|---|");
   const status = (s: NeutralCard["leanStatus"]) => (!s ? "–" : s.card ? `card #${s.card}` : s.finalist ? "a finalist the variety rules left out" : s.exact ? "evaluated exactly, not a finalist" : "never evaluated exactly");
   for (const n of cards) {
@@ -2723,7 +2732,7 @@ function renderHelpsBoth(L: string[], snapshot: LeagueSnapshot, inputs: ModelInp
   const shown = list.slice(0, HELPS_BOTH_SHOWN);
   const scales = h.scales.map((s) => `${teamName(s.teamId)} ${scaleText(s.scale)}`).join(" · ");
   L.push(
-    `**The list under "${other}"**: ${shown.length ? `its first ${shown.length} of ${list.length} card${list.length === 1 ? "" : "s"}, by Helps you, with the chance they accept as the card prints it and the partner's odds before → after on the same ${thousands(config.simulation.finalSims)} seasons as yours (TradeEvaluation.them).` : "no trade helps both teams."} Each partner's "Helps them" scale under it, B_ref,P (B₃,P unless it mixes in long-term value): ${scales || "–"}.`,
+    `**The list under "${other}"**: ${shown.length ? `its first ${shown.length} of ${list.length} card${list.length === 1 ? "" : "s"}, by Helps you, with the chance they accept as the card prints it and the partner's odds before → after on the same ${thousands(shownSimsOf())} seasons as yours (TradeEvaluation.them).` : "no trade helps both teams."} Each partner's "Helps them" scale under it, B_ref,P (B₃,P unless it mixes in long-term value): ${scales || "–"}.`,
     "",
   );
   if (shown.length) {

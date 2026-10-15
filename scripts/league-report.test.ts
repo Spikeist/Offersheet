@@ -17,7 +17,7 @@ import type { LeagueSnapshot, Pos } from "@/engine/model";
 import { returnersOf } from "@/engine/optimizer";
 import { finalLineups } from "@/engine/returners";
 import { prizeDeltas, prizeOddsOf, prizePercents, prizePeriods, rewardWith, titleDeltas } from "@/engine/reward";
-import { buildSimSetup, pickupSeasonModel, seasonOdds } from "@/engine/season";
+import { buildSimSetup, pickupSeasonModel, seasonOdds, shownSimsOf } from "@/engine/season";
 import { GOALS, defaultTradeSettings } from "@/engine/settings";
 import { simNormals } from "@/engine/sim";
 import { syntheticInputs } from "@/engine/testLeague";
@@ -188,7 +188,7 @@ describe("league report: the Trade Score arithmetic (CLAUDE.md §10)", () => {
   });
 });
 
-describe("league report: Parker's league (committed sanitized fixture) with synthetic inputs", () => {
+describe("league report: Parker's league (committed sanitized fixture) with synthetic inputs", { timeout: 60_000 }, () => {
   const model = buildLeagueModel(snapshot, inputs, { now: NOW, scenarios: S });
   const season: SeasonReport = seasonReport(snapshot, inputs, model, { now: NOW, clock, runs: 1, warmups: 0, buildRuns: 0 });
   const me = PARKER.myTeamId;
@@ -200,7 +200,8 @@ describe("league report: Parker's league (committed sanitized fixture) with synt
     expect(odds).toBe(model.odds);
     expect(season.stand).toBe(model.oddsAsRostersStand);
     for (const o of [odds, season.stand as NonNullable<SeasonReport["stand"]>]) {
-      expect(o.sims).toBe(config.simulation.finalSims);
+      // The League model's seasons: the shown block's (Checkpoint 7e, planner reply to Checkpoint 7d, item 1.1).
+      expect(o.sims).toBe(shownSimsOf());
       expect(o.teams.map((t) => t.rank).sort((a, b) => a - b)).toEqual(range(1, 10));
       expect(sum(o.teams.map((t) => t.pPlayoffs))).toBeCloseTo(o.playoffTeams, 9);
       expect(sum(o.teams.map((t) => t.pTitle as number))).toBeCloseTo(1, 9);
@@ -287,7 +288,7 @@ describe("league report: Parker's league (committed sanitized fixture) with synt
       for (const k of ["dPO", "dCH", "dEW"] as const) expect(r.se[k]).toBeGreaterThanOrEqual(0);
       last = r;
     }
-    expect([check.batches, check.batchSims]).toEqual([SE_BATCHES, config.simulation.finalSims / SE_BATCHES]);
+    expect([check.batches, check.batchSims]).toEqual([SE_BATCHES, shownSimsOf() / SE_BATCHES]);
     expect(check.titleUnknown).toBeNull();
     const at3 = rows.find((r) => r.gain === 3) as (typeof rows)[number];
     expect(check.calibration).toEqual({ dPO: at3.dPO, dCH: at3.dCH });
@@ -400,7 +401,7 @@ describe("league report: Parker's league (committed sanitized fixture) with synt
     // Every team's pickups move my odds (a fact of the fixture: some team picks someone up), and their effect is the
     // difference of the two baselines, with a standard error from the same batches paired.
     const p = season.pickups as NonNullable<SeasonReport["pickups"]>;
-    expect(p).toEqual(pickupsEffect(pickups, stand, config.simulation.finalSims));
+    expect(p).toEqual(pickupsEffect(pickups, stand, shownSimsOf()));
     expect(p.dPO).toBe(pickups.base.pPlayoffs - stand.base.pPlayoffs);
     expect(p.dCH).toBe((pickups.base.pTitle as number) - (stand.base.pTitle as number));
     expect(p.dEW).toBe(pickups.base.expWins - stand.base.expWins);
@@ -408,7 +409,7 @@ describe("league report: Parker's league (committed sanitized fixture) with synt
     expect(pickups.base).not.toEqual(stand.base);
     for (const k of ["dPO", "dCH", "dEW"] as const) expect(Number.isFinite(p.se[k])).toBe(true);
     // Unknown title odds: no effect.
-    expect(pickupsEffect({ ...pickups, base: { ...pickups.base, pTitle: null } }, stand, config.simulation.finalSims)).toBeNull();
+    expect(pickupsEffect({ ...pickups, base: { ...pickups.base, pTitle: null } }, stand, shownSimsOf())).toBeNull();
   });
 
   it("the free-agent optimizer: moves per team and their count distribution, and the named examples by the model's own rules (leagueMarginals)", () => {
@@ -451,8 +452,8 @@ describe("league report: Parker's league (committed sanitized fixture) with synt
     expect(moved.rebuilt?.score).toBe(0); // the weekly scores themselves are the same
   });
 
-  it("times the simulator at 1,000 and 5,000 seasons", () => {
-    expect(season.simTimings.map((t) => t.sims)).toEqual([config.simulation.screeningSims, config.simulation.finalSims]);
+  it("times the simulator at 1,000, 5,000 and 20,000 seasons (the screening, ranking and shown blocks: Checkpoint 7e)", () => {
+    expect(season.simTimings.map((t) => t.sims)).toEqual([config.simulation.screeningSims, config.simulation.finalSims, shownSimsOf()]);
     for (const t of season.simTimings) for (const x of [t.normals, t.simulate, t.total]) expect(x).toBeGreaterThanOrEqual(0);
     // Medians of the timed runs, after the warm-ups: a clock that ticks 1 per call gives exactly 1, 1 and 2.
     let tick = 0;
@@ -462,7 +463,7 @@ describe("league report: Parker's league (committed sanitized fixture) with synt
   });
 });
 
-describe("league report: a week in progress", () => {
+describe("league report: a week in progress", { timeout: 60_000 }, () => {
   const live = inProgressInputs();
   const model = buildLeagueModel(snapshot, live, { now: NOW, scenarios: S });
 
@@ -504,7 +505,7 @@ describe("league report: a week in progress", () => {
   });
 });
 
-describe("league report: the remaining schedule's byes and risky weeks are the League page's (review POL-1)", () => {
+describe("league report: the remaining schedule's byes and risky weeks are the League page's (review POL-1)", { timeout: 60_000 }, () => {
   /**
    * The report's rows against the League page's (buildLeagueView's schedule) for one model: the same games, the same
    * likely starters on bye (the page's "On bye" names, in its order, are the report's bold ones) and the same risky weeks
@@ -564,7 +565,7 @@ describe("league report: the remaining schedule's byes and risky weeks are the L
   });
 });
 
-describe("league report: conflicting ESPN signals when Sleeper's projections for this week didn't load (review AVAIL-4)", () => {
+describe("league report: conflicting ESPN signals when Sleeper's projections for this week didn't load (review AVAIL-4)", { timeout: 60_000 }, () => {
   it("prints the outage as \"didn't load\", not as Sleeper not projecting him", () => {
     const down = structuredClone(inputs);
     for (const p of Object.values(down.players)) delete p.sleeper[snapshot.currentWeek];
@@ -579,7 +580,7 @@ describe("league report: conflicting ESPN signals when Sleeper's projections for
   });
 });
 
-describe("league report: the automatic playoff-week weight (planner reply to Checkpoint 7a, §6.1; league.ts step 5c)", () => {
+describe("league report: the automatic playoff-week weight (planner reply to Checkpoint 7a, §6.1; league.ts step 5c)", { timeout: 60_000 }, () => {
   const teamName = (id: string) => `Team ${id}${id === PARKER.myTeamId ? " (you)" : ""}`;
   const model = buildLeagueModel(snapshot, inputs, { now: NOW, scenarios: 0 });
 
@@ -590,7 +591,7 @@ describe("league report: the automatic playoff-week weight (planner reply to Che
     if (!a || !runs) throw new Error("the fixture's weight wasn't measured");
     const lines = playoffWeightLines(model, teamName);
     expect(lines[0]).toContain(`Playoff weeks count **${model.playoffWeight}×**, set automatically from Team ${PARKER.myTeamId} (you)'s odds under “Only the champion” (league.ts step 5c)`);
-    expect(lines.join("\n")).toContain(`Two runs on the headline's 5,000 seasons (common random numbers)`);
+    expect(lines.join("\n")).toContain(`Two runs on the headline's ${shownSimsOf().toLocaleString("en-US")} seasons (common random numbers)`);
     expect(lines).toContain("| Goal | B per point, regular season | B per point, playoffs | ω |");
     for (const g of GOALS) {
       const w = playoffWeightFrom(runs, goalRewards(a.reward.periods, a.reward)[g], a.sims);
@@ -634,7 +635,7 @@ describe("league report: the automatic playoff-week weight (planner reply to Che
   });
 });
 
-describe("league report: the league's prizes (Checkpoint 7c; planner reply to Checkpoint 7b, §6; --prizes)", () => {
+describe("league report: the league's prizes (Checkpoint 7c; planner reply to Checkpoint 7b, §6; --prizes)", { timeout: 60_000 }, () => {
   const teamName = (id: string) => `Team ${id}${id === PARKER.myTeamId ? " (you)" : ""}`;
   /** Parker's prizes: $2,000 / $1,600 / $900, nothing for the weekly high score, the most points blank. */
   const PRIZES = { first: 2000, second: 1600, third: 900, weeklyHigh: 0, pointsLeader: null };
@@ -758,7 +759,7 @@ describe("league report: the league's prizes (Checkpoint 7c; planner reply to Ch
   });
 });
 
-describe("league report: the whole offline report", () => {
+describe("league report: the whole offline report", { timeout: 60_000 }, () => {
   // A whole report with its build timings, and each other goal's own League model for its B₃ (review of Phase 7b): more than
   // the default 5 s under the full suite's load.
   it("renders every Phase 3 section and keeps the Phase 2 and wave-1 sections", { timeout: 30_000 }, () => {
@@ -795,7 +796,7 @@ describe("league report: the whole offline report", () => {
     // The scale check owns up to its Monte Carlo error: no "not noise" claim, ± on every change and on B₃,
     // B and Helps you under every goal, twice (the one baseline, and as rosters stand).
     expect(doc).not.toContain("not noise");
-    expect(doc).toContain(`± is its Monte Carlo standard error, by batch means: the 5,000 seasons split into ${SE_BATCHES} batches of 250`);
+    expect(doc).toContain(`± is its Monte Carlo standard error, by batch means: the ${shownSimsOf().toLocaleString("en-US")} seasons split into ${SE_BATCHES} batches of ${(shownSimsOf() / SE_BATCHES).toLocaleString("en-US")}`);
     expect(doc).toContain("| Lineup gain | ΔPO | ΔCH | Δ expected wins | Only the champion: B / Helps you | Several prizes: B / Helps you | Making the playoffs: B / Helps you | Toy league B / score |");
     // +3 reads 63 under every goal, on both bases (each its own B₃).
     const row3 = /\| \+3 pt\/wk \| [+-]\d\.\d{4} ± \d\.\d{4} \| [+-]\d\.\d{4} ± \d\.\d{4} \| [+-]\d+\.\d{3} ± \d+\.\d{3} \| (-?\d+\.\d{2} ± \d+\.\d{2} \/ 63 \| ){3}≈ 5 \/ ≈ 63 \|/g;
@@ -810,20 +811,20 @@ describe("league report: the whole offline report", () => {
     // Build timings: EV lineups and S scenarios, each without and with the simulation.
     expect(season.buildTimings.map((b) => [b.scenarios, b.sims])).toEqual([
       [0, 0],
-      [0, config.simulation.finalSims],
+      [0, shownSimsOf()],
       [S, 0],
-      [S, config.simulation.finalSims],
+      [S, shownSimsOf()],
     ]);
     expect(season.buildTimings.filter((b) => b.sims > 0).every((b) => b.simulation !== null)).toBe(true);
     expect(season.buildTimings.filter((b) => b.sims === 0).every((b) => b.simulation === null)).toBe(true);
     // Every variant measures the automatic playoff weight as the app does (review of Phase 7b): "without" leaves out the
     // season simulation alone. With sims 0 by itself the model would skip that measurement and take the fallback ω.
-    const without = buildLeagueModel(snapshot, inputs, { now: NOW, scenarios: S, sims: 0, playoffWeightSims: config.simulation.finalSims });
+    const without = buildLeagueModel(snapshot, inputs, { now: NOW, scenarios: S, sims: 0, playoffWeightSims: shownSimsOf() });
     expect(without.playoffWeight).toBe(built.playoffWeight);
     expect(without.playoffWeightAuto?.basis).toBe(built.playoffWeightAuto?.basis);
     expect(buildLeagueModel(snapshot, inputs, { now: NOW, scenarios: S, sims: 0 }).playoffWeight).toBe(config.lineups.playoffWeight);
     expect(doc).toContain("| Lineups | Without the season simulation | With it | The build's own \"season simulation\" stage |");
-    expect(doc).toContain("both measure the automatic playoff weight on 5,000 seasons, as the app does, so the difference is the season simulation's alone");
+    expect(doc).toContain(`both measure the automatic playoff weight on ${shownSimsOf().toLocaleString("en-US")} seasons, as the app does, so the difference is the season simulation's alone`);
     // The app's own B₃ under every goal, below the one baseline's table (review of Phase 7b).
     expect(doc).toContain(`⚠️ This check is on the default goal's baseline (playoff weeks count ${built.playoffWeight}×) for every goal's weights`);
     expect(doc).toContain(`The app's own B₃ under each goal, off that goal's own League model: ${appB3Words(season.appB3 as NonNullable<typeof season.appB3>)}.`);
@@ -1060,7 +1061,7 @@ describe("league report: the whole offline report", () => {
   });
 });
 
-describe("league report: Phase 4b (the market blend, one free agent one team, IR returners, the offline mode)", () => {
+describe("league report: Phase 4b (the market blend, one free agent one team, IR returners, the offline mode)", { timeout: 60_000 }, () => {
   const report = buildReport(snapshot, inputs, { now: NOW, clock, scenarios: S, runs: 1, warmups: 0, buildRuns: 0, mode: "offline", dataNote: "Offline: a test dump.", generatedAt: new Date("2026-10-03T12:00:00.000Z") });
   const { doc, model, context } = report;
   const section = (heading: string): string => {
@@ -1075,7 +1076,7 @@ describe("league report: Phase 4b (the market blend, one free agent one team, IR
     expect(doc).toContain("**Data**\n\n- Offline: a test dump.\n");
   });
 
-  it("the header prints the command line it ran with (review of track R: a bare command reads the newest dump, not the report's)", () => {
+  it("the header prints the command line it ran with (review of track R: a bare command reads the newest dump, not the report's)", { timeout: 60_000 }, () => {
     const { doc: withCommand } = buildReport(snapshot, inputs, { now: NOW, clock, scenarios: 0, runs: 1, warmups: 0, buildRuns: 0, mode: "offline", command: "npm run league:report -- --dump data-local/parker-league-dev --team 3" });
     expect(withCommand).toContain("Generated by `npm run league:report -- --dump data-local/parker-league-dev --team 3` on ");
     const { doc: live } = buildReport(snapshot, inputs, { now: NOW, clock, scenarios: 0, runs: 1, warmups: 0, buildRuns: 0, mode: "live" });

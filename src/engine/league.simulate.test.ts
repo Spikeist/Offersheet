@@ -25,7 +25,7 @@ vi.mock("./season", async (importOriginal) => {
   };
 });
 
-describe("buildLeagueModel when the season simulator refuses the setup", () => {
+describe("buildLeagueModel when the season simulator refuses the setup", { timeout: 60_000 }, () => {
   const { snapshot } = normalizeEspnLeague(parkerBundle(), { leagueId: PARKER.leagueId, resolver: fakeResolver(), now: NOW, swid: PARKER.swid });
   const inputs = syntheticInputs(snapshot);
   const build = (error: Error | null, playoffWeightSims?: number) => {

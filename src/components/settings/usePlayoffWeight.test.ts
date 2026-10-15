@@ -17,8 +17,12 @@ describe("playoffWeightTag", () => {
 
   it("changes with what the League model reads: the goal, the streamed positions, my team, the inputs' build and the league data", () => {
     expect(tag).not.toBeNull();
-    expect(LEAGUE_MODEL_SETTINGS).toEqual(["streamPositions", "goal", "prizes"]);
+    expect(LEAGUE_MODEL_SETTINGS).toEqual(["streamPositions", "goal", "prizes", "untouchables", "waiverSamePosition", "returnWeeks"]);
     expect(playoffWeightTag({ ...base, settings: { ...base.settings, goal: "playoffs" } })).not.toBe(tag);
+    // Checkpoint 7e (planner reply to Checkpoint 7d, items 3.2, 3.3 and 3.5): the League model reads these too.
+    expect(playoffWeightTag({ ...base, settings: { ...base.settings, untouchables: ["101"] } })).not.toBe(tag);
+    expect(playoffWeightTag({ ...base, settings: { ...base.settings, waiverSamePosition: false } })).not.toBe(tag);
+    expect(playoffWeightTag({ ...base, settings: { ...base.settings, returnWeeks: { "101": 9 } } })).not.toBe(tag);
     expect(playoffWeightTag({ ...base, settings: { ...base.settings, streamPositions: ["K"] } })).not.toBe(tag);
     expect(playoffWeightTag({ ...base, myTeamId: "2" })).not.toBe(tag);
     expect(playoffWeightTag({ ...base, myTeamId: null })).not.toBe(tag);
@@ -28,7 +32,6 @@ describe("playoffWeightTag", () => {
 
   it("stays the same when only the trade search's settings change: the weight would come out the same", () => {
     const tradeOnly: Partial<TradeSettings>[] = [
-      { untouchables: ["101"] },
       { mustInclude: ["202"] },
       { maxPerSide: 3 },
       { lambda: 0.8 },

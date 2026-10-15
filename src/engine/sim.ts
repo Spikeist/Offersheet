@@ -6,7 +6,7 @@
  * back playoff, bye and title odds, expected records, seed distributions and each remaining week's
  * win chance, and (Checkpoint 7c) the odds of 2nd and 3rd place, the expected weekly high scores and the
  * odds of the most points for. Every tunable number arrives through SimSetup and SimOptions (config.simulation holds the
- * defaults: finalSims, screeningSims, seed; simulateSeason reads exactReseedTeams from it itself when
+ * defaults: finalSims, shownSims, screeningSims, seed; simulateSeason reads exactReseedTeams from it itself when
  * SimOptions doesn't give one).
  *
  * Scores
@@ -36,10 +36,11 @@
  *   √(−2 ln(1 − u1))·sin(2πu2) (an odd count drops the last sine). The matrix therefore depends only on
  *   the seed, the sim index, the week index and the team index (for a given shape), never on the means,
  *   the schedule or the other sims, and the first k sims of an n-sim matrix are the k-sim matrix. So the
- *   League model's 5,000 seasons (LeagueModel.odds and oddsAsRostersStand, one matrix for both) are the first
- *   5,000 of the trade search's matrix of 5,000 + 1,000 (evaluate.ts): its final block, whose baseline is
- *   therefore LeagueModel.odds exactly; its screening block is the next 1,000 (Phase 4c: before, the screening
- *   block came first).
+ *   League model's 20,000 seasons (config.simulation.shownSims since Checkpoint 7e, 5,000 before; LeagueModel.odds
+ *   and oddsAsRostersStand, one matrix for both) are the first 20,000 of the trade search's matrix of 20,000 + 1,000
+ *   (evaluate.ts): its shown block, whose baseline is therefore LeagueModel.odds exactly; its ranking block is the
+ *   first 5,000 of them (finalSims: the same draws), its screening block the next 1,000 (Phase 4c: before, the
+ *   screening block came first).
  * - The "before" run and every "after" run of a trade share one matrix (SimOptions.normals). A trade
  *   changes means and SDs, never the weeks or the teams, so the shape always fits; identical inputs give
  *   identical outputs bit for bit (a trade that changes nothing moves no odds), and a trade's deltas

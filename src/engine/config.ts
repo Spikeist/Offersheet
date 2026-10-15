@@ -349,9 +349,33 @@ export const config = {
     waiverCreditPasses: 4,
   },
 
-  /** §8 Season simulator. */
+  /**
+   * §8 Season simulator. One common-random-numbers matrix per seed: season n's draws depend only on the seed and n (sim.ts
+   * simNormals), so a block of the first seasons is the same draws however many follow it.
+   */
   simulation: {
+    /**
+     * The ranking block: seasons 1..finalSims, the first of the shown block's. The trade search's final simulation runs on it:
+     * the finalists, the "Helps both" extras and Plan B's candidates are ranked and chosen on these seasons (search.ts).
+     */
     finalSims: 5000,
+    /**
+     * The shown block (Checkpoint 7e; planner reply to Checkpoint 7d, item 1.1: "If any trade's Helps you moves by more than
+     * 3 points across seeds: raise the final simulation for the cards shown to 10,000 or 20,000 seasons"): seasons
+     * 1..shownSims (never fewer than finalSims: season.ts shownSimsOf), on which every number a page prints is simulated: the
+     * League model's runs (its headline odds and the odds as rosters stand, the automatic playoff weight's and the "Helps
+     * you" calibration: league.ts step 5c and 8), every card of the Trade Finder's lists and every Plan B box it shows
+     * (search.ts, "The shown pass"), and the Trade Analyzer. On Parker's league (week 6, "Several prizes" 2,000 / 1,600 /
+     * 900; the top 5 cards on 5 seeds' own contexts) the engine as built spreads their Helps you by 3 / 3 / 3 / 1 / 3 across
+     * the seeds at 5,000 seasons and by 1 / 1 / 2 / 1 / 2 at 20,000 (the lead's measurement, wave A, on Checkpoint 7d's engine:
+     * the top card by 5 at 5,000, 4 at 10,000, 3 at 20,000). A 5-seed spread is noisy itself: on 100 seeds in 20 groups of 5,
+     * a group spread a top-5 card by more than 3 in 12 of 20 at 5,000 seasons (up to 6), in none at 20,000 (at most 3; wave A:
+     * 13 and none), so 20,000 (the review of the track, SHOWN-UX-2). Every final run of the search on 20,000 seasons would take
+     * about 11 s in the browser, over §12's 10, so the search ranks on the first finalSims and only what it shows gets all of
+     * them.
+     */
+    shownSims: 20000,
+    /** The screening block: the screeningSims seasons after the shown block's, which no shown or ranking number reads. */
     screeningSims: 1000,
     /** Seed of the common-random-numbers score matrix (§8): the "before" and every "after" run share it. */
     seed: 20_260_930,

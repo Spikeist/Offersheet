@@ -246,7 +246,7 @@ export { contextStillValid };
 
 /**
  * My odds before any trade in a context, exactly as the search reports them (search.ts: TradeSearchResult.baseline, the
- * final block of seasons with every team at its free-agent-optimized roster). Null without a team or a simulated
+ * shown block of seasons with every team at its free-agent-optimized roster: the League page's headline, Checkpoint 7e). Null without a team or a simulated
  * season, and for a context the engine didn't build (the tests' fakes).
  */
 export function contextBaseline(ctx: TradeContext): BaselineOdds | null {
@@ -256,7 +256,7 @@ export function contextBaseline(ctx: TradeContext): BaselineOdds | null {
   } catch {
     return null;
   }
-  const base = I.sim && I.me ? I.sim.base.final : null;
+  const base = I.sim && I.me ? I.sim.base.shown : null;
   return base ? { pPlayoffs: base.pPlayoffs, pTitle: base.pTitle, expWins: base.expWins, prizes: { ...base.prizes } } : null;
 }
 

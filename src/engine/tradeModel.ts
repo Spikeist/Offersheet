@@ -133,9 +133,13 @@ export interface TradeEvaluation {
   proposal: TradeProposal;
   /** Null for a legal trade; else why not, in plain English (the Analyzer shows it; the search drops it). */
   illegal: string | null;
-  /** How far the evaluation went (§12): screened (fast lineups), exact (scenario lineups), final (5,000 seasons). */
+  /**
+   * How far the evaluation went (§12): screened (fast lineups), exact (scenario lineups), final (the final simulation: the
+   * ranking block's config.simulation.finalSims seasons on a finalist the search ranks, the shown block's shownSims on a card
+   * shown and in the Analyzer, Checkpoint 7e; `sims` says which).
+   */
   stage: "screened" | "exact" | "final";
-  /** Seasons simulated behind B (0 = not simulated yet). */
+  /** Seasons simulated behind B (0 = not simulated yet): screeningSims, finalSims or shownSims (config.simulation). */
   sims: number;
   /** Moves the roster limits force (§7), per side. */
   required: { me: RosterChange; partner: RosterChange };
@@ -304,7 +308,7 @@ export interface PartnerNumbers {
    * leagues and without long-term values.
    */
   bFuture: number | null;
-  /** λ_P: §10's default for the partner's baseline P(playoffs) on the final block (keeper 0.2), never the user's Win now ↔ Future setting; null in redraft leagues. */
+  /** λ_P: §10's default for the partner's baseline P(playoffs) on the shown block (LeagueModel.odds; keeper 0.2), never the user's Win now ↔ Future setting; null in redraft leagues. */
   lambda: number | null;
   /**
    * B_ref,P, the scale Helps them is scored on (benefit.ts partnerScale): B₃,P, the B_win of the partner's +3 points a week on
@@ -321,7 +325,8 @@ export interface PartnerNumbers {
   dPrizes: PrizeDeltas;
   /**
    * The partner's odds before the trade on the same block of seasons (the screening block's baseline on a screened trade, the
-   * final block's on a final one: LeagueModel.odds for that team), so "after" is before + the changes above.
+   * ranking block's on a finalist the search ranks, the shown block's on a card shown and in the Analyzer: LeagueModel.odds
+   * for that team), so "after" is before + the changes above.
    */
   before: { pPlayoffs: number; pTitle: number | null; prizes: PrizeOdds };
 }
@@ -341,7 +346,8 @@ export interface InjuryTag {
 }
 
 /**
- * A Plan B (TradeEvaluation.planB): its proposal and its three numbers on the card's basis (the final simulation). ⚠️
+ * A Plan B (TradeEvaluation.planB): its proposal and its three numbers on the card's basis (the final simulation: chosen on
+ * the ranking block, its numbers then the shown block's, as the card's are: search.ts, "The shown pass", Checkpoint 7e). ⚠️
  * Checkpoint 7c: under a card that helps both teams (its "Helps both" tag) it helps both too (planB.ts planBPasses), though
  * it carries no partner's numbers (the box shows no "Helps them" line).
  */
@@ -364,10 +370,10 @@ export interface PlanB {
   /**
    * Phase 4c (planner reply to Checkpoint 4b, change 9, "real odds on every card"): the changes in my P(playoffs) and
    * P(title) and my win chance by week before and after (TradeDetail.winChance's shape and rules), from Plan B's own
-   * simulation on the final block, the runs its B came from: the card's basis, so they start from the same "before" (the
-   * search's baseline) and the box prints them as the card prints its own. dCH null when the league's title odds are
-   * unknown. Absent when its numbers aren't the final block's (planB.ts toPlanB: never in the search) and on a Plan B
-   * made before these fields.
+   * simulation on the final block (the shown block's in the search's results since Checkpoint 7e), the runs its B came from:
+   * the card's basis, so they start from the same "before" (the search's baseline) and the box prints them as the card
+   * prints its own. dCH null when the league's title odds are unknown. Absent when its numbers aren't a final simulation's
+   * (planB.ts toPlanB: never in the search) and on a Plan B made before these fields.
    */
   dPO?: number | null;
   dCH?: number | null;
@@ -381,8 +387,15 @@ export interface TradeStep {
   proposal: TradeProposal;
   /** proposalKey of the proposal. */
   key: string;
-  /** B at config.simulation.screeningSims seasons (the screening block), the Trade Score from it (on the card's B₃), and the acceptance numbers. */
+  /** B at config.simulation.screeningSims seasons (the screening block), the Trade Score from it (on `b3`), and the acceptance numbers. */
   b: number | null;
+  /**
+   * The "Helps you" scale B and the Trade Score are scored on (evaluate.ts stepOf: the step's own TradeEvaluation.b3). Since
+   * Checkpoint 7e the ranking block's (evaluate.ts scaleBlockOf), not its card's: a card prints on the shown block's B₃
+   * (search.ts, "The shown pass"), so the feedback's version inputs read each version's own (tradeView.ts versionChoices;
+   * the review's SHOWN-4). Before, every stage shared one B₃, its card's. Absent on a step made before this field.
+   */
+  b3?: number | null;
   tradeScore: number | null;
   pAccept: number;
   pComplete: number;
@@ -489,8 +502,8 @@ export interface TradeDetail {
   premium?: PremiumFact[];
   /**
    * Phase 4c (planner reply to Checkpoint 4b, change 9): my chance to win each remaining regular-season week's game,
-   * before and after the trade, from the same simulation runs as B (the final block when the numbers are final, the
-   * screening block before that), one entry per week I have a head-to-head game (LeagueModel.weeks order; a multi-week
+   * before and after the trade, from the same simulation runs as B (the shown block on a card shown and in the Analyzer, the
+   * ranking block on a finalist the search ranks, the screening block before that), one entry per week I have a head-to-head game (LeagueModel.weeks order; a multi-week
    * game at its first week). Null where the week's chance isn't defined. The card shows the weeks that move at least
    * config.explain.weeklyLineMin (up to weeklyLineMax, the drops first, then the largest gains, in week order). An empty list in a points-only
    * league (its games don't change the standings); absent without odds.
@@ -519,13 +532,21 @@ export interface TradeSearchProgress {
   /** Work done and total in this stage (for example trades evaluated of 200). */
   done: number;
   total: number;
+  /**
+   * Checkpoint 7e (planner reply to Checkpoint 7d, item 1.1; search.ts, "The shown pass"): "shown" while the "rank" stage
+   * plays out the ideas the lists show on the shown block's config.simulation.shownSims seasons (most of that stage's time),
+   * which tradeView.ts progressView names. Still the "rank" stage, so a re-filter reads as one (the Trade Finder's
+   * refilterProgress). Absent otherwise.
+   */
+  part?: "shown";
 }
 
 export interface TradeSearchResult {
   /** The top config.search.resultsShown trades after ranking and diversity (§13), Overall order. */
   trades: TradeEvaluation[];
   /**
-   * My team, and its baseline odds (every team at V*, config.simulation.finalSims seasons); null fields when not simulated.
+   * My team, and its baseline odds (every team at V*, the shown block's config.simulation.shownSims seasons since Checkpoint
+   * 7e: the League page's headline, every card's "before"); null fields when not simulated.
    * Checkpoint 7c: `prizes`, my prize components on the same seasons (reward.ts PrizeOdds), null when not simulated; optional
    * only so that fakes needn't.
    */
@@ -541,8 +562,14 @@ export interface TradeSearchResult {
    * so that fakes needn't (end-of-Phase-4 review, finding 5).
    */
   dropped?: { partnerCap: number; core: number; filler: number; givenPlayer: number };
-  /** Counts per stage: candidates screened, exactly evaluated, simulated at 1,000 and at 5,000 seasons. */
-  counts: { screened: number; exact: number; simScreen: number; simFinal: number };
+  /**
+   * Counts per stage: candidates screened, exactly evaluated, simulated on the screening block (config.simulation.
+   * screeningSims) and on the ranking block (finalSims: the finalists and "Helps both" extras); and since Checkpoint 7e
+   * (planner reply to Checkpoint 7d, item 1.1) `simShown`, the trades the lists show (cards and Plan B boxes, each once)
+   * with their numbers on the shown block (shownSims; search.ts, "The shown pass"). The search sets simShown whenever it
+   * ranks; absent when it stopped before ranking, and on fakes.
+   */
+  counts: { screened: number; exact: number; simScreen: number; simFinal: number; simShown?: number };
   /** Milliseconds per stage (TradeSearchStage keys) and "total". */
   timings: Record<string, number>;
   /** Plain-English notes (for example: "Kickers and D/STs are left out; turn them on in Settings."). */
@@ -559,8 +586,8 @@ export interface TradeSearchResult {
   /** Phase 4c (change 6): the pattern note above the list, when at least patternMinCount of the uncapped top patternTop give one player of mine. */
   pattern?: PatternNote;
   /**
-   * The search's one "Helps you" scale (evaluate.ts helpsScaleOf for its goal and λ): every card's, step's and Plan B's
-   * TradeEvaluation.b3, with what the tooltip words (planner reply to Checkpoint 7a, §2 question 6, "The tooltip follows the
+   * The search's one "Helps you" scale (evaluate.ts helpsScaleOf for its goal and λ, the shown block's: Checkpoint 7e): every
+   * card's and Plan B box's TradeEvaluation.b3 (a step's is the ranking block's, which the search ranks on), with what the tooltip words (planner reply to Checkpoint 7a, §2 question 6, "The tooltip follows the
    * mix": λ, B_win₃ as `odds`, F₁₀ as `f10`, B_ref as `raw` and `b3`, and what +3 points a week and +10% long-term value read
    * alone). Null without odds or a team. The search always sets it; optional only so that fakes needn't.
    */

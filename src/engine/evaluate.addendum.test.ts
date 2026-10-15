@@ -278,7 +278,7 @@ describe("κ, \"Protect my trade value\" (N3)", () => {
   });
 });
 
-describe("Phase 4c's polish: no FantasyCalc values at all (MarketInputs null): the chance they accept reads every trade as even on trade value, and a note says so", () => {
+describe("Phase 4c's polish: no FantasyCalc values at all (MarketInputs null): the chance they accept reads every trade as even on trade value, and a note says so", { timeout: 60_000 }, () => {
   /** The hand league with no market at all (FantasyCalc unreadable, no saved list to stand in). */
   const valueless = (season: SeasonSpec = {}) => {
     const { snapshot, inputs } = handLeague(() => undefined, season);

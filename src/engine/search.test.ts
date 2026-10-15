@@ -36,7 +36,7 @@ function fullSearch() {
 const search = (opts: TradeSearchOptions) => runTradeSearch(ctx, opts);
 
 describe("the trade search (§12; M6–M8)", { timeout: 60_000 }, () => {
-  it("returns at most resultsShown finished trades: final stage, finalSims seasons, B > 0, not hidden, Overall order, with words", () => {
+  it("returns at most resultsShown finished trades: final stage, shownSims seasons (Checkpoint 7e), B > 0, not hidden, Overall order, with words", () => {
     const { result } = fullSearch();
     expect(result.myTeamId).toBe(me.id);
     expect(result.trades.length).toBeGreaterThan(0);
@@ -44,7 +44,8 @@ describe("the trade search (§12; M6–M8)", { timeout: 60_000 }, () => {
     const eg = (t: TradeEvaluation) => (t.b as number) * t.pComplete;
     result.trades.forEach((t, i) => {
       expect(t.stage).toBe("final");
-      expect(t.sims).toBe(simCounts().final);
+      // Every card's numbers come from the shown block (Checkpoint 7e: search.ts "The shown pass"), its order from them too.
+      expect(t.sims).toBe(simCounts().shown);
       expect(t.illegal).toBeNull();
       expect(t.b).toBeGreaterThan(0);
       expect(t.flags.hiddenByMarket).toBe(false);
@@ -52,7 +53,7 @@ describe("the trade search (§12; M6–M8)", { timeout: 60_000 }, () => {
       expect(t.pitch.length).toBeGreaterThan(0);
       if (i > 0) expect(eg(result.trades[i - 1] as TradeEvaluation)).toBeGreaterThanOrEqual(eg(t) - 1e-12);
     });
-    expect(result.baseline.pPlayoffs).toBe(I.sim?.base.final.pPlayoffs);
+    expect(result.baseline.pPlayoffs).toBe(I.sim?.base.shown.pPlayoffs);
     expect(result.notes).toContain("Kickers and D/STs are left out; turn them on in Settings.");
   });
 
@@ -92,12 +93,15 @@ describe("the trade search (§12; M6–M8)", { timeout: 60_000 }, () => {
     expect(extras).toBeLessThanOrEqual(config.search.helpsBothFinalists);
     expect(c.simFinal).toBeLessThanOrEqual(config.search.finalists + extras);
     expect(c.simFinal).toBeGreaterThanOrEqual(result.trades.length);
-    expect(Object.keys(result.timings)).toEqual(["setup", "screening", "exact", "simScreen", "simFinal", "rank", "steps", "total"]);
+    // Checkpoint 7e: the trades the lists show (cards and Plan B boxes, each once) on the shown block, and the shown pass's own timing.
+    expect(c.simShown).toBeGreaterThanOrEqual(result.trades.length);
+    expect(c.simShown).toBeLessThanOrEqual(st.shownByKey.size);
+    expect(Object.keys(result.timings)).toEqual(["setup", "screening", "exact", "simScreen", "simFinal", "rank", "steps", "shown", "total"]);
     // Without a clock, no timings.
     expect(search({ partnerId: "2", settings: settingsWith({ maxPerSide: 1 }) }).timings).toEqual({});
   });
 
-  it("progress: the stages in order, done never above total, ending with the ranking (one unit per shown trade's steps)", () => {
+  it("progress: the stages in order, done never above total, ending with the ranking done (since Checkpoint 7e, its units the cards' numbers and steps, the runs on the shown block and the Plan Bs)", () => {
     const { progress, result } = fullSearch();
     const order = ["setup", "screening", "exact", "simScreen", "simFinal", "rank"];
     let at = 0;
@@ -108,9 +112,13 @@ describe("the trade search (§12; M6–M8)", { timeout: 60_000 }, () => {
       expect(p.done).toBeLessThanOrEqual(p.total);
     }
     expect(new Set(progress.map((p) => p.stage)).size).toBe(order.length);
-    // One unit per card of either list (Checkpoint 7c: the "Helps both" list's cards the Overall list doesn't show too).
-    const n = Math.max(1, new Set([...result.trades, ...(result.helpsBoth?.trades ?? [])].map((t) => t.key)).size);
-    expect(progress.at(-1)).toEqual({ stage: "rank", done: n, total: n });
+    // The ranking comes last: one unit for each card's numbers and steps (Checkpoint 7c: the "Helps both" list's cards the
+    // Overall list doesn't show too) and each card's Plan B, at least, and (Checkpoint 7e) each run on the shown block.
+    const cards = new Set([...result.trades, ...(result.helpsBoth?.trades ?? [])].map((t) => t.key)).size;
+    const last = progress.at(-1) as TradeSearchProgress;
+    expect(last).toMatchObject({ stage: "rank", part: "shown" });
+    expect(last.done).toBe(last.total);
+    expect(last.total).toBeGreaterThanOrEqual(2 * cards + (searchStateOf(result) as SearchState).shownByKey.size);
   });
 
   it("is deterministic: the same context and options (or a fresh context) give the same result", () => {

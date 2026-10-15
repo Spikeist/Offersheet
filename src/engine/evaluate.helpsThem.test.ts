@@ -94,7 +94,7 @@ function mutualLeague(edit: (spec: TestLeagueSpec) => void = () => undefined, se
   }, season);
 }
 
-describe("each partner's calibration run (evaluate.partnerCalibrationOf): its score + 3 a week on the final block, a direct simulation's numbers", { timeout: 60_000 }, () => {
+describe("each partner's calibration run (evaluate.partnerCalibrationOf): its score + 3 a week on each block, a direct simulation's numbers", { timeout: 60_000 }, () => {
   const cases: { label: string; seed: number; live?: boolean; scenarios: number }[] = [
     { label: "EV lineups", seed: 31, scenarios: 0 },
     { label: "scenario lineups", seed: 32, scenarios: 8 },
@@ -113,12 +113,14 @@ describe("each partner's calibration run (evaluate.partnerCalibrationOf): its sc
       const model = buildLeagueModel(snapshot, inputs, opts);
       const season = pickupSeasonModel(model);
       expect(sim.odds).toEqual(model.odds);
+      let differ = 0;
       for (const t of I.teams) {
         const run = partnerCalibrationOf(I, t.id);
         expect(run, t.id).not.toBeNull();
         expect(run).toMatchObject({ gain: config.benefit.helpsGain, from: I.from });
         const before = teamOf(model.odds, t.id) as TeamOdds;
-        const after = teamOf(seasonOdds(snapshot, plus(season, t.id, config.benefit.helpsGain, I.from), { sims: config.simulation.finalSims, seed: config.simulation.seed }), t.id) as TeamOdds;
+        // The shown block's seasons (the default; Checkpoint 7e: the League model's own, simCounts().shown).
+        const after = teamOf(seasonOdds(snapshot, plus(season, t.id, config.benefit.helpsGain, I.from), { sims: simCounts().shown, seed: config.simulation.seed }), t.id) as TeamOdds;
         expect(Object.is(run?.dPO, after.pPlayoffs - before.pPlayoffs), t.id).toBe(true);
         expect(Object.is(run?.dCH, (after.pTitle as number) - (before.pTitle as number)), t.id).toBe(true);
         expect(run?.dPrizes, t.id).toEqual(runPrizeDeltas(prizeOddsOf(before), prizeOddsOf(after), false));
@@ -126,9 +128,19 @@ describe("each partner's calibration run (evaluate.partnerCalibrationOf): its sc
         expect(run?.dPO as number, t.id).toBeGreaterThanOrEqual(0);
         // Kept with the context: the same object the next time.
         expect(partnerCalibrationOf(I, t.id), t.id).toBe(run);
+        // The ranking block's (Checkpoint 7e: the search's screening and ranking stages): its own baseline and seasons, kept apart.
+        const ranked = partnerCalibrationOf(I, t.id, "final");
+        const rankBefore = teamOf(sim.rank.odds, t.id) as TeamOdds;
+        const rankAfter = teamOf(seasonOdds(snapshot, plus(season, t.id, config.benefit.helpsGain, I.from), { sims: simCounts().final, seed: config.simulation.seed }), t.id) as TeamOdds;
+        expect(Object.is(ranked?.dPO, rankAfter.pPlayoffs - rankBefore.pPlayoffs), t.id).toBe(true);
+        if (ranked?.dCH !== run?.dCH) differ++;
+        expect(partnerCalibrationOf(I, t.id, "final"), t.id).toBe(ranked);
       }
-      // My own id gives the context's own "Helps you" run, bit for bit.
+      // Other seasons, other numbers (a team whose odds can't move reads 0 on both).
+      expect(differ).toBeGreaterThan(0);
+      // My own id gives the context's own "Helps you" run on each block, bit for bit.
       expect(partnerCalibrationOf(I, me.id)).toEqual(sim.calibration);
+      expect(partnerCalibrationOf(I, me.id, "final")).toEqual(sim.rank.calibration);
       // A team the odds don't list, or no odds: none.
       expect(partnerCalibrationOf(I, "no such team")).toBeNull();
       expect(partnerCalibrationOf({ ...I, sim: null }, "2")).toBeNull();
@@ -145,7 +157,7 @@ describe("the partner's numbers come from the trade's own runs (TradeEvaluation.
   const two = I.byId.get("2") as TeamState;
 
   /** Every team's odds when my row and the partner's are the trade's, on a block, as season.seasonOdds plays them. */
-  const afterOdds = (stage: "final" | "screen"): SeasonOdds => {
+  const afterOdds = (stage: "final" | "screen" | "shown"): SeasonOdds => {
     const model: SeasonModel = {
       weeks: I.league.lp.weeks.weeks,
       regularWeeks: I.league.lp.weeks.regularWeeks,
@@ -159,18 +171,28 @@ describe("the partner's numbers come from the trade's own runs (TradeEvaluation.
     return seasonOdds(I.snapshot, model, { sims: simCounts()[stage], seed: sim.seed, normals: sim.blocks[stage] }) as SeasonOdds;
   };
 
-  it("final: before is LeagueModel.odds for the partner; ΔPO, ΔCH and the prize components a direct simulation's with both rows replaced", () => {
-    const e = simulateTrade(I, x, "final", null);
+  it("shown: before is LeagueModel.odds for the partner; ΔPO, ΔCH and the prize components a direct simulation's with both rows replaced", () => {
+    const e = simulateTrade(I, x, "shown", null);
     const them = e.them;
     expect(them).toBeDefined();
     const before = teamOf(sim.odds, "2") as TeamOdds;
-    const after = teamOf(afterOdds("final"), "2") as TeamOdds;
+    const after = teamOf(afterOdds("shown"), "2") as TeamOdds;
     expect(them?.before).toEqual({ pPlayoffs: before.pPlayoffs, pTitle: before.pTitle, prizes: prizeOddsOf(before) });
     expect(Object.is(them?.dPO, after.pPlayoffs - before.pPlayoffs)).toBe(true);
     expect(Object.is(them?.dCH, (after.pTitle as number) - (before.pTitle as number))).toBe(true);
     expect(them?.dPrizes).toEqual(runPrizeDeltas(prizeOddsOf(before), prizeOddsOf(after), false));
     // Mine from the same run.
-    expect(Object.is(e.dPO, (teamOf(afterOdds("final"), me.id) as TeamOdds).pPlayoffs - (teamOf(sim.odds, me.id) as TeamOdds).pPlayoffs)).toBe(true);
+    expect(Object.is(e.dPO, (teamOf(afterOdds("shown"), me.id) as TeamOdds).pPlayoffs - (teamOf(sim.odds, me.id) as TeamOdds).pPlayoffs)).toBe(true);
+  });
+
+  it("final (Checkpoint 7e, the ranking block): before is the ranking block's baseline; its run and its own scale", () => {
+    const e = simulateTrade(I, x, "final", null);
+    const before = teamOf(sim.rank.odds, "2") as TeamOdds;
+    const after = teamOf(afterOdds("final"), "2") as TeamOdds;
+    expect(e.them?.before).toEqual({ pPlayoffs: before.pPlayoffs, pTitle: before.pTitle, prizes: prizeOddsOf(before) });
+    expect(Object.is(e.them?.dPO, after.pPlayoffs - before.pPlayoffs)).toBe(true);
+    expect(e.them?.b3).toBe(partnerScaleOf(I, two, undefined, "final")?.b3);
+    expect(e.them?.b3).not.toBe(simulateTrade(I, x, "shown", null).them?.b3);
   });
 
   it("screen: the screening block's baseline and run", () => {
@@ -190,7 +212,7 @@ describe("the partner's numbers come from the trade's own runs (TradeEvaluation.
     const seen = new Set<number>();
     for (const goal of GOALS) {
       const reward = rewardOf({ ...defaultTradeSettings(), goal }, I.snapshot);
-      const e = simulateTrade(I, x, "final", null, undefined, reward);
+      const e = simulateTrade(I, x, "shown", null, undefined, reward);
       const them = e.them as NonNullable<typeof e.them>;
       const b = partnerBenefit({ leagueType: "redraft", dPO: them.dPO, dCH: them.dCH, dPrizes: them.dPrizes, dynasty: null, pPlayoffs: teamOf(sim.odds, "2")?.pPlayoffs ?? null, reward });
       expect(them.b, goal).toBe(b.b);
@@ -222,9 +244,9 @@ describe("the partner's numbers come from the trade's own runs (TradeEvaluation.
     expect(helpsBoth(lopsided)).toBe(false);
   });
 
-  it("the Analyzer's evaluation carries the final block's, a step's version the screening block's; a TradeStep none", () => {
+  it("the Analyzer's evaluation carries the shown block's, a step's version the screening block's; a TradeStep none", () => {
     const a = analyzeTrade(ctx, trade("2", ["rc1"], ["wc2"])).evaluation;
-    expect(a?.them).toEqual(simulateTrade(I, x, "final", null).them);
+    expect(a?.them).toEqual(simulateTrade(I, x, "shown", null).them);
     const v = tradeVersion(I, trade("2", ["rc1"], ["wc2"]), { settings: defaultTradeSettings(), maxPerSide: 2 });
     expect(v?.screen.them).toEqual(simulateTrade(I, x, "screen", null).them);
     for (const step of a?.steps ? [a.steps.offerFirst, a.steps.ifNo.full] : []) expect("them" in step).toBe(false);
@@ -236,7 +258,7 @@ describe("the partner's numbers come from the trade's own runs (TradeEvaluation.
     const saved = sim.partners.get("2");
     try {
       sim.partners.set("2", { gain: 3, from: I.from, dPO: 0.0002, dCH: 0.0001, dPrizes: titleDeltas(0.0001) });
-      const e = simulateTrade(I, x, "final", null);
+      const e = simulateTrade(I, x, "shown", null);
       expect(e.them?.b3).toBe(config.benefit.helpsFloor);
       expect(e.them?.helps).toBe(helpsThemScore(e.them?.b ?? null, config.benefit.helpsFloor));
     } finally {
@@ -276,7 +298,7 @@ describe("dynasty: λ_P by the partner's odds (never the slider), B_future,P fro
   });
 
   it("the user's Win now ↔ Future setting moves my λ, never λ_P: the partner's numbers are the same at every setting", () => {
-    const at = (lambda: number | null) => simulateTrade(I, x, "final", lambda);
+    const at = (lambda: number | null) => simulateTrade(I, x, "shown", lambda);
     const base = at(null);
     const pP = teamOf(sim.odds, "2")?.pPlayoffs ?? null;
     const lambdaP = defaultLambda("dynasty", pP) as number;

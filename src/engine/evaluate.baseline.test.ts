@@ -16,6 +16,7 @@ import {
   analyzeTrade,
   buildTradeContext,
   evaluateExact,
+  partnerCalibrationOf,
   rewardFor,
   simCounts,
   simulateTrade,
@@ -30,7 +31,7 @@ import {
   type TradeContext,
   type TradeContextOptions,
 } from "./evaluate";
-import { buildLeagueModel, type BuildLeagueModelOptions } from "./league";
+import { buildLeagueModel, helpsCalibrationOf, type BuildLeagueModelOptions } from "./league";
 import type { SeasonOdds } from "./leagueModel";
 import type { LeagueSnapshot, Matchup } from "./model";
 import type { ModelInputs } from "./inputs";
@@ -122,7 +123,10 @@ describe("one baseline everywhere: the trade context's baseline odds are LeagueM
         const u = sim.odds.teams.find((x) => x.teamId === t.teamId);
         for (const k of ["pPlayoffs", "pBye", "pTitle", "expWins"] as const) expect(Object.is(u?.[k], t[k]), `${t.teamId} ${k}`).toBe(true);
       }
-      // The baseline's scores are TeamModel.scoreWithPickups, and my odds on the final block are the model's.
+      // The baseline's scores are TeamModel.scoreWithPickups, and my odds on the shown block are the model's (Checkpoint 7e:
+      // the League model plays the shown block's seasons, simCounts().shown).
+      expect(odds.sims).toBe(simCounts().shown);
+      expect(sim.blocks.shown.sims).toBe(simCounts().shown);
       I.teams.forEach((t, i) => {
         const w = model.teams[i]?.scoreWithPickups;
         expect(Array.from(t.base.score.mean), t.id).toEqual(w?.mean);
@@ -130,24 +134,25 @@ describe("one baseline everywhere: the trade context's baseline odds are LeagueM
       });
       const me = I.me as TeamState;
       const mine = odds.teams.find((t) => t.teamId === me.id);
-      expect(sim.base.final.pPlayoffs).toBe(mine?.pPlayoffs);
-      expect(sim.base.final.pTitle).toBe(mine?.pTitle);
-      expect(sim.base.final.expWins).toBe(mine?.expWins);
-      expect(sim.base.final.weekly.filter((w) => w.pWin !== null)).toEqual(myWeeks(odds, me.id));
+      expect(sim.base.shown.pPlayoffs).toBe(mine?.pPlayoffs);
+      expect(sim.base.shown.pTitle).toBe(mine?.pTitle);
+      expect(sim.base.shown.expWins).toBe(mine?.expWins);
+      expect(sim.base.shown.weekly.filter((w) => w.pWin !== null)).toEqual(myWeeks(odds, me.id));
       // Checkpoint 7c ("Helps them": planner reply to Checkpoint 7b, §7): the same run lists every team's odds, each
       // LeagueModel.odds' for that team bit for bit (a trade partner's "before"), mine among them.
-      expect(sim.base.final.teams).toHaveLength(odds.teams.length);
+      expect(sim.base.shown.teams).toHaveLength(odds.teams.length);
       odds.teams.forEach((t, i) => {
-        const b = sim.base.final.teams[i];
+        const b = sim.base.shown.teams[i];
         for (const k of ["pPlayoffs", "pTitle", "expWins"] as const) expect(Object.is(b?.[k], t[k]), `${t.teamId} ${k}`).toBe(true);
         expect(b?.prizes, t.teamId).toEqual(prizeOddsOf(t));
       });
-      expect(sim.base.final.teams[me.index]).toEqual({ pPlayoffs: sim.base.final.pPlayoffs, pTitle: sim.base.final.pTitle, expWins: sim.base.final.expWins, prizes: sim.base.final.prizes });
+      expect(sim.base.shown.teams[me.index]).toEqual({ pPlayoffs: sim.base.shown.pPlayoffs, pTitle: sim.base.shown.pTitle, expWins: sim.base.shown.expWins, prizes: sim.base.shown.prizes });
       expect(sim.base.screen.teams).toHaveLength(odds.teams.length);
+      expect(sim.base.final.teams).toHaveLength(odds.teams.length);
       // The odds as rosters stand: every team's TeamModel.score on the same seasons; another number when pickups matter.
       const stand = model.oddsAsRostersStand as SeasonOdds;
       const standModel: SeasonModel = { weeks: model.weeks, regularWeeks: model.regularWeeks, playoffWeeks: model.playoffWeeks, inProgressWeek: model.inProgressWeek, teams: model.teams.map((t) => ({ id: t.id, score: t.score })) };
-      expect(stand).toEqual(seasonOdds(snapshot, standModel, { sims: config.simulation.finalSims, seed: config.simulation.seed }));
+      expect(stand).toEqual(seasonOdds(snapshot, standModel, { sims: simCounts().shown, seed: config.simulation.seed }));
       expect(JSON.stringify(stand.teams)).not.toBe(JSON.stringify(odds.teams));
       // The week in progress: the model plays it with today's rosters, so both scores keep the team's week as it stands.
       if (c.live) for (const t of model.teams) expect([t.scoreWithPickups?.mean[0], t.scoreWithPickups?.sd[0]], t.id).toEqual([t.score.mean[0], t.score.sd[0]]);
@@ -171,33 +176,69 @@ describe("one baseline everywhere: the trade context's baseline odds are LeagueM
   });
 });
 
-describe("the two blocks of seasons: the final block first (the League model's own seasons), then the screening block", () => {
-  it("final = seasons [0, finalSims) of the seed's matrix, screening = the next screeningSims", () => {
+/** Whether two arrays of numbers hold the same values (a plain loop: expect().toEqual on 100,000s of numbers is slow). */
+function sameNumbers(a: ArrayLike<number>, b: ArrayLike<number>): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (!Object.is(a[i], b[i])) return false;
+  return true;
+}
+
+describe("the three blocks of seasons (Checkpoint 7e): the shown block first (the League model's own seasons), the ranking block its first finalSims, then the screening block", () => {
+  it("shown = seasons [0, shownSims) of the seed's matrix, final (ranking) = its first finalSims, screening = the next screeningSims after the shown block", () => {
     const ctx = hand();
     const sim = tradeInternals(ctx).sim as SimState;
-    const { final, screen } = simCounts();
-    const { weeks: Wk, teams: T } = sim.blocks.final;
+    const { final, screen, shown } = simCounts();
+    expect(shown).toBe(config.simulation.shownSims);
+    expect(final).toBe(config.simulation.finalSims);
+    expect(final).toBeLessThan(shown);
+    const { weeks: Wk, teams: T } = sim.blocks.shown;
     const per = Wk * T;
-    expect(sim.blocks.final.sims).toBe(final);
-    expect(sim.blocks.screen.sims).toBe(screen);
-    const all = simNormals(sim.seed, final + screen, Wk, T);
-    expect(sim.blocks.final.z).toEqual(simNormals(sim.seed, final, Wk, T).z);
-    expect(sim.blocks.final.z).toEqual(all.z.subarray(0, final * per));
-    expect(sim.blocks.screen.z).toEqual(all.z.subarray(final * per, (final + screen) * per));
-    // The screening block is other seasons: its baseline isn't the final one's.
-    expect(sim.base.screen.pPlayoffs).not.toBe(sim.base.final.pPlayoffs);
+    expect([sim.blocks.shown.sims, sim.blocks.final.sims, sim.blocks.screen.sims]).toEqual([shown, final, screen]);
+    const all = simNormals(sim.seed, shown + screen, Wk, T);
+    expect(sameNumbers(sim.blocks.shown.z, all.z.subarray(0, shown * per))).toBe(true);
+    // The ranking block is the shown block's first seasons: the very same draws (season n's depend only on the seed and n).
+    expect(sameNumbers(sim.blocks.final.z, simNormals(sim.seed, final, Wk, T).z)).toBe(true);
+    expect(sim.blocks.final.z.buffer).toBe(sim.blocks.shown.z.buffer);
+    expect(sameNumbers(sim.blocks.screen.z, all.z.subarray(shown * per, (shown + screen) * per))).toBe(true);
+    // Each block's baseline is its own seasons': the screening's isn't the others', and the ranking block's is its own run.
+    expect(sim.base.screen.pPlayoffs).not.toBe(sim.base.shown.pPlayoffs);
+    expect(sim.base.final.pPlayoffs).not.toBe(sim.base.shown.pPlayoffs);
     // A block of the matrix drawn alone (sim.simNormals from a season on) is that block.
-    expect(simNormals(sim.seed, screen, Wk, T, final).z).toEqual(all.z.subarray(final * per, (final + screen) * per));
-    expect(simNormals(sim.seed, 3, Wk, T, 7).z).toEqual(all.z.subarray(7 * per, 10 * per));
-    // The final block is the automatic playoff weight's own draws (league.ts step 5c drew them: the same seed and seasons),
-    // so only the screening block is drawn for the context; without that measurement both are drawn, the same numbers.
+    expect(sameNumbers(simNormals(sim.seed, screen, Wk, T, shown).z, all.z.subarray(shown * per, (shown + screen) * per))).toBe(true);
+    expect(sameNumbers(simNormals(sim.seed, 3, Wk, T, 7).z, all.z.subarray(7 * per, 10 * per))).toBe(true);
+    // The shown block is the automatic playoff weight's own draws (league.ts step 5c drew them: the same seed and seasons),
+    // so only the screening block is drawn for the context; without that measurement all are drawn, the same numbers.
     const I = tradeInternals(ctx);
     expect(I.league.playoffWeightAuto.basis).toBe("auto");
-    expect(sim.blocks.final).toBe(I.league.playoffWeightSim?.normals);
+    expect(sim.blocks.shown).toBe(I.league.playoffWeightSim?.normals);
     const fixed = tradeInternals(hand(undefined, undefined, { playoffWeightSims: 0 }));
     expect(fixed.league.playoffWeightSim).toBeNull();
-    expect((fixed.sim as SimState).blocks.final.z).toEqual(sim.blocks.final.z);
-    expect((fixed.sim as SimState).blocks.screen.z).toEqual(sim.blocks.screen.z);
+    const fsim = fixed.sim as SimState;
+    expect(sameNumbers(fsim.blocks.shown.z, sim.blocks.shown.z)).toBe(true);
+    expect(sameNumbers(fsim.blocks.final.z, sim.blocks.final.z)).toBe(true);
+    expect(sameNumbers(fsim.blocks.screen.z, sim.blocks.screen.z)).toBe(true);
+  });
+
+  it("the ranking block's own baseline, calibration and partners' runs: the same setup on its seasons, apart from the shown block's", () => {
+    const ctx = hand();
+    const I = tradeInternals(ctx);
+    const sim = I.sim as SimState;
+    const me = I.me as TeamState;
+    const on = (block: "final" | "shown") => ({ sims: sim.blocks[block].sims, seed: sim.seed, normals: sim.blocks[block] });
+    // The baseline on each block: seasonOdds of the same setup on its seasons (the shown one LeagueModel.odds: above).
+    expect(sim.rank.odds).toEqual(seasonOdds(I.snapshot, sim.season, on("final")));
+    expect(sim.odds).toEqual(seasonOdds(I.snapshot, sim.season, on("shown")));
+    expect(sim.rank.odds).not.toEqual(sim.odds);
+    expect(sim.base.final.pPlayoffs).toBe(sim.rank.odds.teams[me.index]?.pPlayoffs);
+    // Each block's "Helps you" calibration against its own baseline; each partner's made on the block asked for, apart.
+    expect(sim.rank.calibration).toEqual(helpsCalibrationOf(I.snapshot, sim.season, me.id, sim.rank.odds, on("final"), I.from));
+    expect(sim.calibration).toEqual(helpsCalibrationOf(I.snapshot, sim.season, me.id, sim.odds, on("shown"), I.from));
+    expect(sim.rank.calibration).not.toEqual(sim.calibration);
+    expect(partnerCalibrationOf(I, "2", "final")).toEqual(helpsCalibrationOf(I.snapshot, sim.season, "2", sim.rank.odds, on("final"), I.from));
+    expect(sim.rank.partners.has("2")).toBe(true);
+    expect(sim.partners.has("2")).toBe(false);
+    expect(partnerCalibrationOf(I, "2")).toEqual(helpsCalibrationOf(I.snapshot, sim.season, "2", sim.odds, on("shown"), I.from));
+    expect(sim.partners.has("2")).toBe(true);
   });
 });
 
@@ -210,7 +251,7 @@ describe("win chance by week (TradeDetail.winChance; planner reply to Checkpoint
   const x = exact(ctx, trade("2", ["wc1"], ["ra2"]));
 
   /** My weekly win chances when my row and the partner's are swapped for the trade's, as season.seasonOdds plays them. */
-  const afterOdds = (stage: "final" | "screen"): SeasonOdds => {
+  const afterOdds = (stage: "final" | "screen" | "shown"): SeasonOdds => {
     const model: SeasonModel = {
       weeks: I.league.lp.weeks.weeks,
       regularWeeks: I.league.lp.weeks.regularWeeks,
@@ -225,14 +266,22 @@ describe("win chance by week (TradeDetail.winChance; planner reply to Checkpoint
     return seasonOdds(I.snapshot, model, { sims: n, seed: sim.seed, normals: sim.blocks[stage] }) as SeasonOdds;
   };
 
-  it("a final trade: before = the baseline's (LeagueModel.odds), after = the trade's run, both on the final block, every week I have a game", () => {
-    const final = simulateTrade(I, x, "final", null);
+  it("a card shown: before = the baseline's (LeagueModel.odds), after = the trade's run, both on the shown block, every week I have a game", () => {
+    const shown = simulateTrade(I, x, "shown", null);
     const before = myWeeks(sim.odds, me.id);
-    const after = myWeeks(afterOdds("final"), me.id);
+    const after = myWeeks(afterOdds("shown"), me.id);
     expect(before.length).toBeGreaterThan(1);
-    expect(final.detail.winChance).toEqual(before.map((b, k) => ({ week: b.week, before: b.pWin, after: after[k]?.pWin ?? null })));
+    expect(shown.detail.winChance).toEqual(before.map((b, k) => ({ week: b.week, before: b.pWin, after: after[k]?.pWin ?? null })));
     // The trade helps me: some week's chance moves up.
-    expect(final.detail.winChance?.some((w) => (w.after as number) > (w.before as number))).toBe(true);
+    expect(shown.detail.winChance?.some((w) => (w.after as number) > (w.before as number))).toBe(true);
+  });
+
+  it("a finalist the search ranks (Checkpoint 7e): the ranking block's baseline and the trade's run on it", () => {
+    const final = simulateTrade(I, x, "final", null);
+    const before = myWeeks(sim.rank.odds, me.id);
+    const after = myWeeks(afterOdds("final"), me.id);
+    expect(final.detail.winChance).toEqual(before.map((b, k) => ({ week: b.week, before: b.pWin, after: after[k]?.pWin ?? null })));
+    expect(final.detail.winChance).not.toEqual(simulateTrade(I, x, "shown", null).detail.winChance);
   });
 
   it("a screened run: the screening block's numbers, before and after", () => {
@@ -243,9 +292,9 @@ describe("win chance by week (TradeDetail.winChance; planner reply to Checkpoint
     expect(screen.detail.winChance).not.toEqual(simulateTrade(I, x, "final", null).detail.winChance);
   });
 
-  it("the Analyzer's card carries the final block's lines; a step's version its screening block's", () => {
+  it("the Analyzer's card carries the shown block's lines; a step's version its screening block's", () => {
     const a = analyzeTrade(ctx, trade("2", ["wc1"], ["ra2"])).evaluation;
-    expect(a?.detail.winChance).toEqual(simulateTrade(I, x, "final", null).detail.winChance);
+    expect(a?.detail.winChance).toEqual(simulateTrade(I, x, "shown", null).detail.winChance);
     const v = tradeVersion(I, trade("2", ["wc1"], ["ra2"]), { settings: defaultTradeSettings(), maxPerSide: 2 });
     expect(v?.screen.detail.winChance).toEqual(simulateTrade(I, x, "screen", null).detail.winChance);
   });
@@ -383,7 +432,7 @@ describe("the goal and prizes reach benefit() (\"What does your league reward?\"
       const settings = { ...defaultTradeSettings(), goal };
       const reward = rewardFor(I, settings);
       const analysis = analyzeTrade(ctx, proposal, { settings });
-      expect(analysis.evaluation?.b, goal).toBe(simulateTrade(I, x, "final", settings.lambda, settings.protectValue, reward).b);
+      expect(analysis.evaluation?.b, goal).toBe(simulateTrade(I, x, "shown", settings.lambda, settings.protectValue, reward).b);
       expect(analysis.reward, goal).toEqual(reward);
       expect(tradeVersion(I, proposal, { settings, maxPerSide: 2 })?.screen.b, goal).toBe(simulateTrade(I, x, "screen", settings.lambda, settings.protectValue, reward).b);
     }

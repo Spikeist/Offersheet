@@ -436,7 +436,8 @@ function teamOdds(teamId: string, rank: number, pPlayoffs: number, pTitle: numbe
  */
 function seasonOdds(gameDay: boolean, asRostersStand = false): SeasonOdds {
   return {
-    sims: 5000,
+    // The League model's seasons: the shown block's (Checkpoint 7e, planner reply to Checkpoint 7d, item 1.1).
+    sims: config.simulation.shownSims,
     seed: config.simulation.seed,
     playoffTeams: 2,
     byes: 0,
@@ -471,7 +472,7 @@ function seasonOdds(gameDay: boolean, asRostersStand = false): SeasonOdds {
       ]),
     })),
     notes: [
-      "Odds from 5,000 simulated seasons.",
+      `Odds from ${config.simulation.shownSims.toLocaleString("en-US")} simulated seasons.`,
       "Ties in the standings go to points for, the league's rule.",
       // The engine's own words for a week in progress (season.ts).
       ...(gameDay ? [weekUnderWayNote(12)] : []),

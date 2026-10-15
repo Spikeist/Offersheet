@@ -9,7 +9,7 @@ import type { TeamOdds } from "./leagueModel";
 import type { LeagueSettings, LeagueSnapshot, Matchup } from "./model";
 import { TITLE_ONLY, prizeStillMovable } from "./reward";
 import { mulberry32 } from "./rng";
-import { DIVISION_RULE_ASSUMED, RESEED_RULE_ASSUMED, buildSimSetup, oddsSkippedWarning, pickupSeasonModel, playoffRounds, reseedRuleAssumed, seasonOdds, weekList, weekUnderWayNote, type SeasonModel } from "./season";
+import { DIVISION_RULE_ASSUMED, RESEED_RULE_ASSUMED, buildSimSetup, oddsSkippedWarning, pickupSeasonModel, playoffRounds, reseedRuleAssumed, seasonOdds, shownSimsOf, weekList, weekUnderWayNote, type SeasonModel } from "./season";
 import { simNormals, simulateSeason, standingsOrder } from "./sim";
 import { buildTestLeague, syntheticInputs } from "./testLeague";
 
@@ -788,6 +788,26 @@ describe("TeamOdds.eliminated: certainly out, never read off simulation counts",
   });
 });
 
+describe("shownSimsOf: the shown block's seasons (Checkpoint 7e; planner reply to Checkpoint 7d, item 1.1)", () => {
+  const cfg = (finalSims: number, shownSims: number) => ({ simulation: { finalSims, shownSims, seed: 1 } });
+
+  it("config's shownSims (20,000), never fewer than finalSims (the ranking block is its first seasons), whole and at least 1", () => {
+    expect(shownSimsOf()).toBe(config.simulation.shownSims);
+    expect(shownSimsOf()).toBe(20_000);
+    expect(shownSimsOf(cfg(5000, 20000))).toBe(20000);
+    expect(shownSimsOf(cfg(5000, 1000))).toBe(5000);
+    expect(shownSimsOf(cfg(5000, Number.NaN))).toBe(5000);
+    expect(shownSimsOf(cfg(4999.7, 20000.9))).toBe(20000);
+    expect(shownSimsOf(cfg(0, 0))).toBe(1);
+  });
+
+  it("is seasonOdds' default count: the League model's seasons", () => {
+    const x = league({ T: 4, currentWeek: 4, schedule: roundRobin(4, range(4, 6), 4), regular: range(4, 6), playoffs: [], playoffTeams: 0, records: [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]] });
+    expect(seasonOdds(x.snapshot, x.model, {}, cfg(50, 300))?.sims).toBe(300);
+    expect(seasonOdds(x.snapshot, x.model, {}, cfg(50, 10))?.sims).toBe(50);
+  });
+});
+
 describe("seasonOdds: weekly matchups and determinism", () => {
   it("lists each remaining week's games: the opponent and win chance, a bye (no opponent, no chance), and median games", () => {
     // 3 teams: one has a bye each week.
@@ -1071,7 +1091,7 @@ describe("seasonOdds: weekly matchups and determinism", () => {
 
 // ---------------------------------------------------------------------------------------------
 
-describe("Parker's league (committed sanitized ESPN fixture) with synthetic inputs", () => {
+describe("Parker's league (committed sanitized ESPN fixture) with synthetic inputs", { timeout: 60_000 }, () => {
   const { snapshot } = normalizeEspnLeague(parkerBundle(), { leagueId: PARKER.leagueId, resolver: fakeResolver(), now: NOW, swid: PARKER.swid });
   const inputs = syntheticInputs(snapshot);
   const model = buildLeagueModel(snapshot, inputs, { now: NOW, scenarios: 8 });
@@ -1093,8 +1113,10 @@ describe("Parker's league (committed sanitized ESPN fixture) with synthetic inpu
     expect(built.setup.played).toHaveLength(15);
     expect(built.warnings).toEqual([]);
     const odds = model.odds as NonNullable<typeof model.odds>;
-    expect(odds).toMatchObject({ sims: config.simulation.finalSims, seed: config.simulation.seed, playoffTeams: 6, byes: 2, playoffsKnown: true, tiebreaker: { rule: "pointsFor", assumed: false }, reseed: { value: false, assumed: false } });
-    expect(odds.notes).toEqual(["Odds from 5,000 simulated seasons.", "Ties in the standings go to points for, the league's rule.", "The playoff bracket is fixed: no re-seeding after each round.", "The top 2 seeds get a first-round bye."]);
+    // The League model plays the shown block's seasons (Checkpoint 7e, planner reply to Checkpoint 7d, item 1.1: 20,000).
+    expect(shownSimsOf()).toBe(20_000);
+    expect(odds).toMatchObject({ sims: shownSimsOf(), seed: config.simulation.seed, playoffTeams: 6, byes: 2, playoffsKnown: true, tiebreaker: { rule: "pointsFor", assumed: false }, reseed: { value: false, assumed: false } });
+    expect(odds.notes).toEqual(["Odds from 20,000 simulated seasons.", "Ties in the standings go to points for, the league's rule.", "The playoff bracket is fixed: no re-seeding after each round.", "The top 2 seeds get a first-round bye."]);
   });
 
   it("Σ P(playoffs) = playoff teams, Σ P(bye) = byes, Σ P(title) = 1; records add up to 14 games", () => {

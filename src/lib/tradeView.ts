@@ -1257,8 +1257,10 @@ export function helpsReasonOf(notes: readonly string[] | undefined): HelpsReason
 
 /**
  * A version's model inputs for the feedback (the file header; FeedbackSent.inputs): its acceptance features, raw
- * g_mkt(P), B, the goal B was weighted by, and (Phase 7a) the card's B₃ and the scale's reason, which every version of a
- * card shares (its steps and its Plan B are scored on the card's B₃). feedbackStore.ts keeps only finite numbers.
+ * g_mkt(P), B, the goal B was weighted by, and (Phase 7a) the B₃ its B is scored on and the scale's reason: the card's for
+ * the card's own trade and its Plan B (both on the shown block since Checkpoint 7e), a step's own for a step (TradeStep.b3,
+ * the ranking block's since Checkpoint 7e: the review's SHOWN-4; before, every version shared the card's). feedbackStore.ts
+ * keeps only finite numbers.
  */
 function versionInputs(x: { features?: AcceptanceFeatures | undefined; gPartner?: number | undefined; b: number | null }, goal: Goal | null, scale: ScaleInputs): VersionInputs {
   return {
@@ -1274,9 +1276,10 @@ function versionInputs(x: { features?: AcceptanceFeatures | undefined; gPartner?
 /**
  * The versions of a trade idea its card shows (TradeCardView.versions; the feedback's "Which version did you send?"),
  * each with its key, estimate and model inputs (the file header: the card's own when the version is the card's trade,
- * else the step's or Plan B's; `goal`: "What matters most" as the numbers were computed, null when unknown; the card's B₃
- * and its scale's reason, helpsReasonOf, for every version): with steps, the first offer and the full version (the
- * throw-in added); with a Plan B, this trade and Plan B's; else this trade alone ("full").
+ * else the step's or Plan B's; `goal`: "What matters most" as the numbers were computed, null when unknown; the B₃ each
+ * version's B is scored on and its scale's reason, helpsReasonOf: the card's for the card's trade and its Plan B, a step's
+ * own for a step, versionInputs): with steps, the first offer and the full version (the throw-in added); with a Plan B,
+ * this trade and Plan B's; else this trade alone ("full").
  */
 export function versionChoices(
   e: Pick<TradeEvaluation, "key" | "pAccept" | "pComplete" | "steps" | "planB" | "features" | "gPartner" | "b"> & Partial<Pick<TradeEvaluation, "b3" | "detail">>,
@@ -1285,7 +1288,10 @@ export function versionChoices(
 ): VersionChoice[] {
   const scale: ScaleInputs = { b3: typeof e.b3 === "number" && Number.isFinite(e.b3) && e.b3 > 0 ? e.b3 : null, helpsReason: helpsReasonOf(e.detail?.notes) };
   const own = versionInputs(e, goal, scale);
-  const of = (step: TradeStep): VersionInputs => (step.key === e.key ? own : versionInputs(step, goal, scale));
+  // A step's own scale (TradeStep.b3 and its notes' reason), else the card's (a step made before TradeStep.b3).
+  const stepScale = (step: TradeStep): ScaleInputs =>
+    typeof step.b3 === "number" && Number.isFinite(step.b3) && step.b3 > 0 ? { b3: step.b3, helpsReason: helpsReasonOf(step.detail?.notes) } : scale;
+  const of = (step: TradeStep): VersionInputs => (step.key === e.key ? own : versionInputs(step, goal, stepScale(step)));
   const s = e.steps;
   if (s) {
     return [
@@ -2161,16 +2167,20 @@ export function finderTimingLines(args: {
 
 /**
  * What the search looked at: "Looked at 15,873 trade ideas, checked 208 closely, and played out your season 5,000 times
- * with each of the best 60. That took 5.1 seconds." ⚠️ Not "the best 208" (review of track UIC, finding 6): exact
- * evaluation takes the best config.search.exactEvaluationMax by screening and, on top of them, the lean companions
- * (search.ts: the same trades without a neutral throw-in), which missed that cut.
+ * with each of the best 60 and 20,000 times with each idea shown. That took 7.1 seconds." ⚠️ Not "the best 208" (review of
+ * track UIC, finding 6): exact evaluation takes the best config.search.exactEvaluationMax by screening and, on top of them,
+ * the lean companions (search.ts: the same trades without a neutral throw-in), which missed that cut. Checkpoint 7e
+ * (planner reply to Checkpoint 7d, item 1.1): the best are ranked on config.simulation.finalSims seasons, and every idea the
+ * lists show (its card or Plan B box) is played out on config.simulation.shownSims (search.ts, "The shown pass":
+ * TradeSearchResult.counts.simShown), said when there are more of those and the search showed some.
  */
 function searchedText(result: TradeSearchResult): string | null {
   const c = result.counts;
   if (!c.screened) return null;
   const total = result.timings.total;
   const time = typeof total === "number" && Number.isFinite(total) ? ` That took ${secondsText(total)}.` : "";
-  const sims = c.simFinal ? `, and played out your season ${fmtWhole(config.simulation.finalSims)} times with each of the best ${fmtWhole(c.simFinal)}` : "";
+  const shown = c.simShown && config.simulation.shownSims > config.simulation.finalSims ? ` and ${fmtWhole(config.simulation.shownSims)} times with each idea shown` : "";
+  const sims = c.simFinal ? `, and played out your season ${fmtWhole(config.simulation.finalSims)} times with each of the best ${fmtWhole(c.simFinal)}${shown}` : "";
   return `Looked at ${fmtWhole(c.screened)} ${c.screened === 1 ? "trade idea" : "trade ideas"}, checked ${fmtWhole(c.exact)} closely${sims}.${time}`;
 }
 
@@ -2358,9 +2368,13 @@ const STAGE_ORDER: readonly TradeSearchStage[] = ["setup", "screening", "exact",
 /**
  * Each stage's share of the bar: a rough guide to where the time goes, not a measurement. Phase 4c (the exhaustive
  * candidates): screening about 45% of a search on Parker's league (the 4c measurements: context 0.3 s, screening 2.2 s,
- * exact 1.2 s, simulations 0.5 s and 0.7 s, steps and words 0.2 s).
+ * exact 1.2 s, simulations 0.5 s and 0.7 s, steps and words 0.2 s). Checkpoint 7e (the shown pass, planner reply to
+ * Checkpoint 7d, item 1.1; the review's SHOWN-5): the "rank" stage plays out every idea shown on 20,000 seasons, about a
+ * sixth of the whole on Parker's league (week 6, his prizes; Node: context 0.55 s, screening 2.1 s, exact 1.5 s,
+ * simulations 0.7 s and 0.95 s, the ranking with the shown pass 1.2 s: 8%, 30%, 21%, 9%, 14% and 17%; his 12-team league
+ * 12%, 26%, 19%, 12%, 16% and 16%), where its 4% had left the bar at 96–99% for over a second.
  */
-const STAGE_WEIGHT: Record<TradeSearchStage, number> = { setup: 0.05, screening: 0.45, exact: 0.24, simScreen: 0.1, simFinal: 0.12, rank: 0.04 };
+const STAGE_WEIGHT: Record<TradeSearchStage, number> = { setup: 0.07, screening: 0.36, exact: 0.2, simScreen: 0.09, simFinal: 0.12, rank: 0.16 };
 
 /** Each stage in plain words. */
 export const STAGE_LABEL: Record<TradeSearchStage, string> = {
@@ -2371,6 +2385,12 @@ export const STAGE_LABEL: Record<TradeSearchStage, string> = {
   simFinal: `Playing out the best ideas ${fmtWhole(config.simulation.finalSims)} times`,
   rank: "Ranking the trade ideas",
 };
+
+/**
+ * The "rank" stage while it plays out the ideas the lists show on the shown block (Checkpoint 7e; TradeSearchProgress.part
+ * "shown": search.ts, "The shown pass"): the seasons config.simulation.shownSims, never fewer than the ranking block's.
+ */
+export const SHOWN_PASS_LABEL = `Playing out the ideas you'll see ${fmtWhole(Math.max(config.simulation.finalSims, config.simulation.shownSims))} times`;
 
 export interface ProgressView {
   label: string;
@@ -2385,7 +2405,8 @@ export interface ProgressView {
 /**
  * The progress bar in words. `mode` "refilter" (Phase 4c: the minimum chance changed, and the worker ranks the same ideas
  * again: search.ts refilterSearch) shows the ranking and words alone, the whole bar for the "rank" stage; a search, and a
- * re-filter that had to search afresh (any other stage), the stages by STAGE_WEIGHT.
+ * re-filter that had to search afresh (any other stage), the stages by STAGE_WEIGHT. The "rank" stage reads
+ * SHOWN_PASS_LABEL while it plays out the ideas shown (TradeSearchProgress.part "shown", Checkpoint 7e), else its own label.
  */
 export function progressView(p: TradeSearchProgress | null, mode: "search" | "refilter" = "search"): ProgressView {
   const stage = p?.stage ?? (mode === "refilter" ? "rank" : "setup");
@@ -2400,7 +2421,7 @@ export function progressView(p: TradeSearchProgress | null, mode: "search" | "re
   }
   const percent = Math.min(99, Math.max(0, Math.floor(fraction * 100)));
   const detail = p && p.total > 1 ? `${fmtWhole(Math.min(p.done, p.total))} of ${fmtWhole(p.total)}` : null;
-  const label = STAGE_LABEL[stage];
+  const label = stage === "rank" && p?.part === "shown" ? SHOWN_PASS_LABEL : STAGE_LABEL[stage];
   return { label, detail, percent, valueText: detail ? `${label}: ${detail}` : label };
 }
 

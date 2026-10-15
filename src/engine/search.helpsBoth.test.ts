@@ -234,11 +234,13 @@ describe("the “Helps both” list (TradeSearchResult.helpsBoth)", { timeout: 1
       const league = smallLeague(seed);
       const ctx = buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 8 });
       const sim = tradeInternals(ctx).sim as SimState;
-      for (const t of tradeInternals(ctx).teams) sim.partners.set(t.id, null);
+      // On both blocks (Checkpoint 7e: the ranking block's runs score the search's choice, the shown block's the cards).
+      for (const t of tradeInternals(ctx).teams) for (const runs of [sim.partners, sim.rank.partners]) runs.set(t.id, null);
       const plain = runTradeSearch(ctx, { settings: at(0.1) });
       expect(listOf(plain), `seed ${seed}`).toEqual([]);
       expect(stateOf(plain).helpsBothExtras, `seed ${seed}`).toEqual([]);
-      const strip = (x: TradeSearchResult) => ({ ...x, trades: x.trades.map(({ them: _them, ...t }) => (void _them, t)), counts: { ...x.counts, simFinal: 0 }, helpsBoth: undefined });
+      // The final runs, and the shown pass's count (the second list's cards are shown too), are the second list's own.
+      const strip = (x: TradeSearchResult) => ({ ...x, trades: x.trades.map(({ them: _them, ...t }) => (void _them, t)), counts: { ...x.counts, simFinal: 0, simShown: 0 }, helpsBoth: undefined });
       expect(strip(r), `seed ${seed}`).toEqual(strip(plain));
     }
     expect(wouldEnter).toBeGreaterThan(0);
@@ -546,7 +548,7 @@ describe("the helps-both lane (Checkpoint 7d; planner reply to Checkpoint 7c, an
   it("never takes a final run another trade would have had: every trade the search without the lane simulates on the final block, its Helps them known, gets its final run with it (LANE-2: each lane trade widens the extras' room by one; ENG-7D-1: a finalist its trades push out keeps its final run, for the “Helps both” list only)", () => {
     let widened = 0;
     let displaced = 0;
-    for (const seed of [...SEEDS, 12, 13, 45]) {
+    for (const seed of [...SEEDS, 12, 13, 42]) {
       const on = stateOf(search(seed, 0.1));
       const off = stateOf(runTradeSearch(contextOf(seed), { settings: at(0.1), helpsBothLane: false }));
       const finals = new Set(keys(on.finals));
@@ -565,17 +567,18 @@ describe("the helps-both lane (Checkpoint 7d; planner reply to Checkpoint 7c, an
     // Facts of the synthetic data: smallLeague(13) is the case LANE-2 found; the lane's trades displace finalists.
     expect(widened).toBeGreaterThan(0);
     expect(displaced).toBeGreaterThan(0);
-    // smallLeague(45) (facts of the synthetic data): two lane trades take finalists' places, and one finalist they push out helps
-    // both only on its final numbers (Helps them 0 on the screening run, at least 10 on the final one), so the "Helps both" pool
-    // never held it. At 20%, where the lane's long shots are under the minimum, the list without the lane shows it, at 84%;
-    // with its final run kept the list with the lane shows every card the list without it does.
-    const on45 = stateOf(search(45, 0.1));
-    const kept = on45.laneDisplaced.filter((k) => !helpsBoth(on45.versions.get(k)?.screen as TradeEvaluationCore) && helpsBoth(on45.finals.find((c) => c.key === k) as TradeEvaluationCore));
+    // smallLeague(42) (facts of the synthetic data; smallLeague(45) until Checkpoint 7e, whose automatic playoff weight, measured
+    // on the shown block's 20,000 seasons, moved its finalists): the lane's trades take finalists' places, and one finalist they
+    // push out helps both only on its final numbers (Helps them 3 on the screening run, 12 on the final one), so the "Helps
+    // both" pool never held it. At 20%, where the lane's long shots are under the minimum, the list without the lane shows it,
+    // at 30%; with its final run kept the list with the lane shows every card the list without it does.
+    const on42 = stateOf(search(42, 0.1));
+    const kept = on42.laneDisplaced.filter((k) => !helpsBoth(on42.versions.get(k)?.screen as TradeEvaluationCore) && helpsBoth(on42.finals.find((c) => c.key === k) as TradeEvaluationCore));
     expect(kept).toHaveLength(1);
-    const off45 = runTradeSearch(contextOf(45), { settings: at(0.2), helpsBothLane: false });
-    const on20 = runRefilter(contextOf(45), on45, { minChance: 0.2 });
-    expect(keys(listOf(off45))).toContain(kept[0]);
-    for (const t of listOf(off45)) expect(keys(listOf(on20)), t.key).toContain(t.key);
+    const off42 = runTradeSearch(contextOf(42), { settings: at(0.2), helpsBothLane: false });
+    const on20 = runRefilter(contextOf(42), on42, { minChance: 0.2 });
+    expect(keys(listOf(off42))).toContain(kept[0]);
+    for (const t of listOf(off42)) expect(keys(listOf(on20)), t.key).toContain(t.key);
     // The Overall list keeps to the ranking's finalists: the displaced finalist isn't a card of it.
     expect(keys(on20.trades)).not.toContain(kept[0]);
   });

@@ -179,7 +179,7 @@ describe("LeagueView standings and playoff odds (§8; §17 Checkpoint 3)", () =>
 
   it("is a captioned table in today's standings order, a row header per team, mine badged", () => {
     expect(standings).toContain(
-      '<caption class="sr-only">Standings today by your league&#x27;s rules, with each team&#x27;s chance to make the playoffs and win the title, and its projected final record, from 5,000 simulated seasons, counting each team&#x27;s free-agent pickups that would help</caption>',
+      '<caption class="sr-only">Standings today by your league&#x27;s rules, with each team&#x27;s chance to make the playoffs and win the title, and its projected final record, from 20,000 simulated seasons, counting each team&#x27;s free-agent pickups that would help</caption>',
     );
     const teams = [...standings.matchAll(/<th scope="row"[^>]*><span class="block font-bold wrap-anywhere">([^<]+)</g)].map((m) => m[1]?.trim());
     expect(teams).toEqual(["Gravel Gophers", "Moonbeam Mudcats", "Quasar Quokkas", "Tundra Tortoises"]);
@@ -265,7 +265,7 @@ describe("LeagueView standings and playoff odds (§8; §17 Checkpoint 3)", () =>
 
   it("lists how the odds were made under the table, with when they count pickups from while a week is under way", () => {
     expect(standings).toContain(
-      `<ul class="mt-3 space-y-1 text-xs text-muted" aria-label="How the odds were made"><li>Odds from 5,000 simulated seasons.</li><li>Ties in the standings go to points for, the league&#x27;s rule.</li><li>${weekUnderWayNote(12).replace(/'/g, "&#x27;")}</li><li>${pickupsUnderWayNote(12, 13).replace(/'/g, "&#x27;")}</li></ul>`,
+      `<ul class="mt-3 space-y-1 text-xs text-muted" aria-label="How the odds were made"><li>Odds from 20,000 simulated seasons.</li><li>Ties in the standings go to points for, the league&#x27;s rule.</li><li>${weekUnderWayNote(12).replace(/'/g, "&#x27;")}</li><li>${pickupsUnderWayNote(12, 13).replace(/'/g, "&#x27;")}</li></ul>`,
     );
   });
 
@@ -749,7 +749,8 @@ describe("LeagueView free agents and the explainer", () => {
 
   it("explains the numbers and where they came from", () => {
     expect(html).toMatch(/<summary[^>]*>How these numbers work<span/);
-    expect(text).toContain("Playoff odds We play out the rest of the season 5,000 times.");
+    // The League model's seasons since Checkpoint 7e (the shown block, config.simulation.shownSims; the fixture's).
+    expect(text).toContain("Playoff odds We play out the rest of the season 20,000 times.");
     expect(text).toContain("Where the numbers came from");
     expect(text).toContain("FantasyCalc values Wed, Nov 25, 5:00 PM (a saved copy: the live fetch failed)");
     expect(text).toContain("Week 12 is under way Once a week's first game kicks off");

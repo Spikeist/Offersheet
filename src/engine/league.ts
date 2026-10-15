@@ -292,8 +292,9 @@
  *    backup each qualify because the other covers him), so a deep team's whole group no longer inflates its
  *    fit. The side's score is the joint gain of the chips counted (one lineup solve per week, so chips
  *    competing for one slot count once). Partners don't need trade values either.
- * 8. The season simulation (§8; season.ts, sim.ts), opts.sims seasons (default config.simulation.finalSims; 0 = none,
- *    both odds null) on the common-random-numbers matrix of opts.simSeed (default config.simulation.seed), drawn once for both
+ * 8. The season simulation (§8; season.ts, sim.ts), opts.sims seasons (default the shown block's, season.ts shownSimsOf:
+ *    config.simulation.shownSims since Checkpoint 7e, planner reply to Checkpoint 7d, item 1.1, every number the League page
+ *    prints; 0 = none, both odds null) on the common-random-numbers matrix of opts.simSeed (default config.simulation.seed), drawn once for both
  *    runs below. Null when nothing is left to simulate, and null with a warning when the rest of the regular season has
  *    no schedule (season.ts oddsSkippedWarning) or the simulator refuses the setup. Timings only when opts.clock is given.
  *    One baseline everywhere (Phase 4c; planner reply to Checkpoint 4b, change 9): the headline is every team after its
@@ -302,8 +303,8 @@
  *        (finalRunLineups: its returners back and the roster spot each needs from his week, step 5b; its streaming rows),
  *        scored as TeamModel.score is, with the week in progress held at TeamModel.score's week (pickupScore: ⚠️ the
  *        model plays a week under way with today's rosters, so pickups count from the next week). evaluate.ts runs the same two functions on every trade side, and reuses these
- *        very lineups for its baseline (LeagueModelBuild.pickups), so its baseline odds on its final block (the first
- *        finalSims seasons of the same matrix) are LeagueModel.odds exactly.
+ *        very lineups for its baseline (LeagueModelBuild.pickups), so its baseline odds on its shown block (the same
+ *        seasons of the same matrix: Checkpoint 7e) are LeagueModel.odds exactly.
  *    8b. LeagueModel.odds simulates every team's scoreWithPickups (season.pickupSeasonModel); oddsAsRostersStand, the
  *        page's smaller second line, every team's TeamModel.score (as it stands) on the same seasons. ⚠️ Who reads which
  *        (ours): the headline everywhere a number is judged or shown first: the standings table (today's rank, P(playoffs),
@@ -320,8 +321,8 @@
  *        prize components' changes against LeagueModel.odds (Checkpoint 7c: P(title), P(2nd), P(3rd), the weekly high scores
  *        won and the points title, HelpsCalibration.dPrizes), LeagueModel.helpsCalibration (ΔPO₃, ΔCH₃). benefit.helpsScale
  *        turns them into B₃ for a reward and λ, the scale of Helps you and Overall, so +3 points a week reads 63 under any
- *        split. The trade context runs the same function on its final block (the same seasons and setup), so its B₃ is the
- *        League model's exactly. Null without odds or a team.
+ *        split. The trade context runs the same function on its shown block (the same seasons and setup), so its B₃ for the
+ *        numbers it shows is the League model's exactly. Null without odds or a team.
  *    The weekly high scores (Checkpoint 7c; season.ts buildSimSetup's highScores, sim.ts) are simulated only when the
  *    reward's weekly share pays (LeagueModel.reward): then in every run of steps 5c and 8 (ω's base and gained runs, the
  *    headline, the odds as rosters stand and the calibration), else in none, so the other goals' setups are exactly the
@@ -431,7 +432,7 @@ import { leaguePremiums, type StarPremiumConfig } from "./premium";
 import { baseRateSourceCounts, espnSleeperAgreement, projectPlayer, staleReturnCheck, weeklySd, type BaseRateContext, type ProjectionConfig, type SourceAgreement } from "./projections";
 import { finalLineups, returnerSpec, type FinalLineups, type FutureKeep, type ReturnerSetup } from "./returners";
 import { assertWeeklyMeasured, paidPrizesKnown, paysWeekly, prizeOddsOf, rewardOf, runPrizeDeltas, type PrizeDeltas, type Reward } from "./reward";
-import { buildSimSetup, oddsSkippedWarning, pickupSeasonModel, seasonOdds, type SeasonConfig, type SeasonModel } from "./season";
+import { buildSimSetup, oddsSkippedWarning, pickupSeasonModel, seasonOdds, shownSimsOf, type SeasonConfig, type SeasonModel } from "./season";
 import { defaultTradeSettings, normalizeTradeSettings, type TradeSettings } from "./settings";
 import { simNormals, type SimNormals } from "./sim";
 import {
@@ -543,7 +544,7 @@ export interface BuildLeagueModelOptions {
   scenarios?: number;
   /** Scenario seed (default config.lineups.scenarioSeed). */
   seed?: number;
-  /** Simulated seasons for LeagueModel.odds and oddsAsRostersStand (§8; default config.simulation.finalSims; 0 = no simulation, both null). */
+  /** Simulated seasons for LeagueModel.odds and oddsAsRostersStand (§8; default the shown block's, season.ts shownSimsOf: Checkpoint 7e; 0 = no simulation, both null). */
   sims?: number;
   /** The season simulation's common-random-numbers seed (default config.simulation.seed); the automatic playoff weight's too (step 5c). */
   simSeed?: number;
@@ -551,7 +552,8 @@ export interface BuildLeagueModelOptions {
    * Simulated seasons for the automatic playoff weight (step 5c; planner reply to Checkpoint 7a, §6.1): default `sims`, so it
    * is measured on the seasons LeagueModel.odds plays; 0 = not measured (ω is the fallback, config.lineups.playoffWeight).
    * The trade context (evaluate.ts buildTradeContext) builds its League model without a simulation of its own (sims 0) and
-   * passes its final block's count here, with its seed, so its ω is the League page's.
+   * passes its shown block's count here (Checkpoint 7e: the League page's seasons), with its seed, so its ω is the League
+   * page's.
    */
   playoffWeightSims?: number;
   /** Milliseconds (performance.now in the browser): LeagueModel.timings is filled only when given. */
@@ -1699,7 +1701,7 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
     myTeamKnown ? snapshot.myTeamId : null,
     tw0.from,
     reward,
-    { sims: opts.playoffWeightSims ?? opts.sims ?? cfg.simulation.finalSims, seed: opts.simSeed ?? cfg.simulation.seed },
+    { sims: opts.playoffWeightSims ?? opts.sims ?? shownSimsOf(cfg), seed: opts.simSeed ?? cfg.simulation.seed },
     () => {
       const setup0 = returnerSetupWith(tw0.weights, firstCredit);
       const at = { S, W, byTeam, slots };
@@ -2713,7 +2715,7 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
 
   // 8. The season simulation (§8): every team after its pickups (LeagueModel.odds, the headline and the trade search's
   // baseline), every team as it stands (oddsAsRostersStand), and the "Helps you" calibration (8c), on the same seasons.
-  const sims = opts.sims ?? cfg.simulation.finalSims;
+  const sims = opts.sims ?? shownSimsOf(cfg);
   if (Number.isFinite(sims) && sims >= 1) {
     const both = simulate(snapshot, model, Math.floor(sims), opts.simSeed ?? cfg.simulation.seed, cfg, ctx.tw.from, ctx.playoffWeightSim);
     model.odds = both.withPickups;
@@ -2749,8 +2751,8 @@ export const ODDS_REFUSED_WARNING = "The playoff odds couldn't be worked out fro
 /**
  * LeagueModel.odds and oddsAsRostersStand (step 8): every team's TeamModel.scoreWithPickups (season.ts
  * pickupSeasonModel), and every team's TeamModel.score, simulated on the same `sims` seasons of `seed`'s matrix (drawn
- * once: the two setups differ only in their scores). Those seasons are the trade search's final block (evaluate.ts), so
- * LeagueModel.odds is its baseline exactly. A season that can't be simulated although weeks remain (season.ts
+ * once: the two setups differ only in their scores). Those seasons are the trade context's shown block (evaluate.ts;
+ * Checkpoint 7e), so LeagueModel.odds is its baseline there exactly. A season that can't be simulated although weeks remain (season.ts
  * oddsSkippedWarning: the rest of the schedule didn't load) has no odds, with that warning. The simulator refuses a
  * setup it can't decide (a RangeError; season.ts builds setups it accepts): the rest of the model is still good, so the
  * odds are left out with ODDS_REFUSED_WARNING instead of losing the whole League page. The RangeError's message stays out
@@ -2857,9 +2859,9 @@ function gainedOdds(
  * team as it is), simulated on `run`, which must be the seasons `base` was simulated on (common random numbers: the change is
  * the gain's alone; `run.highScores` the same as `base`'s), and that team's odds' changes against `base`. Any team: mine for
  * "Helps you" (the League model runs it on its own seasons against LeagueModel.odds; the trade context, evaluate.ts, on its
- * final block against its baseline, the same setup and seasons, so the two give the same numbers bit for bit), and since
- * Checkpoint 7c a trade partner's for "Helps them" (planner reply to Checkpoint 7b, §7; evaluate.ts partnerCalibrationOf, on
- * the trade context's final block). Null when the team isn't in `base`, the gain isn't a number, or the run has no odds. ΔCH
+ * shown block against its baseline, the same setup and seasons, so the two give the same numbers bit for bit, and since
+ * Checkpoint 7e on its ranking block too), and since Checkpoint 7c a trade partner's for "Helps them" (planner reply to
+ * Checkpoint 7b, §7; evaluate.ts partnerCalibrationOf, on either of the trade context's blocks). Null when the team isn't in `base`, the gain isn't a number, or the run has no odds. ΔCH
  * null when either title chance is unknown; every prize component's change in dPrizes (the weekly high scores' null unless
  * `run` simulated them: reward.ts runPrizeDeltas).
  */

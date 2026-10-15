@@ -1554,8 +1554,8 @@ function heatCell(key: string, label: string, teamName: string, s: SlotStrength 
 
 /**
  * A probability as the page prints it (§8 odds): a whole percent, with "0%" and "100%" only when it's
- * certain (exactly 0 or 1) and "<1%" and ">99%" when it merely rounds there: 0.3% of 5,000 seasons is
- * 15 of them, not none. Unknown (null; NaN too, which the engine never sends) prints "—". Screen
+ * certain (exactly 0 or 1) and "<1%" and ">99%" when it merely rounds there: 0.3% of 20,000 seasons (the League
+ * model's since Checkpoint 7e) is 60 of them, not none. Unknown (null; NaN too, which the engine never sends) prints "—". Screen
  * readers get the symbolic forms in words.
  */
 export function oddsCell(p: number | null): OddsCell {

@@ -7,9 +7,17 @@
  * Overall, in order; since Checkpoint 7d the cards of the search without the helps-both lane, TradeSearchOptions
  * .helpsBothLane false: the lane changes which trades are cards, not the reward's numbers). They are values, not formulas:
  * a change that moves any of them, by however little, fails here.
- * Synthetic leagues (trade.testing.ts: made-up players, placeholder teams), EV lineups, the app's default seasons.
+ * Synthetic leagues (trade.testing.ts: made-up players, placeholder teams), EV lineups, the app's default seasons as they were
+ * at HEAD: one block of config.simulation.finalSims (5,000) seasons for the League model, the search's final simulation and the
+ * cards alike. Checkpoint 7e (planner reply to Checkpoint 7d, item 1.1) shows every number on a shown block of 20,000 seasons
+ * (config.simulation.shownSims), which moves these values by the extra seasons alone; so this file runs with the shown block
+ * set to the ranking block's seasons (shownSims = finalSims: the League model, ω, B₃ and the cards on the first 5,000 seasons,
+ * as at HEAD), where the engine is Checkpoint 7d's bit for bit (evaluate.baseline.test.ts and search.shown.test.ts check the
+ * two blocks; on Parker's week-6 dump the whole search matched checkpoint-7d's at shownSims 5,000), and its purpose, the reward
+ * engine's equivalence, is what it pins.
  */
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { config } from "./config";
 import { buildTradeContext } from "./evaluate";
 import type { ModelInputs } from "./inputs";
 import { buildLeagueModel } from "./league";
@@ -109,6 +117,15 @@ const LEAGUES: Record<keyof typeof HEAD, () => { snapshot: LeagueSnapshot; input
 };
 
 describe("“Only the champion” and “Making the playoffs”: HEAD's numbers bit for bit (stored values)", { timeout: 120_000 }, () => {
+  // HEAD's single block of seasons (the file header): the shown block set to the ranking block's, for this file only.
+  const simulation = config.simulation as { shownSims: number };
+  const shownSims = simulation.shownSims;
+  beforeAll(() => {
+    simulation.shownSims = config.simulation.finalSims;
+  });
+  afterAll(() => {
+    simulation.shownSims = shownSims;
+  });
   for (const name of Object.keys(HEAD) as (keyof typeof HEAD)[]) {
     for (const goal of ["title", "playoffs"] as const) {
       it(`${name}, ${goal}: ω, the calibration run, my headline odds, B₃ and every card`, () => {

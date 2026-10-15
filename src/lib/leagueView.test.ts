@@ -368,7 +368,7 @@ describe("buildLeagueView: standings and playoff odds (§8; §17 Checkpoint 3: n
       expect(s?.showPlayoffs, `${n} playoff teams`).toBe(false);
       expect(s?.rows.every((r) => r.playoffs === null)).toBe(true);
       expect(s?.rows.map((r) => r.title.text)).toEqual(["47.0%", "43.0%", "10.0%", "<0.1%"]);
-      expect(s?.caption).toBe(`Standings today by your league's rules, with each team's chance to win the title, and its projected final record, from 5,000 simulated seasons${COUNTING}`);
+      expect(s?.caption).toBe(`Standings today by your league's rules, with each team's chance to win the title, and its projected final record, from 20,000 simulated seasons${COUNTING}`);
     }
     expect(standings(2)?.showPlayoffs).toBe(true);
     expect(v.standings?.rows.map((r) => r.playoffs?.text)).toEqual(["93%", "86%", "21%", "<1%"]);
@@ -398,17 +398,17 @@ describe("buildLeagueView: standings and playoff odds (§8; §17 Checkpoint 3: n
     const pointsOnly = of(g).standings;
     expect(pointsOnly?.pointsOnly).toBe(true);
     expect(pointsOnly?.rows.every((r) => r.finalRecord === null)).toBe(true);
-    expect(pointsOnly?.caption).toBe(`Standings today by your league's rules, with each team's chance to make the playoffs and win the title, from 5,000 simulated seasons${COUNTING}`);
+    expect(pointsOnly?.caption).toBe(`Standings today by your league's rules, with each team's chance to make the playoffs and win the title, from 20,000 simulated seasons${COUNTING}`);
   });
 
   it("captions the table, and lists the odds' notes except any the warnings box already shows", () => {
     expect(v.standings?.caption).toBe(
-      `Standings today by your league's rules, with each team's chance to make the playoffs and win the title, and its projected final record, from 5,000 simulated seasons${COUNTING}`,
+      `Standings today by your league's rules, with each team's chance to make the playoffs and win the title, and its projected final record, from 20,000 simulated seasons${COUNTING}`,
     );
     expect(of(withByes(leagueFixture())).standings?.caption).toContain("chance to make the playoffs, get a first-round bye and win the title, and its projected final record");
     // Game day: right after the engine's note about the week under way, when the odds count pickups from (Phase 4c).
     expect(v.standings?.notes).toEqual([
-      "Odds from 5,000 simulated seasons.",
+      "Odds from 20,000 simulated seasons.",
       "Ties in the standings go to points for, the league's rule.",
       weekUnderWayNote(12),
       pickupsUnderWayNote(12, 13),
@@ -2521,7 +2521,7 @@ describe("buildLeagueView: how these numbers work", () => {
 
   it("explains the playoff odds with the simulation's own numbers and the league's rules (§8)", () => {
     expect(v.explain.find((e) => e.title === "Playoff odds")?.text).toBe(
-      `We play out the rest of the season 5,000 times. Each week, every team's score is drawn around its projected starting lineup (its average over the 32 simulated runs of injuries and byes), with a spread that covers its starters' week-to-week swings and how much injuries and byes could change the lineup. Every team's lineup counts the free-agent pickups that would help it (listed on its roster); trade ideas start from these same odds. Your odds as rosters stand, with no team's pickups, are the smaller line under yours. Each simulated game adds to today's records. Each simulated season is then ranked by your league's rules: win percentage, then points for. The top 2 make the playoffs and meet for the title. A team's chance of a playoff spot or the title is the share of those seasons where it happened. Each time the odds are worked out, every team and week gets the same random draws (common random numbers), so when trade ideas compare the odds before and after a trade, the difference comes from the trade, not from the luck of the draw. Your remaining schedule flags a week as risky when your chance to win it is under ${Math.round(RISKY_WIN_CHANCE * 100)}%, or when ${RISKY_BYES} or more of your likely starters (players in your best lineup, after your free-agent pickups, in at least half the weeks they play) are on bye, not counting D/STs, whose byes the streaming replacement covers since you stream them.`,
+      `We play out the rest of the season 20,000 times. Each week, every team's score is drawn around its projected starting lineup (its average over the 32 simulated runs of injuries and byes), with a spread that covers its starters' week-to-week swings and how much injuries and byes could change the lineup. Every team's lineup counts the free-agent pickups that would help it (listed on its roster); trade ideas start from these same odds. Your odds as rosters stand, with no team's pickups, are the smaller line under yours. Each simulated game adds to today's records. Each simulated season is then ranked by your league's rules: win percentage, then points for. The top 2 make the playoffs and meet for the title. A team's chance of a playoff spot or the title is the share of those seasons where it happened. Each time the odds are worked out, every team and week gets the same random draws (common random numbers), so when trade ideas compare the odds before and after a trade, the difference comes from the trade, not from the luck of the draw. Your remaining schedule flags a week as risky when your chance to win it is under ${Math.round(RISKY_WIN_CHANCE * 100)}%, or when ${RISKY_BYES} or more of your likely starters (players in your best lineup, after your free-agent pickups, in at least half the weeks they play) are on bye, not counting D/STs, whose byes the streaming replacement covers since you stream them.`,
     );
     // Without a team there's no second line to point to; a model built before Phase 4c counts no pickups at all.
     const noTeam = view({ myTeamId: null }).explain.find((e) => e.title === "Playoff odds")?.text ?? "";

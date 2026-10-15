@@ -324,7 +324,7 @@ describe("the fallback (config.lineups.playoffWeight) when ω can't be measured"
   });
 });
 
-describe("one ω everywhere: the trade context's is the League page's model's (one baseline everywhere)", () => {
+describe("one ω everywhere: the trade context's is the League page's model's (one baseline everywhere)", { timeout: 60_000 }, () => {
   const cases: { label: string; goal: Goal; prizes?: PrizeAmounts }[] = [
     { label: "title", goal: "title" },
     { label: "playoffs", goal: "playoffs" },
@@ -339,7 +339,8 @@ describe("one ω everywhere: the trade context's is the League page's model's (o
       const model = buildLeagueModel(lg.snapshot, lg.inputs, { now: TEST_NOW, scenarios: 0, settings });
       const I = tradeInternals(buildTradeContext(lg.snapshot, lg.inputs, { now: TEST_NOW, scenarios: 0, settings }));
       expect(model.playoffWeightAuto?.basis).toBe("auto");
-      expect(model.playoffWeightAuto?.sims).toBe(config.simulation.finalSims);
+      // Measured on the shown block's seasons (Checkpoint 7e: the League model's own, config.simulation.shownSims).
+      expect(model.playoffWeightAuto?.sims).toBe(config.simulation.shownSims);
       expect(I.model.playoffWeightAuto).toEqual(model.playoffWeightAuto);
       expect(I.model.playoffWeight).toBe(model.playoffWeight);
       expect([...I.weights]).toEqual([...teamWeeks(model, model.inProgressWeek, { ...config.lineups, playoffWeight: model.playoffWeight }).weights]);
@@ -366,8 +367,9 @@ describe("one ω everywhere: the trade context's is the League page's model's (o
     expect(sim.built.setup.highScorePeriods?.length).toBe(model.odds?.highScorePeriods);
     // My baseline prize components (runSim's, read off every trade's run) are the League page's headline's, high scores won included.
     const mine = model.odds?.teams.find((t) => t.teamId === model.myTeamId) as TeamOdds;
-    expect(sim.base.final.prizes).toEqual(prizeOddsOf(mine));
-    expect(sim.base.final.prizes.weeklyHigh).toBeGreaterThan(0);
+    // (Checkpoint 7e: the shown block's baseline, the cards' "before".)
+    expect(sim.base.shown.prizes).toEqual(prizeOddsOf(mine));
+    expect(sim.base.shown.prizes.weeklyHigh).toBeGreaterThan(0);
     // A trade's B: benefit() under the weekly reward, from a weekly change the trade's own run measured.
     const result = runTradeSearch(ctx, { settings });
     const card = result.trades.find((t) => t.stage === "final" && t.dPrizes?.weeklyHigh !== 0) as TradeEvaluation;
@@ -375,7 +377,7 @@ describe("one ω everywhere: the trade context's is the League page's model's (o
     expect(Number.isFinite(card.dPrizes?.weeklyHigh)).toBe(true);
     const reward = I.league.reward;
     expect(reward.shares.weeklyHigh).toBeGreaterThan(0);
-    const b = benefit({ leagueType: "redraft", dPO: card.dPO, dCH: card.dCH, dPrizes: card.dPrizes, gMine: card.gMine, dynasty: null, myPPlayoffs: sim.base.final.pPlayoffs, lambda: null, kappa: protectValueWeight(settings.protectValue), b3: card.b3, reward });
+    const b = benefit({ leagueType: "redraft", dPO: card.dPO, dCH: card.dCH, dPrizes: card.dPrizes, gMine: card.gMine, dynasty: null, myPPlayoffs: sim.base.shown.pPlayoffs, lambda: null, kappa: protectValueWeight(settings.protectValue), b3: card.b3, reward });
     expect(card.b).toBe(b.b);
     expect(card.bWin).toBe(benefitWin(card.dPO, card.dPrizes ?? null, config.benefit, reward).bWin);
     // The weekly term is in it: the same B with the weekly change left out differs.

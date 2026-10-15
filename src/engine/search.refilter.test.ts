@@ -55,7 +55,9 @@ describe("the minimum chance in the search", { timeout: 60_000 }, () => {
   it("chosen after the finalists: the same counts, finalists and guards' counts at any minimum; only the shown list moves", () => {
     const any = search(0);
     const high = search(0.4);
-    expect(high.counts).toEqual(any.counts);
+    // The search's own counts (Checkpoint 7e: simShown, the trades the lists show on the shown block, follows each list).
+    const searched = (r: TradeSearchResult) => ({ ...r.counts, simShown: undefined });
+    expect(searched(high)).toEqual(searched(any));
     expect(stateOf(high).finals.map((c) => c.key)).toEqual(stateOf(any).finals.map((c) => c.key));
     expect([high.hidden.byBenefit, high.hidden.byMarket]).toEqual([any.hidden.byBenefit, any.hidden.byMarket]);
     expect(any.hidden.byChance).toBe(0);
@@ -112,15 +114,18 @@ describe("refilterSearch: the finalists ranked again with another minimum (no ne
     }
   });
 
-  it("Phase 4c (change 9): every Plan B box carries its odds from its own final-block simulation, the card's basis, from the card's own before", () => {
+  it("Phase 4c (change 9): every Plan B box carries its odds from its own simulation on the shown block (Checkpoint 7e), the card's basis, from the card's own before", () => {
     let boxes = 0;
     for (const r of [search(0.1), search(0)]) {
       const st = stateOf(r);
       for (const t of r.trades) {
         if (!t.planB) continue;
         boxes++;
-        const fin = st.finalByKey.get(t.planB.key);
-        expect(fin?.stage, t.planB.key).toBe("final");
+        // Chosen on the ranking block (its final run there), printed from its shown pass, as its card is.
+        expect(st.finalByKey.get(t.planB.key)?.stage, t.planB.key).toBe("final");
+        const fin = st.shownByKey.get(t.planB.key);
+        expect(fin?.sims, t.planB.key).toBe(config.simulation.shownSims);
+        expect([t.planB.b, t.planB.tradeScore, t.planB.overall], t.planB.key).toEqual([fin?.b, fin?.tradeScore, fin?.overall]);
         expect(t.planB.dPO, t.planB.key).toBe(fin?.dPO);
         expect(t.planB.dCH, t.planB.key).toBe(fin?.dCH);
         expect(t.planB.winChance, t.planB.key).toEqual(fin?.detail.winChance);
@@ -172,15 +177,18 @@ describe("refilterSearch: the finalists ranked again with another minimum (no ne
     for (const m of [0.3, 0.5]) expect(results.get(m), String(m)).toEqual(runTradeSearch(c67, { settings: at(m) }));
   });
 
-  it("progress under the rank stage only, ending at the shown count; stoppable; the timings its own", () => {
+  it("progress under the rank stage only, ending at the shown pass's count; stoppable; the timings its own", () => {
     const progress: TradeSearchProgress[] = [];
     let tick = 0;
     const r = runRefilter(ctx, stateOf(search(0.1)), { minChance: 0.2, clock: () => tick++ }, (p) => progress.push(p));
     expect(new Set(progress.map((p) => p.stage))).toEqual(new Set(["rank"]));
-    // One unit per card of either list (Checkpoint 7c: the "Helps both" list's cards the Overall list doesn't show too).
-    const n = Math.max(1, new Set([...r.trades, ...(r.helpsBoth?.trades ?? [])].map((t) => t.key)).size);
-    expect(progress.at(-1)).toEqual({ stage: "rank", done: n, total: n });
-    expect(Object.keys(r.timings)).toEqual(["rank", "steps", "total"]);
+    // Checkpoint 7e: the shown pass comes last, one unit per trade the lists show (every card of either list and every Plan B
+    // box, each once; a trade the search showed already is read from its numbers then, shownByKey), so at least the cards.
+    const last = progress.at(-1) as TradeSearchProgress;
+    expect(last.done).toBe(last.total);
+    expect(last.total).toBeGreaterThanOrEqual(new Set([...r.trades, ...(r.helpsBoth?.trades ?? [])].map((t) => t.key)).size);
+    for (const t of [...r.trades, ...(r.helpsBoth?.trades ?? [])]) for (const k of [t.key, ...(t.planB ? [t.planB.key] : [])]) expect(stateOf(r).shownByKey.has(k), k).toBe(true);
+    expect(Object.keys(r.timings)).toEqual(["rank", "steps", "shown", "total"]);
     const it = refilterSearch(ctx, stateOf(search(0.1)), { minChance: 0.3 });
     expect(it.next().value).toEqual({ stage: "rank", done: 0, total: 1 });
     expect(it.return({} as TradeSearchResult).done).toBe(true);
@@ -249,7 +257,7 @@ describe("the pattern note's wiring (planner reply to Checkpoint 4b, change 6)",
     expect(st.forcedGive).toEqual([id]);
     expect(r.pattern?.playerId).not.toBe(id);
     const uncapped = rankTrades(st.finals.map((c) => ({ ...c, reasons: [], pitch: "" })), value, { ...rankCaps({ relaxed: false, onePartner: false }), perGivenPlayerInTop20: Number.POSITIVE_INFINITY }, { minChance: 0.1, givenCapExempt: [id] });
-    expect(r.pattern ?? null).toEqual(patternNote(patternInputsOf(I, uncapped.trades, [id])));
+    expect(r.pattern ?? null).toEqual(patternNote({ ...patternInputsOf(I, uncapped.trades, [id]), shown: r.trades }));
     // Re-filtering keeps him outside the cap: the same as a fresh search.
     expect(runRefilter(ctx, st, { minChance: 0 })).toEqual(runTradeSearch(ctx, { settings: at(0, { mustInclude: [id] }) }));
   });

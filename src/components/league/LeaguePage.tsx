@@ -75,7 +75,8 @@ const WAIT_TEXT: Record<LeagueWait, string> = {
 const WAIT_NOTE: Record<LeagueWait, string | null> = {
   loading: null,
   fetching: "Projections, stats and trade values for every player in the league. The first load of the day can take half a minute.",
-  computing: `Projections, lineups and values for every team, and ${fmtWhole(config.simulation.finalSims)} simulated seasons for the playoff odds. This runs in your browser and takes a few seconds.`,
+  // The League model plays the shown block's seasons (Checkpoint 7e; planner reply to Checkpoint 7d, item 1.1: 20,000).
+  computing: `Projections, lineups and values for every team, and ${fmtWhole(config.simulation.shownSims)} simulated seasons for the playoff odds. This runs in your browser and takes a few seconds.`,
 };
 
 export const UPDATING_TEXT = "Updating the numbers…";

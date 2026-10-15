@@ -70,7 +70,9 @@ describe("LeagueFrame: one status line through every state", () => {
     const fetching = render(STATES.fetching as LeagueFrameState);
     expect(fetching).toContain("The Gloopdorf Invitational");
     expect(fetching).toContain("The first load of the day can take half a minute.");
-    expect(render(STATES.computing as LeagueFrameState)).toContain(`and ${fmtWhole(config.simulation.finalSims)} simulated seasons for the playoff odds. This runs in your browser`);
+    // The shown block's seasons (Checkpoint 7e: the League model plays config.simulation.shownSims).
+    expect(render(STATES.computing as LeagueFrameState)).toContain(`and ${fmtWhole(config.simulation.shownSims)} simulated seasons for the playoff odds. This runs in your browser`);
+    expect(render(STATES.computing as LeagueFrameState)).toContain("and 20,000 simulated seasons");
   });
 
   it("never marks anything aria-busy, which would hold back the status lines it wraps", () => {
@@ -112,8 +114,13 @@ describe("computeTagFor: what a League model computation is for (Phase 4 L12: th
 
   it("changes with a setting the League model reads, so changing it computes the model again", () => {
     // The goal since the planner's reply to Checkpoint 7a (§6.1): the automatic playoff weight weighs my odds by it.
-    expect(LEAGUE_MODEL_SETTINGS).toEqual(["streamPositions", "goal", "prizes"]);
+    expect(LEAGUE_MODEL_SETTINGS).toEqual(["streamPositions", "goal", "prizes", "untouchables", "waiverSamePosition", "returnWeeks"]);
     expect(computeTagFor({ ...base, settings: { ...base.settings, streamPositions: ["K", "DEF", "QB"] } })).not.toBe(tag);
+    // Checkpoint 7e (planner reply to Checkpoint 7d, items 3.2, 3.3 and 3.5): the untouchables (never dropped), "Drop from the
+    // same position" and the user's return weeks.
+    expect(computeTagFor({ ...base, settings: { ...base.settings, untouchables: ["101"] } })).not.toBe(tag);
+    expect(computeTagFor({ ...base, settings: { ...base.settings, waiverSamePosition: false } })).not.toBe(tag);
+    expect(computeTagFor({ ...base, settings: { ...base.settings, returnWeeks: { "101": 9 } } })).not.toBe(tag);
     expect(computeTagFor({ ...base, settings: { ...base.settings, streamPositions: [] } })).not.toBe(tag);
     expect(computeTagFor({ ...base, settings: { ...base.settings, goal: "playoffs" } })).not.toBe(tag);
   });
@@ -124,7 +131,6 @@ describe("computeTagFor: what a League model computation is for (Phase 4 L12: th
       { playoffWeight: 1.5 } as unknown as Partial<TradeSettings>,
       { lambda: 0.8 },
       { maxPerSide: 3 },
-      { untouchables: ["101"] },
       { mustInclude: ["202"] },
       { targetPositions: ["RB"] },
       { avoidPositions: ["TE"] },

@@ -40,6 +40,7 @@ import {
   MIN_CHANCE_OPTIONS,
   PROJECTIONS_SOURCE,
   SORT_OPTIONS,
+  SHOWN_PASS_LABEL,
   STAGE_LABEL,
   VALUES_CREDIT_TEXT,
   helpsBothFewText,
@@ -768,6 +769,10 @@ describe("buildFinderView (§13 ranking, M13 states)", () => {
     expect(buildFinderView({ result: { ...result, counts: { screened: 15873, exact: 208, simScreen: 208, simFinal: 60 } }, sort: "overall", snapshot, partnerId: null }).searched).toMatch(
       /^Looked at 15,873 trade ideas, checked 208 closely, and played out your season [\d,]+ times with each of the best 60\. /,
     );
+    // Checkpoint 7e (planner reply to Checkpoint 7d, item 1.1): every idea shown is played out on the shown block's seasons.
+    expect(buildFinderView({ result: { ...result, counts: { screened: 15873, exact: 208, simScreen: 208, simFinal: 60, simShown: 14 } }, sort: "overall", snapshot, partnerId: null }).searched).toBe(
+      "Looked at 15,873 trade ideas, checked 208 closely, and played out your season 5,000 times with each of the best 60 and 20,000 times with each idea shown. That took 4.2 seconds.",
+    );
     expect(view.notes).toEqual(["Kickers and D/STs are left out; turn them on in Settings."]);
     expect(view.warnings).toEqual(["Sleeper's week 17 projections didn't load."]);
     expect(view.empty).toBeNull();
@@ -863,12 +868,23 @@ describe("progressView (M14's progress bar)", () => {
     expect(progressView(null)).toEqual({ label: "Getting your league ready", detail: null, percent: 0, valueText: "Getting your league ready" });
     const screening = progressView({ stage: "screening", done: 120, total: 480 });
     expect(screening).toEqual({ label: "Screening trade ideas", detail: "120 of 480", percent: 16, valueText: "Screening trade ideas: 120 of 480" });
-    // Phase 4c: screening is about 45% of a search (the exhaustive candidates); setup 5%.
-    expect(progressView({ stage: "exact", done: 0, total: 200 }).percent).toBe(50);
+    // Checkpoint 7e: setup 7%, screening 36% (the ranking stage plays out the ideas shown on 20,000 seasons: 16%; the review's
+    // SHOWN-5). Phase 4c: setup 5%, screening 45%.
+    expect(progressView({ stage: "exact", done: 0, total: 200 }).percent).toBe(43);
     const percents = (["setup", "screening", "exact", "simScreen", "simFinal", "rank"] as const).map((stage) => progressView({ stage, done: 0, total: 10 }).percent);
     expect(percents).toEqual([...percents].sort((x, y) => x - y));
     expect(progressView({ stage: "rank", done: 1, total: 1 }).percent).toBe(99);
     expect(progressView({ stage: "exact", done: 1300, total: 1200 }).detail).toBe("1,200 of 1,200");
+  });
+
+  it("Checkpoint 7e: the ranking stage while it plays out the ideas shown (part \"shown\") says so, and holds the bar's last 16% (the review's SHOWN-5)", () => {
+    expect(SHOWN_PASS_LABEL).toBe(`Playing out the ideas you'll see ${Math.max(config.simulation.finalSims, config.simulation.shownSims).toLocaleString("en-US")} times`);
+    expect(SHOWN_PASS_LABEL).toBe("Playing out the ideas you'll see 20,000 times");
+    expect(progressView({ stage: "rank", done: 3, total: 12, part: "shown" })).toEqual({ label: SHOWN_PASS_LABEL, detail: "3 of 12", percent: 88, valueText: `${SHOWN_PASS_LABEL}: 3 of 12` });
+    expect(progressView({ stage: "rank", done: 0, total: 12, part: "shown" }).percent).toBe(84);
+    expect(progressView({ stage: "rank", done: 6, total: 12, part: "shown" }, "refilter")).toMatchObject({ label: SHOWN_PASS_LABEL, percent: 50 });
+    // Without the part, the stage's own words.
+    expect(progressView({ stage: "rank", done: 3, total: 12 }).label).toBe("Ranking the trade ideas");
   });
 });
 
@@ -1527,8 +1543,8 @@ describe("Phase 4c: the card's words that the planner's reply to Checkpoint 4b c
     expect(progressView({ stage: "rank", done: 5, total: 10 }, "refilter").percent).toBe(50);
     expect(progressView({ stage: "rank", done: 10, total: 10 }, "refilter").percent).toBe(99);
     expect(progressView({ stage: "screening", done: 120, total: 480 }, "refilter")).toEqual(progressView({ stage: "screening", done: 120, total: 480 }));
-    // A search's "rank" stage is its last few percent.
-    expect(progressView({ stage: "rank", done: 5, total: 10 }).percent).toBe(98);
+    // A search's "rank" stage is its last 16% (Checkpoint 7e: it plays out the ideas shown on 20,000 seasons; 4% before).
+    expect(progressView({ stage: "rank", done: 5, total: 10 }).percent).toBe(92);
   });
 
   it("gives the Analyzer's card 'Details': what Helps you is worth in points a week, its trade-value part as a lineup equivalent, never a trade value figure (planner reply to Checkpoint 7a, §2 question 5 and 5.4)", () => {
@@ -1668,6 +1684,42 @@ describe("the Helps you scale in the feedback's version inputs (Phase 7a, track 
     expect(versionChoices({ ...evaluation(), b3: null }, snapshot)[0]?.inputs).toMatchObject({ b3: null, helpsReason: null });
   });
 
+  it("Checkpoint 7e: a step's version carries its own B₃ and reason (TradeStep.b3: the ranking block's), the card's trade and its Plan B the card's (the review's SHOWN-4)", () => {
+    // The card prints on the shown block's B₃ (3.7), a step's B on the ranking block's (3.5), whose scale is floored here.
+    const card = steppedFull({ b3: 3.7, detail: { notes: [] } });
+    const steps = card.steps as NonNullable<TradeEvaluation["steps"]>;
+    const offerFirst: TradeStep = { ...steps.offerFirst, b3: 3.5, detail: { ...steps.offerFirst.detail, notes: [HELPS_FLOOR_NOTE] } };
+    expect(versionChoices({ ...card, steps: { ...steps, offerFirst } }, snapshot, "title").map((v) => [v.version, v.inputs?.b, v.inputs?.b3, v.inputs?.helpsReason])).toEqual([
+      ["offerFirst", offerFirst.b, 3.5, "odds"],
+      ["full", card.b, 3.7, null],
+    ]);
+    // Case 2 (the card is the first offer): the full version with the throw-in is a step, with its own scale.
+    const offer = steppedOffer({ b3: 3.7, detail: { notes: [] } });
+    const offerSteps = offer.steps as NonNullable<TradeEvaluation["steps"]>;
+    const full: TradeStep = { ...offerSteps.ifNo.full, b3: 3.5 };
+    expect(versionChoices({ ...offer, steps: { ...offerSteps, ifNo: { ...offerSteps.ifNo, full } } }, snapshot).map((v) => [v.version, v.inputs?.b3])).toEqual([
+      ["offerFirst", 3.7],
+      ["full", 3.5],
+    ]);
+  });
+
+  it("Checkpoint 7e, on the engine's own search: a step's B₃ is the ranking block's, its card's the shown block's, and each version's inputs read its own (the review's SHOWN-4)", { timeout: 60_000 }, () => {
+    const { snapshot: league, inputs } = smallLeague(23);
+    const ctx = buildTradeContext(league, inputs, { now: TEST_NOW, scenarios: 8 });
+    const r = runTradeSearch(ctx, { settings: { ...defaultTradeSettings(), minChance: 0.1 } });
+    const card = r.trades.find((t) => t.steps) as TradeEvaluation;
+    expect(card).toBeDefined(); // a fact of the synthetic data
+    const s = card.steps as NonNullable<TradeEvaluation["steps"]>;
+    const stepped = [s.offerFirst, s.ifNo.full].filter((x) => x.key !== card.key);
+    expect(stepped.length).toBe(1);
+    const step = stepped[0] as TradeStep;
+    expect(card.b3).toBe(r.helpsScale?.b3);
+    expect(typeof step.b3).toBe("number");
+    expect(step.b3).not.toBe(card.b3);
+    const inputs2 = versionChoices(card, league).find((v) => v.key === step.key)?.inputs;
+    expect([inputs2?.b, inputs2?.b3]).toEqual([step.b, step.b3]);
+  });
+
   it("on the engine's own evaluation: a floored scale (my odds barely move) reads 'odds' with the floor's B₃", { timeout: 60_000 }, () => {
     const { snapshot: league, inputs } = smallLeague(11);
     const ctx = buildTradeContext(league, inputs, { now: TEST_NOW, scenarios: 0 });
@@ -1679,7 +1731,8 @@ describe("the Helps you scale in the feedback's version inputs (Phase 7a, track 
     const partner = I.byId.get("2") as NonNullable<ReturnType<typeof I.byId.get>>;
     const x = evaluateExact(I, { partnerId: "2", give: [{ kind: "player", id: me.roster[0] as string }], get: [{ kind: "player", id: partner.roster[0] as string }] }, 4);
     if ("illegal" in x) throw new Error(x.illegal);
-    const e = simulateTrade(I, x, "final", null);
+    // The shown block (Checkpoint 7e): its calibration, SimState.calibration, is the one floored above, and the cards print from it.
+    const e = simulateTrade(I, x, "shown", null);
     expect(helpsReasonOf(e.detail.notes)).toBe("odds");
     expect(versionChoices(e, league, "title")[0]?.inputs).toMatchObject({ b3: config.benefit.helpsFloor, helpsReason: "odds" });
   });

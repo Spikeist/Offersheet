@@ -757,7 +757,7 @@ describe("the simulation behind B (M4)", () => {
 });
 
 describe("the Trade Analyzer on a legal trade", () => {
-  it("evaluates exactly as a finalist: final stage, finalSims seasons, the card's numbers, words", () => {
+  it("evaluates exactly as a card is shown: final stage, shownSims seasons (Checkpoint 7e), the card's numbers, words", () => {
     const ctx = context(() => undefined, {}, { scenarios: 8 });
     const proposal = trade("2", ["wb1", "rc1"], ["wa2"]);
     const a = analyzeTrade(ctx, proposal);
@@ -765,7 +765,9 @@ describe("the Trade Analyzer on a legal trade", () => {
     expect(a.illegal).toBeNull();
     expect(ev?.key).toBe(proposalKey(proposal));
     expect(ev?.stage).toBe("final");
-    expect(ev?.sims).toBe(simCounts().final);
+    // The shown block (Checkpoint 7e, planner reply to Checkpoint 7d, item 1.1): the seasons every card's numbers are printed
+    // from, which the Analyzer evaluates on (the search ranks on the first simCounts().final of them).
+    expect(ev?.sims).toBe(simCounts().shown);
     expect(Number.isFinite(ev?.b)).toBe(true);
     expect(ev?.dPO).not.toBeNull();
     expect(ev?.pComplete).toBe(ev?.pAccept); // no trade review in this league
