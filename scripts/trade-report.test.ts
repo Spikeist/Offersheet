@@ -1278,7 +1278,7 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     const s = section(10);
     expect(s).toContain(`without it the Overall list is the same ${trades.length} cards with the same numbers, boxes and words ✅`);
     expect(s).toContain(`| | Cold | Warm (median of ${report.runtime.runs.length}) |`);
-    for (const label of [`| The partner calibration runs (${partners}, one per partner of the exact trades) |`, `| The extras' final runs (${st.helpsBothExtras.length}) |`, `| Helps them's share of the ranking stage: the shown pass's partner scales and the second list's cards on ${config.simulation.shownSims.toLocaleString("en-US")} seasons, its ranking, Plan B and words | – |`, "| **The extra: the three parts** |", `| Search total with "Helps them" (the app: section 4's) |`, "| Search total without (with, less the extra: ⚠️ derived) |"]) expect(s).toContain(label);
+    for (const label of [`| The partner calibration runs (${partners}, one per partner of the exact trades) |`, `| The extras' final runs (${st.helpsBothExtras.length}) |`, `| Helps them's share of the ranking stage: the shown pass's partner scales and the second list's cards on ${config.simulation.shownSims.toLocaleString("en-US")} seasons, its ranking, its merge's ladders, Plan B and words | – |`, "| **The extra: the three parts** |", `| Search total with "Helps them" (the app: section 4's) |`, "| Search total without (with, less the extra: ⚠️ derived) |"]) expect(s).toContain(label);
     // The runs without it as measured, against section 4's with their own sign (review HBR-1); the suite times one run a set,
     // so no spread from run to run is printed (it read "up to 0.0 ms") and no cause it doesn't compute.
     const m = h.cost.measured;
