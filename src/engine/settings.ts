@@ -50,7 +50,12 @@
  *   never sent. It clears when the player is active again or the week passes."), player id → NFL week. Kept only as ids
  *   and whole weeks from 1 to RETURN_WEEK_MAX, at most RETURN_WEEKS_MAX entries, in id order (settingsFingerprint's JSON
  *   needs one order); clearing an entry once its player is active or its week has passed is the League page's job (it
- *   knows the snapshot). A copy stored before reads as none.
+ *   knows the snapshot). A copy stored before reads as none. With returnWeeksSeason, the NFL season they were set for
+ *   (review of wave C, UI-C-3): a league's settings are filed under its key, which has no season, so they carry over to
+ *   the next season's import, where a week set this season (or "out for the season", the NFL's last week + 1) would hold a
+ *   player still listed injured out of it. The weeks count only in that season's snapshots (returnWeeks.ts); setting one
+ *   in another season starts afresh (the League page). Null: none set yet; weeks stored without it (a build of Checkpoint
+ *   7e before that review) don't count, and the League page clears them.
  * Both stay in the browser like every setting: the engine worker reads them, and no request to the server and no anonymous
  * feedback copy (src/lib/feedbackShare.ts) carries them (planner reply to Checkpoint 7d: "New settings stay in the browser
  * and never go into the anonymous feedback").
@@ -114,6 +119,8 @@ export interface TradeSettings {
   waiverSamePosition: boolean;
   /** The user's own expected return weeks for his injured players, id → NFL week (Checkpoint 7e, item 3.5). */
   returnWeeks: Readonly<Record<string, number>>;
+  /** The NFL season those return weeks were set for (review of wave C, UI-C-3): they count in that season only; null: none set. */
+  returnWeeksSeason: number | null;
 }
 
 /** The latest NFL week a user-set return week may name (a sanity bound on what's stored, not a model number). */
@@ -121,6 +128,9 @@ export const RETURN_WEEK_MAX = 30;
 
 /** At most this many user-set return weeks are kept per league (a sanity bound on what's stored). */
 export const RETURN_WEEKS_MAX = 100;
+
+/** The latest season returnWeeksSeason may name (a sanity bound on what's stored, not a model number). */
+export const RETURN_WEEKS_SEASON_MAX = 9999;
 
 /** The settings a new league starts with. */
 export function defaultTradeSettings(): TradeSettings {
@@ -141,6 +151,7 @@ export function defaultTradeSettings(): TradeSettings {
     minChance: config.ranking.minChanceDefault,
     waiverSamePosition: true,
     returnWeeks: {},
+    returnWeeksSeason: null,
   };
 }
 
@@ -225,5 +236,6 @@ export function normalizeTradeSettings(raw: unknown): TradeSettings {
     minChance: typeof r.minChance === "number" && config.ranking.minChanceOptions.includes(r.minChance) ? r.minChance : d.minChance,
     waiverSamePosition: typeof r.waiverSamePosition === "boolean" ? r.waiverSamePosition : d.waiverSamePosition,
     returnWeeks: returnWeeksFrom(r.returnWeeks),
+    returnWeeksSeason: typeof r.returnWeeksSeason === "number" && Number.isInteger(r.returnWeeksSeason) && r.returnWeeksSeason >= 1 && r.returnWeeksSeason <= RETURN_WEEKS_SEASON_MAX ? r.returnWeeksSeason : d.returnWeeksSeason,
   };
 }

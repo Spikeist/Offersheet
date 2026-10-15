@@ -395,6 +395,7 @@ function bruteReoptimize(
   b: BruteSpec,
   extra: number,
   gone: readonly string[] = [],
+  keep: ReadonlySet<string> = new Set(),
 ): { roster: string[]; moves: BruteMove[]; given: { pickup: string | null; back: string | null }[] } {
   const { ros, positions: positionsOf, info } = bruteTools(b);
   const all = new Map<string, string | null>();
@@ -413,7 +414,8 @@ function bruteReoptimize(
   const moves: BruteMove[] = [];
   const given: { pickup: string | null; back: string | null }[] = [];
   for (let step = 0; step < limit; step++) {
-    let move = bruteBest(roster, added, b, true);
+    // A keep set's players are never dropped, nor given back by an exchange (optimizer.ts, "The keep set").
+    let move = bruteBest(roster, added, b, true, keep.size ? (id) => !keep.has(id) : null);
     if (!move) break;
     const grows = move.drop === null || !origin.has(move.drop);
     if (grows && origin.size + 1 > cap) {
@@ -421,7 +423,7 @@ function bruteReoptimize(
       const positions = positionsOf(made);
       let best: { w: string; back: string | null; roster: string[]; ros: number } | null = null;
       for (const [w, k] of origin) {
-        if (!made.includes(w)) continue;
+        if (!made.includes(w) || keep.has(w)) continue;
         const back = k !== null && !gone.includes(k) && !made.includes(k) ? k : null;
         if (back !== null) {
           const left = [...positions];
@@ -443,7 +445,7 @@ function bruteReoptimize(
         roster = best.roster;
         continue;
       }
-      move = bruteBest(roster, added, b, false, (id) => origin.has(id));
+      move = bruteBest(roster, added, b, false, (id) => origin.has(id) && !keep.has(id));
       if (!move) break;
     }
     if (move.drop !== null && origin.has(move.drop)) {
@@ -812,5 +814,104 @@ describe("re-running from an optimized roster (reoptimize; the file header; revi
     expect(exchanges).toBeGreaterThan(5);
     expect(swaps).toBeGreaterThan(2);
     expect(backs).toBeGreaterThan(5);
+  });
+
+  it("the keep set (Checkpoint 7e, planner reply to Checkpoint 7d, item 3.3: my untouchables in the League model's re-runs): a kept player is never dropped; the memo keeps the runs apart, and a keep set with nobody on the roster is none", () => {
+    // From the team before any move, a re-run makes the very move a run from scratch does: the 10-point free-agent WR for the
+    // bench RB (a tie with the FLEX WR, to the smaller id). Kept, the FLEX WR goes instead; both kept, no move.
+    const rows = [...team(), row("rb3", "RB", 2), row("fa-wr", "WR", 10)];
+    const ids = [...TEAM_IDS, "rb3"];
+    const opt = createOptimizer(setupOf(rows, { freeAgents: ["fa-wr"] }), CFG);
+    const from = opt.optimize(ids, NO_STREAM, 0);
+    const free = opt.reoptimize(from, ids, NO_STREAM, 1);
+    expect(free.moves).toEqual([{ add: "fa-wr", drop: "rb3", gainEv: 16 }]);
+    const kept = opt.reoptimize(from, ids, NO_STREAM, 1, [], undefined, FULL_POOL, ["rb3"]);
+    expect(kept.moves).toEqual([{ add: "fa-wr", drop: "wr2", gainEv: 16 }]);
+    expect(kept.roster).toContain("rb3");
+    expect(opt.reoptimize(from, ids, NO_STREAM, 1, [], undefined, FULL_POOL, ["wr2", "rb3"]).moves).toEqual([]);
+    // Memoized apart: the same keep set in any order is one entry; an empty one, or one holding nobody on the roster, is the
+    // run without one (its very entry).
+    expect(opt.reoptimize(from, [...ids].reverse(), NO_STREAM, 1, [], undefined, FULL_POOL, ["rb3", "rb3"])).toBe(kept);
+    expect(opt.reoptimize(from, ids, NO_STREAM, 1, [], undefined, FULL_POOL, [])).toBe(free);
+    expect(opt.reoptimize(from, ids, NO_STREAM, 1, [], undefined, FULL_POOL, ["fa-wr", "nobody"])).toBe(free);
+  });
+
+  it("an exchange never gives a kept pickup back (a caller's keep set may name one)", () => {
+    // The first test's exchange: losing the QB, a 16-point free-agent QB comes in for the TE pickup, the cheaper one. With
+    // that pickup kept, giving back the WR pickup instead would gain nothing (+4 a week for the QB, −4 for the WR), and no
+    // swap pays: no move.
+    const fas = [row("fa-wr", "WR", 13), row("fa-te", "TE", 11), row("fa-qb", "QB", 16)];
+    const roster = [row("qb", "QB", 20), row("rb1", "RB", 15), row("rb2", "RB", 12), row("wr1", "WR", 14), row("te", "TE", 8), row("wr2", "WR", 9), row("k", "K", 7), row("qb2", "QB", 12), row("b1", "RB", 1)];
+    const ids = ["qb", "rb1", "rb2", "wr1", "te", "wr2", "k", "qb2", "b1"];
+    const o = createOptimizer(setupOf([...roster, ...fas], { freeAgents: ["fa-wr", "fa-te", "fa-qb"], maxRosterSize: 12 }), { ...CFG, faMaxMoves: 2 });
+    const from = o.optimize(ids);
+    const lost = from.roster.filter((id) => id !== "qb");
+    expect(o.reoptimize(from, lost, NO_STREAM, 1, ["qb"]).given).toEqual([{ pickup: "fa-te", back: null }]);
+    const r = o.reoptimize(from, lost, NO_STREAM, 1, ["qb"], undefined, FULL_POOL, ["fa-te"]);
+    expect(r.moves).toEqual([]);
+    expect(r.given).toEqual([]);
+    expect(r.roster).toEqual(lost);
+  });
+
+  it("with a keep set, matches the brute force's accounting with drops limited to the others: 400 random small leagues, after a loss and with a newcomer", { timeout: 120_000 }, () => {
+    const rand = mulberry32(7317);
+    let keptDrops = 0;
+    for (let trial = 0; trial < 400; trial++) {
+      const W = 4;
+      const weights = Float64Array.from([1, 1, 1.25, rand() < 0.2 ? 0 : 1.25]);
+      const slots = trial % 3 === 0 ? SUPERFLEX : trial % 3 === 1 ? STANDARD : SMALL;
+      const mk = (id: string, scale: number): TableRow => {
+        const pos = POSITIONS_RANDOM[Math.floor(rand() * POSITIONS_RANDOM.length)] as Pos;
+        const ev = Array.from({ length: W }, () => (rand() < 0.15 ? 0 : Math.round(rand() * 200 * scale) / 10));
+        return row(id, pos, ev, W, pos === "WR" && rand() < 0.2 ? ["WR", "RB"] : [pos]);
+      };
+      const n = 5 + Math.floor(rand() * 7);
+      const own = Array.from({ length: n }, (_, k) => mk(`r${k}`, 1));
+      // Free agents about as good as the team's players, so re-runs often drop one of its own.
+      const pool = Array.from({ length: 5 + Math.floor(rand() * 8) }, (_, k) => mk(`f${k}`, 1.1));
+      const outsiders = Array.from({ length: 2 }, (_, k) => mk(`o${k}`, 1.1));
+      const ids = own.map((r) => r.id);
+      const maxRosterSize = ids.length + (rand() < 0.5 ? Math.floor(rand() * 3) : 0);
+      const limits: Partial<Record<Pos, number>> | undefined = rand() < 0.4 ? { RB: 2 + Math.floor(rand() * 2), WR: 3, TE: 1 + Math.floor(rand() * 2), QB: 2 } : undefined;
+      const values: Record<string, number> = Object.fromEntries([...own, ...pool, ...outsiders].map((r) => [r.id, Math.round(rand() * 1000)]));
+      const cfg: OptimizerConfig = { faMinGain: 2 + Math.floor(rand() * 3), faMaxMoves: 1 + Math.floor(rand() * 3), optimizerExcluded: rand() < 0.5 ? ["K", "DEF"] : [] };
+      const rows = new Map([...own, ...pool, ...outsiders].map((r) => [r.id, r]));
+      const info = (id: string) => {
+        const r = rows.get(id);
+        return r ? { pos: r.pos, eligible: r.eligible } : undefined;
+      };
+      const setup: OptimizerSetup = { rows, weekCount: W, slots, weights, freeAgents: pool.map((r) => r.id), info, positionLimits: limits, maxRosterSize, dropValue: (id) => values[id] ?? 0, dynasty: null };
+      const spec: BruteSpec = { rows, slots, weights, freeAgents: pool.map((r) => r.id), maxRosterSize, ...(limits ? { limits } : {}), values, dynasty: null, stream: NO_STREAM, cfg, ghosts: {} };
+      const opt = createOptimizer(setup, cfg);
+      const from = opt.optimize(ids);
+      // The team's own players a free re-run would drop are the ones worth keeping: one of them (or any of its players).
+      const own0 = from.roster.filter((id) => ids.includes(id));
+      const pick = () => own0[Math.floor(rand() * own0.length)] as string;
+      const cases: { start: string[]; extra: number; gone: string[]; base?: string[] }[] = [];
+      if (own0.length) {
+        const i = pick();
+        cases.push({ start: from.roster.filter((id) => id !== i), extra: 1, gone: [i] });
+        const j = (outsiders[Math.floor(rand() * outsiders.length)] as TableRow).id;
+        const base = from.roster.length < maxRosterSize ? [...from.roster] : from.roster.filter((id) => id !== pick());
+        if (positionAllows(limits, base.flatMap((id) => info(id)?.pos ?? []), (rows.get(j) as TableRow).pos)) cases.push({ start: [...base, j], extra: 1, gone: [], base });
+      }
+      for (const c of cases) {
+        const freeRun = opt.reoptimize(from, c.start, NO_STREAM, c.extra, c.gone, c.base);
+        const droppedOwn = freeRun.moves.flatMap((m) => (m.drop !== null && ids.includes(m.drop) ? [m.drop] : []));
+        const candidates = c.start.filter((id) => ids.includes(id));
+        const keep = droppedOwn.length ? [droppedOwn[0] as string] : candidates.length ? [candidates[Math.floor(rand() * candidates.length)] as string] : [];
+        if (!keep.length) continue;
+        const got = opt.reoptimize(from, c.start, NO_STREAM, c.extra, c.gone, c.base, FULL_POOL, keep);
+        const want = bruteReoptimize(from, c.start, spec, c.extra, c.gone, new Set(keep));
+        const label = `trial ${trial}: ${JSON.stringify({ ...c, keep })}`;
+        expect(got.moves.map((m) => [m.add, m.drop]), label).toEqual(want.moves.map((m) => [m.add, m.drop]));
+        expect(got.given, label).toEqual(want.given);
+        expect(got.roster.slice().sort(), label).toEqual(want.roster.slice().sort());
+        for (const id of keep) expect(got.roster, label).toContain(id);
+        if (droppedOwn.length) keptDrops++;
+      }
+    }
+    // Many cases keep the very player the free re-run drops.
+    expect(keptDrops).toBeGreaterThan(20);
   });
 });

@@ -3,7 +3,7 @@ import { betaNeed } from "./acceptance";
 import { farReturnWeek } from "./availability";
 import { benefit, benefitNotes, tradePackage } from "./benefit";
 import { config } from "./config";
-import { deltaLineupFromTerms, explainTrade, fantasyCalcComparison, injuryTags, myFantasyCalcGain, partnerFantasyCalcGain, type ExplainConfig, type ExplainContext } from "./explain";
+import { deltaLineupFromTerms, explainTrade, fantasyCalcComparison, injuryTags, myFantasyCalcGain, partnerFantasyCalcGain, tagContextOf, type ExplainConfig, type ExplainContext } from "./explain";
 import type { PlayerInfo, Pos } from "./model";
 import type { PremiumFact, TradeAsset, TradeDetail, TradeEvaluation, TradeProposal, TradeStep, TradeSteps } from "./tradeModel";
 import { FIXTURE_PLAYERS, acceptanceTerms, activitySummary, contextTerm, explainContext, premiumFact, tradeEvaluation, withSteps, type EvaluationFixture } from "./tradeTestFixtures";
@@ -1180,5 +1180,28 @@ describe("injuryTags (TradeEvaluation.flags.tagged; planner reply to Checkpoint 
     // Without the week now, a followed far date and any OUT, IR, PUP or SUSPENDED date stay.
     expect(one("QUESTIONABLE", 9, { followsReturnDate: () => true })).toBe(9);
     expect(one("OUT", 3, {})).toBe(3);
+  });
+
+  it("says the user's own week for one of my players whatever his status, marked as his (Checkpoint 7e, item 3.5; review of wave C, RC-ENG-1)", () => {
+    const user = { currentWeek: 6, userReturnWeek: (id: string) => ({ cmc: 11, nix: 7, kyren: 19 })[id] };
+    expect(injuryTags({ give: [player("cmc"), player("nix"), player("kyren"), player("jacobs")], get: [] }, players, user)).toEqual([
+      // IR with ESPN's week 9: the user's 11 in its place.
+      { playerId: "cmc", side: "give", status: "IR", returnWeek: 11, returnSource: "user" },
+      // Questionable: his numbers follow the user's week, next week included (no "far" rule for it).
+      { playerId: "nix", side: "give", status: "QUESTIONABLE", returnWeek: 7, returnSource: "user" },
+      // Out for the season (the NFL's last week + 1): the card says so.
+      { playerId: "kyren", side: "give", status: "PUP", returnWeek: 19, returnSource: "user" },
+      // No week of the user's: the platform's rules, as before.
+      { playerId: "jacobs", side: "give", status: "OUT" },
+    ]);
+  });
+
+  it("tagContextOf reads the weeks the engine follows from the settings: this season's, for my players only (returnWeeks.ts)", () => {
+    const teams = [{ id: "1", name: "Team 1", ownerName: "O1", roster: ["cmc"], ir: [], taxi: [], record: { w: 0, l: 0, t: 0 }, pointsFor: 0, pointsAgainst: 0 }];
+    const snapshot = { teams, players: { cmc: { id: "cmc", name: "C", pos: "RB" as const, eligible: ["RB" as const], nflTeam: "SF", injury: "IR" as const, ids: {} } }, currentWeek: 6, myTeamId: "1", season: 2026 };
+    const model = { players: {} };
+    expect(tagContextOf({ snapshot, model, settings: { returnWeeks: { cmc: 11 }, returnWeeksSeason: 2026 } }).userReturnWeek?.("cmc")).toBe(11);
+    expect(tagContextOf({ snapshot, model, settings: { returnWeeks: { cmc: 11 }, returnWeeksSeason: 2025 } }).userReturnWeek?.("cmc")).toBeUndefined();
+    expect(tagContextOf({ snapshot, model }).userReturnWeek?.("cmc")).toBeUndefined();
   });
 });

@@ -17,7 +17,7 @@ describe("playoffWeightTag", () => {
 
   it("changes with what the League model reads: the goal, the streamed positions, my team, the inputs' build and the league data", () => {
     expect(tag).not.toBeNull();
-    expect(LEAGUE_MODEL_SETTINGS).toEqual(["streamPositions", "goal", "prizes", "untouchables", "waiverSamePosition", "returnWeeks"]);
+    expect(LEAGUE_MODEL_SETTINGS).toEqual(["streamPositions", "goal", "prizes", "untouchables", "waiverSamePosition", "returnWeeks", "returnWeeksSeason"]);
     expect(playoffWeightTag({ ...base, settings: { ...base.settings, goal: "playoffs" } })).not.toBe(tag);
     // Checkpoint 7e (planner reply to Checkpoint 7d, items 3.2, 3.3 and 3.5): the League model reads these too.
     expect(playoffWeightTag({ ...base, settings: { ...base.settings, untouchables: ["101"] } })).not.toBe(tag);

@@ -765,6 +765,11 @@ return {
  * isn't, whether the page says the season is over: LeagueView.tsx's "The season is over", which leaves the section
  * nothing to list), its heading, whether that heading has keyboard focus and is on screen, the address and the history's
  * length; its toggle's buttons (label, pressed, size), its "Show all N" button, and how many rows its list shows.
+ * Checkpoint 7e (planner reply to Checkpoint 7d, items 3.1–3.4): the season list's rating line (its status), the "Drop from the
+ * same position" switch (its label, whether it's on, its help), and each row shown as a move (contracts.ts WaiverMoveRead:
+ * whether it starts "Add", how it makes room, its main number's label and value, whether its second number reads as one, its
+ * lock buttons and whether each is named "Untouchable: …" with what pressing it does as its title: review of wave C,
+ * UI-C-10), never a name.
  */
 export const READ_WAIVERS = String.raw`
 const s = document.getElementById("waivers");
@@ -777,7 +782,30 @@ const group = s.querySelector('[role=group][aria-label="Which weeks"]');
 const more = [...s.querySelectorAll("button[aria-expanded]")].find((b) => /^Show (?:all \d+|fewer)$/.test(txt(b))) || null;
 const list = s.querySelector("ul[aria-label]");
 const size = (el) => { const r = el.getBoundingClientRect(); return { height: Math.round(r.height * 10) / 10, width: Math.round(r.width) }; };
+const statusEl = s.querySelector("p[role=status]");
+const sw = s.querySelector("input[role=switch]");
+const swLabel = sw ? sw.closest("label") : null;
+const helpId = sw ? sw.getAttribute("aria-describedby") : null;
+const help = helpId ? document.getElementById(helpId) : null;
+const moves = list ? [...list.querySelectorAll(":scope > li")].map((li) => {
+  const ps = [...li.querySelectorAll("p")].map((p) => txt(p));
+  const main = ps.find((t) => /^(Helps you|Lineup gain):/.test(t)) || "";
+  const kind = ps.some((t) => /^Drop \S/.test(t)) ? "drop" : ps.includes("Open roster spot") ? "open" : ps.some((t) => /untouchable[.:]|make room for him/.test(t)) ? "blocked" : "none";
+  const locks = [...li.querySelectorAll("button[aria-pressed]")].map((b) => ({ name: b.getAttribute("aria-label") || "", title: b.getAttribute("title") || "" }));
+  return {
+    add: /^Add \S/.test(ps[0] || ""),
+    kind: kind,
+    main: main.replace(/:[\s\S]*$/, ""),
+    mainValue: main.replace(/^[^:]*:\s*/, ""),
+    outscores: ps.some((t) => /^(Outscores .+ by [\d,.]+|.+ outscores him by [\d,.]+|Even with .+|No drop needed: [\d,.]+ .+)( (this|next) week)?$/.test(t)),
+    locks: locks.length,
+    lockNames: locks.every((l) => /^Untouchable: .+$/.test(l.name) && (/^Lock .+ as untouchable$/.test(l.title) || /^.+ is untouchable\. Unlock him$/.test(l.title))),
+  };
+}) : [];
 return {
+  status: statusEl ? txt(statusEl) : null,
+  switch: sw ? { label: swLabel ? txt(swLabel) : null, on: sw.checked, help: help ? txt(help) : null } : null,
+  moves: moves,
   section: true,
   path: location.pathname,
   hash: location.hash,

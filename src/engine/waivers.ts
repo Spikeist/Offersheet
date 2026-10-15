@@ -3,14 +3,15 @@
  * team, every free agent who projects for more points than one of my players at his position, what picking him up adds to
  * my lineup, and whom he'd replace on my roster, in two lists (three while a week is under way). Pure and deterministic: no
  * I/O, no clock, no randomness of its own (the scenarios are the League model's draws; which games have kicked off comes in
- * as a function); the display rules come from config.waivers.
+ * as a function; the season list's rating comes in as WaiverInputs.rater); the display rules come from config.waivers.
  *
  * The lists (WaiverList):
  * - "Rest of season" (WaiverUpgrades.ros): every remaining week team numbers count (the League model's TeamWeeks: a week
  *   under way is left out, its lineups locking), each counted once. The gains are the unweighted lineup points users see
  *   (planner reply to Checkpoint 7a, §6.1: "The ROS points users see stay unweighted"), not the ω-weighted ones the
  *   free-agent optimizer and the trade chips read. Positions: every one the lineup starts but the ones I stream (a streamed
- *   slot is filled from the free agents every week: the one-week lists are where they show).
+ *   slot is filled from the free agents every week: the one-week lists are where they show). Since Checkpoint 7e rated by
+ *   Helps you (below).
  * - "This week" while the current week is under way (WaiverUpgrades.underWay; review of the Phase 7b lists: without it the
  *   page had no list for that week from its first kickoff, Thursday night, until the platform's week turned, while
  *   "Streaming picks this week", right under the section, kept listing that week's free agents still to play): the week
@@ -24,7 +25,8 @@
  *   leaves the most room. Null when no week is under way or none of its games is left (WaiverInputs.underWay absent).
  * - "This week", or while the current week is under way "Next week" (WaiverUpgrades.week): the first week team numbers
  *   count. Positions in both one-week lists: every one the lineup starts, the ones I stream included (the planner: "'This
- *   week' includes K and D/ST for the positions the user streams").
+ *   week' includes K and D/ST for the positions the user streams"). The one-week lists stay in points (planner reply to
+ *   Checkpoint 7d, item 3.4: "These stay in points, since they're for streaming, with 3.2 and 3.3 applied").
  *
  * Who's listed (the planner's rule): a free agent with a model, at one of the list's positions, who projects for more
  * points than at least one of my active players at his primary position (with a model), in the list's terms: rest-of-season
@@ -37,7 +39,18 @@
  * agents there are listed; in the week under way, where one of mine there holds a starting slot (his game has started),
  * that slot isn't open, so only those of them who add lineup points (through a flex). And at most that many rows (the best
  * by the list's points) at config.waivers.cappedPositions (K and D/ST: only the best few matter; "Streaming picks this
- * week" lists as many) and, in a one-week list, at a position I stream.
+ * week" lists as many) and, in a one-week list, at a position I stream. ⚠️ Ours (review of wave C, RC-ENG-2): my
+ * untouchables are compared only where every one of mine at his position who scores is one: a free agent must out-project
+ * one of mine there a row could drop (an untouchable never is the drop, item 3.3), else locking a weak player listed every
+ * free agent who beat only him, each dropping a better player (Josh Jacobs locked in Parker's second league: 20 of 21 rows
+ * read "drop Woody Marks", whom every one of them scored less than); where every one of mine there is untouchable, the best
+ * perPositionCap who beat one of them are listed, their rows saying every player who could make room is untouchable.
+ * "Better than" still names every one of mine he out-projects. Without untouchables, as before.
+ *
+ * One move per row (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.1: "The row reads as one move: 'Add A, drop B.'"):
+ * each row is one pickup with one drop (or an open roster spot), and carries the drop's points in the list's terms
+ * (WaiverRow.dropPoints) for the page's "outscores B by 18". The lineup gain stays on the row, in its details on the season
+ * list (waiversView.ts).
  *
  * The lineup gain (WaiverRow.gain): ROS(R + a − k) − ROS(R) over the list's weeks. R is my active roster as it stands (the
  * list is about pickups I can make now, not after the pickups the League model expects of me), with my IR returners as the
@@ -50,17 +63,33 @@
  * active roster has an open spot (fewer players than maxRosterSize; a roster already over it is held to its own size) and
  * his position isn't at its limit; else, among my active players with a model, never the newcomer, never one a position's
  * rosterMinimums needs, never the last one at a position I stream (that slot needs its roster spot), at his position when
- * its limit binds: the lowest keep value (§7: what losing him costs R + a's lineup with nobody refilling his spot, plus, in
- * dynasty and keeper leagues with long-term values, legality's normalized market value: cost ÷ the roster's largest +
- * long-term value ÷ the top one, evaluate.ts keepValues), near-ties within config.lineups.dropNearTieWeekly a week going to
- * the lower trade value floored at W (teamValue.lowestKeepValue, as every forced drop; not with long-term values), skipping
- * one the starting lineup needs (optimizer.fillCount: every starting slot R + a can fill must stay fillable). None of them
- * left: the pickup can't be made (gain null). ⚠️ The keep values are the rest-of-season list's in every list (ours): a drop
- * is for good, and judged on one week a starter on bye that week costs nothing, so he'd be cut for a backup. Exact: keep(k)
+ * its limit binds, and since Checkpoint 7e (planner reply to Checkpoint 7d, items 3.2 and 3.3) at his primary position when
+ * "Drop from the same position" is on (WaiverInputs.samePosition: TradeSettings.waiverSamePosition, on by default; ⚠️ ours:
+ * the drop's primary position, as the free agent's) and never one of my untouchables (WaiverInputs.untouchable): the lowest
+ * keep value (§7: what losing him costs R + a's lineup with nobody refilling his spot, plus, in dynasty and keeper leagues
+ * with long-term values, legality's normalized market value: cost ÷ the roster's largest + long-term value ÷ the top one,
+ * evaluate.ts keepValues), near-ties within config.lineups.dropNearTieWeekly a week going to the lower trade value floored
+ * at W (teamValue.lowestKeepValue, as every forced drop; not with long-term values), skipping one the starting lineup needs
+ * (optimizer.fillCount: every starting slot R + a can fill must stay fillable). None of them left: the pickup can't be made
+ * (gain null), and the row says why (WaiverRow.blocked): "untouchable" when untouchables are the only ones who could make
+ * room (the planner: "If every candidate is untouchable, say so, for example 'All your RBs are untouchable.' In the waiver
+ * view, also suggest turning off 'Drop from the same position'": WaiverBlocked.otherPosition when a player at another
+ * position could make room), else "room". ⚠️ The keep values are the rest-of-season list's in every list (ours): a drop is
+ * for good, and judged on one week a starter on bye that week costs nothing, so he'd be cut for a backup. Exact: keep(k)
  * = ROS(R + a) − ROS(R + a − k), so a list's gain is (ROS(R + a) − ROS(R)) − keep(k) in its own weeks and lineups, and in
  * the rest of season the lowest keep value is the largest gain (but for the near-tie and fill rules). R + a's scenario
  * lineups come from R's (teamValue.scenarioValuesAfterMove: only the scenario patterns he can get into are solved again)
  * and every keep value from them without solving (teamValue.scenarioRemovalCosts).
+ *
+ * The season list rated by Helps you (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.4; WaiverInputs.rater, built by
+ * league.ts step 10b on src/engine/waiverRating.ts, which has the runs and B): every row that can be made goes to the rater
+ * with every drop the rules above allow (an open spot is the one option when there's one), and takes the drop with the
+ * best B (WaiverRow.rating; its gain, "depth only" and the drop's points are that drop's). The rows then go by Helps you as
+ * printed (compareRatedRows), and WaiverList.rating says how they were rated. Without a rater (no odds, no team, a model
+ * built without a simulation, a build not asked to rate it: league.ts BuildLeagueModelOptions.waiverRating), the season
+ * list is in points as before. The one-week lists name the season list's drop
+ * for the same free agent (the rated one when rated: a drop is for good), the next one in the drop order in the week under
+ * way when he's locked; a free agent the season list doesn't hold, the drop order's.
  *
  * "Depth only" (WaiverRow.depthOnly): he'd start in none of the list's weeks in expected-value lineups (no injuries
  * simulated) of R − k: he adds config.waivers.startsMinPoints or less there (teamValue.addGainExact). Whatever he gains then
@@ -71,13 +100,15 @@
  * below every row with one (the planner: "Rows with no lineup gain still show, lower, tagged 'depth only'"; "by lineup gain,
  * then ROS points"). Review of the Phase 7b lists: comparing the raw gains let float noise (1e-14) decide between gains that
  * print the same, and ordered the "No gain" rows by small hidden losses no one can see. Whole steps keep the order total.
+ * A rated list (above) goes by Helps you as printed first (the planner: "Sorting: by Helps you. Rows at 0 or below go
+ * lower"), then the same.
  *
  * ⚠️ Known approximations: an injured free agent who could go straight into an open IR slot is priced as taking an active
  * spot; a pickup's effect on the League model's other teams (one free agent, one team) isn't counted; and the gains compare
  * single pickups, each against my roster as it stands, so two rows' gains don't add up.
  */
 import { config } from "./config";
-import type { PlayerModel, WaiverIdle, WaiverList, WaiverRow, WaiverUpgrades } from "./leagueModel";
+import type { LeagueModel, PlayerModel, WaiverBlocked, WaiverIdle, WaiverList, WaiverListRating, WaiverRow, WaiverRowRating, WaiverUpgrades } from "./leagueModel";
 import type { LineupCandidate, PreparedSlots } from "./lineup";
 import { POSITIONS, type Pos } from "./model";
 import { fillCount } from "./optimizer";
@@ -124,6 +155,32 @@ export interface WaiverUnderWay {
   started: (id: string) => boolean;
   /** His row in the table rebuilt for just before the week's first kickoff (league.ts preKickoffOf), when it has one. */
   preRow: (id: string) => TableRow | undefined;
+}
+
+/** One drop the rules allow for a pickup (the rater's option): the player (null: an open roster spot) and his keep value (ties). */
+export interface WaiverRatingOption {
+  drop: string | null;
+  keep: number;
+}
+
+/** One row of the season list for the rater: the free agent, his rest-of-season points (ties) and every drop the rules allow. */
+export interface WaiverRatingRow {
+  playerId: string;
+  points: number;
+  options: readonly WaiverRatingOption[];
+}
+
+/** The rater's answer: per row (the same order) the option chosen and its rating, or null (none could be rated), and how. */
+export interface WaiverRatingResult {
+  rows: ({ option: number; rating: WaiverRowRating } | null)[];
+  info: WaiverListRating;
+  /** Season runs made on each block (moves with the same score share one): for the reports. */
+  runs?: { screen: number; shown: number };
+}
+
+/** Rates the season list's rows by Helps you (the file header; waiverRating.ts createWaiverRater). */
+export interface WaiverRater {
+  rate(rows: readonly WaiverRatingRow[]): WaiverRatingResult;
 }
 
 /** What the waiver lists read (league.ts step 10 fills it from the League model's build: LeagueContext and my TeamWork). */
@@ -181,6 +238,18 @@ export interface WaiverInputs {
    * the rows from before the first one, for its "This week" list (the file header). Absent or null: no such list.
    */
   underWay?: WaiverUnderWay | null | undefined;
+  /**
+   * "Drop from the same position" (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.2; TradeSettings.waiverSamePosition):
+   * on, every drop plays the pickup's primary position; off, any position. Absent: on (the setting's default).
+   */
+  samePosition?: boolean | undefined;
+  /**
+   * My untouchables (Checkpoint 7e, item 3.3: "Untouchables are never suggested as drops anywhere"; league.ts TeamWork.keep):
+   * never a drop in any list. Absent: none.
+   */
+  untouchable?: readonly string[] | undefined;
+  /** The season list's rating (the file header; league.ts step 10b builds it once the season is simulated). Absent or null: in points. */
+  rater?: WaiverRater | null | undefined;
 }
 
 /** A candidate before pricing: who, his row, his points in the list's terms and my players he out-projects. */
@@ -230,6 +299,33 @@ function shownGain(gain: number | null, decimals: number): number {
  */
 export function compareWaiverRows(a: Pick<WaiverRow, "gain" | "points" | "playerId">, b: Pick<WaiverRow, "gain" | "points" | "playerId">, decimals: number): number {
   return shownGain(b.gain, decimals) - shownGain(a.gain, decimals) || b.points - a.points || byId(a.playerId, b.playerId);
+}
+
+/** A rated row's place by its Helps you as printed: the number, every one that prints no gain (none, or 0) one tie (0), a move that can't be made below them. */
+function shownHelps(r: Pick<WaiverRow, "gain" | "rating">): number {
+  if (r.gain === null) return -1;
+  const h = r.rating?.helps;
+  return typeof h === "number" && Number.isFinite(h) && h > 0 ? h : 0;
+}
+
+/**
+ * Whether a League model's "Rest of season" list waits for its rating (review of wave C, RC-ENG-6): a season list not rated
+ * yet holding a move that can be made, with the season's odds and the "Helps you" calibration to rate it on. The League
+ * page asks for the rating only then (waiversView.ts pendingRating, after its own "season's over" and "no team" lines), and
+ * the engine worker keeps a League page's build for it only then (engine.worker.ts `league`).
+ */
+export function waiverRatingPending(model: Pick<LeagueModel, "waiverUpgrades" | "odds" | "helpsCalibration">): boolean {
+  const ros = model.waiverUpgrades?.ros;
+  return !!ros && !ros.rating && !!model.odds && !!model.helpsCalibration && ros.rows.some((r) => r.gain !== null);
+}
+
+/**
+ * A rated list's order (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.4: "Sorting: by Helps you. Rows at 0 or below go
+ * lower"): Helps you as printed, most first (every row that prints no gain one tie, a move that can't be made last), then
+ * compareWaiverRows (the lineup gain as shown, points, the id). Whole numbers keep it a total order.
+ */
+export function compareRatedRows(a: Pick<WaiverRow, "gain" | "points" | "playerId" | "rating">, b: Pick<WaiverRow, "gain" | "points" | "playerId" | "rating">, decimals: number): number {
+  return shownHelps(b) - shownHelps(a) || compareWaiverRows(a, b, decimals);
 }
 
 /**
@@ -333,15 +429,19 @@ function lockedStarter(row: TableRow): TableRow {
 
 /**
  * Every list for my team (the file header). The drop is a roster move for good, so every list names the same one for a
- * free agent: the rest-of-season list's (its keep values over every week team numbers count), but in the week under way
- * when he's locked (his game has started): the next one in that order. Each list prices the move over its own weeks.
- * ⚠️ Ours: judged on one week, a starter on bye that week costs nothing and would be the drop for a backup.
+ * free agent: the rest-of-season list's (its keep values over every week team numbers count; the rated one when the list
+ * is rated), but in the week under way when he's locked (his game has started): the next one in the drop order. Each list
+ * prices the move over its own weeks. ⚠️ Ours: judged on one week, a starter on bye that week costs nothing and would be
+ * the drop for a backup.
  */
 export function waiverUpgrades(input: WaiverInputs, cfg: WaiverConfig = config): WaiverUpgrades {
   const from = Number.isFinite(input.from) ? Math.max(0, Math.floor(input.from)) : 0;
+  const samePosition = input.samePosition !== false;
+  const untouchable = new Set(input.untouchable ?? []);
+  const untouchables = input.rows.filter((r) => untouchable.has(r.id)).map((r) => r.id);
   const ros = frameOf(input, "ros", from);
   // The one-week lists' weeks are among the rest of season's (or just before them): without those there's no drop to name.
-  if (!ros) return { teamId: input.teamId, ros: null, underWay: null, week: null };
+  if (!ros) return { teamId: input.teamId, ros: null, underWay: null, week: null, samePosition, untouchables };
   const underWay = frameOf(input, "underWay", from);
   const week = frameOf(input, "week", from);
   const drops = new Map<string, DropChoice>();
@@ -354,38 +454,67 @@ export function waiverUpgrades(input: WaiverInputs, cfg: WaiverConfig = config):
     }
     return d;
   };
-  // A frame's drop: the shared one, unless his game has started (the week under way): then the next one in the drop order.
+  // The season list's drop for a free agent once it's made (the rated one when the list is rated): the one-week lists name it.
+  const seasonDrop = new Map<string, DropChoice>();
+  // A frame's drop: the season's (else the drop order's), unless his game has started (the week under way): then the next
+  // one in the drop order.
   const dropIn = (f: Frame, c: Candidate): DropChoice => {
-    const d = dropOf(c);
+    const d = (f !== ros ? seasonDrop.get(c.id) : undefined) ?? dropOf(c);
     const k = d.k === null ? undefined : input.rows[d.k]?.id;
     if (k === undefined || !f.locked.has(k)) return d;
-    return { ...chooseDrop(input, ros, c, d.keep, f.locked), add: d.add, keep: d.keep };
+    const base = dropOf(c);
+    return { ...chooseDrop(input, ros, c, base.keep, f.locked), add: base.add, keep: base.keep };
   };
   const decimals = cfg.waivers.gainDecimals;
+  /** A row's numbers for drop `d` in frame `f`: the lineup gain over its weeks, "depth only", the drop's points. */
+  const rowFor = (f: Frame, c: Candidate, d: DropChoice, priced: { add: number; keep: Float64Array }): WaiverRow => {
+    let gain: number | null = d.possible ? priced.add - (d.k === null ? 0 : (priced.keep[d.k] as number)) : null;
+    // Gains closer to 0 than float noise are 0.
+    if (gain !== null && Math.abs(gain) < EPS) gain = 0;
+    // "Depth only": he'd start nowhere in my expected-value lineups without the drop, in the list's weeks.
+    const ev = d.k === null ? f.setup.baseEv : f.setup.evWithout(d.k);
+    const starts = addGainExact(ev, c.row, slotMask(input.slots, c.row.pos, c.row.eligible), f.weights).gain > cfg.waivers.startsMinPoints;
+    const drop = d.possible ? d.drop : null;
+    return { playerId: c.id, points: c.points, betterThan: c.betterThan, gain, drop, depthOnly: gain !== null && !starts, dropPoints: drop === null ? null : f.pointsOf(drop), blocked: d.possible ? null : d.blocked };
+  };
   const listOf = (f: Frame): WaiverList => {
     const { candidates, idle } = candidatesOf(input, f, cfg);
-    const rows = candidates.flatMap((c): WaiverRow[] => {
+    const made = candidates.flatMap((c) => {
       const d = dropIn(f, c);
       const priced = f === ros ? { add: d.add, keep: d.keep } : priceAdd(input, f, c.row);
-      let gain: number | null = d.possible ? priced.add - (d.k === null ? 0 : (priced.keep[d.k] as number)) : null;
-      // Gains closer to 0 than float noise are 0.
-      if (gain !== null && Math.abs(gain) < EPS) gain = 0;
-      if (c.needsGain && !(shownGain(gain, decimals) > 0)) return [];
-      // "Depth only": he'd start nowhere in my expected-value lineups without the drop, in the list's weeks.
-      const ev = d.k === null ? f.setup.baseEv : f.setup.evWithout(d.k);
-      const starts = addGainExact(ev, c.row, slotMask(input.slots, c.row.pos, c.row.eligible), f.weights).gain > cfg.waivers.startsMinPoints;
-      return [{ playerId: c.id, points: c.points, betterThan: c.betterThan, gain, drop: d.possible ? d.drop : null, depthOnly: gain !== null && !starts }];
+      const row = rowFor(f, c, d, priced);
+      if (c.needsGain && !(shownGain(row.gain, decimals) > 0)) return [];
+      return [{ c, d, priced, row }];
     });
-    rows.sort((a, b) => compareWaiverRows(a, b, decimals));
-    return { weeks: f.weeks, positions: f.positions, streaming: f.mode === "ros", rows, idle };
+    // The season list rated by Helps you (the file header): each row that can be made takes the rater's drop.
+    let rating: WaiverListRating | null = null;
+    if (f === ros && input.rater) {
+      const rated = made.filter((m) => m.d.possible && m.d.options.length > 0);
+      const result = input.rater.rate(rated.map((m) => ({ playerId: m.c.id, points: m.c.points, options: m.d.options.map((o) => ({ drop: o.id, keep: o.keep })) })));
+      rating = result.runs ? { ...result.info, runs: result.runs } : result.info;
+      rated.forEach((m, i) => {
+        const r = result.rows[i];
+        const o = r ? m.d.options[r.option] : undefined;
+        if (!r || !o) return;
+        const d: DropChoice = { ...m.d, drop: o.id, k: o.k };
+        m.d = d;
+        m.row = { ...rowFor(f, m.c, d, m.priced), rating: r.rating };
+      });
+    }
+    if (f === ros) for (const m of made) if (m.d.possible) seasonDrop.set(m.c.id, m.d);
+    const rows = made.map((m) => m.row);
+    rows.sort((a, b) => (rating ? compareRatedRows(a, b, decimals) : compareWaiverRows(a, b, decimals)));
+    return { weeks: f.weeks, positions: f.positions, streaming: f.mode === "ros", rows, idle, ...(f === ros ? { rating } : {}) };
   };
-  return { teamId: input.teamId, ros: listOf(ros), underWay: underWay ? listOf(underWay) : null, week: week ? listOf(week) : null };
+  const rosList = listOf(ros);
+  return { teamId: input.teamId, ros: rosList, underWay: underWay ? listOf(underWay) : null, week: week ? listOf(week) : null, samePosition, untouchables };
 }
 
 /**
  * Who's listed in a frame (the file header): free agents with a model at its positions who out-project one of my players
- * there who scores in its terms, or the best few where none of mine scores; capped at K, D/ST and (one week) the positions
- * I stream. Position order, then the most points first (ties: the smaller id). With my players who score nothing (idle).
+ * there who scores in its terms and isn't untouchable (where all of them are, one of those), or the best few where none of
+ * mine scores; capped at K, D/ST, (one week) the positions I stream and where every one of mine who scores is untouchable.
+ * Position order, then the most points first (ties: the smaller id). With my players who score nothing (idle).
  */
 function candidatesOf(input: WaiverInputs, f: Frame, cfg: WaiverConfig): { candidates: Candidate[]; idle: WaiverIdle[] } {
   const listed = new Set(f.positions);
@@ -406,6 +535,9 @@ function candidatesOf(input: WaiverInputs, f: Frame, cfg: WaiverConfig): { candi
     mine.set(r.pos, list);
   }
   for (const list of mine.values()) list.sort((a, b) => b.points - a.points || byId(a.id, b.id));
+  // Of them, the ones a row could drop (review of wave C, RC-ENG-2): my untouchables are never the drop (item 3.3).
+  const untouchable = new Set(input.untouchable ?? []);
+  const droppable = (pos: Pos) => (mine.get(pos) ?? []).filter((m) => !untouchable.has(m.id));
   // Positions where one of mine holds a starting slot in the week under way (Frame.pinned): not an open slot.
   const heldAt = new Set(input.rows.filter((r) => f.pinned.has(r.id)).map((r) => r.pos));
   const onRoster = new Set(input.roster);
@@ -417,7 +549,9 @@ function candidatesOf(input: WaiverInputs, f: Frame, cfg: WaiverConfig): { candi
     if (!(points > EPS)) continue;
     const here = mine.get(row.pos) ?? [];
     const betterThan = here.filter((m) => points > m.points + EPS).map((m) => m.id);
-    if (here.length && !betterThan.length) continue;
+    // He must out-project one of mine there a row could drop; where every one of mine there is untouchable, one of them.
+    const against = droppable(row.pos);
+    if (here.length && !(against.length ? against : here).some((m) => points > m.points + EPS)) continue;
     const list = byPos.get(row.pos) ?? [];
     list.push({ id, row, points, betterThan, needsGain: !here.length && heldAt.has(row.pos) });
     byPos.set(row.pos, list);
@@ -427,7 +561,7 @@ function candidatesOf(input: WaiverInputs, f: Frame, cfg: WaiverConfig): { candi
   const candidates: Candidate[] = [];
   for (const pos of f.positions) {
     const list = (byPos.get(pos) ?? []).sort((a, b) => b.points - a.points || byId(a.id, b.id));
-    const cut = capped.has(pos) || (f.mode !== "ros" && streamed.has(pos)) || !(mine.get(pos) ?? []).length;
+    const cut = capped.has(pos) || (f.mode !== "ros" && streamed.has(pos)) || !droppable(pos).length;
     candidates.push(...(cut ? list.slice(0, cap) : list));
   }
   return { candidates, idle };
@@ -522,28 +656,48 @@ function priceAdd(input: WaiverInputs, f: Frame, row: TableRow): { add: number; 
   return { add: rosValue(plusEv.lv, weights) - setup.baseRosEv, keep: evRemovalCosts(plusEv, weights) };
 }
 
+/** One drop the rules allow (DropChoice.options): his index in my rows (null: an open spot), his id and his keep value. */
+interface DropOption {
+  k: number | null;
+  id: string | null;
+  keep: number;
+}
+
 /**
- * The drop for one free agent (roster legality's rules 1 and 2 for one pickup; the file header), from the rest-of-season
- * frame's keep values: `possible` false when nobody can make room; k his index in my rows (null: an open spot).
+ * The drop for one free agent (roster legality's rules 1 and 2 for one pickup, "Drop from the same position" and my
+ * untouchables; the file header), from the rest-of-season frame's keep values: `possible` false when nobody can make room
+ * (`blocked` says why); k his index in my rows (null: an open spot).
  */
 interface DropChoice {
   possible: boolean;
   drop: string | null;
   k: number | null;
+  /** Why nobody can make room (possible false); null otherwise. */
+  blocked: WaiverBlocked | null;
+  /** Every drop the rules allow, in roster order (an open spot alone when there's one): the rater's options. */
+  options: DropOption[];
   /** The rest-of-season frame's priceAdd (its list reuses them). */
   add: number;
   keep: Float64Array;
 }
 
-/** The drop (DropChoice); `locked`: players who can't go (their games in the week under way have started). */
-function chooseDrop(input: WaiverInputs, ros: Frame, c: Candidate, keep: Float64Array, locked?: ReadonlySet<string>): Pick<DropChoice, "possible" | "drop" | "k"> {
+/**
+ * The drop (DropChoice; the file header); `locked`: players who can't go (their games in the week under way have started).
+ * The candidates: my active players with a model, not locked, at his position when its limit binds, not one a position's
+ * minimum needs, not the last at a position I stream; at his position when "Drop from the same position" is on; never one
+ * of my untouchables. In drop order the first one the starting lineup doesn't need is the drop. Without one, why: the
+ * untouchables when one of them could make room (at the same positions), else room; and whether another position could.
+ */
+function chooseDrop(input: WaiverInputs, ros: Frame, c: Candidate, keep: Float64Array, locked?: ReadonlySet<string>): Omit<DropChoice, "add" | "keep"> {
   const { setup } = ros;
   const pos = c.row.pos;
   const limit = input.positionLimits?.[pos];
   const limitBinds = limit !== undefined && Number.isFinite(limit) && setup.posCount(pos) >= limit;
   const size = input.maxRosterSize;
   const sizeBinds = Number.isFinite(size) && size > 0 && new Set(input.roster).size >= size;
-  if (!limitBinds && !sizeBinds) return { possible: true, drop: null, k: null };
+  if (!limitBinds && !sizeBinds) return { possible: true, drop: null, k: null, blocked: null, options: [{ k: null, id: null, keep: 0 }] };
+  const samePosition = input.samePosition !== false;
+  const untouchable = new Set(input.untouchable ?? []);
   const streamed = new Set(input.streamed);
   const minimums = input.rosterMinimums;
   const afterCount = (p: Pos) => setup.posCount(p) + (p === pos ? 1 : 0);
@@ -556,28 +710,54 @@ function chooseDrop(input: WaiverInputs, ros: Frame, c: Candidate, keep: Float64
     const cost = keep[i] as number;
     return future ? (largest > EPS ? cost / largest : 0) + future.value(id) / future.top : cost;
   };
-  const pool = input.rows.flatMap((r, i) => {
+  // Every candidate by legality's rules, whatever the switch and the untouchables (they filter below).
+  const base = input.rows.flatMap((r, i) => {
     if (locked?.has(r.id)) return [];
     if (limitBinds && r.pos !== pos) return [];
     const min = minimums?.[r.pos];
     if (min !== undefined && Number.isFinite(min) && afterCount(r.pos) - 1 < Math.min(min, setup.posCount(r.pos))) return [];
     if (streamed.has(r.pos) && afterCount(r.pos) <= 1) return [];
-    return [{ id: r.id, keep: keepOf(i, r.id), value: input.value(r.id) || 0, i }];
+    return [{ id: r.id, keep: keepOf(i, r.id), value: input.value(r.id) || 0, i, pos: r.pos }];
   });
+  type Cand = (typeof base)[number];
   let tie = 0;
   if (!future && Number.isFinite(input.nearTieWeekly) && input.nearTieWeekly > 0) for (let w = 0; w < ros.weekCount; w++) tie += input.nearTieWeekly * (ros.weights[w] as number);
   const newcomer: LineupCandidate = { id: c.id, pos, eligible: c.row.eligible };
   let fillWith: number | null = null;
-  // In drop order (the lowest keep value first, near-ties to the lower trade value floored at W), the first one the
-  // starting lineup doesn't need.
-  while (pool.length) {
-    const id = lowestKeepValue(pool, tie, input.credit);
-    const at = pool.findIndex((x) => x.id === id);
-    const pick = pool[at];
-    if (!pick) break;
-    fillWith ??= fillCount([...setup.entries, newcomer], input.slots);
-    if (fillCount([...setup.entries.filter((e) => e.id !== pick.id), newcomer], input.slots) >= fillWith) return { possible: true, drop: pick.id, k: pick.i };
-    pool.splice(at, 1);
+  const fitsMemo = new Map<string, boolean>();
+  /** Without him (and with the newcomer), every starting slot that could be filled still can (optimizer.fillCount). */
+  const fits = (id: string): boolean => {
+    let ok = fitsMemo.get(id);
+    if (ok === undefined) {
+      fillWith ??= fillCount([...setup.entries, newcomer], input.slots);
+      ok = fillCount([...setup.entries.filter((e) => e.id !== id), newcomer], input.slots) >= fillWith;
+      fitsMemo.set(id, ok);
+    }
+    return ok;
+  };
+  /** In drop order (the lowest keep value first, near-ties to the lower trade value floored at W), the first one the lineup doesn't need. */
+  const pickFrom = (pool: readonly Cand[]): Cand | null => {
+    const left = [...pool];
+    while (left.length) {
+      const id = lowestKeepValue(left, tie, input.credit);
+      const at = left.findIndex((x) => x.id === id);
+      const pick = left[at];
+      if (!pick) break;
+      if (fits(pick.id)) return pick;
+      left.splice(at, 1);
+    }
+    return null;
+  };
+  const atPosition = limitBinds || samePosition;
+  const here = base.filter((x) => !atPosition || x.pos === pos);
+  const pool = here.filter((x) => !untouchable.has(x.id));
+  const pick = pickFrom(pool);
+  if (pick) {
+    const options = pool.filter((x) => fits(x.id)).map((x) => ({ k: x.i, id: x.id, keep: x.keep }));
+    return { possible: true, drop: pick.id, k: pick.i, blocked: null, options };
   }
-  return { possible: false, drop: null, k: null };
+  // Nobody can go: the untouchables when one of them could (the same positions), else room; and whether another position could.
+  const kept = here.filter((x) => untouchable.has(x.id) && fits(x.id)).map((x) => x.id);
+  const otherPosition = samePosition && !limitBinds && pickFrom(base.filter((x) => !untouchable.has(x.id))) !== null;
+  return { possible: false, drop: null, k: null, blocked: { why: kept.length ? "untouchable" : "room", atPosition, otherPosition, untouchable: kept }, options: [] };
 }

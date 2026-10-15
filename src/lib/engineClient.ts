@@ -27,10 +27,17 @@
  * by the id of the request that brought it (each result this client hands out is remembered by object, in a WeakMap);
  * a result it didn't hand out goes as -1, and the worker searches afresh. A re-filter is a search here: one at a time
  * with searches, with progress and Stop.
+ *
+ * Checkpoint 7e (planner reply to Checkpoint 7d, item 3.4; engine.worker.ts `waivers`): rateWaivers asks for "Waiver
+ * upgrades" with the "Rest of season" list rated by Helps you, which the League model is built without. Every League model
+ * a client hands out is remembered with the client and the job it was built for (a WeakMap by the model object), so the
+ * Waivers section, which holds only the model, asks for its rating with waiverRatingFor(model) when it first shows: the
+ * same worker, which still holds that build, answers in about a second. One request per model (the promise is kept; a failed
+ * one is asked again next time); a model no client built (a test, a page that builds none) has none.
  */
-import type { LeagueModel } from "@/engine/leagueModel";
+import type { LeagueModel, WaiverUpgrades } from "@/engine/leagueModel";
 import type { TradeSearchProgress, TradeSearchResult } from "@/engine/tradeModel";
-import type { AnalyzeRequest, AnalyzerResult, EngineRequest, EngineResponse, LeagueRequest, RefilterRequest, TradesRequest } from "@/workers/engine.worker";
+import type { AnalyzeRequest, AnalyzerResult, EngineRequest, EngineResponse, LeagueRequest, RefilterRequest, TradesRequest, WaiversRequest } from "@/workers/engine.worker";
 
 /** The parts of a Worker this client uses (a real Worker, or a fake in tests). */
 export interface WorkerLike {
@@ -69,6 +76,11 @@ export interface EngineClient {
   refilterTrades(job: RefilterJob, onProgress?: (progress: TradeSearchProgress) => void): TradeSearchHandle;
   /** Evaluates one trade (the Trade Analyzer), with my odds before any trade (AnalyzerResult); rejects with an EngineError. */
   analyzeTrade(job: AnalyzeJob): Promise<AnalyzerResult>;
+  /**
+   * "Waiver upgrades" with the season list rated by Helps you, for the job a League model was built for (the header; null
+   * without my team); rejects with an EngineError. waiverRatingFor asks it for a model this client built.
+   */
+  rateWaivers(job: LeagueJob): Promise<WaiverUpgrades | null>;
   /** Stops the worker. Pending requests reject, and later replies are ignored. */
   dispose(): void;
 }
@@ -115,7 +127,35 @@ async function defaultMainThread(post: (response: EngineResponse) => void): Prom
   return createEngineHandler(post, { clock: () => performance.now() });
 }
 
-const RESPONSE_TYPES: ReadonlySet<unknown> = new Set(["league", "progress", "trades", "analysis", "cancelled", "error"]);
+const RESPONSE_TYPES: ReadonlySet<unknown> = new Set(["league", "progress", "trades", "analysis", "waivers", "cancelled", "error"]);
+
+/** Each League model a client handed out, with the client and the job it was built for (the header; waiverRatingFor). */
+const builtBy = new WeakMap<LeagueModel, { client: EngineClient; job: LeagueJob }>();
+/** The rating asked for each model, so a model is rated once (waiverRatingFor). */
+const ratings = new WeakMap<LeagueModel, Promise<WaiverUpgrades | null>>();
+
+/** Whether a client built `model`, so waiverRatingFor will ask for its rating (the section shows "Rating these…" meanwhile). */
+export function waiverRatingKnown(model: LeagueModel): boolean {
+  return ratings.has(model) || builtBy.has(model);
+}
+
+/**
+ * The rated "Waiver upgrades" for a League model a client built (the header): the client's rateWaivers with the model's own
+ * job, asked once per model (the same promise again; a failed one is asked again next time). Null for a model no client
+ * built.
+ */
+export function waiverRatingFor(model: LeagueModel): Promise<WaiverUpgrades | null> | null {
+  const known = ratings.get(model);
+  if (known) return known;
+  const by = builtBy.get(model);
+  if (!by) return null;
+  const rating = by.client.rateWaivers(by.job);
+  ratings.set(model, rating);
+  rating.catch(() => {
+    if (ratings.get(model) === rating) ratings.delete(model);
+  });
+  return rating;
+}
 
 function isResponse(x: unknown): x is EngineResponse {
   return !!x && typeof x === "object" && typeof (x as { id?: unknown }).id === "number" && RESPONSE_TYPES.has((x as { type?: unknown }).type);
@@ -263,7 +303,7 @@ export function createEngineClient(opts: EngineClientOptions = {}): EngineClient
     return { promise, cancel: () => cancelSearch(request.id) };
   }
 
-  return {
+  const client: EngineClient = {
     buildLeague(job) {
       if (disposed) return Promise.reject(new EngineError(ENGINE_STOPPED));
       const request: LeagueRequest = { type: "league", id: nextId++, ...job };
@@ -273,7 +313,27 @@ export function createEngineClient(opts: EngineClientOptions = {}): EngineClient
           where: "worker",
           reject,
           onReply(response) {
-            if (response.type === "league") resolve(response.result);
+            if (response.type === "league") {
+              // Remembered with its job, so the Waivers section can ask this client for its rating (waiverRatingFor).
+              if (response.result && typeof response.result === "object") builtBy.set(response.result, { client, job });
+              resolve(response.result);
+            } else reject(unexpected(response));
+            return true;
+          },
+        });
+      });
+    },
+
+    rateWaivers(job) {
+      if (disposed) return Promise.reject(new EngineError(ENGINE_STOPPED, undefined, true));
+      const request: WaiversRequest = { type: "waivers", id: nextId++, ...job };
+      return new Promise<WaiverUpgrades | null>((resolve, reject) => {
+        send({
+          request,
+          where: "worker",
+          reject,
+          onReply(response) {
+            if (response.type === "waivers") resolve(response.result);
             else reject(unexpected(response));
             return true;
           },
@@ -322,6 +382,7 @@ export function createEngineClient(opts: EngineClientOptions = {}): EngineClient
       for (const job of jobs) job.reject(new EngineError(ENGINE_STOPPED, undefined, true));
     },
   };
+  return client;
 }
 
 /** One engine client for one saved league at a time (the header). */

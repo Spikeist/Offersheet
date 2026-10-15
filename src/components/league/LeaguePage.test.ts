@@ -114,7 +114,16 @@ describe("computeTagFor: what a League model computation is for (Phase 4 L12: th
 
   it("changes with a setting the League model reads, so changing it computes the model again", () => {
     // The goal since the planner's reply to Checkpoint 7a (§6.1): the automatic playoff weight weighs my odds by it.
-    expect(LEAGUE_MODEL_SETTINGS).toEqual(["streamPositions", "goal", "prizes", "untouchables", "waiverSamePosition", "returnWeeks"]);
+    expect(LEAGUE_MODEL_SETTINGS).toEqual(["streamPositions", "goal", "prizes", "untouchables", "waiverSamePosition", "returnWeeks", "returnWeeksSeason"]);
+    // The season the return weeks were set for (review of wave C, UI-C-3).
+    expect(computeTagFor({ ...base, settings: { ...base.settings, returnWeeksSeason: 2026 } })).not.toBe(tag);
+    // Waiver upgrades' rating (review of wave C, RC-ENG-4): "Protect my trade value" in a redraft league, Win now ↔ Future in a
+    // dynasty or keeper league.
+    expect(f.snapshot.settings.leagueType).toBe("redraft");
+    expect(computeTagFor({ ...base, settings: { ...base.settings, protectValue: "high" } })).not.toBe(tag);
+    const dynasty = { ...base, snapshot: { ...f.snapshot, settings: { ...f.snapshot.settings, leagueType: "dynasty" as const } } };
+    expect(computeTagFor({ ...dynasty, settings: { ...base.settings, lambda: 0.8 } })).not.toBe(computeTagFor(dynasty));
+    expect(computeTagFor({ ...dynasty, settings: { ...base.settings, protectValue: "high" } })).toBe(computeTagFor(dynasty));
     expect(computeTagFor({ ...base, settings: { ...base.settings, streamPositions: ["K", "DEF", "QB"] } })).not.toBe(tag);
     // Checkpoint 7e (planner reply to Checkpoint 7d, items 3.2, 3.3 and 3.5): the untouchables (never dropped), "Drop from the
     // same position" and the user's return weeks.

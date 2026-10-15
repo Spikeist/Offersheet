@@ -11,6 +11,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { analyzeTrade, buildTradeContext, tradeInternals, withWords } from "@/engine/evaluate";
+import { buildLeagueModel } from "@/engine/league";
 import type { Matchup } from "@/engine/model";
 import { randomLeague } from "@/engine/testLeague";
 import { defaultTradeSettings } from "@/engine/settings";
@@ -201,5 +202,26 @@ describe("the worker protocol with the real trade engine", () => {
     expect(opened?.pitch).toBe(e.pitch);
     expect([opened?.b, opened?.pAccept, opened?.pComplete, opened?.overall]).toEqual([e.b, e.pAccept, e.pComplete, e.overall]);
     expect(opened?.reasons).toEqual(e.reasons);
+  });
+});
+
+describe("the waiver rating with the real engine (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.4)", () => {
+  it("the League model comes without it, and the rating on its own request gives the lists a build that rates them gives", { timeout: 120_000 }, async () => {
+    const posted: { at: number; response: EngineResponse }[] = [];
+    const handle = createEngineHandler((response) => posted.push({ at: performance.now(), response }));
+    const job = { snapshot, model: inputs, myTeamId: "1", nowIso: NOW, settings: defaultTradeSettings() };
+    handle({ type: "league", id: 1, ...job });
+    const built = await until(posted, 1, ["league", "error"]);
+    expect(built.type, built.type === "error" ? built.detail : "").toBe("league");
+    const unrated = (built as Extract<EngineResponse, { type: "league" }>).result.waiverUpgrades;
+    expect(unrated?.ros?.rating).toBeNull();
+    handle({ type: "waivers", id: 2, ...job });
+    const rated = await until(posted, 2, ["waivers", "error"]);
+    expect(rated.type, rated.type === "error" ? rated.detail : "").toBe("waivers");
+    const lists = (rated as Extract<EngineResponse, { type: "waivers" }>).result;
+    expect(lists?.ros?.rating).not.toBeNull();
+    expect(structuredClone(lists)).toEqual(lists);
+    // The same lists as a League model that rates them in the build (BuildLeagueModelOptions.waiverRating).
+    expect(lists).toEqual(buildLeagueModel({ ...snapshot, myTeamId: "1" }, inputs, { now: new Date(NOW), settings: defaultTradeSettings(), waiverRating: true }).waiverUpgrades);
   });
 });

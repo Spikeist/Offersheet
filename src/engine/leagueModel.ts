@@ -158,6 +158,19 @@ export interface WaiverUpgrades {
    * ("Next week"). Null when no week is left.
    */
   week: WaiverList | null;
+  /**
+   * Checkpoint 7e (planner reply to Checkpoint 7d, item 3.2): "Drop from the same position" as the lists were built with
+   * (TradeSettings.waiverSamePosition): on, every drop plays the pickup's primary position; off, any. Absent in a model built
+   * before (on).
+   */
+  samePosition?: boolean;
+  /**
+   * Checkpoint 7e (item 3.3: "Untouchables are never suggested as drops anywhere"): my untouchables the lists could otherwise
+   * drop (league.ts TeamWork.keep), my active players with a model, roster order (the lists drop active players only, so an
+   * untouchable on IR isn't among them: review of wave C, RC-ENG-7); the page offers to unlock them. Absent in a model built
+   * before.
+   */
+  untouchables?: string[];
 }
 
 /** One of the lists (WaiverUpgrades). */
@@ -176,6 +189,8 @@ export interface WaiverList {
   /**
    * Most lineup gain first as the page shows it (config.waivers.gainDecimals: two gains that print the same tie, and every
    * gain that prints as no gain is one tie), a row whose move can't be made last; then more points, then the smaller id.
+   * A rated list (`rating`, "Rest of season" since Checkpoint 7e) goes by Helps you as printed first (every row that prints
+   * no gain one tie), then the lineup gain as shown, then points, then the id (waivers.ts compareRatedRows).
    */
   rows: WaiverRow[];
   /**
@@ -184,6 +199,55 @@ export interface WaiverList {
    * in the week under way, with their games already started. Roster order.
    */
   idle: WaiverIdle[];
+  /**
+   * Checkpoint 7e (planner reply to Checkpoint 7d, item 3.4: "Rest of season rated by Helps you"): how the list's rows were
+   * rated by the season simulation ("Rest of season" only; src/engine/waiverRating.ts). Null or absent: not rated (the
+   * one-week lists, which stay in points; no odds or no team; a build not asked to rate it, league.ts
+   * BuildLeagueModelOptions.waiverRating: the League page's worker rates it on a request of its own; a model built before).
+   */
+  rating?: WaiverListRating | null;
+}
+
+/** How a "Rest of season" list was rated (WaiverList.rating; Checkpoint 7e, item 3.4; src/engine/waiverRating.ts). */
+export interface WaiverListRating {
+  /** "Helps you"'s scale, B₃: the League model's calibration under the league's reward (LeagueModel.helpsCalibration), the trade cards' scale. */
+  b3: number;
+  /** Seasons a row was screened on (the shown block's first config.waivers.ratingScreenSims) and finished on (the shown block). */
+  screenSims: number;
+  shownSims: number;
+  /**
+   * Rows finished on the shown block: the first config.waivers.ratingFinishRows by their screened B (fewer when fewer were
+   * rated, or screened at least config.waivers.ratingFinishFloor × B₃: one below it prints no gain either way).
+   */
+  finished: number;
+  /**
+   * What B weighs besides the odds, as for trades: "tradeValue" (a redraft league's market term, "Protect my trade value",
+   * for the trade value the swap gives up or gains), "longTerm" (a dynasty or keeper league with long-term values: its Win
+   * now ↔ Future mix), or null (the odds alone: no values, FantasyCalc's estimates, or the trade deadline passed).
+   */
+  weighs: "tradeValue" | "longTerm" | null;
+  /** Season runs made on each block, the before runs included (moves whose scores are the same share one): for the reports. */
+  runs?: { screen: number; shown: number };
+}
+
+/** One row's Helps you (WaiverRow.rating; Checkpoint 7e, item 3.4). */
+export interface WaiverRowRating {
+  /**
+   * B for this exact swap, my roster as it stands against it with the one move, every other team after its modeled pickups:
+   * B_win under the league's reward plus, in a redraft league, the market term; a dynasty or keeper league's mix with ΔDyn.
+   * Null when it couldn't be simulated.
+   */
+  b: number | null;
+  /**
+   * B_win, B's odds part (under the league's reward; benefit.benefit): when it's above 0 while B isn't, the trade value (or
+   * long-term value) the swap gives up outweighs what it adds to my odds, and the page says so (review of wave C, UI-C-2).
+   * Null when unknown. Absent in a list rated before.
+   */
+  bWin?: number | null;
+  /** Helps you as printed (benefit.tradeScore on WaiverListRating.b3): null when B isn't above 0 (the page's "No gain"). */
+  helps: number | null;
+  /** The seasons behind it: WaiverListRating.shownSims for a finished row, screenSims for the rest (⚠️ they keep their screened number). */
+  sims: number;
 }
 
 /** One of my players who scores nothing in a waiver list's terms (WaiverList.idle). */
@@ -214,7 +278,8 @@ export interface WaiverRow {
   /**
    * The player he'd replace on my roster (the engine's best drop: waivers.ts), or null for an open roster spot (or when gain
    * is null). The same in every list, but in the week under way when that player's game has started (he's locked): there
-   * the next one in the drop order.
+   * the next one in the drop order. Since Checkpoint 7e at his position when "Drop from the same position" is on, never one
+   * of my untouchables, and in a rated list the one with the best Helps you (WaiverRow.rating).
    */
   drop: string | null;
   /**
@@ -222,6 +287,32 @@ export interface WaiverRow {
    * startsMinPoints), even with the drop gone: his gain, if any, comes from covering injuries and byes. The page says "depth only".
    */
   depthOnly: boolean;
+  /**
+   * Checkpoint 7e (planner reply to Checkpoint 7d, item 3.1: "how many more rest-of-season points A scores than B"): the
+   * drop's points in the list's terms (`points`' own), so the page says by how much he outscores him; null for an open
+   * roster spot or when he can't join my roster. Absent in a model built before.
+   */
+  dropPoints?: number | null;
+  /** Checkpoint 7e (item 3.3): why he can't join my roster (gain null); null or absent otherwise. */
+  blocked?: WaiverBlocked | null;
+  /** Checkpoint 7e (item 3.4): Helps you for this exact swap, in a rated list ("Rest of season"); null or absent otherwise. */
+  rating?: WaiverRowRating | null;
+}
+
+/** Why a free agent can't join my roster (WaiverRow.blocked; Checkpoint 7e, planner reply to Checkpoint 7d, items 3.2 and 3.3). */
+export interface WaiverBlocked {
+  /**
+   * "untouchable": the players who could make room are all untouchable (the planner: "If every candidate is untouchable,
+   * say so"); "room": nobody can, for another reason (a position's minimum, the starting lineup, the last one at a position
+   * I stream, games already started).
+   */
+  why: "untouchable" | "room";
+  /** The drop had to play his position: "Drop from the same position" is on, or his position is at its limit. */
+  atPosition: boolean;
+  /** "Drop from the same position" is on and a player at another position could make room (the page suggests turning it off). */
+  otherPosition: boolean;
+  /** With why "untouchable": my untouchable players who'd otherwise make room (the page offers to unlock them), roster order. */
+  untouchable: string[];
 }
 
 /**
@@ -343,6 +434,38 @@ export interface PlayerModel {
    * (src/lib/leagueView.ts blendText; no number since Phase 7b: FantasyCalc's values are never displayed).
    */
   blend?: PlayerBlend;
+  /**
+   * When he's expected back (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.5; league.ts step 3): set for my players
+   * the model has out now, on my active roster or IR with an NFL team: OUT, IR, PUP and SUSPENDED, a PROBABLE, QUESTIONABLE
+   * or DOUBTFUL one whose far ESPN return date his numbers follow (availabilityNote.used "returnDate"), and any of mine with
+   * a return week of the user's (returnWeeks.ts userReturnWeeks). Absent for everyone else: other teams' players, free
+   * agents and my other players.
+   */
+  expectedReturn?: ExpectedReturn;
+}
+
+/** Whose expected return week it is (ExpectedReturn): the platform's date, our own guess, or the user's own week. */
+export type ReturnWeekSource = "platform" | "model" | "user";
+
+/**
+ * When one of my players the model has out now is expected back (PlayerModel.expectedReturn; Checkpoint 7e, item 3.5): the
+ * League page's "Expected back: week 8 (ESPN)" on my roster card, and what clearing a week of the user's goes back to.
+ */
+export interface ExpectedReturn {
+  /**
+   * The NFL week he's expected back: the first week his chance of being back reaches config.projections.returnWeekQuantile
+   * (availability.expectedReturnWeek over the NFL's weeks from now, so a week past the fantasy season too); null when he
+   * isn't back this season (out for the season, or not by the NFL's last week).
+   */
+  week: number | null;
+  /**
+   * "platform": the platform's own date (ESPN's), which his numbers follow (availability.followsKnownReturnWeek) and `week`
+   * is (or it puts him out for the season); "model": our guess, §6 step 3's rule for his status (no date, or one his numbers
+   * don't follow: a date that has passed, or a stale one); "user": the user's own week (TradeSettings.returnWeeks).
+   */
+  source: ReturnWeekSource;
+  /** Without the user's week: the platform's date or our guess (what clearing it goes back to); the same as week and source when he hasn't set one. */
+  fallback: { week: number | null; source: Exclude<ReturnWeekSource, "user"> };
 }
 
 /**

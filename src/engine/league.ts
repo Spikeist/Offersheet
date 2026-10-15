@@ -28,6 +28,17 @@
  *    or DOUBTFUL player gets the Q/D/P base rate (projections.gameTimeBaseRate; planner reply to Checkpoint 3,
  *    answer 5): this week's injury-cut projections count neither in b nor in the week shape (this week's shape
  *    is 1), and proj_now is his nearest later healthy week, which carries his current role (review of track A1).
+ *    My injured players' own return weeks (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.5: "the new week works like
+ *    a return week from the platform: 0 until that week, then the normal return rule"; opts.settings.returnWeeks, the entries
+ *    that count: returnWeeks.ts userReturnWeeks, my active roster and IR, a status other than ACTIVE, a week not yet passed,
+ *    set for this season, returnWeeksSeason):
+ *    his availability and his scenarios follow the user's week R whatever his tag says (availability.ts
+ *    userReturnWeekDistribution: 75% back at R, fully from R + 1), with no conflict note (he follows neither ESPN signal);
+ *    his base rate, the Q/D/P one included, is unchanged. Everything else reads him from there: his ROS points, the IR
+ *    returners' return weeks (step 5b), every lineup, the odds and every trade context (the settings go with each). For my
+ *    players the model has out now, PlayerModel.expectedReturn says when he's expected back and whose week that is (the
+ *    platform's date, our guess, the user's), with the week without the user's (expectedReturnOf). Without a user's week
+ *    every number is as before.
  * 3b. The market blend (§6 step 8; planner reply to Checkpoint 4, change 1; blend.ts): every QB, RB, WR and TE with a
  *    real FantasyCalc value in this season's list for the league's format (blend.blendValues: redraft values; a dynasty
  *    league's redraft list, MarketInputs.seasonValues) has his projection scaled by f = b′ / b, b′ = (1 − w)·b +
@@ -72,7 +83,9 @@
  *    lineup's LV and sqrt(Σ σ²) of its starters. Then the free-agent-optimized baseline (§7; planner reply to
  *    Checkpoint 3, model change 2; lead decisions L2 and L3): V*(T), the free-agent optimizer's roster
  *    (optimizer.ts: from T, the best add/drop or open-spot add while it gains at least faMinGain ROS points, at most
- *    faMaxMoves moves; never K or DEF or a position the team streams; never a player the starting lineup needs; the
+ *    faMaxMoves moves; never K or DEF or a position the team streams; never a player the starting lineup needs; never one of
+ *    my untouchables on my team, in V*(T) or any re-run of it below (TeamWork.keep; Checkpoint 7e, planner reply to
+ *    Checkpoint 7d, item 3.3: "Untouchables are never suggested as drops anywhere"; other teams have none); the
  *    dynasty guard in dynasty and keeper leagues whose dynasty values loaded, with §9's future-term values; ⚠️ without
  *    those, near-ties in whom a move cuts go to the cheaper player, values floored at W: config.lineups.dropNearTieWeekly
  *    a week, nearTieRos, legality's rule, optimizer.ts's header, verification finding VF-1). Its moves
@@ -175,8 +188,9 @@
  *    binds (what losing him costs over the weeks from R on, in scenario lineups when scenarios ran, else EV; dynasty and
  *    keeper leagues with long-term values add the normalized market value, as legality does; ⚠️ the returner himself
  *    among the candidates, review of track E, so a return never lowers a team by more than the near-tie tolerance below
- *    (with exact ties not at all); never one the starting lineup needs, one a position's rosterMinimums needs, or the
- *    last one at a position the team streams; ties: the lower perception value, then the smaller id, and ⚠️ without
+ *    (with exact ties not at all); never one the starting lineup needs, one a position's rosterMinimums needs, the
+ *    last one at a position the team streams, or one of my untouchables (TeamWork.keep, Checkpoint 7e: nobody else then, the
+ *    roster running over); ties: the lower perception value, then the smaller id, and ⚠️ without
  *    long-term values near-ties within config.lineups.dropNearTieWeekly a week go to the less valuable player, values
  *    floored at W: returners.ts; since Checkpoint 7e, planner reply to Checkpoint 7d, item 2.3, those values and W from R
  *    on too: each player's the share of it left then, W the best unclaimed free agent's, creditFrom), as a masked copy of
@@ -241,8 +255,9 @@
  *    is the player V*(T′) drops to make room when its active roster is full (every id on team.roster takes a
  *    spot, and every free agent V*(T′) added): the one whose loss costs V*(T′)'s lineup least, in the same lineup
  *    mode, with nobody refilling his spot (§7's keep value, marginal ROS contribution: teamValue.evRemovalCosts /
- *    scenarioRemovalCosts), among its players with a model (a free agent it added included), never the newcomer
- *    (ties: the lower market value, then the smaller id; teamValue.lowestKeepValue). Not his lineup cost: that
+ *    scenarioRemovalCosts), among its players with a model (a free agent it added included), never the newcomer nor one of
+ *    my untouchables when T′ is mine (TeamWork.keep; Checkpoint 7e: so the trade search's get pool, MV_add(me, j), reads
+ *    them kept too) (ties: the lower market value, then the smaller id; teamValue.lowestKeepValue). Not his lineup cost: that
  *    refills his spot with free agents, so a starter with a free agent almost as good would cost ~0 there, be
  *    the one dropped, and take all his points with him. Position limits (L7, roster legality): when that leaves
  *    i's position at its limit, the drop is instead V*(T′)'s lowest keep value player AT i's position (the same
@@ -336,13 +351,20 @@
  *    count half; without odds, P(playoffs) is unknown and nothing is halved). Last, and read by nothing above it: no other
  *    number of the model depends on it.
  * 10. "Waiver upgrades" (planner reply to Checkpoint 7a, §6.2; waivers.ts has the rules; LeagueModel.waiverUpgrades): with my
- *    team, every free agent who projects for more points than one of my players at his position, with what picking him up
- *    adds to my lineup (my active roster as it stands, my streaming rows and IR returners as steps 5a and 5b give them, the
- *    scenario lineups of step 5 reused) and roster legality's drop, for the rest of the season (unweighted: a playoff week
- *    counts once, as players' ROS points do) and for one week (the first week team numbers count), and while the current
- *    week is under way for its games still to play too (my players whose games have started held where my lineup before
- *    its first kickoff had them: the pre-kickoff table step 8 builds). Computed after step 7 (nothing of steps 8–9 reads
- *    it, and nothing reads it); BuildLeagueModelOptions.waiverUpgrades false skips it.
+ *    team, every free agent who projects for more points than one of my players at his position, each row one move (since
+ *    Checkpoint 7e, planner reply to Checkpoint 7d, items 3.1–3.3: add him and drop the player named, at his position while
+ *    "Drop from the same position" is on, never one of my untouchables), with what it adds to my lineup (my active roster as
+ *    it stands, my streaming rows and IR returners as steps 5a and 5b give them, the scenario lineups of step 5 reused), for
+ *    the rest of the season (unweighted: a playoff week counts once, as players' ROS points do) and for one week (the first
+ *    week team numbers count), and while the current week is under way for its games still to play too (my players whose
+ *    games have started held where my lineup before its first kickoff had them: the pre-kickoff table step 8 builds).
+ *    Computed after step 7 (nothing of steps 8–9 reads it, and nothing reads it); BuildLeagueModelOptions.waiverUpgrades
+ *    false skips it.
+ * 10b. The "Rest of season" list rated by Helps you (Checkpoint 7e, item 3.4; waiverRating.ts): each move's B against my
+ *    roster as it stands (every other team after its pickups) on step 8's seasons and "Helps you" scale, screened on their
+ *    first 1,000 and the best 10 finished on all of them. Only when asked (BuildLeagueModelOptions.waiverRating): it takes
+ *    about a second on Parker's league, so the League page's worker rates its kept build on a request of its own
+ *    (rateWaiverUpgrades).
  *
  * Game days (Phase 2 review decisions; LeagueModel.inProgressWeek): once any game of the current week has
  * kicked off (inputs.nfl.kickoffs[currentWeek] at or before `now`), every team-level number skips that
@@ -381,14 +403,15 @@
  * roster-legality work (a trade's forced moves).
  */
 import { config } from "./config";
-import { inactiveTeams } from "./acceptance";
-import { expectedAvailability, expectedReturnWeek, returnDateConflict, scenarioAvailability, type AvailabilityConfig, type AvailabilityContext, type AvailabilityPlayer } from "./availability";
-import { benefitWin, futureValuesLoaded, type BenefitConfig } from "./benefit";
+import { inactiveTeams, tradeDeadlinePassed, transactionWeek } from "./acceptance";
+import { expectedAvailability, expectedReturnWeek, followsKnownReturnWeek, returnDateConflict, scenarioAvailability, type AvailabilityConfig, type AvailabilityContext, type AvailabilityPlayer } from "./availability";
+import { benefit, benefitWin, futureValuesLoaded, helpsScale, protectValueWeight, rosterValue, tradePackage, type BenefitConfig } from "./benefit";
 import { applyBlend, blendValues, marketBlend, noBlend, type MarketBlend, type MarketBlendConfig } from "./blend";
 import type { ModelInputs, NflScheduleInputs, PlayerInputs } from "./inputs";
 import type {
   AvailabilityNote,
   BaseRateSource,
+  ExpectedReturn,
   FaAllocation,
   FaMove,
   HelpsCalibration,
@@ -412,7 +435,7 @@ import type {
   WaiverUpgrades,
 } from "./leagueModel";
 import { prepareLeagueSlots, type PreparedSlots } from "./lineup";
-import { marketSummary, marketValues, valuesForTerm, waiverCredit, type MarketConfig } from "./market";
+import { marketGain, marketSummary, marketValues, valuesForTerm, waiverCredit, type MarketConfig } from "./market";
 import { POSITIONS, type LeagueSettings, type LeagueSnapshot, type PlayerInfo, type Pos, type Team } from "./model";
 import {
   chipsTogether,
@@ -433,6 +456,7 @@ import { FULL_POOL, applyStep, createOptimizer, poolRestriction, returnersOf, ro
 import { leaguePremiums, type StarPremiumConfig } from "./premium";
 import { baseRateSourceCounts, espnSleeperAgreement, projectPlayer, staleReturnCheck, weeklySd, type BaseRateContext, type ProjectionConfig, type SourceAgreement } from "./projections";
 import { finalLineups, returnerSpec, valueShareFrom, type FinalLineups, type FutureKeep, type ReturnerSetup } from "./returners";
+import { userReturnWeeks, type ReturnWeekSettings } from "./returnWeeks";
 import { assertWeeklyMeasured, paidPrizesKnown, paysWeekly, prizeOddsOf, rewardOf, runPrizeDeltas, type PrizeDeltas, type Reward } from "./reward";
 import { buildSimSetup, oddsSkippedWarning, pickupSeasonModel, seasonOdds, shownSimsOf, type SeasonConfig, type SeasonModel } from "./season";
 import { defaultTradeSettings, normalizeTradeSettings, type TradeSettings } from "./settings";
@@ -456,6 +480,7 @@ import {
   scenarioRemovalCosts,
   scenarioScore,
   scenarioValues,
+  scenarioValuesAfterMove,
   slotMask,
   solveEvWeeks,
   streamRow,
@@ -472,7 +497,8 @@ import {
   type TeamEval,
   type WeeklyScore,
 } from "./teamValue";
-import { waiverUpgrades as waiverLists, type WaiverConfig } from "./waivers";
+import { createWaiverRater, type WaiverRaterConfig } from "./waiverRating";
+import { waiverUpgrades as waiverLists, type WaiverConfig, type WaiverRater } from "./waivers";
 
 /** Gains closer than this are zero (float noise, not a tunable). */
 const EPS = 1e-9;
@@ -535,8 +561,11 @@ export interface LeagueModelConfig extends SeasonConfig {
    * automatic playoff weight reads (step 5c; benefit.benefitWin).
    */
   readonly benefit: { readonly helpsGain: number } & Pick<BenefitConfig, "goals" | "goalDefault">;
-  /** "Waiver upgrades" (step 10; waivers.ts): its display rules. Absent: config.waivers. */
-  readonly waivers?: WaiverConfig["waivers"];
+  /**
+   * "Waiver upgrades" (step 10; waivers.ts): its display rules, and since Checkpoint 7e the season list's rating's seasons
+   * (waiverRating.ts; absent keys: config.waivers'). Absent: config.waivers.
+   */
+  readonly waivers?: WaiverConfig["waivers"] & Partial<WaiverRaterConfig["waivers"]>;
 }
 
 export interface BuildLeagueModelOptions {
@@ -588,6 +617,14 @@ export interface BuildLeagueModelOptions {
    * context, evaluate.ts buildTradeContext, could: it reads nothing of them).
    */
   waiverUpgrades?: boolean;
+  /**
+   * Checkpoint 7e (planner reply to Checkpoint 7d, item 3.4): true rates the "Rest of season" list by Helps you on the
+   * build's own seasons (step 10b, waiverRating.ts); false or absent (the default) leaves it in points. Rating it takes about
+   * a second on Parker's league, over the lead's rule for the build, so no build pays for it unasked: the League page's
+   * worker builds without it and rates its kept build on a request of its own when the Waivers section shows
+   * (engine.worker.ts; rateWaiverUpgrades), and the tests ask for it here.
+   */
+  waiverRating?: boolean;
 }
 
 /** BuildLeagueModelOptions.faAllocation. */
@@ -774,7 +811,10 @@ export function sleeperWeekLoaded(players: Readonly<Record<string, PlayerInputs>
 export interface PlayerContext {
   info: PlayerInfo;
   ctx: AvailabilityContext;
-  /** What availability reads (availability.ts): his info, or his tag alone when Sleeper found his ESPN return date stale. */
+  /**
+   * What availability reads (availability.ts): his info, or his tag alone when Sleeper found his ESPN return date stale, or
+   * his tag with the user's own return week when one of his counts (Checkpoint 7e, item 3.5; projectLeaguePlayers).
+   */
   avail: AvailabilityPlayer;
 }
 
@@ -833,12 +873,67 @@ function buildMarketBlend(
   return marketBlend(list, values, cfg.marketBlend);
 }
 
+/** The statuses that have a player out now (PlayerModel.expectedReturn: the planner's "OUT, IR, PUP, SUSPENDED"). */
+const OUT_NOW: ReadonlySet<PlayerInfo["injury"]> = new Set<PlayerInfo["injury"]>(["OUT", "IR", "PUP", "SUSPENDED"]);
+
+/** My team's active roster and IR (snapshot.myTeamId's; none without a team of mine): the players PlayerModel.expectedReturn is for. */
+function myRosterAndIr(snapshot: LeagueSnapshot): ReadonlySet<string> {
+  const team = snapshot.myTeamId === null ? undefined : snapshot.teams.find((t) => t.id === snapshot.myTeamId);
+  return new Set(team ? [...team.roster, ...team.ir] : []);
+}
+
+/**
+ * When one of my players the model has out now is expected back (PlayerModel.expectedReturn; Checkpoint 7e, planner reply
+ * to Checkpoint 7d, item 3.5; the file header, step 3), or null when he gets none: no NFL team, or neither out now (OUT,
+ * IR, PUP, SUSPENDED, or a game-time tag whose far ESPN date his numbers follow: `note`) nor set back by the user (`user`).
+ * `platform` is what his availability reads without the user's week (his info, or his tag alone when Sleeper found his
+ * ESPN date stale). Each week is availability.expectedReturnWeek's over the NFL's weeks from now through the NFL's last
+ * week (or the fantasy season's `lastWeek`, the later), so a week past the fantasy season reads as itself; the platform's
+ * mark only when his numbers follow its date (availability.followsKnownReturnWeek) and it is that week or puts him out for
+ * the season, else our guess (⚠️ ours: a date that has passed reads as our guess of the week after it).
+ */
+function expectedReturnOf(
+  info: PlayerInfo,
+  ctx: AvailabilityContext,
+  platform: AvailabilityPlayer,
+  user: number | undefined,
+  note: AvailabilityNote | undefined,
+  lastWeek: number,
+  cfg: LeagueModelConfig,
+): ExpectedReturn | null {
+  if (!ctx.hasTeam || (user === undefined && !OUT_NOW.has(info.injury) && note?.used !== "returnDate")) return null;
+  const last = Math.max(lastWeek, ctx.lastNflWeek ?? lastWeek);
+  const span = {
+    weeks: Array.from({ length: Math.max(0, last - ctx.currentWeek + 1) }, (_, i) => ctx.currentWeek + i),
+    currentWeek: ctx.currentWeek,
+    hasTeam: true,
+    ...(ctx.lastNflWeek !== undefined ? { lastNflWeek: ctx.lastNflWeek } : {}),
+  };
+  const quantile = cfg.projections.returnWeekQuantile;
+  const week = expectedReturnWeek(platform, span, cfg.projections, quantile);
+  const R = platform.injuryReturnWeek;
+  const follows = R !== undefined && followsKnownReturnWeek(info.injury, R, ctx.currentWeek, cfg.projections) && (week === null || week === Math.round(R));
+  const fallback: ExpectedReturn["fallback"] = { week, source: follows ? "platform" : "model" };
+  if (user === undefined) return { week, source: fallback.source, fallback };
+  return { week: expectedReturnWeek({ injury: info.injury, userReturnWeek: user }, span, cfg.projections, quantile), source: "user", fallback };
+}
+
 /**
  * Steps 1–3b without the scenarios: weeks, the ESPN/Sleeper agreement, availability, projections and the market blend.
  * The blend's factors are this build's own (buildMarketBlend, over every modeled player), unless `blend` gives them: a
  * rebuild that models fewer players (preKickoffTable: the streamed positions' free agents only) applies the build's.
+ * `returnWeeks` (TradeSettings.returnWeeks with returnWeeksSeason; Checkpoint 7e, item 3.5): the user's own return weeks,
+ * followed for the entries that count (returnWeeks.ts userReturnWeeks: my injured players, a week not yet passed, this
+ * season's) in place of the platform's (the file header, step 3); absent or empty, every number as without the setting.
  */
-export function projectLeaguePlayers(snapshot: LeagueSnapshot, inputs: ModelInputs, now: Date, cfg: LeagueModelConfig = config, blend?: MarketBlend): LeaguePlayers {
+export function projectLeaguePlayers(
+  snapshot: LeagueSnapshot,
+  inputs: ModelInputs,
+  now: Date,
+  cfg: LeagueModelConfig = config,
+  blend?: MarketBlend,
+  returnWeeks?: ReturnWeekSettings,
+): LeaguePlayers {
   const currentWeek = snapshot.currentWeek;
   const weeks = leagueWeeks(snapshot.settings, currentWeek, inputs.lastWeek);
   const relevant = relevantIds(snapshot);
@@ -862,6 +957,9 @@ export function projectLeaguePlayers(snapshot: LeagueSnapshot, inputs: ModelInpu
   const skipped = { rostered: [] as string[], freeAgents: [] as string[] };
   const baseCtx: BaseRateContext = { currentWeek, weeks: weeks.weeks, espnAveraged };
   const sleeperNowLoaded = sleeperWeekLoaded(inputPlayers, currentWeek);
+  // My injured players' own return weeks (Checkpoint 7e, item 3.5): the saved entries that count, and whom expectedReturn is for.
+  const userWeeks = userReturnWeeks(snapshot, returnWeeks);
+  const mine = myRosterAndIr(snapshot);
   for (const id of relevant.all) {
     const info = snapshot.players[id];
     const pin = inputPlayers[id];
@@ -875,11 +973,18 @@ export function projectLeaguePlayers(snapshot: LeagueSnapshot, inputs: ModelInpu
     const ctx: AvailabilityContext = { weeks: weeks.weeks, currentWeek, byeWeek, started, hasTeam: team !== null, ...(lastNflWeek !== undefined ? { lastNflWeek } : {}) };
     // Conflicting ESPN signals: a stale return date is dropped, for his expected availability and his scenarios alike.
     const note = availabilityNoteFor(info, pin, baseCtx, cfg.projections, sleeperNowLoaded);
-    const avail: AvailabilityPlayer = note?.used === "sleeper" ? { injury: info.injury } : info;
+    const platform: AvailabilityPlayer = note?.used === "sleeper" ? { injury: info.injury } : info;
+    // The user's own return week, when one of his counts, in place of both ESPN signals (Checkpoint 7e, item 3.5): followed
+    // whatever his tag says, so no conflict note goes with him (⚠️ ours: his numbers follow neither signal).
+    const user = userWeeks.get(id);
+    const avail: AvailabilityPlayer = user === undefined ? platform : { injury: info.injury, userReturnWeek: user };
     const availability = expectedAvailability(avail, info.pos, ctx, cfg.projections);
     // A PROBABLE, QUESTIONABLE or DOUBTFUL player gets the Q/D/P base rate (projections.ts): this week's cut projections count nowhere.
     const pm = projectPlayer(id, info.pos, pin, availability, { ...baseCtx, regularWeeks: weeks.regularWeeks, playoffWeeks: weeks.playoffWeeks, byeWeek, started, hasTeam: team !== null, injury: info.injury }, cfg.projections);
-    players[id] = note ? { ...pm, availabilityNote: note } : pm;
+    let model: PlayerModel = note && user === undefined ? { ...pm, availabilityNote: note } : pm;
+    const expected = mine.has(id) ? expectedReturnOf(info, ctx, platform, user, note, weeks.lastWeek, cfg) : null;
+    if (expected) model = { ...model, expectedReturn: expected };
+    players[id] = model;
     contexts.set(id, { info, ctx, avail });
   }
   // 3b. The market blend: this build's factors, or the ones given (a rebuild of the same build with fewer players).
@@ -935,7 +1040,8 @@ export function buildProjectionTable(
   cfg: LeagueModelConfig = config,
   blend?: MarketBlend,
 ): { players: LeaguePlayers; table: ProjectionTable } {
-  const players = projectLeaguePlayers(snapshot, inputs, opts.now, cfg, blend);
+  // The user's own return weeks for his injured players (Checkpoint 7e, item 3.5), as the League model reads them.
+  const players = projectLeaguePlayers(snapshot, inputs, opts.now, cfg, blend, modelSettings(opts.settings));
   return { players, table: projectionTable(players, scenarioCount(opts.scenarios ?? cfg.lineups.scenarios), opts.seed ?? cfg.lineups.scenarioSeed, cfg, opts.irReturners !== false) };
 }
 
@@ -985,8 +1091,11 @@ export function preKickoffTable(
     const pos = snapshot.players[id]?.pos;
     return pos !== undefined && freeAgentPositions.has(pos);
   });
-  const factors = blend ?? projectLeaguePlayers(snapshot, inputs, now, cfg).blend;
-  const players = projectLeaguePlayers({ ...snapshot, freeAgents }, inputs, now, cfg, factors);
+  // The user's own return weeks for his injured players (Checkpoint 7e, item 3.5), as the build reads them (the blend's
+  // factors don't depend on them: base rates and tags).
+  const returnWeeks = modelSettings(opts.settings);
+  const factors = blend ?? projectLeaguePlayers(snapshot, inputs, now, cfg, undefined, returnWeeks).blend;
+  const players = projectLeaguePlayers({ ...snapshot, freeAgents }, inputs, now, cfg, factors, returnWeeks);
   return { now, table: projectionTable(players, scenarioCount(opts.scenarios ?? cfg.lineups.scenarios), opts.seed ?? cfg.lineups.scenarioSeed, cfg, opts.irReturners !== false) };
 }
 
@@ -1242,6 +1351,16 @@ export interface TeamWork {
   rows: TableRow[];
   /** Every distinct id on team.ir, in IR order (step 5b), but one also on team.roster (a data error: he's an active player). */
   ir: string[];
+  /**
+   * The players the team never drops (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.3: "Untouchables are never
+   * suggested as drops anywhere"): on my team, my untouchables (TradeSettings.untouchables) on its active roster or IR, in id
+   * order; none on every other team (the setting is mine) and when no team of mine is picked. Every optimizer run of the team
+   * keeps them (V*(T), the allocation order's first move, its lineup costs' re-runs, MV_add's base drop and re-run, the chips
+   * that stay chips, leagueMarginals.optimize: optimizer.ts "The keep set"), no return releases one (returners.finalLineups'
+   * keep: the team as it stands, V*(T) priced finally, step 5c's baseline), and evaluate.ts keeps them in my trades' legality
+   * drops, my V*(after) and my sides' final pricing. Empty: every number as without the setting.
+   */
+  keep: string[];
   /**
    * The team's streaming rows and streamed positions (step 5a) and its IR returners (step 5b: StreamSpec.returners; none
    * under irReturners false). Every lineup of the team is valued with the streaming rows after its players and the
@@ -1576,8 +1695,9 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
   const irOn = opts.irReturners !== false;
 
   // 1–3b. Weeks, players, projections and the market blend (its factors computed once, here), then the scenarios; the
-  // weeks team numbers count (game days: the file header). Everything from the table on reads blended points.
-  const lp = projectLeaguePlayers(snapshot, inputs, opts.now, cfg);
+  // weeks team numbers count (game days: the file header). Everything from the table on reads blended points, and my
+  // injured players' own return weeks (Checkpoint 7e, item 3.5) where the user set them.
+  const lp = projectLeaguePlayers(snapshot, inputs, opts.now, cfg, undefined, settings);
   const { weeks } = lp;
   const W = weeks.weeks.length;
   const inProgressWeek = weekKickedOff(inputs.nfl, snapshot.currentWeek, opts.now.getTime()) ? snapshot.currentWeek : null;
@@ -1651,13 +1771,17 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
   const withReturners = (base: StreamSpec, ir: readonly string[]): StreamSpec => (irOn ? returnerSpec(base, ir, (id) => table.rows.get(id), isReturner) : { rows: base.rows, positions: base.positions });
   const future = futureTerm(snapshot, inputs, valuePlayers, rosPoints, cfg);
 
-  // The teams' rows: each active player with a model once (roster order), then its streaming rows and returners.
+  // The teams' rows: each active player with a model once (roster order), then its streaming rows and returners. My
+  // untouchables (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.3): the players of mine no run of mine drops and no
+  // return releases (TeamWork.keep); other teams have none (the setting is mine).
+  const untouchable = new Set(myTeamKnown ? settings.untouchables : []);
   const specs = snapshot.teams.map((team) => {
     const ids = [...new Set(team.roster)];
     // A player listed on the active roster too (a data error) is an active player, never a second row.
     const ir = [...new Set(team.ir)].filter((id) => !ids.includes(id));
     const spec = withReturners({ rows: (byTeam[team.id]?.positions ?? []).flatMap((p) => stream.rows.get(p) ?? []), positions: byTeam[team.id]?.positions ?? [] }, ir);
-    return { team, ids, ir, rows: ids.flatMap((id) => table.rows.get(id) ?? []), spec };
+    const keep = team.id === snapshot.myTeamId && untouchable.size ? [...ids, ...ir].filter((id) => untouchable.has(id)).sort() : [];
+    return { team, ids, ir, rows: ids.flatMap((id) => table.rows.get(id) ?? []), spec, keep };
   });
   type Spec = (typeof specs)[number];
   // Each team as it stands: the EV and scenario lineups of exactly the rows the optimizer prices for its roster (optimizer.
@@ -1744,7 +1868,7 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
       const at = { S, W, byTeam, slots };
       return specs.map((t, i) => {
         const s = standing[i] as (typeof standing)[number];
-        return finalScore(at, { team: t.team, stream: t.spec }, t.ids, finalLineups(setup0, t.ids, t.spec, { ev: s.solved, scen: s.scen }), preKickoff());
+        return finalScore(at, { team: t.team, stream: t.spec }, t.ids, finalLineups(setup0, t.ids, t.spec, { ev: s.solved, scen: s.scen }, t.keep), preKickoff());
       });
     },
     cfg,
@@ -1793,18 +1917,18 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
     let allocation: LeagueContext["allocation"] = null;
     if (independent) {
       specs.forEach((t, i) => {
-        vstars[i] = optimizer.optimize(t.ids, t.spec);
+        vstars[i] = optimizer.optimize(t.ids, t.spec, undefined, FULL_POOL, t.keep);
         claimed[i] = claimedBy(vstars[i] as OptimizedRoster);
       });
     } else {
       allocation = allocationOrder(snapshot.teams, snapshot.settings.faabBudget !== undefined, (i) => {
         const t = specs[i] as Spec;
-        return inactive.has(t.team.id) ? 0 : firstMoveGain(optimizer, t.ids, t.spec, weights);
+        return inactive.has(t.team.id) ? 0 : firstMoveGain(optimizer, t.ids, t.spec, weights, t.keep);
       });
       const taken = new Set<string>();
       for (const i of allocation.order) {
         const t = specs[i] as Spec;
-        const run = inactive.has(t.team.id) ? optimizer.optimize(t.ids, t.spec, 0) : optimizer.optimize(t.ids, t.spec, undefined, poolRestriction(taken));
+        const run = inactive.has(t.team.id) ? optimizer.optimize(t.ids, t.spec, 0) : optimizer.optimize(t.ids, t.spec, undefined, poolRestriction(taken), t.keep);
         vstars[i] = run;
         claimed[i] = claimedBy(run);
         for (const id of claimed[i] as string[]) taken.add(id);
@@ -1834,7 +1958,7 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
   const market = marketSummary(modelIds, values, inputs.market ?? null, credit);
   const claimedAll: ReadonlySet<string> = new Set(allocation ? claimed.flat() : []);
   const returnerSetup = returnerSetupWith(weights, credit, claimedAll);
-  const work: TeamWork[] = specs.map(({ team, ids, ir, rows, spec }, i) => {
+  const work: TeamWork[] = specs.map(({ team, ids, ir, rows, spec, keep }, i) => {
     const cur = standing[i] as (typeof standing)[number];
     const vstar = vstars[i] as OptimizedRoster;
     const off = inactive.has(team.id);
@@ -1843,17 +1967,18 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
     const pool = allocation ? poolRestriction(claimed.flatMap((c, j) => (j === i ? [] : c))) : FULL_POOL;
     const inV = new Set(vstar.roster);
     // V*(T − i): the re-run from V*(T)'s roster without him, one move beyond the free ones (step 5: an exchange at the cap);
-    // an inactive team's refills nothing (A4: T − i).
+    // an inactive team's refills nothing (A4: T − i). My untouchables are never its drop either (TeamWork.keep).
     const losses = rows.map((r) => {
       if (!inV.has(r.id)) return null;
       const without = vstar.roster.filter((id) => id !== r.id);
-      return off ? optimizer.optimize(without, spec, 0) : optimizer.reoptimize(vstar, without, spec, 1, [r.id], undefined, pool);
+      return off ? optimizer.optimize(without, spec, 0) : optimizer.reoptimize(vstar, without, spec, 1, [r.id], undefined, pool, keep);
     });
     return {
       team,
       ids,
       rows,
       ir,
+      keep,
       stream: spec,
       returnerCosts: [],
       returnerScores: [],
@@ -2014,10 +2139,11 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
  * A team's best single-move gain against the whole pool (allocationOrder's "gain" basis): the first move of its optimizer
  * run (a run of one move, the same move a full run makes first: the moves are greedy), in the optimizer's judging mode
  * (scenario ROS when it judges in scenario lineups, else EV ROS, over the weeks team numbers count); 0 when it makes
- * none. The roster after the move minus the roster before it, priced as the optimizer prices them.
+ * none. The roster after the move minus the roster before it, priced as the optimizer prices them. `keep`: the players the
+ * run never drops (TeamWork.keep: my untouchables on my team).
  */
-function firstMoveGain(optimizer: RosterOptimizer, ids: readonly string[], spec: StreamSpec, weights: ArrayLike<number>): number {
-  const run = optimizer.optimize(ids, spec, 1);
+function firstMoveGain(optimizer: RosterOptimizer, ids: readonly string[], spec: StreamSpec, weights: ArrayLike<number>, keep: readonly string[] = []): number {
+  const run = optimizer.optimize(ids, spec, 1, FULL_POOL, keep);
   if (!run.moves.length) return 0;
   if (optimizer.judgesScenarios) {
     const before = optimizer.scenarioValuesOf(run.start, spec);
@@ -2190,10 +2316,12 @@ export function teamBases(ctx: LeagueContext): TeamBase[] {
     // A full roster drops the player whose loss costs V*(T′)'s lineup least, in the chips' lineup mode, with nobody
     // refilling his spot (the newcomer takes it): §7's keep value, marginal ROS contribution. Not his lineup cost,
     // which refills the spot with free agents (the file header, step 6). Candidates: V*(T′)'s players with a model
-    // (free agents it added included); never a streaming row or an IR returner (neither takes a roster spot).
+    // (free agents it added included); never a streaming row or an IR returner (neither takes a roster spot), nor one of my
+    // untouchables (TeamWork.keep; Checkpoint 7e, item 3.3).
     const keep = keepCosts(ctx, t, tb);
     const onRoster = new Set(R.roster);
-    const drop = lowestKeepValue(R.team.rows.flatMap((r, k) => (isStreamId(r.id) || !onRoster.has(r.id) ? [] : [{ id: r.id, keep: keep[k] as number, value: ctx.valueOf(r.id) }])));
+    const kept = new Set(t.keep);
+    const drop = lowestKeepValue(R.team.rows.flatMap((r, k) => (isStreamId(r.id) || !onRoster.has(r.id) || kept.has(r.id) ? [] : [{ id: r.id, keep: keep[k] as number, value: ctx.valueOf(r.id) }])));
     tb.base = drop === null ? null : makeBase(ctx, t, drop);
     return tb;
   });
@@ -2202,7 +2330,7 @@ export function teamBases(ctx: LeagueContext): TeamBase[] {
 /**
  * The base a newcomer at `pos` joins on team `u` (step 6; L7 roster legality): its general B′ when that leaves room
  * at his position, else V*(T′) minus its lowest keep value player at `pos` (his primary position; a player with a
- * model, never a streaming row or an IR returner; ties as lowestKeepValue), built once per position. Null when the roster is full with
+ * model, never a streaming row, an IR returner or one of my untouchables, TeamWork.keep; ties as lowestKeepValue), built once per position. Null when the roster is full with
  * nobody to drop, when nobody at `pos` can go, or when one going still leaves the position at its limit.
  */
 export function baseFor(ctx: LeagueContext, bases: readonly TeamBase[], u: number, pos: Pos): AddBase | null {
@@ -2214,7 +2342,8 @@ export function baseFor(ctx: LeagueContext, bases: readonly TeamBase[], u: numbe
     const t = ctx.work[u] as TeamWork;
     const keep = keepCosts(ctx, t, tb);
     const onRoster = new Set(t.vstar.roster);
-    const drop = lowestKeepValue(t.vstar.team.rows.flatMap((r, k) => (isStreamId(r.id) || !onRoster.has(r.id) || r.pos !== pos ? [] : [{ id: r.id, keep: keep[k] as number, value: ctx.valueOf(r.id) }])));
+    const kept = new Set(t.keep);
+    const drop = lowestKeepValue(t.vstar.team.rows.flatMap((r, k) => (isStreamId(r.id) || !onRoster.has(r.id) || kept.has(r.id) || r.pos !== pos ? [] : [{ id: r.id, keep: keep[k] as number, value: ctx.valueOf(r.id) }])));
     const positions = t.vstar.roster.flatMap((id) => ctx.posOf(id) ?? []);
     b = drop !== null && positionAllows(ctx.limits, withoutOne(positions, pos), pos) ? makeBase(ctx, t, drop) : null;
     tb.atLimit.set(pos, b);
@@ -2232,7 +2361,7 @@ export function addValueOf(ctx: LeagueContext): (u: number, b: AddBase, row: Tab
     const pinned = () => (scenario ? scenarioAddGain(b.cells as ScenarioCells, row, mask, ctx.weights) - b.dropCostScen : addGainExact(b.ev, row, mask, ctx.weights).gain - b.dropCostEv);
     if (!(b.extraEv > 0) || !rerunCounts(b, row, mask, ctx.weights)) return pinned();
     const t = ctx.work[u] as TeamWork;
-    const run = ctx.optimizer.reoptimize(t.vstar, [...b.ids, row.id], t.stream, 1, [], b.ids, t.pool);
+    const run = ctx.optimizer.reoptimize(t.vstar, [...b.ids, row.id], t.stream, 1, [], b.ids, t.pool, t.keep);
     if (!run.moves.length && !run.given.length) return pinned();
     return scenario ? ctx.scenRosOf(run.roster, t.stream) - (t.vstarScen as number) : run.evRos - t.vstar.evRos;
   };
@@ -2343,8 +2472,8 @@ function chipsStayChips(ctx: LeagueContext, chipsAll: readonly (readonly TradeCh
       const out = R.length - start.length;
       const without = start.filter((id) => id !== playerId);
       // An inactive team (A4) refills nothing: the rosters as they are.
-      const before = t.inactive ? ctx.optimizer.optimize(start, t.stream, 0) : ctx.optimizer.reoptimize(t.vstar, start, t.stream, out, taken, undefined, t.pool);
-      const after = t.inactive ? ctx.optimizer.optimize(without, t.stream, 0) : ctx.optimizer.reoptimize(t.vstar, without, t.stream, out + 1, [...taken, playerId], undefined, t.pool);
+      const before = t.inactive ? ctx.optimizer.optimize(start, t.stream, 0) : ctx.optimizer.reoptimize(t.vstar, start, t.stream, out, taken, undefined, t.pool, t.keep);
+      const after = t.inactive ? ctx.optimizer.optimize(without, t.stream, 0) : ctx.optimizer.reoptimize(t.vstar, without, t.stream, out + 1, [...taken, playerId], undefined, t.pool, t.keep);
       cost = Math.max(0, rerunRos(ctx, t, before) - rerunRos(ctx, t, after));
     }
     return chip.maxOther - cost >= minGap - EPS;
@@ -2431,11 +2560,12 @@ function finalScore(
  * its scenario lineups when scenarios ran (the optimizer's own when it judged the run in them, memoized; else solved
  * here, cells kept, since the displacement prices from them), else its EV lineups; then, from a returner's week, the
  * roster spot he needs (returners.finalLineups). V*(T) with the team's own spec for TeamModel.scoreWithPickups and the
- * trade search's baseline; V*(after) with a side's spec after a trade for every exact trade (evaluate.ts sideEval).
+ * trade search's baseline; V*(after) with a side's spec after a trade for every exact trade (evaluate.ts sideEval). `keep`:
+ * the players no return releases (TeamWork.keep: my untouchables on my team, none on the others).
  */
-export function finalRunLineups(ctx: LeagueContext, run: OptimizedRoster, spec: StreamSpec): FinalLineups {
+export function finalRunLineups(ctx: LeagueContext, run: OptimizedRoster, spec: StreamSpec, keep: readonly string[] = []): FinalLineups {
   const raw = ctx.S > 0 ? (ctx.optimizer.scenarioValuesOf(run.roster, spec) ?? scenarioValues(run.team, ctx.W, ctx.S, ctx.index, true, true)) : null;
-  return finalLineups(ctx.returnerSetup, run.roster, spec, { ev: run.solved, scen: raw });
+  return finalLineups(ctx.returnerSetup, run.roster, spec, { ev: run.solved, scen: raw }, keep);
 }
 
 /**
@@ -2472,7 +2602,7 @@ export function teamRosterScorer(snapshot: LeagueSnapshot, inputs: ModelInputs, 
     if (!t) return null;
     const cur = ctx.optimizer.evaluate(roster, t.stream);
     const scen = ctx.S > 0 ? scenarioValues(cur.team, ctx.W, ctx.S, ctx.index, true, true) : null;
-    const score = finalScore(ctx, t, roster, finalLineups(ctx.returnerSetup, roster, t.stream, { ev: cur.solved, scen }), pre);
+    const score = finalScore(ctx, t, roster, finalLineups(ctx.returnerSetup, roster, t.stream, { ev: cur.solved, scen }, t.keep), pre);
     return { mean: Array.from(score.mean), sd: Array.from(score.sd) };
   };
 }
@@ -2485,15 +2615,22 @@ export function teamRosterScorer(snapshot: LeagueSnapshot, inputs: ModelInputs, 
  * dynasty and keeper leagues that have them (then no near-ties, as the optimizer's: step 5). While the current week is under
  * way and some of its games haven't kicked off by `nowMs` (inputs.nfl.kickoffs; an unknown time hasn't), its "This week"
  * list reads which of them have (gameStarted) and the week's table from before its first kickoff (ctx.preKickoff, the one
- * step 8 builds).
+ * step 8 builds). Since Checkpoint 7e (planner reply to Checkpoint 7d, items 3.2–3.4): "Drop from the same position" and my
+ * untouchables (TradeSettings.waiverSamePosition, TeamWork.keep), and the season list's `rater` when it's rated (step 10b,
+ * rateWaiverUpgrades: waiverRaterOf, on step 8's seasons and the "Helps you" scale); null, in points.
  */
-function waiverUpgradesOf(ctx: LeagueContext, t: TeamWork, nfl: NflScheduleInputs | undefined, nowMs: number): WaiverUpgrades {
+function waiverUpgradesOf(ctx: LeagueContext, t: TeamWork, inputs: ModelInputs, opts: BuildLeagueModelOptions, rater: WaiverRater | null): WaiverUpgrades {
   const { snapshot, cfg, lp } = ctx;
+  const nfl = inputs.nfl;
+  const nowMs = opts.now.getTime();
   const week = ctx.tw.inProgressWeek;
   const gamesLeft = week !== null && Object.values(nfl?.kickoffs?.[week] ?? {}).some((iso) => !(typeof iso === "string" && Date.parse(iso) <= nowMs));
   const pre = week !== null && gamesLeft ? ctx.preKickoff() : null;
   return waiverLists(
     {
+      samePosition: ctx.settings.waiverSamePosition,
+      untouchable: t.keep,
+      rater,
       teamId: t.team.id,
       weeks: lp.weeks.weeks,
       regularWeeks: lp.weeks.regularWeeks,
@@ -2532,6 +2669,127 @@ function waiverUpgradesOf(ctx: LeagueContext, t: TeamWork, nfl: NflScheduleInput
 }
 
 /**
+ * Step 10b's rater (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.4; waiverRating.ts has the runs): "Rest of season"
+ * rated by Helps you, as for trades, from this build's own pieces.
+ * - The before season: every team's TeamModel.scoreWithPickups (the headline's setup, step 8a), mine my TeamModel.score
+ *   (my roster as it stands, priced finally: step 5b), the weekly high scores listed when the reward pays them; its setup
+ *   (season.ts buildSimSetup) and the shown block's seasons (step 8's: step 5c's draws when they're those seasons, else drawn
+ *   again from the same seed, season n's draws depending only on the seed and n).
+ * - After one move (scoreAfter): my active roster with the pickup in and the drop out (or into an open spot), priced as
+ *   step 5b prices my roster as it stands (its scenario lineups from my standing ones, teamValue.scenarioValuesAfterMove;
+ *   returners.finalLineups with my untouchables kept, TeamWork.keep), the week under way held at my score as it stands
+ *   (pickupScore: a pickup, like a trade, can't change a week under way, which the season list leaves out).
+ * - B (benefitOf) as evaluate.ts simulateTrade makes it (benefit.benefit): the league's reward; the "Helps you" scale B₃ of
+ *   LeagueModel.helpsCalibration (benefit.helpsScale with my P(playoffs) on the headline and the settings' λ; MyDynTotal in a
+ *   dynasty or keeper league with long-term values); in a redraft league the market term on g_mkt(me) of receiving him and
+ *   giving the drop (market.marketGain: perception values, W; an open spot: receiving him for a roster spot), κ the "Protect
+ *   my trade value" level's, 0 when the values are FantasyCalc's curve estimates or missing (evaluate.ts's rule) and ⚠️ ours,
+ *   once the trade deadline has passed (the value can't be traded then); in a dynasty or keeper league ΔDyn on the long-term
+ *   values (benefit.tradePackage at the long-term W: the best free agent the allocation leaves unclaimed, as evaluate.ts's).
+ * Null without the season's odds, the calibration run or my odds in it (sims 0, a season that can't be simulated), or when
+ * the simulator refuses the before season (a RangeError: the list then stays in points).
+ */
+function waiverRaterOf(ctx: LeagueContext, t: TeamWork, model: LeagueModel, inputs: ModelInputs, opts: BuildLeagueModelOptions, mark: (stage: string) => void): WaiverRater | null {
+  const { snapshot, cfg, lp } = ctx;
+  const odds = model.odds;
+  const calibration = model.helpsCalibration;
+  const mine = odds?.teams.find((o) => o.teamId === t.team.id);
+  const myTeam = model.teams.find((m) => m.id === t.team.id);
+  if (!odds || !calibration || !mine || !myTeam) return null;
+  const highScores = paysWeekly(ctx.reward);
+  const season: SeasonModel = { ...pickupSeasonModel(model), teams: model.teams.map((m) => ({ id: m.id, score: m.id === t.team.id ? m.score : (m.scoreWithPickups ?? m.score) })) };
+  let built: ReturnType<typeof buildSimSetup>;
+  try {
+    built = buildSimSetup(snapshot, season, { highScores });
+  } catch (err) {
+    if (!(err instanceof RangeError)) throw err;
+    return null;
+  }
+  const myIndex = built ? built.teamIds.indexOf(t.team.id) : -1;
+  if (!built || myIndex < 0) return null;
+  const sims = Math.floor(opts.sims ?? shownSimsOf(cfg));
+  const seed = opts.simSeed ?? cfg.simulation.seed;
+  const Wk = built.setup.weeks.length;
+  const T = built.setup.teams.length;
+  const pw = ctx.playoffWeightSim;
+  const normals = pw && pw.sims === sims && pw.seed === seed && pw.normals.weeks === Wk && pw.normals.teams === T ? pw.normals : simNormals(seed, sims, Wk, T);
+
+  const leagueType = snapshot.settings.leagueType;
+  // "Protect my trade value" (κ) and Win now ↔ Future (λ) are the call's own (review of wave C, RC-ENG-4: the worker rates a
+  // kept build for a request whose κ or λ differs from the build's; neither moves anything else of the build), the rest the
+  // build's.
+  const settings = modelSettings(opts.settings ?? ctx.settings);
+  const benefitCfg: BenefitConfig = { ...config.benefit, ...cfg.benefit };
+  // Long-term values (dynasty and keeper leagues that have them: step 5b's), MyDynTotal on them, and the long-term W.
+  const fut = leagueType === "redraft" ? null : ctx.returnerSetup.future;
+  const longTerm: Record<string, number> = {};
+  if (fut) for (const id of [...t.team.roster, ...t.team.ir, ...t.team.taxi, ...ctx.freeAgentIds]) longTerm[id] = fut.value(id);
+  const myDynTotal = fut ? rosterValue([...t.team.roster, ...t.team.ir, ...t.team.taxi], longTerm) : null;
+  const longTermW = fut ? waiverCredit(longTerm, ctx.freeAgentIds, fut.top, cfg.market, ctx.claimedAll) : 0;
+  const scale = helpsScale(calibration, { leagueType, myPPlayoffs: mine.pPlayoffs, lambda: settings.lambda, reward: ctx.reward, dynastyTotal: myDynTotal }, benefitCfg);
+  if (!scale) return null;
+  // The market term's κ (redraft): none without real values, or once the trade deadline has passed.
+  const market = inputs.market ?? null;
+  const deadlinePassed = tradeDeadlinePassed(snapshot.settings.tradeDeadline, opts.now, transactionWeek(snapshot));
+  const kappa = !market || market.fallback?.kind === "curve" || deadlinePassed ? 0 : protectValueWeight(settings.protectValue, benefitCfg);
+  const values: Record<string, number> = {};
+  for (const [id, pm] of Object.entries(lp.players)) if (pm.value) values[id] = pm.value.value;
+  const W = ctx.market.waiverCredit;
+  const weighs = leagueType === "redraft" ? (kappa > 0 ? "tradeValue" : null) : myDynTotal !== null && myDynTotal > 0 ? "longTerm" : null;
+
+  const extra = [...t.stream.rows, ...returnersOf(t.stream)];
+  const scoreAfter = (addId: string, dropId: string | null): WeeklyScore | null => {
+    const add = ctx.table.rows.get(addId);
+    if (!add) return null;
+    let rows: TableRow[];
+    let move: { drop: number | null; at: number };
+    let ids: string[];
+    if (dropId === null) {
+      rows = [...t.rows, add, ...extra];
+      move = { drop: null, at: t.rows.length };
+      ids = [...t.ids, addId];
+    } else {
+      const k = t.rows.findIndex((r) => r.id === dropId);
+      if (k < 0) return null;
+      rows = [...t.rows, ...extra];
+      rows[k] = add;
+      move = { drop: k, at: k };
+      ids = t.ids.map((id) => (id === dropId ? addId : id));
+    }
+    const team = teamEval(rows, ctx.slots);
+    const ev = solveEvWeeks(team, ctx.W);
+    const scen = ctx.S > 0 ? ((t.scen ? scenarioValuesAfterMove(t.scen, team, move, ctx.W, ctx.S, null, true, true) : null) ?? scenarioValues(team, ctx.W, ctx.S, null, true, true)) : null;
+    return pickupScore(ctx, finalLineups(ctx.returnerSetup, ids, t.stream, { ev, scen }, t.keep), myTeam.score);
+  };
+  const benefitOf = (addId: string, dropId: string | null, change: { dPO: number; dCH: number | null; dPrizes: PrizeDeltas }) => {
+    const give = dropId === null ? [] : [dropId];
+    const pkg = fut && myDynTotal !== null ? tradePackage({ players: [addId] }, { players: give }, longTerm, longTermW, cfg.market) : null;
+    return benefit(
+      {
+        leagueType,
+        dPO: change.dPO,
+        dCH: change.dCH,
+        dPrizes: change.dPrizes,
+        gMine: leagueType === "redraft" ? marketGain([addId], give, values, W, cfg.market) : 0,
+        dynasty: pkg && myDynTotal !== null ? { delta: pkg.recv - pkg.give, total: myDynTotal } : null,
+        myPPlayoffs: mine.pPlayoffs,
+        lambda: settings.lambda,
+        kappa,
+        b3: scale.b3,
+        reward: ctx.reward,
+      },
+      benefitCfg,
+    );
+  };
+  // The build's timings: the lists' work before the rating under "waiver upgrades" (step 10b's own mark adds the rest).
+  const stages = { start: "waiver upgrades", screen: "waiver rating: screening", finish: "waiver rating: finishing" } as const;
+  return createWaiverRater(
+    { built, myIndex, normals, seed, highScores, scoreAfter, benefitOf, b3: scale.b3, weighs, onStage: (stage) => mark(stages[stage]) },
+    { waivers: { ...config.waivers, ...cfg.waivers } },
+  );
+}
+
+/**
  * The League model (see the file header). `snapshot.myTeamId` is the user's team (null = none picked);
  * `opts.now` decides which current-week games have started, and so whether the current week is in progress.
  */
@@ -2557,6 +2815,31 @@ export interface LeagueModelBuild {
 }
 
 /**
+ * "Waiver upgrades" with the season list rated by Helps you (step 10b; Checkpoint 7e, planner reply to Checkpoint 7d, item
+ * 3.4): step 10 again on a build's own context and model (its season simulated: step 8), the same `inputs` and options it was
+ * built with, with the rater (waiverRaterOf; the one-week lists name the rated drops). The build calls it when asked
+ * (BuildLeagueModelOptions.waiverRating), and the League page's worker answers its "waivers" request with it on a build made
+ * without (engine.worker.ts), so the page shows the League model first and the rated list a moment later: the same lists
+ * either way. `mark`: the build's timing marks (none by default). `opts.settings` gives the rating's "Protect my trade value"
+ * and Win now ↔ Future (waiverRaterOf), which nothing else of the build reads. Null without my team, when the build skipped
+ * the lists, when the list can't be rated (no odds or calibration: waiverRaterOf null), or when the simulator refuses a
+ * move's season (a RangeError, waiverRating.ts: the list then stays in points, as on a build that can't rate it).
+ */
+export function rateWaiverUpgrades(built: LeagueModelBuild, inputs: ModelInputs, opts: BuildLeagueModelOptions, mark: (stage: string) => void = () => undefined): WaiverUpgrades | null {
+  const { model, context: ctx } = built;
+  if (opts.waiverUpgrades === false || model.myTeamId === null) return null;
+  const t = ctx.work.find((w) => w.team.id === model.myTeamId);
+  const rater = t ? waiverRaterOf(ctx, t, model, inputs, opts, mark) : null;
+  if (!t || !rater) return null;
+  try {
+    return waiverUpgradesOf(ctx, t, inputs, opts, rater);
+  } catch (err) {
+    if (err instanceof RangeError) return null;
+    throw err;
+  }
+}
+
+/**
  * buildLeagueModel, also returning the context and bases it was built from (LeagueModelBuild), so the trade evaluation
  * reuses every number the League model computed instead of building it twice. The model is the same object
  * buildLeagueModel returns.
@@ -2579,7 +2862,7 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
   // 5b. Each team as it stands, priced finally: its returners back, and from a returner's week on the roster spot he needs
   // (returners.finalLineups; nothing changes without one, or with room for every one). Its lineups make LV, ROS, PPW,
   // strength, needs and the weekly score below.
-  const finals: FinalLineups[] = work.map((t) => finalLineups(ctx.returnerSetup, t.ids, t.stream, { ev: t.solved, scen: t.scen }));
+  const finals: FinalLineups[] = work.map((t) => finalLineups(ctx.returnerSetup, t.ids, t.stream, { ev: t.solved, scen: t.scen }, t.keep));
   if (work.some((t) => returnersOf(t.stream).length)) mark("IR returners");
 
   // The weekly score the season simulator draws (step 8): T as it stands, its streaming rows and returners included, and
@@ -2593,7 +2876,7 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
   // week; finalRunLineups) with the week in progress held at the team's score as it stands (pickupScore). These are the
   // trade search's baseline lineups (evaluate.ts reuses them: LeagueModelBuild.pickups), and LeagueModel.odds simulates
   // their scores (TeamModel.scoreWithPickups).
-  const pickups: FinalLineups[] = work.map((t) => finalRunLineups(ctx, t.vstar, t.stream));
+  const pickups: FinalLineups[] = work.map((t) => finalRunLineups(ctx, t.vstar, t.stream, t.keep));
   const pickupScores: WeeklyScore[] = work.map((_, ti) => pickupScore(ctx, pickups[ti] as FinalLineups, scores[ti]));
   mark("teams after their pickups");
 
@@ -2714,8 +2997,9 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
   };
   mark("needs and partners");
 
-  // 10. Waiver upgrades for my team (the file header; waivers.ts): read by nothing else in the model.
-  const waivers = opts.waiverUpgrades === false || myIndex < 0 ? null : waiverUpgradesOf(ctx, work[myIndex] as TeamWork, inputs.nfl, opts.now.getTime());
+  // 10. Waiver upgrades for my team (the file header; waivers.ts): read by nothing else in the model. In points here; its
+  // season list is rated on step 8's seasons (step 10b, below).
+  const waivers = opts.waiverUpgrades === false || myIndex < 0 ? null : waiverUpgradesOf(ctx, work[myIndex] as TeamWork, inputs, opts, null);
   if (waivers) mark("waiver upgrades");
 
   const replacement: LeagueModel["streaming"]["replacement"] = {};
@@ -2776,6 +3060,17 @@ export function buildLeagueModelWithContext(snapshot: LeagueSnapshot, inputs: Mo
     cfg.acceptance.starPremium,
   );
   for (const t of model.teams) t.premiums = premiums.get(t.id) ?? {};
+
+  // 10b. The season list rated by Helps you on step 8's seasons and scale (Checkpoint 7e; waiverRating.ts), when asked
+  // (BuildLeagueModelOptions.waiverRating; the League page's worker rates its kept build on a request of its own).
+  if (waivers && opts.waiverRating === true) {
+    mark("star premium"); // step 9's time, kept apart from the rating's (left in the total alone in a build without it)
+    const rated = rateWaiverUpgrades({ model, context: ctx, bases, pickups }, inputs, opts, mark);
+    if (rated) {
+      model.waiverUpgrades = rated;
+      mark("waiver upgrades");
+    }
+  }
   if (clock) timings.total = last - start;
   return { model, context: ctx, bases, pickups };
 }
@@ -3113,7 +3408,8 @@ export interface LeagueMarginals {
   /**
    * The free-agent optimizer from any active roster of a team (its streaming rows and streamed positions; the build's
    * optimizer and memo), with at most `maxMoves` moves (default faMaxMoves; none for an inactive team, step 5's A4), against
-   * the pool minus every other team's claims (excl(T), step 5): the roster after, its moves with their EV and scenario
+   * the pool minus every other team's claims (excl(T), step 5), never dropping my untouchables on my team (TeamWork.keep;
+   * Checkpoint 7e, item 3.3): the roster after, its moves with their EV and scenario
    * gains (with ω and with each week once, as TeamModel.faMoves has them), and its ROS in EV and scenario lineups. Null for
    * an unknown team.
    */
@@ -3187,7 +3483,7 @@ export function leagueMarginals(snapshot: LeagueSnapshot, inputs: ModelInputs, o
       const t = ctx.work[indexOf.get(teamId) ?? -1];
       if (!t) return null;
       // An inactive team (A4) makes no move.
-      const run = t.inactive ? ctx.optimizer.optimize(roster, t.stream, 0) : ctx.optimizer.optimize(roster, t.stream, maxMoves, t.pool);
+      const run = t.inactive ? ctx.optimizer.optimize(roster, t.stream, 0) : ctx.optimizer.optimize(roster, t.stream, maxMoves, t.pool, t.keep);
       let at: readonly string[] = run.start;
       const start = ctx.optimizer.evaluate(at, t.stream);
       let ev = start.evRos;

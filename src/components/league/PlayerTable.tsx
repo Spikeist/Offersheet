@@ -26,11 +26,23 @@
  * Another team's player his manager would want a little extra for (planner addendum to Checkpoint 3, §2) carries a
  * gold "Harder to get" pill on his position line, after any injury badge: words, part of his button's name, with why
  * on hover (the page's explainer says it in full).
+ *
+ * My roster card (Checkpoint 7e; planner reply to Checkpoint 7d, items 3.3 and 3.5): each of my active and IR players has a
+ * lock icon beside his button (UntouchableLock: marks him untouchable, the Settings page's own setting; PlayerRow.lockable),
+ * and each injured one the model has out now a line under it, "Expected back: week 8 (ESPN)" (or "our guess", "your week"),
+ * whose select sets the week the user expects (ReturnWeekControl; PlayerRow.returnWeek), in a row of its own under his so
+ * his row header stays his button and lock (review of wave C, UI-C-10); his breakdown repeats the line, not the select
+ * (UI-C-5), with how such a week counts. Both edit the league's settings through the League page (leagueSettingsEdit.ts);
+ * without it (another page, a static render) there's no lock, and the return line is text alone. The line replaces the
+ * conflict note's short line in his button (it says the same, or a week of the user's in its place); the sentence stays in
+ * his breakdown.
  */
 import { useId, useState } from "react";
-import type { PlayerRow, WeekRow } from "@/lib/leagueView";
+import { returnWeekOptions, type PlayerRow, type ReturnWeekRow, type WeekRow } from "@/lib/leagueView";
 import { Badge, cx } from "../ui";
 import { HarderToGetBadge } from "./HarderToGetBadge";
+import { useLeagueSettingsEdit } from "./leagueSettingsEdit";
+import { UntouchableLock } from "./UntouchableLock";
 
 const GROUP_TITLE: Record<PlayerRow["group"], string | null> = {
   active: null,
@@ -105,15 +117,72 @@ function WeekTable({ player }: { player: PlayerRow }) {
 }
 
 /**
+ * The return week's select: 44 px tall, and 16 px text so iOS doesn't zoom in on it (ui.tsx inputBase's look, inline). On
+ * phones it takes its line's width (a select sized in percent can shrink, so the name column never pushes the table past
+ * 375 px; its text is clipped if it must be), from 640 px up its own.
+ */
+const RETURN_SELECT = "min-h-11 w-full max-w-full min-w-0 rounded-xl border border-line bg-surface px-2 py-1 text-base text-foreground shadow-inner focus:border-brand sm:w-auto";
+
+/**
+ * "Expected back: week 8 (ESPN)" for one of my injured players (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.5),
+ * with a select to set the week the user expects (leagueSettingsEdit.ts setReturnWeek; returnWeekOptions: the platform's
+ * date or our guess first, which clears his week, then next week through the league's last, then "out for the season"). The
+ * select shows the week as the browser holds it now (set for this season: leagueSettingsEdit.ts returnWeekOf), so a change
+ * shows at once while the page computes again; its label names him for screen readers. A change the browser refuses shows
+ * its reason (role alert). Without the League page's settings edits around it (LeagueSettingsEditContext), the line alone.
+ * One per player, in a row of its own under his (review of wave C: UI-C-5, the breakdown had a second; UI-C-10, inside
+ * his row header it was read out with his name in every cell of the row).
+ */
+export function ReturnWeekControl({ playerId, name, row, className }: { playerId: string; name: string; row: ReturnWeekRow; className?: string }) {
+  const edit = useLeagueSettingsEdit();
+  const id = useId();
+  const [error, setError] = useState<string | null>(null);
+  if (!edit) return <span className={cx("block text-xs text-muted", className)}>{row.text}</span>;
+  const { options, selected } = returnWeekOptions(row, edit.returnWeekOf(playerId));
+  const change = (value: string) => {
+    setError(null);
+    void edit.setReturnWeek(playerId, value === "" ? null : Number(value)).then((r) => {
+      if (!r.ok) setError(r.message);
+    });
+  };
+  return (
+    <span className={cx("flex flex-wrap items-center gap-x-2 gap-y-1 text-xs", className)}>
+      <label htmlFor={id} className="font-semibold text-muted">
+        Expected back<span className="sr-only">{` for ${name}`}</span>:
+      </label>
+      <select id={id} value={selected} onChange={(e) => change(e.target.value)} className={RETURN_SELECT}>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.text}
+          </option>
+        ))}
+      </select>
+      {error ? (
+        <span role="alert" className="font-semibold text-danger-fg">
+          {error}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/**
  * The breakdown under a player: the conflict note and the market blend's line (which way it moved his projection, in
- * words, CLAUDE.md §6 step 8, with how the lean works) when he has them, the columns phones don't show, then his
- * week-by-week points.
+ * words, CLAUDE.md §6 step 8, with how the lean works) when he has them, my injured player's expected return week with how
+ * a week of mine counts (Checkpoint 7e, item 3.5: the line, its select being on the row above: review of wave C, UI-C-5),
+ * the columns phones don't show, then his week-by-week points.
  */
 export function PlayerDetail({ player, showLineupCost }: { player: PlayerRow; showLineupCost: boolean }) {
   const p = player;
   return (
     <div className="rounded-xl bg-surface-muted p-3">
       {p.availabilityNote ? <p className="mb-2 text-xs leading-relaxed">{p.availabilityNote.long}.</p> : null}
+      {p.returnWeek ? (
+        <div className="mb-2">
+          <p className="text-xs font-semibold">{p.returnWeek.text}</p>
+          <p className="mt-1 text-xs leading-relaxed text-muted">{p.returnWeek.help}</p>
+        </div>
+      ) : null}
       {p.blend ? (
         <p className="mb-2 text-xs leading-relaxed break-words">
           <span className="font-medium">{p.blend.text}</span>
@@ -141,38 +210,57 @@ export function PlayerDetail({ player, showLineupCost }: { player: PlayerRow; sh
 function PlayerRows({ player, columns, showLineupCost, scaleMax }: { player: PlayerRow; columns: number; showLineupCost: boolean; scaleMax: number }) {
   const [open, setOpen] = useState(false);
   const detailId = `weeks-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const edit = useLeagueSettingsEdit();
   const p = player;
   const group = GROUP_TITLE[p.group];
+  // My roster card's lock (Checkpoint 7e, item 3.3), where the League page's settings edits are: beside the button.
+  const lock = p.lockable && edit !== null;
+  const button = (
+    <button
+      type="button"
+      aria-expanded={open}
+      aria-controls={detailId}
+      onClick={() => setOpen((o) => !o)}
+      className={
+        lock ? "flex min-h-11 min-w-0 flex-1 flex-col justify-center py-1 pr-2 pl-4 text-left sm:pl-0" : "flex min-h-11 w-full flex-col justify-center py-1 pr-2 pl-4 text-left sm:pl-0"
+      }
+    >
+      <span className="flex items-center gap-1.5">
+        <span aria-hidden className={cx("inline-block text-xs text-muted transition-transform", open && "rotate-90")}>
+          ▸
+        </span>
+        <span className="font-bold break-words">{p.name}</span>
+      </span>
+      {group ? <span className="sr-only">{`, ${group.toLowerCase()}`}</span> : null}
+      <span className="block pl-4 text-xs text-muted">
+        {p.pos} · {p.nflTeam} · {p.byeText}
+        {p.injury ? <InjuryBadge injury={p.injury} /> : null}
+        {p.tag ? <HarderToGetBadge tag={p.tag} className="ml-1" /> : null}
+      </span>
+      {/* The return-week line below says when he's expected back (Checkpoint 7e), so the conflict note's short line goes. */}
+      {p.availabilityNote && !p.returnWeek ? (
+        <span title={p.availabilityNote.long} className="block pl-4 text-xs break-words text-muted italic">
+          {p.availabilityNote.short}
+        </span>
+      ) : null}
+      <span className="sr-only">, week by week</span>
+    </button>
+  );
+  // My injured player's return line and its select (item 3.5) take a row of their own under his, so his row header stays
+  // his button and lock (review of wave C, UI-C-10: inside it, the select's label and week were read with every cell).
+  const returnRow = p.returnWeek !== null;
   return (
     <>
-      <tr className={open ? undefined : "border-b border-line"}>
+      <tr className={open || returnRow ? undefined : "border-b border-line"}>
         <th scope="row" className="p-0 text-left align-top font-normal">
-          <button
-            type="button"
-            aria-expanded={open}
-            aria-controls={detailId}
-            onClick={() => setOpen((o) => !o)}
-            className="flex min-h-11 w-full flex-col justify-center py-1 pr-2 pl-4 text-left sm:pl-0"
-          >
-            <span className="flex items-center gap-1.5">
-              <span aria-hidden className={cx("inline-block text-xs text-muted transition-transform", open && "rotate-90")}>
-                ▸
-              </span>
-              <span className="font-bold break-words">{p.name}</span>
-            </span>
-            {group ? <span className="sr-only">{`, ${group.toLowerCase()}`}</span> : null}
-            <span className="block pl-4 text-xs text-muted">
-              {p.pos} · {p.nflTeam} · {p.byeText}
-              {p.injury ? <InjuryBadge injury={p.injury} /> : null}
-              {p.tag ? <HarderToGetBadge tag={p.tag} className="ml-1" /> : null}
-            </span>
-            {p.availabilityNote ? (
-              <span title={p.availabilityNote.long} className="block pl-4 text-xs break-words text-muted italic">
-                {p.availabilityNote.short}
-              </span>
-            ) : null}
-            <span className="sr-only">, week by week</span>
-          </button>
+          {lock ? (
+            <div className="flex items-start gap-1">
+              {button}
+              <UntouchableLock playerId={p.id} name={p.name} className="shrink-0 pr-1 sm:pr-2" />
+            </div>
+          ) : (
+            button
+          )}
         </th>
         <td className="py-1 pr-4 text-right align-top tabular-nums sm:pr-3" title={p.weeksText}>
           <span className="block font-extrabold">{p.rosText}</span>
@@ -182,6 +270,13 @@ function PlayerRows({ player, columns, showLineupCost, scaleMax }: { player: Pla
         <td className="hidden py-2 pr-3 align-top md:table-cell">{p.weeks.length ? <WeekStrip weeks={p.weeks} text={p.weeksText} max={scaleMax} /> : null}</td>
         {showLineupCost ? <td className="hidden py-2 text-right align-top tabular-nums sm:table-cell">{p.lineupCost ?? <span className="text-muted">—</span>}</td> : null}
       </tr>
+      {p.returnWeek ? (
+        <tr className={open ? undefined : "border-b border-line"}>
+          <td colSpan={columns} className="p-0">
+            <ReturnWeekControl playerId={p.id} name={p.name} row={p.returnWeek} className="pr-4 pb-2 pl-8 sm:pr-0 sm:pl-4" />
+          </td>
+        </tr>
+      ) : null}
       {/* The row is always there for aria-controls; its content is built only when opened (a league has hundreds of players). */}
       <tr id={detailId} hidden={!open} className="border-b border-line">
         <td colSpan={columns} className="px-4 pb-3 sm:px-0">

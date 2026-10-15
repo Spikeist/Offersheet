@@ -476,8 +476,12 @@ export interface InjuryTag {
    * PlayerInfo.injuryReturnWeek when known and his projection counts on it (explain.injuryTags, review of track F): OUT
    * from next week on; IR, PUP and SUSPENDED after this week; a Probable, Questionable or Doubtful player's far ESPN date
    * only when his projection follows it (§6 step 3's conflict); never NA. After the NFL's last week = out for the season.
+   * Since Checkpoint 7e (planner reply to Checkpoint 7d, item 3.5; review of wave C, RC-ENG-1) the user's own week for one
+   * of my players when he set one, whatever the status (returnSource "user"): his numbers follow it.
    */
   returnWeek?: number;
+  /** "user": returnWeek is the user's own (TradeSettings.returnWeeks), so the card says so; absent: the platform's date. */
+  returnSource?: "user";
 }
 
 /**

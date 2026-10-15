@@ -58,7 +58,9 @@
  * - Untouchables (my players: roster, IR and taxi) and must-include players (any team's, mine first) need
  *   my team; without it the page points to the Import Report. A player is never both: marking one moves him
  *   out of the other list. Saved players who are no longer on my team (untouchables) or on any team
- *   (must-include) are listed so they can be removed.
+ *   (must-include) are listed so they can be removed. Since Checkpoint 7e (planner reply to Checkpoint 7d, item 3.3) the
+ *   untouchables' help says they're never suggested as drops either (UNTOUCHABLES_HELP), and the League page can lock them
+ *   too (its roster card and Waiver upgrades: the same setting).
  * - Positions to target and to avoid: the positions this league starts, without the ones trade ideas
  *   leave out (config.market.tradeSearchExcluded: P, K, DEF, IDP) unless those are included. A position is
  *   never both; turning "include" off clears the left-out positions from both lists, so no hidden choice
@@ -103,7 +105,8 @@ export type PlayersView =
   | { kind: "noTeam"; text: string }
   | {
       kind: "ok";
-      untouchables: { choices: Choice<string>[]; stale: PlayerPick[] };
+      /** My players to mark (roster, IR and taxi), saved ones who left my team, and the group's help (UNTOUCHABLES_HELP). */
+      untouchables: { choices: Choice<string>[]; stale: PlayerPick[]; help: string };
       mustInclude: {
         /** Players that can still be added, by team (mine first). */
         groups: MustIncludeGroup[];
@@ -124,6 +127,13 @@ export interface SettingsView {
    * at least” is 30%, set on the Trade Finder. Reset to defaults sets it back to 10% too."; else null.
    */
   finderMinimum: string | null;
+  /**
+   * The League page's own settings when the saved ones differ from the defaults (review of wave C, UI-C-8: a league whose
+   * only change was one of them read as customized, with nothing here to say how, and Reset to defaults cleared them
+   * silently): "On the League page, Waiver upgrades' “Drop from the same position” is off and you've set the return week of
+   * 2 injured players. Reset to defaults sets them back too."; else null (leaguePageText).
+   */
+  leaguePage: string | null;
   /** "Positions I stream weekly"; null when the league starts none of the streamable positions. */
   stream: { choices: Choice<Pos>[]; help: string } | null;
   /**
@@ -518,6 +528,15 @@ export function prizeCommit(text: string, saved: string): PrizeCommit {
  */
 export const TRADE_VALUE_NOTE = "In dynasty and keeper leagues, the Win now ↔ Future slider covers trade value.";
 
+/**
+ * The Untouchables group's help (PlayersView's untouchables.help). Checkpoint 7e (planner reply to Checkpoint 7d, item 3.3:
+ * "Untouchables are never suggested as drops anywhere: in Waivers, in trade cards' roster moves, when a player returns from
+ * IR"; the lead: "a line that also says they're never suggested as drops …, plain and short"): until then "Trade ideas never
+ * offer these players of yours." The engine keeps them in every one of those (league.ts TeamWork.keep, evaluate.ts
+ * TeamState.keep, waivers.ts), and the Trade Finder's settings line still counts them (tradeView.ts).
+ */
+export const UNTOUCHABLES_HELP = "Trade ideas never offer these players of yours, and they're never suggested as drops: in Waiver upgrades, in a trade's roster moves or when a player comes back from IR.";
+
 /** Why "Protect my trade value" does nothing for now (SettingsView.protectValue.note): the trade values are our own estimates. */
 export const PROTECT_VALUE_ESTIMATED_NOTE =
   "For now this setting changes nothing: FantasyCalc isn't available, so this league's trade values are our own estimates, and Helps you leaves trade value out until FantasyCalc is back.";
@@ -538,6 +557,24 @@ export function finderMinimumText(minChance: number, stored: boolean): string | 
   const def = config.ranking.minChanceDefault;
   if (!stored || !Number.isFinite(minChance) || Math.abs(minChance - def) < 1e-9) return null;
   return `The Trade Finder's “Chance they accept: at least” is ${minChanceWords(minChance)}, set on the Trade Finder. Reset to defaults sets it back to ${minChanceWords(def)} too.`;
+}
+
+/**
+ * SettingsView.leaguePage (review of wave C, UI-C-8; the Trade Finder's minimum chance had the same gap, finderMinimumText):
+ * the League page's own settings when they aren't the defaults, said only for saved settings: Waiver upgrades' “Drop from
+ * the same position” off, and the return weeks set for this season (TradeSettings.returnWeeksSeason; the League page
+ * clears the ones that stopped counting). "Reset to defaults" sets them back too.
+ */
+export function leaguePageText(s: Pick<TradeSettings, "waiverSamePosition" | "returnWeeks" | "returnWeeksSeason">, stored: boolean, season: number): string | null {
+  if (!stored) return null;
+  const weeks = s.returnWeeksSeason === season ? Object.keys(s.returnWeeks).length : 0;
+  const parts = [
+    ...(s.waiverSamePosition ? [] : ["Waiver upgrades' “Drop from the same position” is off"]),
+    ...(weeks > 0 ? [`you've set the return week of ${weeks} injured ${weeks === 1 ? "player" : "players"}`] : []),
+  ];
+  if (!parts.length) return null;
+  const them = parts.length > 1 || weeks > 1 ? "them" : "it";
+  return `On the League page, ${parts.join(" and ")}. Reset to defaults sets ${them} back too.`;
 }
 
 export function buildSettingsView(input: SettingsViewInput): SettingsView {
@@ -661,6 +698,7 @@ export function buildSettingsView(input: SettingsViewInput): SettingsView {
     league: { name: snapshot.name, platformLabel: PLATFORM_LABEL[platform], season: snapshot.season, typeLabel: LEAGUE_TYPE_LABEL[type], dynastyOrKeeper },
     stored: input.stored,
     finderMinimum: finderMinimumText(s.minChance, input.stored),
+    leaguePage: leaguePageText(s, input.stored, snapshot.season),
     stream,
     playoffWeight,
     goal,
@@ -686,6 +724,7 @@ function playersView(snapshot: SnapshotPart, myTeamId: string | null, s: TradeSe
   const untouchables = {
     choices: myPlayers.map((p) => ({ value: p.id, label: p.name, detail: p.detail, checked: s.untouchables.includes(p.id) })),
     stale: s.untouchables.filter((id) => !onMyTeam.has(id)).map((id) => playerPick(id, snapshot.players[id], snapshot.platform, null)),
+    help: UNTOUCHABLES_HELP,
   };
 
   const chosen = new Set(s.mustInclude);

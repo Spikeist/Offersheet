@@ -32,7 +32,8 @@
  *    never one a position's minimum needs (rosterMinimums, held to the count the position had, legality's rule), and never
  *    the last one at a position the team streams (⚠️ review of track E: streaming a K or D/ST takes a roster spot for the
  *    week's pickup, so the streaming row doesn't make the team's only rostered one free to drop; legality's rule 2 keeps
- *    him too since the final review of Phase 4b); ties: the lower perception value, then the smaller id
+ *    him too since the final review of Phase 4b), and never one of my untouchables (Checkpoint 7e; planner reply to
+ *    Checkpoint 7d, item 3.3: finalLineups' `keep`, mine only); ties: the lower perception value, then the smaller id
  *    (teamValue.lowestKeepValue), and ⚠️ without long-term values near-ties count as ties (final review of Phase 4c,
  *    finding R6, roster legality's rule: ReturnerSetup.nearTieWeekly, config.lineups.dropNearTieWeekly points a week × the
  *    weights from R on): among the candidates within that of the lowest keep value, the lowest perception value floored at
@@ -208,9 +209,12 @@ const bound = (x: number | undefined): number | undefined => (x !== undefined &&
  * streaming rows, the returners: optimizer.evaluate's team) and, with scenarios, their scenario lineups with cells kept
  * (scenarioValues with `keep`; solved here when they aren't). No displacement (no returner back within the weeks, or
  * room for every one with no position past its limit): `raw` itself, so a caller gets the very numbers it would without
- * IR players.
+ * IR players. `keep`: players never released (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.3: "Untouchables are never
+ * suggested as drops anywhere … when a player returns from IR"): the League model and the trade evaluation pass my
+ * untouchables for my team (league.ts TeamWork.keep) and none for any other team (the setting is mine); a returner among
+ * them stays too, and when only kept players could go, nobody does (⚠️ the roster runs over, as when nobody can go).
  */
-export function finalLineups(setup: ReturnerSetup, roster: readonly string[], spec: StreamSpec, raw: { readonly ev: SolvedWeeks; readonly scen: ScenarioValues | null }): FinalLineups {
+export function finalLineups(setup: ReturnerSetup, roster: readonly string[], spec: StreamSpec, raw: { readonly ev: SolvedWeeks; readonly scen: ScenarioValues | null }, keep: readonly string[] = []): FinalLineups {
   const fast: FinalLineups = { displaced: [], team: raw.ev.team, ev: raw.ev, scen: raw.scen };
   const back = returnersOf(spec);
   if (!back.length) return fast;
@@ -266,6 +270,7 @@ export function finalLineups(setup: ReturnerSetup, roster: readonly string[], sp
     ...streamEntries,
   ];
   const streamed = new Set<Pos>(spec.positions);
+  const kept = new Set(keep);
   /** The active roster from the week being decided: the roster as it stands and the returners back by then, minus the drops. */
   const live: string[] = [...active];
   const displaced: Displacement[] = [];
@@ -292,6 +297,7 @@ export function finalLineups(setup: ReturnerSetup, roster: readonly string[], sp
     // The lineup-fill rule: without him, every starting slot the players left (and the streaming rows) could fill still can.
     const fillBefore = fillCount(entries(live), setup.slots);
     const candidates = modeled.filter((id) => {
+      if (kept.has(id)) return false; // one the team keeps (my untouchables: the doc above)
       const p = posOf(id);
       if (overPos && p !== pos) return false; // the limit binds: one at his position goes
       if (p !== undefined) {

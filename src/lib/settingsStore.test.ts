@@ -25,6 +25,7 @@ import {
   resetLeagueSettings,
   saveLeagueSettings,
   settingsFingerprint,
+  waiverRatingSettings,
 } from "./settingsStore";
 
 class MemoryStorage implements StorageLike {
@@ -160,6 +161,17 @@ describe("tolerance: whatever the browser holds or does", () => {
     expect((all as Record<string, unknown>).includePicks).toBeUndefined();
   });
 
+  it("keeps the season the return weeks were set for, a whole year, else none (review of wave C, UI-C-3); a copy stored before reads as none", () => {
+    expect(defaultTradeSettings().returnWeeksSeason).toBeNull();
+    const read = (returnWeeksSeason: unknown) => normalizeTradeSettings({ ...defaultTradeSettings(), returnWeeks: { "1": 8 }, returnWeeksSeason }).returnWeeksSeason;
+    expect(read(2026)).toBe(2026);
+    for (const bad of [undefined, null, "2026", 2026.5, 0, -1, 10_000, Number.NaN]) expect(read(bad), String(bad)).toBeNull();
+    // A copy stored before the review (its weeks kept, no season): the weeks stay, and count for no season (returnWeeks.ts).
+    const { returnWeeksSeason: _s, ...older } = { ...defaultTradeSettings(), returnWeeks: { "1": 8 } };
+    void _s;
+    expect(normalizeTradeSettings(older)).toMatchObject({ returnWeeks: { "1": 8 }, returnWeeksSeason: null });
+  });
+
   it("replaces a stored value that isn't ours when saving, rather than failing", () => {
     const storage = new MemoryStorage();
     storage.setItem(SETTINGS_STORAGE_KEY, "{not json");
@@ -249,11 +261,13 @@ describe("settingsFingerprint", () => {
     expect(settingsFingerprint({ ...defaultTradeSettings(), untouchables: ["1"] }, LEAGUE_MODEL_SETTINGS)).not.toBe(base);
     expect(settingsFingerprint({ ...defaultTradeSettings(), waiverSamePosition: false }, LEAGUE_MODEL_SETTINGS)).not.toBe(base);
     expect(settingsFingerprint({ ...defaultTradeSettings(), returnWeeks: { "1": 8 } }, LEAGUE_MODEL_SETTINGS)).not.toBe(base);
+    // The season those return weeks were set for (review of wave C, UI-C-3): they count in that season only.
+    expect(settingsFingerprint({ ...defaultTradeSettings(), returnWeeksSeason: 2026 }, LEAGUE_MODEL_SETTINGS)).not.toBe(base);
     // The manual playoff weight is gone (planner reply to Checkpoint 7a, §6.1: ω is set automatically).
     const other = { ...defaultTradeSettings(), lambda: 0.4, maxPerSide: 3, mustInclude: ["2"], targetPositions: ["RB"], avoidPositions: ["TE"], includeKDefIdp: true, includePicks: true } satisfies TradeSettings;
     expect(settingsFingerprint(other, LEAGUE_MODEL_SETTINGS)).toBe(base);
     // The fields' order and repeats don't matter; the lists' order doesn't either.
-    expect(settingsFingerprint(mine, ["returnWeeks", "goal", "untouchables", "prizes", "waiverSamePosition", "streamPositions", "goal"])).toBe(settingsFingerprint({ ...mine, streamPositions: ["TE", "DEF", "K"] }, LEAGUE_MODEL_SETTINGS));
+    expect(settingsFingerprint(mine, ["returnWeeks", "goal", "untouchables", "returnWeeksSeason", "prizes", "waiverSamePosition", "streamPositions", "goal"])).toBe(settingsFingerprint({ ...mine, streamPositions: ["TE", "DEF", "K"] }, LEAGUE_MODEL_SETTINGS));
   });
 });
 
@@ -317,5 +331,21 @@ describe("LEAGUE_MODEL_SETTINGS: every setting the League model reads, and only 
     expect(parker).not.toEqual(split);
     expect(parker.reward?.shares).toMatchObject({ first: 4 / 9, second: 16 / 45, third: 1 / 5 });
     expect(parker.playoffWeightAuto?.playoffPerPoint).not.toBe(split.playoffWeightAuto?.playoffPerPoint);
+  });
+
+  it("a build that rates Waiver upgrades (the League page's, on its own request) reads waiverRatingSettings too, and no other setting (review of wave C, RC-ENG-4)", () => {
+    const rated = (change: Partial<TradeSettings>) => buildLeagueModel(snapshot, league.inputs, { now: TEST_NOW, settings: { ...defaultTradeSettings(), ...change }, scenarios: 4, sims: 200, waiverRating: true });
+    const base = rated({});
+    expect(base.waiverUpgrades?.ros?.rating?.weighs).toBe("tradeValue");
+    for (const [field, value] of Object.entries(tradeOnly)) {
+      if ((waiverRatingSettings("redraft") as readonly string[]).includes(field)) continue;
+      expect(rated({ [field]: value }), `${field} changed the rated League model: add it to waiverRatingSettings`).toEqual(base);
+    }
+    // "Protect my trade value" weighs a redraft league's rows (its market term), so the League page computes again for it.
+    expect(rated({ protectValue: "high" }).waiverUpgrades?.ros?.rows.map((r) => r.rating?.b)).not.toEqual(base.waiverUpgrades?.ros?.rows.map((r) => r.rating?.b));
+    // Win now ↔ Future weighs a dynasty or keeper league's instead (its mix and scale; a redraft league reads none of it).
+    expect(waiverRatingSettings("redraft")).toEqual(["protectValue"]);
+    expect(waiverRatingSettings("dynasty")).toEqual(["lambda"]);
+    expect(waiverRatingSettings("keeper")).toEqual(["lambda"]);
   });
 });

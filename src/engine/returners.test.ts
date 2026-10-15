@@ -575,6 +575,39 @@ describe("finalLineups: the roster spot a returner needs from his week (final ev
   });
 });
 
+describe("finalLineups' keep: my untouchables are never released at a return (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.3)", () => {
+  const back = () => [{ row: row("back", "RB", 16, { from: 2 }), at: 2 }];
+
+  it("a kept player is never the one released: the next lowest keep value goes; a keep set naming nobody on the roster changes nothing", () => {
+    const b = build({ active: team8(), returners: back(), max: 8, values: VALUES });
+    expect(finalLineups(b.setup, b.roster, b.spec, b.raw).displaced).toEqual([{ id: "wrB", from: 2, returner: "back" }]);
+    expect(finalLineups(b.setup, b.roster, b.spec, b.raw, ["wrB"]).displaced).toEqual([{ id: "rbB", from: 2, returner: "back" }]);
+    // Both bench players kept: the cheapest of the rest to lose from week 2 on goes (rb2, whom the returner benches then).
+    expect(finalLineups(b.setup, b.roster, b.spec, b.raw, ["wrB", "rbB"]).displaced).toEqual([{ id: "rb2", from: 2, returner: "back" }]);
+    // Nobody of the roster in the keep set: the very result (the same objects without a displacement change).
+    const none = finalLineups(b.setup, b.roster, b.spec, b.raw, ["someone-else"]);
+    expect(none.displaced).toEqual([{ id: "wrB", from: 2, returner: "back" }]);
+  });
+
+  it("with only kept players (and the returner) to choose from, the returner himself goes; a kept returner with everyone else kept: nobody, the roster runs over", () => {
+    const b = build({ active: team8(), returners: back(), max: 8, values: VALUES });
+    const everyone = b.roster;
+    expect(finalLineups(b.setup, b.roster, b.spec, b.raw, everyone).displaced).toEqual([{ id: "back", from: 2, returner: "back" }]);
+    const all = finalLineups(b.setup, b.roster, b.spec, b.raw, [...everyone, "back"]);
+    expect(all.displaced).toEqual([]);
+    expect(all.ev).toBe(b.raw.ev);
+  });
+
+  it("at a position whose limit binds, a kept player there is passed over (the next one at his position goes), in scenario lineups too", () => {
+    for (const S of [0, 8]) {
+      // RB limit 3, an RB back from week 2: the bench RB goes; kept, rb2 (whom the returner benches then) goes instead.
+      const b = build({ active: team8(S), returners: [{ row: row("back", "RB", 16, { from: 2, S }), at: 2 }], max: 9, values: VALUES, limits: { RB: 3 }, S });
+      expect(finalLineups(b.setup, b.roster, b.spec, b.raw).displaced, `${S} scenarios`).toEqual([{ id: "rbB", from: 2, returner: "back" }]);
+      expect(finalLineups(b.setup, b.roster, b.spec, b.raw, ["rbB"]).displaced, `${S} scenarios`).toEqual([{ id: "rb2", from: 2, returner: "back" }]);
+    }
+  });
+});
+
 describe("valueShareFrom: the share of a player's trade value left at a return week (Checkpoint 7e)", () => {
   it("his projected points from that week on over those of every week that counts, each counted week once", () => {
     const flat6 = [2, 2, 2, 2, 2, 2];

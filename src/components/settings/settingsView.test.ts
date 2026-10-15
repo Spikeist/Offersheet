@@ -30,6 +30,7 @@ import {
   PROTECT_VALUE_ESTIMATED_NOTE,
   PROTECT_VALUE_HELP,
   TRADE_VALUE_NOTE,
+  UNTOUCHABLES_HELP,
   applySettingsEdit,
   buildSettingsView,
   fallbackWords,
@@ -71,6 +72,21 @@ describe("the Trade Finder's minimum chance on this page (final review of Phase 
     // The default, or no saved settings at all: nothing to say.
     expect(view({ minChance: 0.1 }, { stored: true }).finderMinimum).toBeNull();
     expect(view({ minChance: 0.3 }, { stored: false }).finderMinimum).toBeNull();
+  });
+});
+
+describe("the League page's own settings on this page (review of wave C, UI-C-8)", () => {
+  it("names “Drop from the same position” off and the return weeks set this season, with what Reset does; else nothing", () => {
+    const season = snapshot().season;
+    expect(view({ waiverSamePosition: false }, { stored: true }).leaguePage).toBe("On the League page, Waiver upgrades' “Drop from the same position” is off. Reset to defaults sets it back too.");
+    expect(view({ returnWeeks: { "101": 9 }, returnWeeksSeason: season }, { stored: true }).leaguePage).toBe("On the League page, you've set the return week of 1 injured player. Reset to defaults sets it back too.");
+    expect(view({ waiverSamePosition: false, returnWeeks: { "101": 9, "102": 10 }, returnWeeksSeason: season }, { stored: true }).leaguePage).toBe(
+      "On the League page, Waiver upgrades' “Drop from the same position” is off and you've set the return week of 2 injured players. Reset to defaults sets them back too.",
+    );
+    // The defaults, weeks set for another season (they no longer count), or no saved settings: nothing to say.
+    expect(view({}, { stored: true }).leaguePage).toBeNull();
+    expect(view({ returnWeeks: { "101": 9 }, returnWeeksSeason: season - 1 }, { stored: true }).leaguePage).toBeNull();
+    expect(view({ waiverSamePosition: false }, { stored: false }).leaguePage).toBeNull();
   });
 });
 
@@ -434,6 +450,12 @@ describe("the player pickers", () => {
       ["Kip Kicker", "K · LV", false],
     ]);
     expect(p.untouchables.stale).toEqual([]);
+  });
+
+  it("say what untouchables do: never offered in trade ideas, never suggested as drops (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.3)", () => {
+    const p = okPlayers(view({}));
+    expect(p.untouchables.help).toBe(UNTOUCHABLES_HELP);
+    expect(UNTOUCHABLES_HELP).toBe("Trade ideas never offer these players of yours, and they're never suggested as drops: in Waiver upgrades, in a trade's roster moves or when a player comes back from IR.");
   });
 
   it("list saved untouchables who left my team, so they can be removed", () => {

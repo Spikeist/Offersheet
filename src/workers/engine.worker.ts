@@ -1,11 +1,12 @@
 /**
  * The engine's Web Worker (CLAUDE.md §3: the engine runs in a Web Worker in the browser, so the math
- * never blocks the page and costs our server nothing). It answers four messages:
+ * never blocks the page and costs our server nothing). It answers these messages:
  *
  * - `league`: build the League model (§6 projections, §7 lineups, needs and partners, §8 playoff odds,
  *   §9 values) from a snapshot, its model inputs and the user's settings for the league (src/engine/
  *   settings.ts: the positions my team streams, Phase 4 lead decision L12, and the goal its automatic playoff weight
- *   weighs my odds by, planner reply to Checkpoint 7a, §6.1).
+ *   weighs my odds by, planner reply to Checkpoint 7a, §6.1). Since Checkpoint 7e without the waiver rating, its build kept
+ *   for `waivers` (below).
  *   One reply: `league` (or `error`).
  * - `trades`: the trade search (§12, src/engine/search.ts) for the Trade Finder, with every other team or one
  *   partner. Replies: `progress` now and then, then `trades` with the result (or `error`, or `cancelled` when
@@ -38,6 +39,20 @@
  *   false` (a trade opened from a card's "If they say no, try:"; review of Phase 4b) the evaluation comes without "Offer
  *   first / if they say no" and its words are made again without them (withoutSteps), so its message proposes the trade
  *   itself, never a smaller first offer than the trade the other manager just turned down.
+ * - `waivers` (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.4): "Waiver upgrades" with the "Rest of season" list
+ *   rated by Helps you (league.ts rateWaiverUpgrades). Rating it takes about a second on Parker's league, over the lead's
+ *   rule for the League model build, so `league` builds without it (BuildLeagueModelOptions.waiverRating false) and keeps
+ *   its build (the context, the model and its seasons' odds: the last one only, about 15–26 MB on Parker's leagues, until
+ *   it's rated) when the request says the page will ask for the rating (LeagueRequest.keepForWaivers: the League page's;
+ *   review of wave C, RC-ENG-6) and the list waits for it as the page judges (waivers.waiverRatingPending: a season list
+ *   with a move to rate, odds and the "Helps you" calibration; ⚠️ a redraft season over still keeps it, though the page
+ *   then doesn't ask: until the next build, or the page closes); the Waivers section asks for the rating when it first
+ *   shows (src/lib/engineClient.ts waiverRatingFor, with the very job its model was built for), and the worker rates the
+ *   kept build when it's that job's (the same key as contextKey and the same moment), else builds the League model again
+ *   for that job and rates it, with the request's own "Protect my trade value" and Win now ↔ Future either way (the key
+ *   doesn't hold them: RC-ENG-4). One reply: `waivers` with the rated lists (null without my team, or when the list can't
+ *   be rated: no odds, or a move's season the simulator refuses), or `error`. ⚠️ One piece of work, not sliced: a
+ *   `league` request sent meanwhile waits for it (about a second).
  * - `cancel` { id }: stops that search or re-filter (a `cancelled` reply follows); anything else is ignored.
  *
  * The evaluation context (evaluate.ts buildTradeContext: projections, scenarios, every team's free-agent-
@@ -61,12 +76,13 @@
  */
 import { analyzeTrade, buildTradeContext, tradeInternals, withWords, type TradeAnalysis, type TradeContext, type TradeInternals } from "@/engine/evaluate";
 import type { ModelInputs } from "@/engine/inputs";
-import { buildLeagueModel } from "@/engine/league";
-import type { LeagueModel } from "@/engine/leagueModel";
+import { buildLeagueModel, buildLeagueModelWithContext, rateWaiverUpgrades, type BuildLeagueModelOptions, type LeagueModelBuild } from "@/engine/league";
+import type { LeagueModel, WaiverUpgrades } from "@/engine/leagueModel";
 import type { LeagueSnapshot } from "@/engine/model";
 import { refilterSearch, searchStateOf, tradeSearch } from "@/engine/search";
 import { normalizeTradeSettings, type TradeSettings } from "@/engine/settings";
 import type { TradeAsset, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeSearchProgress, TradeSearchResult } from "@/engine/tradeModel";
+import { waiverRatingPending } from "@/engine/waivers";
 import { LEAGUE_MODEL_SETTINGS, settingsFingerprint } from "@/lib/settingsStore";
 import { contextStillValid } from "./freshness";
 
@@ -86,6 +102,12 @@ interface LeagueJobFields {
 /** Build the League model for this snapshot, with "my team" as the user picked it. */
 export interface LeagueRequest extends LeagueJobFields {
   type: "league";
+  /**
+   * The page asks for the "Rest of season" list's rating next (`waivers`), so the build is kept for it (the header). Only the
+   * League page sets it; the Settings page's playoff-weight build never asks, so it keeps nothing (review of wave C,
+   * RC-ENG-6: it held a build of 15–26 MB while that page was open).
+   */
+  keepForWaivers?: boolean;
 }
 
 /** Search for trade ideas (§12): with every other team, or only `partnerId`. */
@@ -116,13 +138,18 @@ export interface AnalyzeRequest extends LeagueJobFields {
   steps?: boolean;
 }
 
+/** "Waiver upgrades" with the season list rated by Helps you (the header: Checkpoint 7e), for the job a League model was built for. */
+export interface WaiversRequest extends LeagueJobFields {
+  type: "waivers";
+}
+
 /** Stop the search with this id. */
 export interface CancelRequest {
   type: "cancel";
   id: number;
 }
 
-export type EngineRequest = LeagueRequest | TradesRequest | RefilterRequest | AnalyzeRequest | CancelRequest;
+export type EngineRequest = LeagueRequest | TradesRequest | RefilterRequest | AnalyzeRequest | WaiversRequest | CancelRequest;
 
 /** My odds before any trade, every team at its free-agent-optimized roster: the search's TradeSearchResult.baseline. */
 export type BaselineOdds = TradeSearchResult["baseline"];
@@ -140,6 +167,8 @@ export type EngineResponse =
   | { type: "progress"; id: number; progress: TradeSearchProgress }
   | { type: "trades"; id: number; result: TradeSearchResult }
   | { type: "analysis"; id: number; result: AnalyzerResult }
+  /** The rated "Waiver upgrades" (null without my team). */
+  | { type: "waivers"; id: number; result: WaiverUpgrades | null }
   /** A search stopped by a `cancel` or superseded by a newer search: nothing more comes for it. */
   | { type: "cancelled"; id: number }
   /** `message` is for people; `detail` (the error itself) is for the console. */
@@ -154,8 +183,11 @@ export const SEARCH_SLICE_MS = 40;
 export const KEPT_RESULTS = 4;
 
 export interface EngineHandlerDeps {
-  /** The League model builder (tests pass a fake). */
+  /** The League model builder (tests pass a fake): given, `league` uses it and keeps no build (the `waivers` request then builds). */
   build?: typeof buildLeagueModel;
+  /** The League model builder that keeps its build (the header, `waivers`), and the rating of a kept build (tests pass fakes). */
+  buildWithContext?: typeof buildLeagueModelWithContext;
+  rateWaivers?: typeof rateWaiverUpgrades;
   /** The trade engine (tests pass fakes): the evaluation context, the search generator and the Analyzer. */
   buildContext?: typeof buildTradeContext;
   search?: typeof tradeSearch;
@@ -188,7 +220,7 @@ export function isProposal(x: unknown): x is TradeProposal {
   return isRecord(x) && typeof x.partnerId === "string" && Array.isArray(x.give) && Array.isArray(x.get) && x.give.every(isAsset) && x.get.every(isAsset);
 }
 
-function isJob(x: unknown): x is LeagueRequest | TradesRequest | RefilterRequest | AnalyzeRequest {
+function isJob(x: unknown): x is LeagueRequest | TradesRequest | RefilterRequest | AnalyzeRequest | WaiversRequest {
   if (!isRecord(x)) return false;
   const r = x as Partial<LeagueJobFields> & { type?: unknown; partnerId?: unknown; proposal?: unknown; of?: unknown };
   const common =
@@ -201,7 +233,7 @@ function isJob(x: unknown): x is LeagueRequest | TradesRequest | RefilterRequest
     typeof r.nowIso === "string";
   if (!common) return false;
   const partnerOk = r.partnerId === undefined || r.partnerId === null || typeof r.partnerId === "string";
-  if (r.type === "league") return true;
+  if (r.type === "league" || r.type === "waivers") return true;
   if (r.type === "trades") return partnerOk;
   if (r.type === "refilter") return partnerOk && typeof r.of === "number";
   if (r.type === "analyze") return isProposal(r.proposal);
@@ -288,7 +320,9 @@ const defaultSchedule = (fn: () => void): void => void setTimeout(fn, 0);
  * request's id (-1 when the message has none).
  */
 export function createEngineHandler(post: (response: EngineResponse) => void, deps: EngineHandlerDeps = {}): (message: unknown) => void {
-  const build = deps.build ?? buildLeagueModel;
+  const build = deps.build;
+  const buildWithContext = deps.buildWithContext ?? buildLeagueModelWithContext;
+  const rateWaivers = deps.rateWaivers ?? rateWaiverUpgrades;
   const buildContext = deps.buildContext ?? buildTradeContext;
   const search = deps.search ?? tradeSearch;
   const analyze = deps.analyze ?? analyzeTrade;
@@ -303,6 +337,11 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
   const timing = deps.clock ? { clock: deps.clock } : {};
 
   let cached: { key: string; builtForMs: number; ctx: TradeContext } | null = null;
+  /**
+   * The last `league` request's build (the header, `waivers`): its key (contextKey), its moment, the build, the inputs and
+   * options it was made with. Replaced by the next one; none with a fake builder (deps.build).
+   */
+  let keptLeague: { key: string; nowIso: string; built: LeagueModelBuild; inputs: ModelInputs; opts: BuildLeagueModelOptions } | null = null;
   /** The search or re-filter under way (one at a time); null when none. */
   let active: { id: number } | null = null;
   /**
@@ -454,7 +493,37 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
     switch (message.type) {
       case "league":
         try {
-          post({ type: "league", id, result: build({ ...message.snapshot, myTeamId: message.myTeamId }, message.model, { now, settings, ...timing }) });
+          const snap = { ...message.snapshot, myTeamId: message.myTeamId };
+          if (build) {
+            post({ type: "league", id, result: build(snap, message.model, { now, settings, ...timing }) });
+            return;
+          }
+          // Without the waiver rating (the header: `waivers` rates it), the build kept for that request when the page will ask
+          // for it (keepForWaivers) and the list waits for it, as the page judges (waivers.waiverRatingPending: a season list
+          // with a move to rate on the build's odds); a build holds about 15–26 MB on Parker's leagues, its model 1 MB.
+          const opts: BuildLeagueModelOptions = { now, settings, waiverRating: false, ...timing };
+          keptLeague = null; // a build that fails leaves nothing behind
+          const built = buildWithContext(snap, message.model, opts);
+          const m = built.model;
+          if (message.keepForWaivers === true && waiverRatingPending(m)) keptLeague = { key: contextKey(message, settings), nowIso: message.nowIso, built, inputs: message.model, opts };
+          post({ type: "league", id, result: m });
+        } catch (err) {
+          fail(id, err);
+        }
+        return;
+      case "waivers":
+        try {
+          // The kept build when it's this job's (the same key and moment), else the League model built again for the job
+          // (not kept: the kept build stays the last `league` request's); rated either way.
+          const kept = keptLeague && keptLeague.key === contextKey(message, settings) && keptLeague.nowIso === message.nowIso ? keptLeague : null;
+          const opts: BuildLeagueModelOptions = { now, settings, waiverRating: false, ...timing };
+          const job = kept ?? { built: buildWithContext({ ...message.snapshot, myTeamId: message.myTeamId }, message.model, opts), inputs: message.model, opts };
+          // The request's own settings: "Protect my trade value" and Win now ↔ Future, which the rating reads and the key
+          // doesn't (review of wave C, RC-ENG-4; league.ts rateWaiverUpgrades), are this request's, not the kept build's.
+          const result = rateWaivers(job.built, job.inputs, { ...job.opts, settings });
+          // Rated once (the page asks once per model: engineClient.waiverRatingFor), so the kept build's memory goes.
+          if (kept && keptLeague === kept) keptLeague = null;
+          post({ type: "waivers", id, result });
         } catch (err) {
           fail(id, err);
         }

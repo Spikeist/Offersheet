@@ -85,6 +85,7 @@ function LeagueCard({ view, onReset, status }: { view: SettingsView; onReset: ()
           : "This league uses the defaults. Change anything below and it's saved in this browser for this league."}
       </p>
       {view.finderMinimum ? <p className="mt-2 text-sm text-muted">{view.finderMinimum}</p> : null}
+      {view.leaguePage ? <p className="mt-2 text-sm text-muted">{view.leaguePage}</p> : null}
       {status?.tone === "error" ? (
         <div className="mt-3">
           <Callout tone="danger" role="alert" title="That change wasn't saved">
@@ -562,7 +563,7 @@ function Untouchables({ players, onEdit }: { players: PlayersOk; onEdit: (edit: 
   const u = players.untouchables;
   const removal = useRemoveFocus(u.stale.map((s) => s.id));
   return (
-    <Group legend="Untouchables" help="Trade ideas never offer these players of yours." legendRef={removal.legend}>
+    <Group legend="Untouchables" help={u.help} legendRef={removal.legend}>
       <div className="grid gap-1 sm:grid-cols-2">
         {u.choices.map((c) => (
           <CheckRow key={c.value} label={c.label} detail={c.detail} checked={c.checked} onChange={(on) => onEdit({ kind: "untouchable", id: c.value, on })} />

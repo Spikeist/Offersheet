@@ -136,7 +136,8 @@ export function resetLeagueSettings(storage: StorageLike, key: string): SaveResu
  * high scores are simulated; a split with nothing entered or a goal that ignores the prizes builds the same model, which
  * only costs a rebuild). Since Checkpoint 7e (planner reply to Checkpoint 7d, items 3.2, 3.3 and 3.5) also the untouchables
  * (never dropped: my pickups, IR returns, Waiver upgrades), "Drop from the same position" (Waiver upgrades) and the return
- * weeks the user sets (his injured players' availability). The manual playoff weight left the list
+ * weeks the user sets (his injured players' availability), with the season they were set for (they count in that season
+ * only: review of wave C, UI-C-3). The manual playoff weight left the list
  * then, and the settings with it (src/engine/settings.ts: a copy stored before still loads, without it). The others (Win
  * now ↔ Future, players per side, must-include
  * players, positions to target or avoid, what else trade ideas include) are the trade search's alone, so changing one of
@@ -145,7 +146,19 @@ export function resetLeagueSettings(storage: StorageLike, key: string): SaveResu
  * a new split builds a new one. Keep it in step with league.ts: settingsStore.test.ts builds a League model with every other setting
  * changed and checks that nothing in it moves.
  */
-export const LEAGUE_MODEL_SETTINGS = ["streamPositions", "goal", "prizes", "untouchables", "waiverSamePosition", "returnWeeks"] as const satisfies readonly (keyof TradeSettings)[];
+export const LEAGUE_MODEL_SETTINGS = ["streamPositions", "goal", "prizes", "untouchables", "waiverSamePosition", "returnWeeks", "returnWeeksSeason"] as const satisfies readonly (keyof TradeSettings)[];
+
+/**
+ * The settings Waiver upgrades' "Rest of season" rating reads besides those (Checkpoint 7e, item 3.4; league.ts
+ * rateWaiverUpgrades, which the League page's engine worker runs on its own request), as a trade's Helps you does: in a
+ * redraft league "Protect my trade value" (the market term), in a dynasty or keeper league Win now ↔ Future (the mix and its
+ * scale). Nothing else of the League model reads them, so the trade context isn't keyed by them; the League page's compute
+ * tag is, by its league's type (LeaguePage.tsx computeTagFor: review of wave C, RC-ENG-4: a change saved in another tab left
+ * its Helps you as it was; a redraft league's page still ignores the Win now ↔ Future slider, which it doesn't read).
+ */
+export function waiverRatingSettings(leagueType: LeagueSnapshot["settings"]["leagueType"]): readonly (keyof TradeSettings)[] {
+  return leagueType === "redraft" ? ["protectValue"] : ["lambda"];
+}
 
 /**
  * The settings as one stable string: equal settings give equal text whatever the order of their lists

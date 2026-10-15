@@ -192,6 +192,14 @@ describe("with a league", () => {
     expect(html).toMatch(/<button type="button" class="[^"]*">Reset to defaults<\/button>/);
   });
 
+  it("names the League page's own settings in the league's card too, and what Reset does to them (review of wave C, UI-C-8)", () => {
+    const settings = { ...defaultTradeSettings(), waiverSamePosition: false, returnWeeks: { [snap.teams[0]?.roster[0] ?? "x"]: 9 }, returnWeeksSeason: snap.season };
+    const html = render({ league: "current", myTeam: "1", settings });
+    expect(textOf(html)).toContain(
+      "The League page and trade ideas use them. On the League page, Waiver upgrades' “Drop from the same position” is off and you've set the return week of 1 injured player. Reset to defaults sets them back too.",
+    );
+  });
+
   it("links each group's help text to its fieldset, and gives every control a 44 px target", () => {
     const html = render({ league: "current", myTeam: "1" });
     for (const [, id] of html.matchAll(/<fieldset aria-describedby="([^"]+)"/g)) expect(html).toContain(`<p id="${id}" class=`);
@@ -200,6 +208,11 @@ describe("with a league", () => {
     // The must-include picker: a labeled select grouped by team (mine first), with an Add button.
     expect(html).toMatch(/<label for="([^"]+)" class="sr-only">Player to include<\/label><select id="\1"/);
     expect([...html.matchAll(/<optgroup label="([^"]+)">/g)].map((m) => m[1])).toEqual(["Your team", "Team Two", "Team Three"]);
+    // The untouchables' help (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.3): never offered, never suggested as drops.
+    const untouchables = html.match(/<fieldset aria-describedby="([^"]+)"[^>]*><legend[^>]*>Untouchables<\/legend>/);
+    expect(untouchables).not.toBeNull();
+    const help = html.match(new RegExp(`<p id="${untouchables?.[1] ?? ""}" class="[^"]*">(.*?)</p>`));
+    expect(textOf(help?.[1] ?? "")).toBe("Trade ideas never offer these players of yours, and they're never suggested as drops: in Waiver upgrades, in a trade's roster moves or when a player comes back from IR.");
   });
 
   it("points to the Import Report when it doesn't know which team is mine", () => {

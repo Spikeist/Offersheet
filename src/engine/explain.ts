@@ -131,7 +131,9 @@
  * the platform gave one and his projection counts on it
  * (review of track F): OUT from next week on, IR, PUP and SUSPENDED after this week, and a Probable, Questionable or
  * Doubtful player's far ESPN date only when his projection follows it (§6 step 3's conflict: tagContextOf reads it from
- * the League model; a caller without it keeps no such date).
+ * the League model; a caller without it keeps no such date). Since Checkpoint 7e (planner reply to Checkpoint 7d, item 3.5;
+ * review of wave C, RC-ENG-1) one of my players with a return week of the user's has that week in his tag, whatever his
+ * status, marked as the user's: his numbers follow it (tagContextOf reads the weeks the engine follows from the settings).
  *
  * Robust to missing data: a null B or odds, empty detail lists, NaN numbers, unknown players ("Unknown player (id)")
  * and slot keys the context doesn't list (the key itself), premium facts and steps that don't fit the trade all
@@ -142,7 +144,8 @@ import { farReturnWeek } from "./availability";
 import { benefitNotes } from "./benefit";
 import { config } from "./config";
 import type { PlayerModel, SlotInstance } from "./leagueModel";
-import { POSITIONS, type InjuryStatus, type LeagueSettings, type LeagueSnapshot, type PlayerInfo, type Pos } from "./model";
+import { POSITIONS, type InjuryStatus, type LeagueSettings, type PlayerInfo, type Pos } from "./model";
+import { userReturnWeeks, type ReturnWeekSettings, type ReturnWeekSnapshot } from "./returnWeeks";
 import type { InjuryTag, SlotChange, TradeAsset, TradeDetail, TradeEvaluationCore, TradeProposal } from "./tradeModel";
 
 /** What the words need besides the evaluation: names (the app's real ones, or the report's placeholders) and the league's facts. */
@@ -998,16 +1001,29 @@ export interface TagContext {
    * conflict, PlayerModel.availabilityNote.used "returnDate"); without it, no such player's date is kept.
    */
   followsReturnDate?: ((playerId: string) => boolean) | undefined;
+  /**
+   * The user's own return week for one of my injured players (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.5:
+   * "the new week works like a return week from the platform"; returnWeeks.ts userReturnWeeks, the weeks the engine follows),
+   * which his tag says in place of the platform's whatever his status (review of wave C, RC-ENG-1: the card's numbers
+   * followed it while its tag kept the platform's week, or lost it). Undefined: none.
+   */
+  userReturnWeek?: ((playerId: string) => number | undefined) | undefined;
 }
 
 /**
  * The tag context of a league (injuryTags; evaluate.ts withWords reads it for the trade search's and the Analyzer's
  * evaluations alike): the week now, and, from the League model, which conflicted Probable, Questionable or Doubtful players'
  * projections follow their ESPN return date (PlayerModel.availabilityNote.used "returnDate"; review of track F: Josh
- * Jacobs, out until ESPN's week 8 in his numbers, read just "Questionable"). Structural, so TradeInternals fits.
+ * Jacobs, out until ESPN's week 8 in his numbers, read just "Questionable"), and with `settings` the user's own return weeks
+ * the engine follows (Checkpoint 7e: returnWeeks.ts userReturnWeeks). Structural, so TradeInternals fits.
  */
-export function tagContextOf(x: { snapshot: Pick<LeagueSnapshot, "currentWeek">; model: { players: Readonly<Record<string, Pick<PlayerModel, "availabilityNote"> | undefined>> } }): TagContext {
-  return { currentWeek: x.snapshot.currentWeek, followsReturnDate: (id) => x.model.players[id]?.availabilityNote?.used === "returnDate" };
+export function tagContextOf(x: {
+  snapshot: ReturnWeekSnapshot;
+  model: { players: Readonly<Record<string, Pick<PlayerModel, "availabilityNote"> | undefined>> };
+  settings?: ReturnWeekSettings | undefined;
+}): TagContext {
+  const user = userReturnWeeks(x.snapshot, x.settings);
+  return { currentWeek: x.snapshot.currentWeek, followsReturnDate: (id) => x.model.players[id]?.availabilityNote?.used === "returnDate", userReturnWeek: (id) => user.get(id) };
 }
 
 /**
@@ -1045,8 +1061,9 @@ function keepsReturnWeek(status: Exclude<InjuryStatus, "ACTIVE">, R: number, cur
  * Probable, Questionable or Doubtful players follow their date; review of track F: Josh Jacobs, Questionable with ESPN's
  * week 8, read just "Questionable" while his numbers had him out until then, and an OUT date already past would have
  * read "expected back week 3" in week 4). A week after the NFL's last week is kept (not back this season, §4: the card
- * words it). Picks, players the snapshot doesn't know and statuses it doesn't name carry no tag. Pure: `players` is
- * snapshot.players or any table like it.
+ * words it). The user's own week for one of my players (TagContext.userReturnWeek; Checkpoint 7e) is his returnWeek
+ * whatever his status, marked returnSource "user". Picks, players the snapshot doesn't know and statuses it doesn't name
+ * carry no tag. Pure: `players` is snapshot.players or any table like it.
  */
 export function injuryTags(proposal: Pick<TradeProposal, "give" | "get">, players: TagSource, ctx: TagContext = {}): InjuryTag[] {
   const out: InjuryTag[] = [];
@@ -1058,6 +1075,12 @@ export function injuryTags(proposal: Pick<TradeProposal, "give" | "get">, player
       const status = info?.injury;
       if (status === undefined || status === "ACTIVE" || !(status in INJURY_WORDS)) continue;
       seen.add(a.id);
+      // The user's own week for one of mine (Checkpoint 7e: TagContext.userReturnWeek), followed whatever his status.
+      const user = ctx.userReturnWeek?.(a.id);
+      if (typeof user === "number" && Number.isInteger(user)) {
+        out.push({ playerId: a.id, side: which, status, returnWeek: user, returnSource: "user" });
+        continue;
+      }
       const week = info?.injuryReturnWeek;
       const keep = typeof week === "number" && Number.isInteger(week) && keepsReturnWeek(status, week, ctx.currentWeek, ctx.followsReturnDate?.(a.id) === true);
       out.push({ playerId: a.id, side: which, status, ...(keep ? { returnWeek: week } : {}) });

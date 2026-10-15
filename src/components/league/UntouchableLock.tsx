@@ -7,30 +7,52 @@
  * player comes back from IR).
  *
  * The icon is an inline SVG (no icon library): a closed lock when he's untouchable, an open one when not. Never color
- * alone: the button's accessible name says which (aria-pressed too), and its title shows it on hover. 44 px square on
- * every screen (a tap target). A change the browser refuses shows its reason next to the button (role alert). Without a
- * League page around it (LeagueSettingsEditContext), or for a player who isn't mine, render nothing: the caller decides.
+ * alone: a toggle button (aria-pressed) whose accessible name stays the same whichever way it's set, "Untouchable: Romeo
+ * Doubs" (review of wave C, UI-C-10: a name that also changed with the state was read as "Romeo Doubs is untouchable.
+ * Unlock him, toggle button, pressed"), with what pressing it does on hover (its title: "Lock Romeo Doubs as untouchable" /
+ * "Romeo Doubs is untouchable. Unlock him"). 44 px square on every screen (a tap target). A change the browser refuses shows
+ * its reason next to the button (role alert); a lock that also takes him off the must-include players says so (role status:
+ * "Romeo Doubs is no longer a must-include player.", the Settings page's own note; review of wave C, UI-C-9). The button
+ * carries his id (data-untouchable-lock), so a list that redraws after a change can put focus back on his lock (Waiver
+ * upgrades). Without a League page around it (LeagueSettingsEditContext), or for a player who isn't mine, render nothing:
+ * the caller decides.
  */
 import { useState } from "react";
 import { cx } from "../ui";
 import { useLeagueSettingsEdit } from "./leagueSettingsEdit";
 
-/** The button's accessible name (and title): what pressing it does, and the state it's in. */
+/** The button's accessible name: the same whichever way it's set (aria-pressed says which). */
+export function untouchableLockName(name: string): string {
+  return `Untouchable: ${name}`;
+}
+
+/** The button's title (hover): what pressing it does, and the state it's in. */
 export function untouchableLockLabel(name: string, locked: boolean): string {
   return locked ? `${name} is untouchable. Unlock him` : `Lock ${name} as untouchable`;
+}
+
+/** The attribute a lock's button carries its player's id in (Waiver upgrades finds it again after a redraw). */
+export const LOCK_PLAYER_ATTRIBUTE = "data-untouchable-lock";
+
+/** The CSS selector of my player `id`'s lock buttons (LOCK_PLAYER_ATTRIBUTE). */
+export function lockSelector(id: string): string {
+  return `button[${LOCK_PLAYER_ATTRIBUTE}="${id.replace(/["\\]/g, "\\$&")}"]`;
 }
 
 /** The lock button for my player `playerId` (named `name` in its label). */
 export function UntouchableLock({ playerId, name, className }: { playerId: string; name: string; className?: string }) {
   const edit = useLeagueSettingsEdit();
   const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   if (!edit) return null;
   const locked = edit.isUntouchable(playerId);
-  const label = untouchableLockLabel(name, locked);
+  const title = untouchableLockLabel(name, locked);
   const toggle = () => {
     setError(null);
-    void edit.setUntouchable(playerId, !locked).then((r) => {
+    setNote(null);
+    void edit.setUntouchable(playerId, !locked, name).then((r) => {
       if (!r.ok) setError(r.message);
+      else if (r.note) setNote(r.note);
     });
   };
   return (
@@ -38,8 +60,9 @@ export function UntouchableLock({ playerId, name, className }: { playerId: strin
       <button
         type="button"
         aria-pressed={locked}
-        aria-label={label}
-        title={label}
+        aria-label={untouchableLockName(name)}
+        title={title}
+        data-untouchable-lock={playerId}
         onClick={toggle}
         className={cx(
           "inline-flex size-11 shrink-0 items-center justify-center rounded-xl border transition-colors",
@@ -48,6 +71,10 @@ export function UntouchableLock({ playerId, name, className }: { playerId: strin
       >
         <LockIcon closed={locked} />
       </button>
+      {/* Always there (out of the layout while empty), so a note put in it is announced. */}
+      <span role="status" className={note && !error ? "text-xs text-muted" : "sr-only"}>
+        {note && !error ? note : ""}
+      </span>
       {error ? (
         <span role="alert" className="text-xs font-semibold text-danger-fg">
           {error}
@@ -57,7 +84,7 @@ export function UntouchableLock({ playerId, name, className }: { playerId: strin
   );
 }
 
-/** A padlock, closed or open (decorative: the button's label says it). */
+/** A padlock, closed or open (decorative: the button's name and state say it). */
 function LockIcon({ closed }: { closed: boolean }) {
   return (
     <svg aria-hidden="true" viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">

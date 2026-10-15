@@ -539,13 +539,19 @@ const INJURED_NOTE: ReadonlySet<InjuryTag["status"]> = new Set<InjuryTag["status
  * (seasonEndOf); without a season end, the week is said. A Probable, Questionable or Doubtful tag with a week is the
  * platform's far return date his projection follows (§6 step 3's conflict), said as the platform's (`source`, "ESPN"):
  * "Questionable — ESPN expects him back week 8", "Questionable — ESPN expects him out for the season". NA never says a
- * week.
+ * week. The user's own week (returnSource "user"; Checkpoint 7e, planner reply to Checkpoint 7d, item 3.5; review of wave
+ * C, RC-ENG-1), whatever the status, as the roster card marks it: "On IR — expected back week 9 (your week)",
+ * "Questionable — expected back week 7 (your week)", "Out for the season (your week)".
  */
-export function injuryTagText(tag: Pick<InjuryTag, "status" | "returnWeek">, seasonEnd?: number, source?: string): string {
+export function injuryTagText(tag: Pick<InjuryTag, "status" | "returnWeek" | "returnSource">, seasonEnd?: number, source?: string): string {
   const base = TAG_WORDS[tag.status] ?? "Injured";
   const r = tag.returnWeek;
   if (tag.status === "NA" || r === undefined || !Number.isFinite(r)) return base;
   const afterSeason = seasonEnd !== undefined && Number.isFinite(seasonEnd) && r > seasonEnd;
+  if (tag.returnSource === "user") {
+    if (afterSeason) return `${GAME_TIME.has(tag.status) ? `${base} — out` : tag.status === "SUSPENDED" ? "Suspended" : "Out"} for the season (your week)`;
+    return `${base} — ${tag.status === "SUSPENDED" ? "back" : "expected back"} week ${r} (your week)`;
+  }
   if (GAME_TIME.has(tag.status)) {
     const who = source ? `${source} expects him` : "expected";
     return `${base} — ${who} ${afterSeason ? "out for the season" : `back week ${r}`}`;

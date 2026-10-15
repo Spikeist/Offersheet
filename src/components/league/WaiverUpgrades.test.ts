@@ -12,10 +12,27 @@ import { describe, expect, it } from "vitest";
 import { config } from "@/engine/config";
 import { buildLeagueModel, type LeagueModelConfig } from "@/engine/league";
 import type { Pos } from "@/engine/model";
+import { defaultTradeSettings, type TradeSettings } from "@/engine/settings";
 import { TEST_NOW, buildTestLeague, type TestPlayer } from "@/engine/testLeague";
 import { buildLeagueView } from "@/lib/leagueView";
-import { DEPTH_ONLY_TAG, DEPTH_ONLY_WORDS, WAIVERS_INTRO, WAIVERS_NO_TEAM, WAIVERS_NO_WEEKS, WAIVERS_PICK_TEAM, WAIVERS_SECTION_ID, buildWaiversView, type WaiverRowView, type WaiversView } from "@/lib/waiversView";
+import {
+  DEPTH_ONLY_TAG,
+  DEPTH_ONLY_WORDS,
+  SAME_POSITION_HELP,
+  SAME_POSITION_HINT,
+  SAME_POSITION_LABEL,
+  UNTOUCHABLES_LABEL,
+  WAIVERS_INTRO,
+  WAIVERS_NO_TEAM,
+  WAIVERS_NO_WEEKS,
+  WAIVERS_PICK_TEAM,
+  WAIVERS_SECTION_ID,
+  buildWaiversView,
+  type WaiverRowView,
+  type WaiversView,
+} from "@/lib/waiversView";
 import { LeagueView } from "./LeagueView";
+import { LeagueSettingsEditContext } from "./leagueSettingsEdit";
 import { WaiverUpgrades, WaiverUpgradesCard, WaiversViewContext } from "./WaiverUpgrades";
 import { NOW, leagueFixture } from "./testFixtures";
 
@@ -114,7 +131,7 @@ describe("WaiverUpgradesCard", () => {
     expect(text).toContain(`Points ${first.rosText} rest of season · Wk 4: ${first.weekText}`);
     expect(text).toContain(`Better than ${first.betterThan}`);
     expect(text).toContain(`Lineup gain: ${first.gain.text}`);
-    expect(text).toContain(first.drop ?? "");
+    expect(text).toContain(first.dropText ?? "");
     // Oscar Hurt is out this week: his tag is a word.
     const hurt = view.ros?.rows.find((r) => r.name === "Oscar Hurt");
     expect(hurt?.injury?.long).toBe("Out");
@@ -177,5 +194,69 @@ describe("WaiverUpgrades on the League page", () => {
     expect(partners).toBeGreaterThan(0);
     expect(waivers).toBeGreaterThan(partners);
     expect(streaming).toBeGreaterThan(waivers);
+  });
+});
+
+describe("Checkpoint 7e: one move per row, the switch and the locks (planner reply to Checkpoint 7d, items 3.1–3.3)", () => {
+  /** MINE plus five bench players who never start: a full roster of 16 (every pickup drops someone); the league's settings as given. */
+  const BENCH: TestPlayer[] = [p("b1", "RB", 1, "Benny One"), p("b2", "RB", 1.5, "Benny Two"), p("b3", "WR", 1, "Bert Three"), p("b4", "WR", 1.5, "Bert Four"), p("b5", "QB", 3, "Bo Five"), p("b6", "TE", 1, "Bud Six")];
+  function fullView(settings: TradeSettings = defaultTradeSettings()): WaiversView {
+    const fas = [p("fa1", "RB", 13, "Frankie Burst"), p("fa3", "WR", 12, "Fritz Wide")];
+    const l = buildTestLeague({ platform: "espn", teams: [{ id: "1", roster: [...MINE, ...BENCH] }, { id: "2", roster: [p("q2", "QB", 18, "Other QB")] }], freeAgents: fas });
+    const model = buildLeagueModel(l.snapshot, l.inputs, { now: TEST_NOW, sims: 0, settings }, NO_RISK);
+    const v = buildWaiversView({ snapshot: l.snapshot, model, inputs: l.inputs, timeZone: "America/New_York", now: TEST_NOW.toISOString() });
+    if (!v) throw new Error("no waivers view");
+    return v;
+  }
+  const withEdit = (view: WaiversView, settings: TradeSettings) => renderToStaticMarkup(createElement(LeagueSettingsEditContext, { value: { leagueKey: "test-key", settings, season: 2026 } }, createElement(WaiverUpgradesCard, { view })));
+
+  it("a row reads as one move: “Add” him, “Drop” the player named with his position, the two numbers on its right", () => {
+    const view = fullView();
+    const text = textOf(renderToStaticMarkup(createElement(WaiverUpgradesCard, { view })));
+    expect(text).toContain("Add Frankie Burst RB · AAA · bye unknown");
+    expect(text).toContain("Drop B. One (RB)");
+    const r = view.ros?.rows.find((x) => x.name === "Frankie Burst");
+    expect(text).toContain(`Lineup gain: ${r?.main.text ?? "?"} ${r?.outscores ?? "?"}`);
+  });
+
+  it("with the League page's settings: the switch (role switch, its help linked), and a 44 px lock next to each drop", () => {
+    const settings = defaultTradeSettings();
+    const html = withEdit(fullView(settings), settings);
+    // React writes checked="" last.
+    const sw = /<input type="checkbox" role="switch" aria-describedby="([^"]+)" class="([^"]*)"( checked="")?\/>/.exec(html);
+    expect(sw).not.toBeNull();
+    expect(sw?.[3]).toBe(' checked=""');
+    expect(html).toContain(`<p id="${sw?.[1] ?? "?"}" class="text-xs text-muted">${SAME_POSITION_HELP}</p>`);
+    expect(html).toMatch(/<label class="[^"]*min-h-11[^"]*">[\s\S]*?Drop from the same position<\/label>/);
+    expect(textOf(html)).toContain(SAME_POSITION_LABEL);
+    // The lock next to the drop: what pressing it does, in words (never color alone), 44 px.
+    // One name whichever way it's set, the state in aria-pressed, what pressing it does on hover (review of wave C, UI-C-10).
+    expect(html).toMatch(/<button type="button" aria-pressed="false" aria-label="Untouchable: Benny One" title="Lock Benny One as untouchable" data-untouchable-lock="b1" class="[^"]*size-11[^"]*">/);
+    // Off: the switch unchecked.
+    const off = { ...settings, waiverSamePosition: false };
+    expect(withEdit(fullView(off), off)).toMatch(/<input type="checkbox" role="switch" aria-describedby="[^"]+" class="[^"]*"\/>/);
+  });
+
+  it("my untouchables above the lists, each with a lock to unlock him; a move only they could make room for says so, with the switch's suggestion", () => {
+    const settings = { ...defaultTradeSettings(), untouchables: ["w1", "w2", "w3", "b3", "b4"] };
+    const view = fullView(settings);
+    const html = withEdit(view, settings);
+    const text = textOf(html);
+    expect(text).toContain(`${UNTOUCHABLES_LABEL} W. Catch`);
+    expect(html).toMatch(/aria-pressed="true" aria-label="Untouchable: Wes Catch" title="Wes Catch is untouchable. Unlock him" data-untouchable-lock="w1"/);
+    // Fritz Wide (WR): every WR of mine who could go is untouchable (the trade's words: review of wave C, UI-C-4), named.
+    expect(text).toContain(`Every WR you could drop is untouchable: W. Catch, W. Hands, W. Route, B. Three, B. Four. ${SAME_POSITION_HINT}`);
+    expect(text).toContain("Lineup gain: Can't add");
+    // Its number's hover says why, as the row does (UI-C-4), never "None of your players can make room".
+    const fritz = view.ros?.rows.find((r) => r.name === "Fritz Wide");
+    expect(fritz?.main.title).toBe(`Every WR you could drop is untouchable: W. Catch, W. Hands, W. Route, B. Three, B. Four. ${SAME_POSITION_HINT}`);
+    // The locks to unlock them are on the untouchables line alone, never repeated on the row (review of wave C, UI-C-7).
+    expect(html.match(/aria-pressed="true" aria-label="Untouchable: /g)).toHaveLength(5);
+  });
+
+  it("without the League page's settings (a test, another page): no switch and no locks", () => {
+    const html = renderToStaticMarkup(createElement(WaiverUpgradesCard, { view: fullView() }));
+    expect(html).not.toContain('role="switch"');
+    expect(html).not.toContain("untouchable");
   });
 });

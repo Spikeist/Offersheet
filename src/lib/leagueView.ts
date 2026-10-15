@@ -187,6 +187,7 @@ import type {
   LineupValues,
   PlayerModel,
   PlayerPremium,
+  ReturnWeekSource,
   SeasonOdds,
   SlotStrength,
   TeamModel,
@@ -199,6 +200,7 @@ import { fantasyCalcFallbackText, fantasyCalcFormat, fantasyCalcFormatLabel, not
 import { POSITIONS, type InjuryStatus, type LeagueSettings, type LeagueSnapshot, type Platform, type PlayerInfo, type Pos, type Team } from "@/engine/model";
 import { actualWeightFor } from "@/engine/projections";
 import { TITLE_ONLY, prizeStillMovable, type Reward } from "@/engine/reward";
+import { RETURN_WEEK_MAX } from "@/engine/settings";
 import { DIVISION_RULE_ASSUMED, weekList, weekUnderWayNote } from "@/engine/season";
 import { fmtNum, fmtSigned, fmtWhole, formatShortDateTime, plural, recordText } from "./format";
 import { allocationBasis, inactiveWindowText, waiverOrderText } from "./importReport";
@@ -477,6 +479,52 @@ export interface PlayerRow {
   weeks: WeekRow[];
   /** The week-by-week breakdown as plain text (hover), after the conflict note and the market blend's line when he has them. */
   weeksText: string;
+  /**
+   * My roster card's lock (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.3: "users can do it from the roster card"):
+   * true for my players on my active roster and IR, where a lock icon marks him untouchable; false for everyone else (never
+   * another team's player, a free agent, or my taxi squad, which no trade or drop reaches).
+   */
+  lockable: boolean;
+  /**
+   * When one of my players the model has out now is expected back, with the way to change it (item 3.5; ReturnWeekRow,
+   * PlayerModel.expectedReturn); null for everyone else.
+   */
+  returnWeek: ReturnWeekRow | null;
+}
+
+/**
+ * One of my injured players' expected return week on my roster card and in his breakdown (Checkpoint 7e; planner reply to
+ * Checkpoint 7d, item 3.5: "each injured player (OUT, IR, PUP, SUSPENDED) shows 'Expected back: week N.' Marked 'ESPN'
+ * when the platform gives the week. Marked 'our guess' when it's our default."; PlayerModel.expectedReturn): the line as the
+ * model was built, and what the select offers (returnWeekOptions), which reads the user's saved week as the browser holds it
+ * now (the League page computes again after a change).
+ */
+export interface ReturnWeekRow {
+  /** "Expected back: week 8 (ESPN)", "Expected back: out for the season (our guess)", "Expected back: week 7 (your week)". */
+  text: string;
+  /** The user's own week the model read (TradeSettings.returnWeeks), or null: the platform's or our own. */
+  userWeek: number | null;
+  /** The select's first choice, which clears the user's week: the platform's date or our guess ("week 8 (ESPN)"). */
+  fallback: string;
+  /** That choice's week (null: out for the season), which the weeks to pick leave out (review of wave C, UI-C-5). */
+  fallbackWeek: number | null;
+  /** The weeks the user can pick: next week through the league's last week. */
+  weeks: number[];
+  /**
+   * The week "out for the season" saves: the NFL's last week + 1, as ESPN marks it; without the NFL's schedule the latest week
+   * a setting keeps (settings.RETURN_WEEK_MAX), so it reads as out for the season whatever the NFL's last week turns out to be.
+   */
+  outForSeason: number;
+  /** The first week a saved week counts from (the current NFL week: an earlier one has passed, and the page clears it). */
+  firstWeek: number;
+  /** How a week the user picks counts, in words (his breakdown). */
+  help: string;
+}
+
+/** One choice of the return-week select (returnWeekOptions): the week it saves ("" clears it) and its words. */
+export interface ReturnWeekOption {
+  value: string;
+  text: string;
 }
 
 /** How a team's free-agent pickups are introduced on its roster (CLAUDE.md §14 item 3, Phase 4). */
@@ -1066,6 +1114,91 @@ function byeText(pm: PlayerModel | undefined): string {
   return `bye wk ${bye.week}`;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Return weeks (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.5; PlayerModel.expectedReturn)
+
+/** Whose expected return week it is, in the line's words: the platform's own name ("ESPN"), "our guess" or "your week". */
+function returnSourceWords(source: ReturnWeekSource, platform: Platform): string {
+  return source === "platform" ? PLATFORM_LABEL[platform] : source === "user" ? "your week" : "our guess";
+}
+
+/** "week 8 (ESPN)", "out for the season (our guess)", "week 7 (your week)": a return week and whose it is (ExpectedReturn). */
+export function returnWeekText(week: number | null, source: ReturnWeekSource, platform: Platform): string {
+  return `${week === null ? "out for the season" : `week ${week}`} (${returnSourceWords(source, platform)})`;
+}
+
+/**
+ * How a week the user picks counts (ReturnWeekRow.help), from the rule availability.userReturnWeekDistribution applies
+ * (config.projections.returnWeekSpread around his week, never before it): with the default spread, "75% likely to play that
+ * week and back the week after".
+ */
+export function returnWeekHelp(spread: readonly number[] = config.projections.returnWeekSpread): string {
+  const ps = spread.map((p) => (Number.isFinite(p) && p > 0 ? p : 0));
+  const total = sum(ps);
+  const half = Math.floor((ps.length - 1) / 2);
+  const atWeek = total > 0 ? sum(ps.slice(0, half + 1)) / total : 1;
+  let lastBack = half;
+  for (let i = ps.length - 1; i > half; i--) {
+    if ((ps[i] as number) > 0) {
+      lastBack = i;
+      break;
+    }
+  }
+  const after = lastBack - half;
+  const rule = after === 0 || atWeek >= 1 ? "back that week" : `${pct(atWeek)} likely to play that week and back ${after === 1 ? "the week after" : `${after} weeks after`}`;
+  return `Pick the week you expect him back if you know better. Offer Sheet then counts him out before that week, ${rule}, in every number for your team, trade ideas included. It's kept in this browser only and clears once he's active again or the week has passed.`;
+}
+
+/**
+ * My player's return-week line and choices (ReturnWeekRow), for one the model says when he's expected back
+ * (PlayerModel.expectedReturn: my players it has out now, or with a week of the user's); null for everyone else and once
+ * no week is left. The choices run from next week through the league's last week, then "out for the season".
+ */
+function returnWeekRow(ctx: PlayerContext, expected: PlayerModel["expectedReturn"]): ReturnWeekRow | null {
+  const last = ctx.model.weeks[ctx.model.weeks.length - 1];
+  if (!expected || last === undefined) return null;
+  const platform = ctx.snapshot.platform;
+  const current = ctx.snapshot.currentWeek;
+  // ⚠️ Ours: without the NFL's schedule, the latest week a setting keeps (any later season week would read as a return).
+  const nflLast = lastNflWeekOf(ctx.inputs);
+  const outForSeason = nflLast !== undefined ? nflLast + 1 : RETURN_WEEK_MAX;
+  const weeks: number[] = [];
+  for (let w = current + 1; w <= last; w++) weeks.push(w);
+  return {
+    text: `Expected back: ${returnWeekText(expected.week, expected.source, platform)}`,
+    userWeek: expected.source === "user" ? (expected.week ?? outForSeason) : null,
+    fallback: returnWeekText(expected.fallback.week, expected.fallback.source, platform),
+    fallbackWeek: expected.fallback.week,
+    weeks,
+    outForSeason,
+    firstWeek: current,
+    help: returnWeekHelp(),
+  };
+}
+
+/**
+ * The return-week select's choices and the one chosen (ReturnWeekRow), for the user's week as the browser holds it now
+ * (`saved`: TradeSettings.returnWeeks[id] set for this season, so a change shows at once; undefined, or a week that has
+ * passed, reads as none): first the platform's date or our guess (value "": clears the user's week), then each week the row
+ * offers ("week 7", "week 7 (your week)" when it's the one saved) and "out for the season", with a saved week neither offers
+ * (one set earlier that's this week now, or one past the league's last week) among them so the select can show it. The
+ * first choice's own week isn't offered again (review of wave C, UI-C-5: "week 8 (ESPN)" and "week 8" read alike, while a
+ * week of the user's never counts him back before it and ESPN's date can), nor "out for the season" when that's the first
+ * choice's, unless it's the one saved.
+ */
+export function returnWeekOptions(row: ReturnWeekRow, saved: number | undefined): { options: ReturnWeekOption[]; selected: string } {
+  const user = saved !== undefined && Number.isInteger(saved) && saved >= row.firstWeek ? saved : null;
+  const outForSeason = user !== null && user >= row.outForSeason;
+  const offered = row.weeks.filter((w) => w < row.outForSeason && w !== row.fallbackWeek);
+  const weeks = user !== null && !outForSeason && !offered.includes(user) ? [...offered, user].sort((a, b) => a - b) : offered;
+  const options: ReturnWeekOption[] = [
+    { value: "", text: row.fallback },
+    ...weeks.map((w) => ({ value: String(w), text: `week ${w}${w === user ? " (your week)" : ""}` })),
+    ...(row.fallbackWeek === null && !outForSeason ? [] : [{ value: String(row.outForSeason), text: `out for the season${outForSeason ? " (your week)" : ""}` }]),
+  ];
+  return { options, selected: user === null ? "" : outForSeason ? String(row.outForSeason) : String(user) };
+}
+
 function playerRow(ctx: PlayerContext, id: string, group: PlayerRow["group"], team: TeamModel | undefined): PlayerRow {
   const info = ctx.snapshot.players[id];
   const pm = ctx.model.players[id];
@@ -1073,7 +1206,14 @@ function playerRow(ctx: PlayerContext, id: string, group: PlayerRow["group"], te
   // His bye this week: the model's first week is the current NFL week.
   const byeNow = ctx.model.weeks[0] === ctx.snapshot.currentWeek && pm?.weekly[0]?.bye === true;
   const note = pm?.availabilityNote ? availabilityNoteText(pm.availabilityNote, ctx.inputs.nfl.lastWeek, byeNow) : null;
-  const weeks = weekRows(ctx, info, pm, note && pm?.availabilityNote?.used === "returnDate" ? note.short : null);
+  // My active roster and IR (Checkpoint 7e, items 3.3 and 3.5): the lock, and when an injured one is expected back.
+  const mine = (group === "active" || group === "ir") && team !== undefined && team.id === ctx.myTeamId;
+  const back = mine ? pm?.expectedReturn : undefined;
+  // A week of the user's: the weeks he's out before it say so, as an ESPN date he follows does (his numbers follow neither
+  // ESPN signal then, so the engine gives him no conflict note).
+  const userOut = back?.source === "user" ? `${back.week === null ? "Out for the season" : `Out until wk ${back.week}`} (your week)` : null;
+  const weeks = weekRows(ctx, info, pm, note && pm?.availabilityNote?.used === "returnDate" ? note.short : userOut);
+  const returnWeek = returnWeekRow(ctx, back);
   const tv = team?.players[id];
   const cost = tv ? (tv.mvLoseScen ?? tv.mvLoseEv) : null;
   const ros = pm ? pm.ros.total : null;
@@ -1095,7 +1235,9 @@ function playerRow(ctx: PlayerContext, id: string, group: PlayerRow["group"], te
     lineupCost: cost === null ? null : fmtNum(cost, 1),
     blend,
     weeks,
-    weeksText: weeksText(weeks, note?.long ?? null, blend?.text ?? null),
+    weeksText: weeksText(weeks, note?.long ?? null, returnWeek?.text ?? null, blend?.text ?? null),
+    lockable: mine,
+    returnWeek,
   };
 }
 
@@ -1836,11 +1978,15 @@ export function likelyStarters(snapshot: LeagueSnapshot, model: LeagueModel, tea
 /**
  * An IR returner's expected return week, as the engine reads it (league.ts step 5b: availability.expectedReturnWeek on
  * what his availability reads, his tag alone when Sleeper found his ESPN return date stale): his byes before it aren't my
- * crunch (evaluate.ts riskyWeeksOf), since he's on IR then anyway. Null when he isn't back within the weeks left.
+ * crunch (evaluate.ts riskyWeeksOf), since he's on IR then anyway. Null when he isn't back within the weeks left. One of
+ * mine the model says when he's expected back (PlayerModel.expectedReturn, Checkpoint 7e: the user's own week too, which the
+ * snapshot doesn't hold) reads it there: the same week within the weeks left (it's the same rule over more weeks).
  */
 function returnWeekOf(snapshot: LeagueSnapshot, model: LeagueModel, id: string, lastNflWeek: number | undefined): number | null {
   const info = snapshot.players[id];
   if (!info) return null;
+  const expected = model.players[id]?.expectedReturn;
+  if (expected) return expected.week !== null && model.weeks.includes(expected.week) ? expected.week : null;
   const avail = model.players[id]?.availabilityNote?.used === "sleeper" ? { injury: info.injury } : info;
   return expectedReturnWeek(avail, { weeks: model.weeks, currentWeek: snapshot.currentWeek, hasTeam: Boolean(info.nflTeam), ...(lastNflWeek !== undefined ? { lastNflWeek } : {}) });
 }
@@ -2453,7 +2599,8 @@ function buildExplain(c: ExplainContext): ExplainItem[] {
     },
     {
       title: "Availability",
-      text: `Each week's points are multiplied by the chance he plays: 0 on his bye; for a current injury, ${injuryTableText()}; and the chance of a new injury, which grows the further ahead you look, toward each position's long-run share of games missed (${missShareText()}).`,
+      // Checkpoint 7e (planner reply to Checkpoint 7d, item 3.5): my injured players' "Expected back", which I can set myself.
+      text: `Each week's points are multiplied by the chance he plays: 0 on his bye; for a current injury, ${injuryTableText()}; and the chance of a new injury, which grows the further ahead you look, toward each position's long-run share of games missed (${missShareText()}).${model.myTeamId && !seasonOver ? " On your roster, “Expected back” shows when each of your injured players should return, and you can set the week yourself if you know better." : ""}`,
     },
     {
       title: "Depth counts",

@@ -6,11 +6,23 @@
  * real ones (Vitest runs in Node).
  */
 import { describe, expect, it } from "vitest";
-import type { LeagueModel } from "@/engine/leagueModel";
+import type { LeagueModel, WaiverUpgrades } from "@/engine/leagueModel";
 import { defaultTradeSettings } from "@/engine/settings";
 import type { TradeSearchResult } from "@/engine/tradeModel";
 import type { AnalyzerResult, EngineRequest, EngineResponse } from "@/workers/engine.worker";
-import { ENGINE_STOPPED, EngineError, SEARCH_CANCELLED, createEngineClient, createLeagueEngine, type LeagueJob, type MainThreadEngine, type TradesJob, type WorkerLike } from "./engineClient";
+import {
+  ENGINE_STOPPED,
+  EngineError,
+  SEARCH_CANCELLED,
+  createEngineClient,
+  createLeagueEngine,
+  waiverRatingFor,
+  waiverRatingKnown,
+  type LeagueJob,
+  type MainThreadEngine,
+  type TradesJob,
+  type WorkerLike,
+} from "./engineClient";
 
 class FakeWorker implements WorkerLike {
   onmessage: ((event: MessageEvent) => void) | null = null;
@@ -487,5 +499,58 @@ describe("createLeagueEngine: one client for one saved league at a time (planner
     expect(engine.leagueId()).toBeNull();
     expect(engine.forLeague("espn:0000abcd:2026")).not.toBe(a);
     expect(made).toBe(2);
+  });
+});
+
+describe("createEngineClient: the waiver rating (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.4)", () => {
+  const rated = { teamId: "1", ros: null, underWay: null, week: null } as unknown as WaiverUpgrades;
+
+  it("rateWaivers sends a waivers request with the job and resolves with its reply (null without my team)", async () => {
+    const worker = new FakeWorker();
+    const client = createEngineClient({ createWorker: () => worker });
+    const p = client.rateWaivers(job());
+    expect(worker.posted[0]).toMatchObject({ type: "waivers", id: 1, myTeamId: "1", nowIso: job().nowIso });
+    worker.reply({ type: "waivers", id: 1, result: rated });
+    await expect(p).resolves.toBe(rated);
+    const none = client.rateWaivers(job(null));
+    worker.reply({ type: "waivers", id: 2, result: null });
+    await expect(none).resolves.toBeNull();
+  });
+
+  it("waiverRatingFor: a model the client built is rated with its own job, once; a model no client built has none", async () => {
+    const worker = new FakeWorker();
+    const client = createEngineClient({ createWorker: () => worker });
+    const built = client.buildLeague(job("3"));
+    const model = result("m");
+    worker.reply({ type: "league", id: 1, result: model });
+    await expect(built).resolves.toBe(model);
+    expect(waiverRatingKnown(model)).toBe(true);
+    const first = waiverRatingFor(model);
+    expect(waiverRatingFor(model)).toBe(first);
+    expect(worker.posted.filter((m) => m.type === "waivers")).toHaveLength(1);
+    expect(worker.posted[1]).toMatchObject({ type: "waivers", id: 2, myTeamId: "3", nowIso: job().nowIso, settings: job().settings });
+    worker.reply({ type: "waivers", id: 2, result: rated });
+    await expect(first).resolves.toBe(rated);
+    const stranger = result("x");
+    expect(waiverRatingKnown(stranger)).toBe(false);
+    expect(waiverRatingFor(stranger)).toBeNull();
+  });
+
+  it("a failed rating is asked again next time; once the client is stopped it rejects as cancelled", async () => {
+    const worker = new FakeWorker();
+    const client = createEngineClient({ createWorker: () => worker });
+    const built = client.buildLeague(job());
+    const model = result("m");
+    worker.reply({ type: "league", id: 1, result: model });
+    await built;
+    const first = waiverRatingFor(model);
+    worker.reply({ type: "error", id: 2, message: "Something went wrong while crunching the numbers.", detail: "boom" });
+    await expect(first).rejects.toBeInstanceOf(EngineError);
+    await flush();
+    const again = waiverRatingFor(model);
+    expect(again).not.toBe(first);
+    client.dispose();
+    const err = await again?.catch((e: unknown) => e);
+    expect(err).toMatchObject({ message: ENGINE_STOPPED, cancelled: true });
   });
 });

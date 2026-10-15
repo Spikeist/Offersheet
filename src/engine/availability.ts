@@ -37,6 +37,13 @@
  *    - injuryReturnWeek = last NFL week + 1 means "not back this season" (§4). Given lastNflWeek, any
  *      R after it means no return at all. Without it, the spread lies past every fantasy week when the
  *      fantasy season ends before the NFL's last week, which gives 0 there too.
+ *    - The user's own return week R (AvailabilityPlayer.userReturnWeek; Checkpoint 7e, planner reply to Checkpoint 7d,
+ *      item 3.5: "the new week works like a return week from the platform: 0 until that week, then the normal return
+ *      rule"; league.ts passes it for the user's own players only, TradeSettings.returnWeeks): followed whatever his status
+ *      says (no one-week table, no stale-date tiebreak, and an NA player's notActive share doesn't apply), with
+ *      returnWeekSpread around R like a known return week but never before R (⚠️ ours: "never earlier than that week", so
+ *      R − 1's share moves to R: 75% back at R, all of it from R + 1; userReturnWeekDistribution). A week after
+ *      lastNflWeek is "out for the season", as the platform's.
  * 2. Future injuries (addition B): a two-state weekly chain. Healthy → out with chance h each week,
  *    out → healthy with chance r = 1 / meanInjuryWeeks, and h = M·r / (1 − M), so the long-run share of
  *    weeks out is M = missShare[pos]. Healthy at T, he's out k weeks later with chance
@@ -94,8 +101,14 @@ export interface AvailabilityContext {
   lastNflWeek?: number;
 }
 
-/** What availability reads from a player (PlayerInfo satisfies it). */
-export type AvailabilityPlayer = Pick<PlayerInfo, "injury" | "injuryReturnWeek">;
+/**
+ * What availability reads from a player (PlayerInfo satisfies it): his status and the platform's return week, and the
+ * user's own return week when he set one (Checkpoint 7e, item 3.5; the file header, step 1).
+ */
+export type AvailabilityPlayer = Pick<PlayerInfo, "injury" | "injuryReturnWeek"> & {
+  /** The user's own return week (TradeSettings.returnWeeks, my players only: league.ts): followed whatever his status says. */
+  readonly userReturnWeek?: number;
+};
 
 /** The slice of config.projections this module reads (widened from the `as const` literals so tests can vary it). */
 export interface AvailabilityConfig {
@@ -239,6 +252,54 @@ export function activeShare(injury: InjuryStatus, cfg: AvailabilityConfig = conf
   return injury === "NA" ? clamp01(cfg.injury.notActive) : 1;
 }
 
+/**
+ * The first week he can play again under the user's own return week R (the file header, step 1; Checkpoint 7e, planner
+ * reply to Checkpoint 7d, item 3.5), whatever his status: returnWeekSpread centered on R, never before R (⚠️ ours, so with
+ * the default spread 25% / 50% / 25% over R − 1, R, R + 1 he's 75% back at R and fully back from R + 1), nor before
+ * `currentWeek` (league.ts drops a week that has passed: returnWeeks.ts). Empty after lastNflWeek: out for the season, as
+ * the platform's "last NFL week + 1" (§4).
+ */
+export function userReturnWeekDistribution(R: number, currentWeek: number, cfg: Pick<AvailabilityConfig, "returnWeekSpread"> = config.projections, lastNflWeek?: number): ReturnWeek[] {
+  const week = Math.round(R);
+  if (lastNflWeek !== undefined && week > lastNflWeek) return [];
+  return spreadAround(week, Math.max(week, currentWeek), cfg.returnWeekSpread);
+}
+
+/**
+ * Whether returnWeekDistribution follows his known return week R, the platform's date, rather than his status's own table
+ * (the file header, step 1): IR, PUP and SUSPENDED with any R; OUT with R from next week on; PROBABLE, QUESTIONABLE and
+ * DOUBTFUL with a far R (farReturnWeek: 2+ weeks out); ACTIVE and NA never, nor anyone without R. league.ts marks my injured
+ * players' expected return week "ESPN" by it (PlayerModel.expectedReturn; Checkpoint 7e, item 3.5).
+ */
+export function followsKnownReturnWeek(injury: InjuryStatus, injuryReturnWeek: number | undefined, currentWeek: number, cfg: Pick<AvailabilityConfig, "returnConflictWeeks"> = config.projections): boolean {
+  const R = knownWeek(injuryReturnWeek);
+  if (R === undefined) return false;
+  switch (injury) {
+    case "PROBABLE":
+    case "QUESTIONABLE":
+    case "DOUBTFUL":
+      return farReturnWeek(R, currentWeek, cfg);
+    case "OUT":
+      return R >= currentWeek + 1;
+    case "IR":
+    case "PUP":
+    case "SUSPENDED":
+      return true;
+  }
+  return false;
+}
+
+/** The return-week distribution availability reads: the user's own week when he set one (userReturnWeekDistribution), else his status's (returnWeekDistribution). */
+function distributionOf(player: AvailabilityPlayer, currentWeek: number, cfg: AvailabilityConfig, lastNflWeek: number | undefined): ReturnWeek[] {
+  const user = knownWeek(player.userReturnWeek);
+  return user !== undefined ? userReturnWeekDistribution(user, currentWeek, cfg, lastNflWeek) : returnWeekDistribution(player.injury, player.injuryReturnWeek, currentWeek, cfg, lastNflWeek);
+}
+
+/** The chance he plays in a week he's healthy for: 1 under the user's own return week (followed whatever his status says), else activeShare. */
+function shareOf(player: AvailabilityPlayer, cfg: AvailabilityConfig): number {
+  return knownWeek(player.userReturnWeek) !== undefined ? 1 : activeShare(player.injury, cfg);
+}
+
 /** Cumulative chances closer than this to the quantile reach it (float noise in the table's differences, not a tunable). */
 const QUANTILE_EPS = 1e-12;
 
@@ -251,8 +312,9 @@ const QUANTILE_EPS = 1e-12;
  * (out for the season, NA with notActive 0, no NFL team) or not by the last remaining week. With the default 0.5, for current week
  * w0: an IR or PUP player with ESPN's date R → R (25% / 50% / 25% over R − 1, R, R + 1, never before w0 + 1); IR or PUP
  * without a date → w0 + irUnknown.outWeeks (0.8 back from then); OUT → w0 + 1 (0.5); a healthy player in an IR slot
- * (ACTIVE) → w0, as he can be activated now. Callers pass what availability reads (league.ts PlayerContext.avail: a stale
- * ESPN date already dropped).
+ * (ACTIVE) → w0, as he can be activated now; the user's own week R (AvailabilityPlayer.userReturnWeek) → R (75% back then).
+ * Callers pass what availability reads (league.ts PlayerContext.avail: a stale ESPN date already dropped, the user's week
+ * in place of the platform's).
  */
 export function expectedReturnWeek(
   player: AvailabilityPlayer,
@@ -260,8 +322,8 @@ export function expectedReturnWeek(
   cfg: AvailabilityConfig = config.projections,
   quantile: number = config.projections.returnWeekQuantile,
 ): number | null {
-  if (!ctx.hasTeam || activeShare(player.injury, cfg) === 0) return null;
-  const dist = returnWeekDistribution(player.injury, player.injuryReturnWeek, ctx.currentWeek, cfg, ctx.lastNflWeek);
+  if (!ctx.hasTeam || shareOf(player, cfg) === 0) return null;
+  const dist = distributionOf(player, ctx.currentWeek, cfg, ctx.lastNflWeek);
   if (dist.length === 0) return null;
   const q = Number.isFinite(quantile) ? Math.min(1, Math.max(QUANTILE_EPS, quantile)) : 1;
   for (const w of ctx.weeks) {
@@ -309,8 +371,8 @@ export function canPlayWeek(ctx: AvailabilityContext, week: number): boolean {
 export function expectedAvailability(player: AvailabilityPlayer, pos: Pos, ctx: AvailabilityContext, cfg: AvailabilityConfig = config.projections): number[] {
   const out = new Array<number>(ctx.weeks.length).fill(0);
   if (!ctx.hasTeam) return out;
-  const dist = returnWeekDistribution(player.injury, player.injuryReturnWeek, ctx.currentWeek, cfg, ctx.lastNflWeek);
-  const share = activeShare(player.injury, cfg);
+  const dist = distributionOf(player, ctx.currentWeek, cfg, ctx.lastNflWeek);
+  const share = shareOf(player, cfg);
   if (dist.length === 0 || share === 0) return out;
   const risk = injuryRisk(pos, cfg);
   ctx.weeks.forEach((w, wi) => {
@@ -341,8 +403,8 @@ export function scenarioAvailability(
   const n = Number.isFinite(S) ? Math.max(0, Math.floor(S)) : 0;
   const flags = new Uint8Array(n * W);
   if (!ctx.hasTeam || W === 0 || n === 0) return flags;
-  const dist = returnWeekDistribution(player.injury, player.injuryReturnWeek, ctx.currentWeek, cfg, ctx.lastNflWeek);
-  const share = activeShare(player.injury, cfg);
+  const dist = distributionOf(player, ctx.currentWeek, cfg, ctx.lastNflWeek);
+  const share = shareOf(player, cfg);
   if (dist.length === 0 || share === 0) return flags;
   const risk = injuryRisk(pos, cfg);
 

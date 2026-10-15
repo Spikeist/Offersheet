@@ -14,9 +14,16 @@
  * since the League model reads the positions my team streams and the playoff weight. The model waits
  * until they've been read (never a first run with defaults it would throw away), and a change to one of
  * those two, saved in this tab or another, computes it again: the compute tag carries the fingerprint of
- * the settings the model reads (settingsStore.ts LEAGUE_MODEL_SETTINGS). A change to a setting only the
- * trade search reads (untouchables, Win now ↔ Future, …) leaves the page as it is, since the model would
- * come out the same, and the same settings in another order don't count as a change either.
+ * the settings the model reads (settingsStore.ts LEAGUE_MODEL_SETTINGS; since Checkpoint 7e the untouchables, "Drop from
+ * the same position" and my return weeks too) and, since Checkpoint 7e, the one Waiver upgrades' rating reads by the
+ * league's type (settingsStore.ts waiverRatingSettings: "Protect my trade value" in a redraft league, Win now ↔ Future in a
+ * dynasty or keeper league, which move its Helps you; review of wave C, RC-ENG-4). A change to a setting only the trade
+ * search reads (players per side, must-include players, Win now ↔ Future in a redraft league, …) leaves the page as it is,
+ * since its numbers would come out the same, and the same settings in another order don't count as a change either. The model is built with keepForWaivers, so the worker keeps the build its Waivers section rates next
+ * (engine.worker.ts). Checkpoint 7e (planner reply to
+ * Checkpoint 7d, item 3.5): my injured players' return weeks that no longer count (src/engine/returnWeeks.ts) are left out
+ * of the settings the model is built with (the engine ignores them anyway) and dropped from the saved settings in one save,
+ * once per new snapshot or team (leagueSettingsEdit.ts), which then computes nothing again.
  *
  * States: loading (reading storage), fetching inputs, computing, error (with Try again), ready. With no
  * league saved, a card says so, or that Offer Sheet was updated when the league was saved by an earlier
@@ -43,6 +50,7 @@ import { config } from "@/engine/config";
 import type { ModelInputs } from "@/engine/inputs";
 import type { LeagueModel } from "@/engine/leagueModel";
 import type { LeagueSnapshot } from "@/engine/model";
+import { staleReturnWeeks } from "@/engine/returnWeeks";
 import type { TradeSettings } from "@/engine/settings";
 import { EngineError, createEngineClient, type EngineClient } from "@/lib/engineClient";
 import { fmtWhole } from "@/lib/format";
@@ -51,7 +59,7 @@ import type { CurrentLeagueRead } from "@/lib/leagueStore";
 import { buildLeagueView, type LeagueView as LeagueViewModel } from "@/lib/leagueView";
 import { modelRequest, refreshAnswerAgeMs } from "@/lib/modelStore";
 import type { MyTeamSource } from "@/lib/myTeam";
-import { LEAGUE_MODEL_SETTINGS, settingsFingerprint } from "@/lib/settingsStore";
+import { LEAGUE_MODEL_SETTINGS, settingsFingerprint, waiverRatingSettings } from "@/lib/settingsStore";
 import { buildWaiversView } from "@/lib/waiversView";
 import { NoImportCard } from "../NoImportCard";
 import type { RefreshControl } from "../import/ReportView";
@@ -59,7 +67,7 @@ import { revealResult } from "../reveal";
 import { useSavedLeagueSettings } from "../settings/useLeagueSettings";
 import { Callout, Card, FOCUS_TARGET, Spinner, buttonClass, cx } from "../ui";
 import { LeagueView } from "./LeagueView";
-import { LeagueSettingsEditContext } from "./leagueSettingsEdit";
+import { LeagueSettingsEditContext, clearStaleReturnWeeks, withoutStaleReturnWeeks } from "./leagueSettingsEdit";
 import { WaiversViewContext } from "./WaiverUpgrades";
 import { INPUTS_UNREACHABLE, leagueTag, useCurrentLeague, useSavedLeagueInputs, type InputsOutcome } from "./useLeagueInputs";
 
@@ -184,19 +192,28 @@ interface Computed {
 }
 
 /**
+ * The settings the League page's numbers read: the League model's (LEAGUE_MODEL_SETTINGS) and its Waiver upgrades rating's
+ * (waiverRatingSettings: "Protect my trade value" in a redraft league, Win now ↔ Future in a dynasty or keeper league;
+ * review of wave C, RC-ENG-4).
+ */
+function pageSettings(leagueType: LeagueSnapshot["settings"]["leagueType"] | undefined): readonly (keyof TradeSettings)[] {
+  return leagueType ? [...LEAGUE_MODEL_SETTINGS, ...waiverRatingSettings(leagueType)] : LEAGUE_MODEL_SETTINGS;
+}
+
+/**
  * What a League model computation is for: the league data, the inputs' build, my team, the settings the
- * model reads (LEAGUE_MODEL_SETTINGS, by fingerprint: the same settings in any order are the same
+ * page reads (pageSettings, by the league's type; by fingerprint: the same settings in any order are the same
  * computation, and the trade search's own settings aren't part of it) and the attempt (Try again). A result
  * whose tag isn't the current one is for something the page no longer shows.
  */
 export function computeTagFor(args: {
-  snapshot: Pick<LeagueSnapshot, "platform" | "leagueId" | "season" | "fetchedAt">;
+  snapshot: Pick<LeagueSnapshot, "platform" | "leagueId" | "season" | "fetchedAt"> & { settings?: Pick<LeagueSnapshot["settings"], "leagueType"> };
   builtAt: string;
   myTeamId: string | null;
   settings: TradeSettings;
   attempt: number;
 }): string {
-  return `${leagueTag(args.snapshot)}|${args.builtAt}|${args.myTeamId ?? "-"}|${settingsFingerprint(args.settings, LEAGUE_MODEL_SETTINGS)}|${args.attempt}`;
+  return `${leagueTag(args.snapshot)}|${args.builtAt}|${args.myTeamId ?? "-"}|${settingsFingerprint(args.settings, pageSettings(args.snapshot.settings?.leagueType))}|${args.attempt}`;
 }
 
 function LoadedLeague({ current }: { current: Extract<CurrentLeagueRead, { kind: "ok" }> }) {
@@ -210,9 +227,15 @@ function LoadedLeague({ current }: { current: Extract<CurrentLeagueRead, { kind:
 
   // 2. The League model, in the engine's worker, with the league's settings (undefined until read).
   const { settings } = useSavedLeagueSettings(current.league.leagueKey);
+  // My injured players' return weeks that no longer count (Checkpoint 7e, item 3.5; src/engine/returnWeeks.ts): the model is
+  // built without them (the engine ignores them anyway: the same numbers), so dropping them from the saved settings, once per
+  // new snapshot or team in one save (below), computes nothing again.
+  const pageTeamId = myTeam?.myTeamId ?? null;
+  const returnSnapshot = useMemo(() => (pair ? { ...pair.snapshot, myTeamId: pageTeamId } : null), [pair, pageTeamId]);
+  const modelSettings = useMemo(() => (settings && returnSnapshot ? withoutStaleReturnWeeks(settings, returnSnapshot) : settings), [settings, returnSnapshot]);
   const [computeAttempt, setComputeAttempt] = useState(0);
   const computeTag =
-    pair && myTeam && settings ? computeTagFor({ snapshot: pair.snapshot, builtAt: pair.inputs.builtAt, myTeamId: myTeam.myTeamId, settings, attempt: computeAttempt }) : null;
+    pair && myTeam && modelSettings ? computeTagFor({ snapshot: pair.snapshot, builtAt: pair.inputs.builtAt, myTeamId: myTeam.myTeamId, settings: modelSettings, attempt: computeAttempt }) : null;
   const [computed, setComputed] = useState<Computed | null>(null);
   const [computeError, setComputeError] = useState<{ tag: string; message: string } | null>(null);
   const engineRef = useRef<EngineClient | null>(null);
@@ -226,17 +249,18 @@ function LoadedLeague({ current }: { current: Extract<CurrentLeagueRead, { kind:
   );
 
   const startCompute = useEffectEvent((tag: string) => {
-    if (!pair || !myTeam || !settings) return undefined;
+    if (!pair || !myTeam || !modelSettings) return undefined;
     const job = { snapshot: pair.snapshot, inputs: pair.inputs, myTeamSource: myTeam.source };
     const myTeamId = myTeam.myTeamId;
-    const leagueSettings = settings;
+    const leagueSettings = modelSettings;
     let live = true;
     // A tick later, so React StrictMode's first run (development) is cancelled before it starts.
     const timer = setTimeout(() => {
       const engine = engineRef.current ?? createEngineClient();
       engineRef.current = engine;
       const nowIso = new Date().toISOString();
-      engine.buildLeague({ snapshot: job.snapshot, model: job.inputs, myTeamId, nowIso, settings: leagueSettings }).then(
+      // keepForWaivers: the Waivers section asks for its rating next, so the worker keeps the build (engine.worker.ts).
+      engine.buildLeague({ snapshot: job.snapshot, model: job.inputs, myTeamId, nowIso, settings: leagueSettings, keepForWaivers: true }).then(
         (result) => {
           if (live) setComputed((prev) => ({ tag, ...job, result, nowIso, settings: leagueSettings, updated: prev !== null }));
         },
@@ -256,6 +280,16 @@ function LoadedLeague({ current }: { current: Extract<CurrentLeagueRead, { kind:
     if (!computeTag) return;
     return startCompute(computeTag);
   }, [computeTag]);
+
+  // The stale return weeks leave the saved settings in one save, once per new snapshot or team that has some (a refused
+  // save isn't tried again until the next one: the key doesn't change).
+  const staleKey = returnSnapshot && settings && staleReturnWeeks(returnSnapshot, settings).length > 0 ? `${leagueTag(returnSnapshot)}|${returnSnapshot.myTeamId ?? "-"}` : null;
+  const clearStale = useEffectEvent(() => {
+    if (returnSnapshot) void clearStaleReturnWeeks(current.league.leagueKey, returnSnapshot);
+  });
+  useEffect(() => {
+    if (staleKey) clearStale();
+  }, [staleKey]);
 
   const ready = computed && computed.tag === computeTag ? computed : null;
   // While new numbers are computed, the last ones stay on screen (dimmed): they're for this league.
@@ -335,8 +369,10 @@ function LoadedLeague({ current }: { current: Extract<CurrentLeagueRead, { kind:
     };
   }
   // The lock icons, "Drop from the same position" and my players' return weeks edit the league's settings from this page
-  // (leagueSettingsEdit.ts; Checkpoint 7e): the settings as the browser holds them now, so a change shows at once.
-  const settingsEdit = useMemo(() => (settings ? { leagueKey: current.league.leagueKey, settings } : null), [settings, current.league.leagueKey]);
+  // (leagueSettingsEdit.ts; Checkpoint 7e): the settings as the browser holds them now, so a change shows at once, and the
+  // season a return week is set for (review of wave C, UI-C-3).
+  const season = (pair?.snapshot ?? snapshot).season;
+  const settingsEdit = useMemo(() => (settings ? { leagueKey: current.league.leagueKey, settings, season } : null), [settings, current.league.leagueKey, season]);
   return (
     <LeagueSettingsEditContext value={settingsEdit}>
       <WaiversViewContext value={waivers}>

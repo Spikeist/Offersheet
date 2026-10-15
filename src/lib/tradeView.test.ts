@@ -1256,6 +1256,18 @@ describe("injury tags on the card (planner reply to Checkpoint 4, change 6)", ()
     expect(text("IR", 19)).toBe("On IR — expected back week 19");
   });
 
+  it("says the user's own week as his, whatever the status (Checkpoint 7e, item 3.5; review of wave C, RC-ENG-1)", () => {
+    const mine = (status: InjuryTag["status"], returnWeek: number) => injuryTagText({ status, returnWeek, returnSource: "user" }, 18, "ESPN");
+    expect(mine("IR", 9)).toBe("On IR — expected back week 9 (your week)");
+    expect(mine("QUESTIONABLE", 7)).toBe("Questionable — expected back week 7 (your week)");
+    expect(mine("OUT", 8)).toBe("Out — expected back week 8 (your week)");
+    expect(mine("SUSPENDED", 10)).toBe("Suspended — back week 10 (your week)");
+    expect(mine("IR", 19)).toBe("Out for the season (your week)");
+    expect(mine("SUSPENDED", 30)).toBe("Suspended for the season (your week)");
+    expect(mine("DOUBTFUL", 19)).toBe("Doubtful — out for the season (your week)");
+    expect(mine("NA", 9)).toBe("Not an active NFL player");
+  });
+
   it("ends the season at the NFL's last week when known, else the league's last week", () => {
     expect(seasonEndOf(snapshot.settings, 18)).toBe(18);
     expect(seasonEndOf(snapshot.settings)).toBe(17); // the fixture's playoffs end in week 17

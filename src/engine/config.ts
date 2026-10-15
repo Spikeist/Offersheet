@@ -409,7 +409,8 @@ export const config = {
   /**
    * §14 "League": "Waiver upgrades" (planner reply to Checkpoint 7a, §6.2; src/engine/waivers.ts, league.ts step 10): every
    * free agent who projects for more points than one of my players at his position, with what picking him up adds to my
-   * lineup. Display rules only: no odds, projection or trade number depends on them.
+   * lineup, and since Checkpoint 7e the season list's Helps you (waiverRating.ts). Display rules only: no odds, projection or
+   * trade number depends on them.
    */
   waivers: {
     /**
@@ -434,6 +435,23 @@ export const config = {
     gainDecimals: 1,
     /** Rows the League page shows before "Show all" (display only). */
     rowsShown: 10,
+    /**
+     * "Rest of season" rated by Helps you (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.4: "screen with 1,000
+     * seasons, and finish the top 10 with 5,000 (or the count chosen in 1.1)"; src/engine/waiverRating.ts): every pickup
+     * with every drop the rules allow is screened on the shown block's first ratingScreenSims seasons, and the
+     * ratingFinishRows rows with the best screened B are simulated again on the whole shown block
+     * (simulation.shownSims, item 1.1's count); the other rows keep their screened Helps you (⚠️ the lead's reading). A
+     * runtime limit, not a model number: the expectation is the same at any count, only the noise differs.
+     */
+    ratingScreenSims: 1000,
+    ratingFinishRows: 10,
+    /**
+     * ⚠️ Ours (review of wave C, RC-ENG-5): of those rows, only the ones whose screened B is at least this share of B₃ are
+     * finished. One far below 0 prints "No gain" either way (on Parker's week-6 leagues a row's screened B lay at most 0.04
+     * × B₃ from its B on the whole shown block, 0.01 × B₃ rms), so finishing it costs time and changes nothing shown; one a
+     * little below 0 can still turn into a gain. A runtime limit, not a model number.
+     */
+    ratingFinishFloor: -0.1,
   },
 
   /** §9 Market value layer. */

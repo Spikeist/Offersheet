@@ -64,7 +64,10 @@
  * - Step "Waivers" (§6.2), after the Analyzer, from the Trade Finder: the header's Waivers link reveals "Waiver upgrades"
  *   (in view, its heading focused), again from the top without a new history entry; its toggle (2 or 3 lists, 44 px
  *   buttons, aria-pressed following a tap) and "Show all N" (aria-expanded); the header's six links in two rows at 375 px
- *   (the League step).
+ *   (the League step). Checkpoint 7e (planner reply to Checkpoint 7d, items 3.1–3.4): "Rest of season" rated on its own
+ *   request ("Rating these against your odds…" gone, the time noted), the "Drop from the same position" switch with its
+ *   help, every row one move ("Add" him, "Drop" the player named with a lock next to him), Helps you on the season list and
+ *   the lineup gain on the one-week list (waiverMoveChecks).
  * - Settings (5.2, §6.1, §2 question 5): "What does your league reward?" with the planner's three answers and hint; the
  *   read-only playoff weight going from "Working it out…" to "N.N×, set automatically from your odds." within about 15 s,
  *   worked out by the page's own engine worker without a request off the site; "Protect my trade value" without a number.
@@ -117,6 +120,7 @@ import type { LeagueSettings, LeagueSnapshot } from "@/engine/model";
 import { rewardOf, rewardWith } from "@/engine/reward";
 import { GOALS, PRIZE_KEYS, normalizeTradeSettings, type TradeSettings } from "@/engine/settings";
 import { bestTimeText, freshnessText, inTradingSeason, topPlacesOf } from "@/lib/tradeView";
+import { RATING_FAILED_TEXT, RATING_PENDING_TEXT, SAME_POSITION_HELP, SAME_POSITION_LABEL } from "@/lib/waiversView";
 import { LEAGUE_ID_PLACEHOLDER, mergeLeagueNames, nameRules, type CheckReport, type LeagueNames } from "./report";
 import {
   CHECKED_GOAL,
@@ -177,10 +181,12 @@ import {
   rowCount,
   valueLeaks,
   VALUES_CREDIT,
+  waiverMoveProblems,
   waiverToggleKind,
   type CreditRead,
   type FantasyCalcLink,
   type PrizeGroupRead,
+  type WaiverMoveRead,
 } from "./contracts";
 import type { AppRequest, PageEvent, PageSession } from "./page";
 
@@ -1502,6 +1508,10 @@ export const WAIVERS_HREF = "/league#waivers";
 
 /** What inPage.ts READ_WAIVERS reads (no names). */
 interface WaiversRead {
+  /** Checkpoint 7e: the season list's rating line (empty once rated or when it can't be), the switch, and the rows as moves. */
+  status?: string | null;
+  switch?: { label: string | null; on: boolean; help: string | null } | null;
+  moves?: WaiverMoveRead[];
   section: boolean;
   /** Without the section: the League page says the season is over (nothing left to list). */
   over?: boolean;
@@ -1527,6 +1537,69 @@ export const WAIVERS_REVEALED = `(() => { const s = document.getElementById("wai
 /** Whether the waiver view's toggle button `i` is the one pressed, alone (a waitFor expression). */
 export const togglePressed = (i: number) =>
   `(() => { const bs = [...document.querySelectorAll('#waivers [role=group][aria-label="Which weeks"] button')]; return bs.length > ${i} && bs[${i}].getAttribute("aria-pressed") === "true" && bs.filter((b) => b.getAttribute("aria-pressed") === "true").length === 1; })()`;
+
+/** How long the Waivers step waits for the season list's rating (its own request: about a second on Parker's league in Node). */
+export const WAIVER_RATING_WAIT_MS = 60_000;
+
+/**
+ * Checkpoint 7e (planner reply to Checkpoint 7d, items 3.1–3.4): the season list's rating comes on its own request (its line,
+ * "Rating these against your odds…", gone within WAIVER_RATING_WAIT_MS, never the failure's words; how long it took is noted),
+ * "Drop from the same position" with its help, and every row shown as one move (contracts.ts waiverMoveProblems): Helps you on
+ * the rated season list (the lineup gain where the season can't be simulated), a lock next to each drop; then, on the
+ * toggle's second list, the lineup gain. The toggle is put back on the season list.
+ */
+async function waiverMoveChecks(ctx: StepContext, step: string): Promise<void> {
+  const { page, report } = ctx;
+  const started = Date.now();
+  let r = await page.run<WaiversRead>(READ_WAIVERS);
+  while (r.status === RATING_PENDING_TEXT && Date.now() - started < WAIVER_RATING_WAIT_MS) {
+    await sleep(250);
+    r = await page.run<WaiversRead>(READ_WAIVERS);
+  }
+  const waited = Date.now() - started;
+  report.note(step, "waiverRatingMs", waited);
+  report.check(
+    step,
+    r.status !== RATING_PENDING_TEXT && r.status !== RATING_FAILED_TEXT,
+    `“Rest of season” is rated (or needs no rating) ${seconds(waited)} s after the section showed`,
+    r.status === RATING_FAILED_TEXT ? `the rating failed: “${RATING_FAILED_TEXT}”` : `the rating didn't come within ${seconds(WAIVER_RATING_WAIT_MS)} s`,
+  );
+  const sw = r.switch ?? null;
+  report.check(
+    step,
+    !!sw && sw.label === SAME_POSITION_LABEL && sw.help === SAME_POSITION_HELP,
+    `“${SAME_POSITION_LABEL}” is a switch with its help (${sw?.on ? "on" : "off"})`,
+    !sw ? `no “${SAME_POSITION_LABEL}” switch` : `the switch reads “${sw.label ?? ""}”, its help “${sw.help ?? "(none)"}”`,
+  );
+  const moves = r.moves ?? [];
+  const made = moves.filter((m) => m.kind === "drop" || m.kind === "open");
+  const rated = made.some((m) => m.main === "Helps you");
+  if (!moves.length) report.skip(step, "the waiver rows: “Rest of season” lists none");
+  else {
+    const problems = waiverMoveProblems(moves, { main: rated ? "Helps you" : "Lineup gain", locks: true });
+    report.check(
+      step,
+      problems.length === 0,
+      `“Rest of season”: each of ${pl(moves.length, "row")} reads as one move (add him, drop the player named), ${rated ? "Helps you" : "the lineup gain"} and how his points compare, a lock next to each drop`,
+      `${pl(problems.length, "problem")} with the season list's rows`,
+      problems,
+    );
+    if (!rated && made.length) report.info(step, "“Rest of season” isn't rated by Helps you here (no season to simulate): its rows show the lineup gain");
+  }
+  const toggle = r.toggle ?? null;
+  if (!toggle || toggle.length < 2) return;
+  await page.click(waiverToggle(1), `the toggle's “${toggle[1]?.label ?? ""}”`);
+  await page.waitFor<boolean>(togglePressed(1), 5_000, "the toggle to follow the tap").catch(() => false);
+  const week = await page.run<WaiversRead>(READ_WAIVERS);
+  const weekMoves = week.moves ?? [];
+  if (!weekMoves.length) report.skip(step, `the waiver rows: “${toggle[1]?.label ?? ""}” lists none`);
+  else {
+    const problems = waiverMoveProblems(weekMoves, { main: "Lineup gain", locks: true });
+    report.check(step, problems.length === 0, `“${toggle[1]?.label ?? ""}”: each of ${pl(weekMoves.length, "row")} reads as one move, in points`, `${pl(problems.length, "problem")} with the one-week list's rows`, problems);
+  }
+  await page.click(waiverToggle(0), "the toggle's “Rest of season”");
+  await page.waitFor<boolean>(togglePressed(0), 5_000, "the toggle to follow the tap back").catch(() => false);
+}
 
 /** Why the section didn't count as revealed, in words. */
 function revealProblem(r: WaiversRead): string {
@@ -1585,6 +1658,9 @@ export async function waiversStep(ctx: StepContext): Promise<void> {
       `tapped again from the top of the page, it comes back into view with its heading focused, and the history stays at ${top.history} entries`,
       again ? `the second tap added a history entry (${top.history} → ${second.history})` : revealProblem(second),
     );
+
+  // Checkpoint 7e: the season list rated, the switch, and the rows as moves (then the toggle's second list's).
+  await waiverMoveChecks(ctx, step);
 
   // The toggle: its buttons, each a 44 px target, and aria-pressed following a tap (then back).
   const toggle = second.toggle ?? null;

@@ -17,7 +17,9 @@
  *   read (noticeLeaks, internalPaths), Parker's league reading as the planner expects (PARKER_QUIET_LINE, noticeCount).
  * - 5.3: the Trade Finder's freshness line (freshnessLineOk).
  * - 6.1: the Settings page's read-only playoff weight (playoffWeightRead).
- * - 6.2: the waiver view's toggle (waiverToggleKind), and the header's six links in two rows at 375 px (rowCount).
+ * - 6.2: the waiver view's toggle (waiverToggleKind), and the header's six links in two rows at 375 px (rowCount); since
+ *   Checkpoint 7e (planner reply to Checkpoint 7d, items 3.1–3.4) each of its rows read as one move, with Helps you on the
+ *   rated "Rest of season" and a lock next to each drop (waiverMoveProblems).
  * - The Trade Analyzer's "Back to the Trade Finder" isn't prefetched (requestNamesAddress: which requests name its
  *   address, team id included).
  *
@@ -672,6 +674,56 @@ const WAIVER_TOGGLES: ReadonlyArray<{ labels: readonly string[]; kind: "two" | "
 /** Which toggle the labels are (pure), or null when they're none of the allowed ones. */
 export function waiverToggleKind(labels: readonly string[]): "two" | "three" | null {
   return WAIVER_TOGGLES.find((t) => t.labels.length === labels.length && t.labels.every((l, i) => l === labels[i]))?.kind ?? null;
+}
+
+/** A waiver row as inPage.ts READ_WAIVERS reads it (Checkpoint 7e; planner reply to Checkpoint 7d, items 3.1–3.4; no names). */
+export interface WaiverMoveRead {
+  /** It starts "Add" with the player's name (item 3.1: "Add A, drop B"). */
+  add: boolean;
+  /** How it makes room: "Drop" the player named, "Open roster spot", why he can't join (blocked), or none of these. */
+  kind: "drop" | "open" | "blocked" | "none";
+  /** Its main number's label ("Helps you", "Lineup gain") and value ("27", "No gain", "+2.5 pts", "No room", "Can't add"). */
+  main: string;
+  mainValue: string;
+  /** Its second number reads as one ("Outscores … by 18", "… outscores him by 3", "Even with …", "No drop needed: …"). */
+  outscores: boolean;
+  /**
+   * Its lock buttons, and whether each is named "Untouchable: …" (one name whichever way it's set, aria-pressed saying which:
+   * review of wave C, UI-C-10) with what pressing it does as its title ("Lock … as untouchable", "… is untouchable. Unlock
+   * him"). Since that review a row that can't be made has none (its untouchables' locks are on the line above the lists).
+   */
+  locks: number;
+  lockNames: boolean;
+}
+
+/**
+ * Problems with a waiver list's rows (pure; Checkpoint 7e, planner reply to Checkpoint 7d, items 3.1–3.4): each reads as one
+ * move ("Add" him, then "Drop" the player named, an open roster spot, or why he can't join); a move that can be made has its
+ * main number labeled for its list (`expect.main`: "Helps you" on a rated "Rest of season", a whole number or "No gain";
+ * "Lineup gain" on a one-week list or a season list not rated) and its second number in words; a move that can't be made its
+ * number under the same label (review of wave C, UI-C-4: "Lineup gain" broke a rated list's column) and no lock (UI-C-7);
+ * and, where the page lets the user edit (`expect.locks`), a lock next to each drop. Every lock is named for its player and
+ * says on hover what pressing it does.
+ */
+export function waiverMoveProblems(moves: readonly WaiverMoveRead[], expect: { main: "Helps you" | "Lineup gain"; locks: boolean }): string[] {
+  const problems: string[] = [];
+  moves.forEach((m, i) => {
+    const row = `row ${i + 1}`;
+    if (!m.add) problems.push(`${row} doesn't start “Add” with the player's name`);
+    if (m.kind === "none") problems.push(`${row} names no drop, open roster spot or reason he can't join`);
+    if (m.kind !== "blocked" && m.kind !== "none") {
+      if (m.main !== expect.main) problems.push(`${row}'s main number is labeled “${m.main || "(none)"}”, not “${expect.main}”`);
+      else if (m.main === "Helps you" && !(m.mainValue === "No gain" || /^\d{1,3}$/.test(m.mainValue))) problems.push(`${row}'s Helps you reads “${m.mainValue}”`);
+      if (!m.outscores) problems.push(`${row} doesn't say how his points compare with the drop's`);
+    }
+    if (m.kind === "blocked") {
+      if (m.main !== expect.main) problems.push(`${row} (can't be made) is labeled “${m.main || "(none)"}”, not “${expect.main}”`);
+      if (m.locks > 0) problems.push(`${row} (can't be made) repeats ${m.locks} lock${m.locks === 1 ? "" : "s"} the untouchables line has`);
+    }
+    if (expect.locks && m.kind === "drop" && m.locks < 1) problems.push(`${row} has no lock next to its drop`);
+    if (m.locks > 0 && !m.lockNames) problems.push(`${row}'s lock doesn't say what pressing it does`);
+  });
+  return problems;
 }
 
 /**

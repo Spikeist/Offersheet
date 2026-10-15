@@ -10,16 +10,22 @@
 import { describe, expect, it } from "vitest";
 import { config } from "@/engine/config";
 import { buildLeagueModel, type LeagueModelConfig } from "@/engine/league";
-import type { LeagueModel, SeasonOdds } from "@/engine/leagueModel";
+import type { LeagueModel, SeasonOdds, WaiverBlocked } from "@/engine/leagueModel";
 import type { LeagueSnapshot, Pos } from "@/engine/model";
 import { TITLE_ONLY, type Reward } from "@/engine/reward";
+import { defaultTradeSettings } from "@/engine/settings";
 import { TEST_NOW, buildTestLeague, type TestPlayer } from "@/engine/testLeague";
+import { smallLeague } from "@/engine/trade.testing";
 import { seasonOver } from "./leagueView";
 import {
+  CANT_ADD_TEXT,
   CANT_FIT_TEXT,
+  CANT_FIT_WHY,
   DEPTH_ONLY_TAG,
   DEPTH_ONLY_WORDS,
   NO_GAIN_TEXT,
+  SAME_POSITION_HINT,
+  SAME_POSITION_LABEL,
   WAIVERS_HREF,
   WAIVERS_NO_TEAM,
   WAIVERS_NO_WEEKS,
@@ -27,6 +33,7 @@ import {
   WAIVERS_SECTION_ID,
   WAIVERS_SEASON_OVER,
   buildWaiversView,
+  positionPlural,
   waiverStatusText,
   type WaiverListView,
 } from "./waiversView";
@@ -83,7 +90,11 @@ describe("buildWaiversView", () => {
 
   it("a row in words: the player, his points, whom he beats, the gain and the drop (an open roster spot)", () => {
     const r = row(v?.ros, "Frankie Burst");
-    expect(r).toMatchObject({ pos: "RB", nflTeam: "BBB", bye: "bye unknown", rosText: "182", weekText: "13", betterThan: "R. Dash, R. Slow", drop: "Open roster spot", depthOnly: false, status: null, opponent: null });
+    expect(r).toMatchObject({ pos: "RB", nflTeam: "BBB", bye: "bye unknown", rosText: "182", weekText: "13", betterThan: "R. Dash, R. Slow", drop: null, dropText: "Open roster spot", depthOnly: false, status: null, opponent: null, blocked: null });
+    // Unrated (no season simulated here): the lineup gain is the main number; an open spot's second number is his own points.
+    expect(r?.main).toEqual({ label: "Lineup gain", ...r?.gain });
+    expect(r?.outscores).toBe("No drop needed: 182 rest-of-season points");
+    expect(r?.lineupGain).toBeNull();
     // +6 a week (he starts at RB, R. Dash moves to the FLEX over W. Route), and all 13 in week 9, when my whole roster
     // (team AAA) is on bye and his team isn't: 13 × 6 + 13.
     expect(r?.gain).toEqual({ text: "+91 pts", positive: true, title: "Adding him into an open roster spot adds 91 points to your starting lineup over weeks 4–17." });
@@ -308,5 +319,179 @@ describe("the waiver status (ESPN's; none on Sleeper)", () => {
     const sleeper = view(setup({ platform: "sleeper" }));
     expect(sleeper?.ros?.rows.every((r) => r.status === null)).toBe(true);
     expect(row(sleeper?.week, "Geese D/ST")?.pos).toBe("DEF");
+  });
+});
+
+describe("Checkpoint 7e: one move per row, Helps you, the switch and the untouchables (planner reply to Checkpoint 7d, items 3.1–3.4)", () => {
+  /** MINE with six bench players who never start: a full roster of 16, so every pickup drops someone. */
+  const FULL_MINE: TestPlayer[] = [
+    ...MINE,
+    p("b1", "RB", 1, "Benny One"),
+    p("b2", "RB", 1.5, "Benny Two"),
+    p("b3", "WR", 2, "Bert Three"),
+    p("b4", "WR", 2.5, "Bert Four"),
+    p("b5", "QB", 3, "Bo Five"),
+    p("b6", "TE", 1, "Bud Six"),
+  ];
+  const full = setup({ mine: FULL_MINE });
+  const f = view(full);
+
+  it("a row reads as one move: add him, drop the player named (with his position), and how many more points he scores (3.1)", () => {
+    const r = row(f?.ros, "Frankie Burst");
+    expect(r?.drop).toEqual({ id: "b1", name: "B. One", fullName: "Benny One", pos: "RB" });
+    expect(r?.dropText).toBe("Drop B. One");
+    // 13 a week for 14 weeks against 1 a week for 13 (B. One's team has its bye in week 9): whole points on the season list.
+    expect(r?.outscores).toBe("Outscores B. One by 169");
+    // Unrated here (no season simulated): the lineup gain stays the main number, and isn't repeated in the details.
+    expect(r?.main.label).toBe("Lineup gain");
+    expect(r?.lineupGain).toBeNull();
+    // The one-week list: that week's projections, one decimal, "this week".
+    expect(row(f?.week, "Frankie Burst")?.outscores).toBe("Outscores B. One by 12 this week");
+    expect(row(f?.week, "Frankie Burst")?.main.label).toBe("Lineup gain");
+    expect(f?.ros?.note).toContain("Outscores: his rest-of-season points against the player you'd drop.");
+    expect(f?.week?.note).toContain("Outscores: his projection this week against the player you'd drop.");
+  });
+
+  it("when the drop scores more, it says so the other way round; even, it says even", () => {
+    const base = full.model.waiverUpgrades?.ros;
+    if (!base) throw new Error("no list");
+    const at = (dropPoints: number) => {
+      const model: LeagueModel = { ...full.model, waiverUpgrades: { ...(full.model.waiverUpgrades as NonNullable<LeagueModel["waiverUpgrades"]>), ros: { ...base, rows: base.rows.map((r) => (r.playerId === "fa1" ? { ...r, dropPoints } : r)) } } };
+      return row(buildWaiversView({ snapshot: full.snapshot, model, inputs: full.inputs, timeZone: NY, now: TEST_NOW.toISOString() })?.ros, "Frankie Burst")?.outscores;
+    };
+    expect(at(185.4)).toBe("B. One outscores him by 3");
+    expect(at(182.2)).toBe("Even with B. One");
+  });
+
+  it("the switch and my untouchables above the lists (3.2, 3.3)", () => {
+    expect(f?.samePosition).toBe(true);
+    expect(f?.untouchables).toEqual([]);
+    const l = buildTestLeague({ platform: "espn", teams: [{ id: "1", roster: FULL_MINE }, { id: "2", roster: THEM }], freeAgents: FAS, byeWeek: { AAA: 9 } });
+    const settings = { ...defaultTradeSettings(), waiverSamePosition: false, untouchables: ["b2", "r1"] };
+    const model = buildLeagueModel(l.snapshot, l.inputs, { now: TEST_NOW, sims: 0, settings }, NO_RISK);
+    const v2 = buildWaiversView({ snapshot: l.snapshot, model, inputs: l.inputs, timeZone: NY, now: TEST_NOW.toISOString() });
+    expect(v2?.samePosition).toBe(false);
+    expect(v2?.untouchables).toEqual([
+      { id: "r1", name: "R. Bolt", fullName: "Rudy Bolt" },
+      { id: "b2", name: "B. Two", fullName: "Benny Two" },
+    ]);
+    expect(SAME_POSITION_LABEL).toBe("Drop from the same position");
+  });
+
+  it("a move that can't be made says why (3.3): all untouchable at his position, with the suggestion and the players to unlock; any position; no room", () => {
+    const base = full.model.waiverUpgrades?.ros;
+    if (!base) throw new Error("no list");
+    const blockedAs = (blocked: WaiverBlocked) => {
+      const model: LeagueModel = { ...full.model, waiverUpgrades: { ...(full.model.waiverUpgrades as NonNullable<LeagueModel["waiverUpgrades"]>), ros: { ...base, rows: base.rows.map((r) => (r.playerId === "fa1" ? { ...r, gain: null, drop: null, dropPoints: null, blocked } : r)) } } };
+      return row(buildWaiversView({ snapshot: full.snapshot, model, inputs: full.inputs, timeZone: NY, now: TEST_NOW.toISOString() })?.ros, "Frankie Burst");
+    };
+    const all = blockedAs({ why: "untouchable", atPosition: true, otherPosition: true, untouchable: ["r2", "r3"] });
+    // The trade's own words, naming them (review of wave C, UI-C-4 and UI-C-7: their locks are on the untouchables line).
+    expect(all?.blocked).toEqual({
+      text: "Every RB you could drop is untouchable: R. Dash, R. Slow.",
+      hint: SAME_POSITION_HINT,
+      unlock: [
+        { id: "r2", name: "R. Dash", fullName: "Reggie Dash" },
+        { id: "r3", name: "R. Slow", fullName: "Ronnie Slow" },
+      ],
+    });
+    expect(SAME_POSITION_HINT).toBe("Turn off “Drop from the same position” to drop a player at another position.");
+    // Its number says it can't be added, under the list's own label, its hover the row's sentence (UI-C-4).
+    expect(all?.main).toEqual({ label: "Lineup gain", text: CANT_ADD_TEXT, positive: false, title: `Every RB you could drop is untouchable: R. Dash, R. Slow. ${SAME_POSITION_HINT}` });
+    expect(all?.drop).toBeNull();
+    expect(all?.dropText).toBeNull();
+    expect(all?.outscores).toBeNull();
+    expect(blockedAs({ why: "untouchable", atPosition: false, otherPosition: false, untouchable: ["b1"] })?.blocked).toEqual({
+      text: "All the players you could drop are untouchable: B. One.",
+      hint: null,
+      unlock: [{ id: "b1", name: "B. One", fullName: "Benny One" }],
+    });
+    const room = blockedAs({ why: "room", atPosition: true, otherPosition: true, untouchable: [] });
+    expect(room?.blocked).toEqual({ text: "No RB of yours can make room for him.", hint: SAME_POSITION_HINT, unlock: [] });
+    expect(room?.main).toMatchObject({ text: CANT_FIT_TEXT, title: `No RB of yours can make room for him. ${SAME_POSITION_HINT}` });
+    expect(blockedAs({ why: "room", atPosition: false, otherPosition: false, untouchable: [] })?.blocked?.text).toBe(CANT_FIT_WHY);
+    expect(CANT_FIT_WHY).toBe("None of your players can make room for him under your league's roster rules.");
+    // The words' plurals: kickers and ESPN's D/STs.
+    expect(positionPlural("K", "espn")).toBe("kickers");
+    expect(positionPlural("DEF", "espn")).toBe("D/STs");
+  });
+
+  describe("the rated season list (a made-up league with its season, 400 seasons)", () => {
+    const RATED: LeagueModelConfig = { ...config, waivers: { ...config.waivers, ratingScreenSims: 100, ratingFinishRows: 2 } };
+    // FantasyCalc's values made distinctive (987,650 and down), so none can show by accident (CLAUDE.md §2.9).
+    const l = smallLeague(11);
+    const market = l.inputs.market;
+    if (!market) throw new Error("no values");
+    const values = Object.fromEntries(Object.keys(market.values).map((id, i) => [id, 987_650 - i * 3]));
+    const inputs = { ...l.inputs, market: { ...market, values, topValue: 987_650 } };
+    const model = buildLeagueModel(l.snapshot, inputs, { now: TEST_NOW, sims: 400, waiverRating: true }, RATED);
+    const rv = buildWaiversView({ snapshot: l.snapshot, model, inputs, timeZone: NY, now: TEST_NOW.toISOString() });
+
+    it("Helps you is the main number, the lineup gain in the details, and the note says how the moves were rated", () => {
+      expect(rv?.ros?.rated).toBe(true);
+      expect(rv?.week?.rated).toBe(false);
+      const rows = rv?.ros?.rows ?? [];
+      expect(rows.length).toBeGreaterThan(2);
+      for (const r of rows) {
+        if (r.blocked) continue;
+        expect(r.main.label).toBe("Helps you");
+        expect(r.main.text === NO_GAIN_TEXT || /^\d+$/.test(r.main.text)).toBe(true);
+        expect(r.lineupGain).toMatch(/^(\+1 point|\+[\d.]+ points|None) over weeks /);
+        expect(r.outscores).toMatch(/^(Outscores .+ by [\d,]+|.+ outscores him by [\d,]+|Even with .+|No drop needed: [\d,]+ rest-of-season points)$/);
+      }
+      const first = rows[0];
+      if (first && first.main.text !== NO_GAIN_TEXT)
+        expect(first.main.title).toMatch(/^Helps you \d+: about as good as adding (less than 0\.1 points|1 point|[\d.]+ points) a week to your lineup for the rest of the season, on the same scale as trade ideas \(from [\d,]+ simulated seasons\)\.$/);
+      expect(rv?.ros?.note).toContain("Helps you: how much each move raises your chances at what your league rewards over weeks 6–10, from simulated seasons, on the same scale as trade ideas.");
+      expect(rv?.ros?.note).toContain("It counts the trade value you'd give up or gain too, as your “Protect my trade value” setting asks.");
+      expect(rv?.ros?.note).toContain("The 2 best moves are played out 400 times, the others 100 times.");
+      // The one-week list stays in points.
+      for (const r of rv?.week?.rows ?? []) if (!r.blocked) expect(r.main.label).toBe("Lineup gain");
+    });
+
+    /** The rated list with its first row's rating and gain replaced, and that row's view. */
+    const rowWith = (rating: { b: number | null; bWin?: number | null; helps: number | null }, gain?: number, weighs?: "tradeValue" | "longTerm" | null) => {
+      const ros = model.waiverUpgrades?.ros;
+      const first = ros?.rows.find((r) => r.gain !== null);
+      if (!ros?.rating || !first) throw new Error("no rated row");
+      const rows = ros.rows.map((r) => (r === first ? { ...r, ...(gain === undefined ? {} : { gain }), rating: { ...rating, sims: 400 } } : r));
+      const m: LeagueModel = { ...model, waiverUpgrades: { ...(model.waiverUpgrades as NonNullable<LeagueModel["waiverUpgrades"]>), ros: { ...ros, rows, rating: { ...ros.rating, ...(weighs === undefined ? {} : { weighs }) } } } };
+      return buildWaiversView({ snapshot: l.snapshot, model: m, inputs, timeZone: NY, now: TEST_NOW.toISOString() })?.ros?.rows.find((r) => r.id === first.playerId);
+    };
+
+    it("a “No gain” row whose odds part is a gain says the value it gives up outweighs it, visibly and on hover (review of wave C, UI-C-2)", () => {
+      const traded = rowWith({ b: -0.2, bWin: 0.3, helps: null });
+      expect(traded?.main.text).toBe(NO_GAIN_TEXT);
+      expect(traded?.main.title).toMatch(/^Adding him (and dropping .+|into an open roster spot) raises your chances at what your league rewards, but the trade value you'd give up outweighs that, as your “Protect my trade value” setting counts it \(from 400 simulated seasons\)\.$/);
+      expect(traded?.why).toBe("It raises your chances, but the trade value you'd give up outweighs that (your “Protect my trade value” setting).");
+      const longTerm = rowWith({ b: -0.2, bWin: 0.3, helps: null }, undefined, "longTerm");
+      expect(longTerm?.why).toBe("It raises your chances this season, but the long-term value you'd give up outweighs that (your Win now ↔ Future setting).");
+      // Its odds part no gain either: it doesn't raise them, no line.
+      const none = rowWith({ b: -0.2, bWin: -0.1, helps: null });
+      expect(none?.main.title).toMatch(/doesn't raise your chances at what your league rewards \(from 400 simulated seasons\)\.$/);
+      expect(none?.why).toBeNull();
+      // B above 0 that rounds to no Helps you: too little to show.
+      const tiny = rowWith({ b: 0.001, bWin: 0.001, helps: null });
+      expect(tiny?.main.title).toMatch(/raises your chances at what your league rewards too little to show \(from 400 simulated seasons\)\.$/);
+      expect(tiny?.why).toBeNull();
+      // A list weighing nothing else (no values, the deadline passed): no line.
+      expect(rowWith({ b: -0.2, bWin: 0.3, helps: null }, undefined, null)?.why).toBeNull();
+    });
+
+    it("says “less than 0.1 points a week” and “1 point”, never “0 points” or “1 points” (review of wave C, UI-C-6)", () => {
+      const b3 = model.waiverUpgrades?.ros?.rating?.b3 as number;
+      const small = rowWith({ b: 0.01 * b3, helps: 1 });
+      expect(small?.main.title).toContain("about as good as adding less than 0.1 points a week to your lineup");
+      expect(rowWith({ b: b3 / 3, helps: 28 })?.main.title).toContain("about as good as adding 1 point a week to your lineup");
+      const one = rowWith({ b: b3 / 3, helps: 28 }, 1);
+      expect(one?.lineupGain).toMatch(/^\+1 point over weeks /);
+      expect(one?.gain.title).toMatch(/ adds 1 point to your starting lineup over weeks /);
+    });
+
+    it("shows no trade value: none of FantasyCalc's (distinctive) values, nor W, anywhere in the section", () => {
+      const text = JSON.stringify(rv);
+      expect(text).not.toMatch(/9876\d\d|987,6\d\d/);
+      expect(text).not.toContain(String(model.market.waiverCredit));
+    });
   });
 });

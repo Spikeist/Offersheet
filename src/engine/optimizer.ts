@@ -56,7 +56,11 @@
  *   pickups). A keep set holding none of the
  *   roster's players is no keep set: its runs are the same runs, under the same memo key. Every other move is as without
  *   it, and a run whose best moves never drop a kept player makes the very same moves (better() is a total order).
- *   reoptimize() takes none.
+ *   reoptimize() takes one too since Checkpoint 7e (planner reply to Checkpoint 7d, item 3.3: "Untouchables are never
+ *   suggested as drops anywhere"): the League model passes my untouchables (league.ts TeamWork.keep) to every run of my
+ *   team, V*(T) and its re-runs alike (lineup costs, MV_add, chips that stay chips), and evaluate.ts to my V*(after) with
+ *   legality's adds. A re-run's moves and swaps never drop a kept player (its exchanges give back pickups only, never one of
+ *   the team's own players), under the same rule for its memo key.
  *
  * Exact, and fast without starter limits (teamValue.ts header, "Swapping a player"): any move gains at most
  * what adding its free agent alone to X gains, so a roster where no free agent's add bound reaches faMinGain
@@ -367,9 +371,10 @@ export interface RosterOptimizer {
    * `start` contains (league.ts: B′ for B′ + a newcomer), only speeds it up: every move of the first step gains at
    * most what adding its free agent to `start` gains, at most what adding him to `base` gains (more players never
    * raise a newcomer's gain), so only free agents whose add bound on `base` reaches faMinGain are scanned there.
-   * Memoized by roster, streamed positions, `from`, `extra`, `gone` and pool.
+   * `keep`: players it never drops (the file header, "The keep set"; default none). Memoized by roster, streamed
+   * positions, `from`, `extra`, `gone`, pool and, when it holds a player of `start`, the keep set.
    */
-  reoptimize(from: OptimizedRoster, start: readonly string[], stream: StreamSpec, extra: number, gone?: readonly string[], base?: readonly string[], pool?: PoolRestriction): OptimizedRoster;
+  reoptimize(from: OptimizedRoster, start: readonly string[], stream: StreamSpec, extra: number, gone?: readonly string[], base?: readonly string[], pool?: PoolRestriction, keep?: readonly string[]): OptimizedRoster;
   /** How many moves reoptimize may make from `start` (the free ones and `extra`): a bound for callers that skip it. */
   rerunMoves(from: OptimizedRoster, start: readonly string[], extra: number): number;
   /** The roster's EV lineups without any move (the start of a run; memoized like optimize). */
@@ -1170,13 +1175,21 @@ export function createOptimizer(setup: OptimizerSetup, cfg: OptimizerConfig = op
   const bestMove = (roster: readonly string[], cur: { team: TeamEval; solved: SolvedWeeks; evRos: number }, stream: StreamSpec, added: ReadonlySet<string>, pool: PoolRestriction, keep: ReadonlySet<string> = NO_KEEP): Move | null =>
     scanMoves(roster, cur, stream, added, null, pool, keep).best();
 
+  /** A keep set's players on the start roster, sorted (the file header, "The keep set"): none when it holds nobody there. */
+  const keptOn = (start: readonly string[], keep: readonly string[]): string[] => {
+    if (!keep.length) return [];
+    const onStart = new Set(start);
+    return [...new Set(keep)].filter((id) => onStart.has(id)).sort();
+  };
+  /** A memo key's keep part: empty without kept players, so a run without one keeps its key. */
+  const keepKey = (kept: readonly string[]): string => (kept.length ? `\u0007${kept.join("\u0000")}` : "");
+
   const optimize = (start: readonly string[], stream: StreamSpec = NO_STREAM, budget: number = maxMoves, pool: PoolRestriction = FULL_POOL, keep: readonly string[] = []): OptimizedRoster => {
     const limit = Number.isFinite(budget) ? Math.max(0, Math.floor(budget)) : 0;
     // The keep set (the file header): its players on the roster, sorted; in the memo key only when there are any, so a
     // run without one keeps its key (the League model's and the trade context's runs share one optimizer).
-    const onStart = keep.length ? new Set(start) : null;
-    const kept = onStart ? [...new Set(keep)].filter((id) => onStart.has(id)).sort() : [];
-    const key = `${rosterKey(start, stream)}\u0002${limit}\u0005${pool.key}${kept.length ? `\u0007${kept.join("\u0000")}` : ""}`;
+    const kept = keptOn(start, keep);
+    const key = `${rosterKey(start, stream)}\u0002${limit}\u0005${pool.key}${keepKey(kept)}`;
     const hit = memo.get(key);
     if (hit) {
       stats.hits++;
@@ -1263,16 +1276,19 @@ export function createOptimizer(setup: OptimizerSetup, cfg: OptimizerConfig = op
     return out;
   };
 
-  const reoptimize = (from: OptimizedRoster, start: readonly string[], stream: StreamSpec, extra: number, gone: readonly string[] = [], base?: readonly string[], pool: PoolRestriction = FULL_POOL): OptimizedRoster => {
+  const reoptimize = (from: OptimizedRoster, start: readonly string[], stream: StreamSpec, extra: number, gone: readonly string[] = [], base?: readonly string[], pool: PoolRestriction = FULL_POOL, keep: readonly string[] = []): OptimizedRoster => {
     const more = extraOf(extra);
     const goneSet = new Set(gone);
-    const key = `${rosterKey(start, stream)}\u0003${serialOf(from)}\u0003${more}\u0003${[...goneSet].sort(byId).join(",")}\u0005${pool.key}`;
+    // The keep set (the file header), as optimize() reads it: in the memo key only when it holds a player of the start roster.
+    const kept = keptOn(start, keep);
+    const key = `${rosterKey(start, stream)}\u0003${serialOf(from)}\u0003${more}\u0003${[...goneSet].sort(byId).join(",")}\u0005${pool.key}${keepKey(kept)}`;
     const hit = memo.get(key);
     if (hit) {
       stats.hits++;
       return hit;
     }
     stats.runs++;
+    const keepSet: ReadonlySet<string> = kept.length ? new Set(kept) : NO_KEEP;
     const first = [...new Set(start)];
     // The pickups on the roster (the original run's and this run's), each with the player its move dropped.
     const origin = pickupsOf(from, first);
@@ -1290,7 +1306,7 @@ export function createOptimizer(setup: OptimizerSetup, cfg: OptimizerConfig = op
         return p ? [p] : [];
       });
     for (let step = 0; step < limit; step++) {
-      const scan = scanMoves(roster, cur, stream, added, step === 0 && base ? ableFor(base, stream, pool) : null, pool);
+      const scan = scanMoves(roster, cur, stream, added, step === 0 && base ? ableFor(base, stream, pool) : null, pool, keepSet);
       let move = scan.best();
       if (!move) break;
       const grows = move.drop === null || !isPickup(move.drop);
@@ -1308,7 +1324,8 @@ export function createOptimizer(setup: OptimizerSetup, cfg: OptimizerConfig = op
         const at = new Map(m.team.rows.map((r, k) => [r.id, k]));
         const options: { w: string; back: string | null; next: string[]; ub: number; exact: boolean }[] = [];
         for (const [w, k] of origin) {
-          if (!made.includes(w)) continue;
+          // A kept player is never given back (a pickup in the keep set: a caller's own list may name one).
+          if (!made.includes(w) || keepSet.has(w)) continue;
           const back = k !== null && !goneSet.has(k) && !made.includes(k) ? k : null;
           const wPos = posOf(w);
           const backPos = back === null ? undefined : posOf(back);

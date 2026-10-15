@@ -6,13 +6,41 @@
  *
  * The lists behind a toggle: "Rest of season" (the default) and "This week"; while the current week is under way, "This
  * week" counts only its games still to play (the week "Streaming picks this week" lists) and "Next week" is the week after
- * it (its lineups are locking; when none of its games is left, "Next week" is the only one-week list). Each row: the player
- * (position, NFL team, bye, injury tag, waiver status when the platform reports it), his rest-of-season points and the
- * week's projection, "Better than" (my players at his position he out-projects, in the list's terms; when none of mine
- * there plays, who and why: "No TE of yours plays in week 5 (B. Bowers: bye)"), and the lineup gain with the player he'd
- * replace ("Drop R. Doubs") or an open roster spot; "Depth only" when he wouldn't start in a normal week (said in words under
- * the list whenever a row carries it: DEPTH_ONLY_WORDS). The gain prints to config.waivers.gainDecimals, the precision the
- * engine orders rows by (waivers.gainSteps). The page shows the first config.waivers.rowsShown rows, then "Show all".
+ * it (its lineups are locking; when none of its games is left, "Next week" is the only one-week list).
+ *
+ * Each row is one move (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.1: "The row reads as one move: 'Add A, drop
+ * B.'"): the player to add (position, NFL team, bye, injury tag, waiver status when the platform reports it), the player to
+ * drop (WaiverRowView.drop; an open roster spot: none; the page puts the lock icon next to him, item 3.3), and two numbers
+ * (WaiverRowView.main, .outscores):
+ * - "Rest of season", rated (WaiverList.rating; item 3.4): Helps you for that exact swap, on the trade cards' scale ("No
+ *   gain" at 0 or below), and how many more rest-of-season points he scores than the drop ("Outscores R. Doubs by 18", the
+ *   other way round when the drop scores more; an open spot: his own points). The lineup gain moves to the row's details
+ *   (WaiverRowView.lineupGain: "+2.5 points over weeks 6–17"). Unrated (no odds): the lineup gain is the main number, as
+ *   before.
+ * - The one-week lists stay in points (the planner: "These stay in points, since they're for streaming"): the lineup gain
+ *   that week is the main number, and "Outscores R. Doubs by 2.3 this week" from that week's projections.
+ * Then his rest-of-season points and the week's projection, "Better than" (my players at his position he out-projects, in
+ * the list's terms; when none of mine there plays, who and why: "No TE of yours plays in week 5 (B. Bowers: bye)"), and
+ * "Depth only" when he wouldn't start in a normal week (said in words under the list whenever a row carries it:
+ * DEPTH_ONLY_WORDS). A move that can't be made says why (WaiverRowView.blocked; item 3.3): "Every RB you could drop is
+ * untouchable: C. McCaffrey, B. Hall." (with "Drop from the same position" off, or any position: "All the players you could
+ * drop are untouchable: …"; the trade's own words, review of wave C, UI-C-4), naming the untouchables (unlocked from the
+ * untouchables line above the lists, not on every row: UI-C-7), and, when the switch is on and a player at another position
+ * could make room, the suggestion to turn it off (the planner: "In the waiver view, also suggest turning off 'Drop from the
+ * same position'"); its number reads "Can't add" ("No room" when no untouchable is why), under the list's own label, with
+ * the sentence as its hover. A rated "No gain" row whose odds part is a gain says that the value it gives up outweighs it
+ * (WaiverRowView.why; UI-C-2). Gains print to config.waivers.gainDecimals, the precision the engine orders rows by
+ * (waivers.gainSteps). The page shows the first config.waivers.rowsShown rows, then "Show all".
+ *
+ * Above the lists (Checkpoint 7e): "Drop from the same position" (item 3.2; WaiversView.samePosition, the setting the lists
+ * were built with: the page shows the switch as the browser holds it now) and my untouchables, never suggested as drops
+ * (WaiversView.untouchables, item 3.3: the page offers to unlock each one).
+ *
+ * The season list's rating comes on its own request (Checkpoint 7e: about a second on Parker's league, more than the lead's
+ * rule allows the League model build; src/workers/engine.worker.ts `waivers`): until it answers, the list shows its rows in
+ * points, as an unrated list, and WaiversView.pendingRating tells the section to ask for it ("Rating these against your
+ * odds…": RATING_PENDING_TEXT) and to build this view again from the answer (WaiverUpgrades.tsx).
+ *
  * Without lists, one line instead: no team picked (with a link to pick it), my redraft season over, or no week left
  * (buildWaiversView; review of Phase 7b: the section showed nothing then, and the header's "Waivers" link led nowhere).
  * "Season over" is the League page's own (leagueView.ts seasonOver: since Checkpoint 7c only when no prize the league pays
@@ -21,12 +49,16 @@
  * semifinal; planner reply to Checkpoint 7b, §6, the lead's reading), but for a pickup a regular-season week under way with
  * games still to play counts (its "This week" list: a pickup can still change it, a trade can't; review of the prizes UI,
  * prizes-ui-5).
+ *
+ * No trade value shows (FantasyCalc's condition, CLAUDE.md §2.9): Helps you, points and projections are ours; when Helps you
+ * counts trade value too (a redraft league's "Protect my trade value"), the note says so in words.
  */
+import { lineupEquivalent } from "@/engine/benefit";
 import { config } from "@/engine/config";
 import type { ModelInputs } from "@/engine/inputs";
-import type { LeagueModel, WaiverIdle, WaiverList, WaiverRow } from "@/engine/leagueModel";
-import type { FreeAgentStatus, InjuryStatus, LeagueSnapshot, Pos } from "@/engine/model";
-import { gainSteps } from "@/engine/waivers";
+import type { LeagueModel, WaiverBlocked, WaiverIdle, WaiverList, WaiverListRating, WaiverRow } from "@/engine/leagueModel";
+import type { FreeAgentStatus, InjuryStatus, LeagueSnapshot, Platform, Pos } from "@/engine/model";
+import { gainSteps, waiverRatingPending } from "@/engine/waivers";
 import { fmtNum, fmtWhole, weeksText } from "./format";
 import { INJURY_LABEL, posLabel } from "./labels";
 import { seasonOver, shortName, type InjuryTone } from "./leagueView";
@@ -48,7 +80,11 @@ export const DEPTH_ONLY_WORDS: Readonly<Record<"ros" | "week", string>> = {
 };
 export const NO_GAIN_TEXT = "No gain";
 export const CANT_FIT_TEXT = "No room";
-export const WAIVERS_INTRO = "Free agents who project for more points than one of your players at the same position, and what each would add to your starting lineup.";
+/** A move only untouchables could make room for (review of wave C, UI-C-4): the row's number, its sentence saying why. */
+export const CANT_ADD_TEXT = "Can't add";
+/** Why nobody can make room, when no rule names it (the row's sentence, and its number's hover). */
+export const CANT_FIT_WHY = "None of your players can make room for him under your league's roster rules.";
+export const WAIVERS_INTRO = "Free agents who project for more points than one of your players at the same position. Each one is a single move: add him and drop the player named.";
 export const WAIVERS_SEASON_OVER = "Your season's over, so no pickup can help this year.";
 /**
  * Instead of the lists when no team is picked, with a link to the Import Report's team picker (review of Phase 7b: the
@@ -58,6 +94,13 @@ export const WAIVERS_NO_TEAM = "Pick your team on the Import Report to see waive
 export const WAIVERS_PICK_TEAM: Readonly<{ href: string; text: string }> = { href: "/import#your-team", text: "Pick your team" };
 /** Instead of the lists when no week is left for a pickup to help (the season over, or its last week under way). */
 export const WAIVERS_NO_WEEKS = "Waiver upgrades cover the weeks still to come, and none is left this season.";
+/** "Drop from the same position" (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.2): the switch's label and its help. */
+export const SAME_POSITION_LABEL = "Drop from the same position";
+export const SAME_POSITION_HELP = "On: the player you drop plays the same position as the one you add. Off: any position.";
+/** My untouchables above the lists (item 3.3): never suggested as drops, each with its lock to unlock him. */
+export const UNTOUCHABLES_LABEL = "Untouchable, never suggested as drops:";
+/** The suggestion under a move only another position could make room for (item 3.3: "suggest turning off 'Drop from the same position'"). */
+export const SAME_POSITION_HINT = `Turn off “${SAME_POSITION_LABEL}” to drop a player at another position.`;
 
 /** Which list (WaiverUpgrades): the rest of the season, the week under way, or the first week team numbers count. */
 export type WaiverListMode = "ros" | "underWay" | "week";
@@ -90,7 +133,28 @@ export interface WaiversView {
   empty: string | null;
   /** With `empty` when no team is picked: the link to the Import Report's team picker (WAIVERS_PICK_TEAM); null otherwise. */
   emptyLink: { href: string; text: string } | null;
+  /**
+   * Checkpoint 7e (item 3.2): "Drop from the same position" as the lists were built with (WaiverUpgrades.samePosition; on for
+   * a model built before); null without lists. The page's switch shows the setting as the browser holds it now.
+   */
+  samePosition?: boolean | null;
+  /** Checkpoint 7e (item 3.3): my untouchables the lists never drop, each with his short and full name (the lock's label). */
+  untouchables?: { id: string; name: string; fullName: string }[];
+  /**
+   * Checkpoint 7e (item 3.4): the season list can be rated by Helps you but isn't yet (the League page's model is built without
+   * the rating: src/workers/engine.worker.ts): this view's input, so the section asks for the rating (src/lib/engineClient.ts
+   * waiverRatingFor on its model) and builds its view again from the answer; null when rated already or when it can't be
+   * (no season simulated, no row that can be made).
+   */
+  pendingRating?: WaiversInput | null;
 }
+
+/** Whether the season list is rated, being rated, or couldn't be (WaiverUpgrades.tsx; the file header). */
+export type WaiverRatingStatus = "pending" | "failed" | null;
+
+/** The section's line while its season list is rated on its own request (Checkpoint 7e, item 3.4), and when that fails. */
+export const RATING_PENDING_TEXT = "Rating these against your odds…";
+export const RATING_FAILED_TEXT = "These couldn't be rated against your odds, so they're listed by lineup gain.";
 
 export interface WaiverListView {
   mode: WaiverListMode;
@@ -114,6 +178,8 @@ export interface WaiverListView {
   empty: string;
   /** For screen readers: what the list is. */
   caption: string;
+  /** Checkpoint 7e (item 3.4): the list's rows are rated by Helps you (the season list with odds). */
+  rated?: boolean;
 }
 
 export interface WaiverRowView {
@@ -134,9 +200,32 @@ export interface WaiverRowView {
   weekText: string;
   /** "C. Sutton, R. Doubs" (my players he out-projects), "No K on your roster", or "No TE of yours plays in week 5 (B. Bowers: bye)". */
   betterThan: string;
+  /** The lineup gain (the main number on the one-week lists and an unrated season list; the details on a rated one). */
   gain: { text: string; positive: boolean; title: string };
+  /**
+   * Checkpoint 7e (item 3.1: "Add A, drop B"): the player to drop, his short and full names (the lock's label) and position
+   * (the page reads "Add Alvin Kamara" then "Drop R. Dowdle (RB)", with the lock icon next to him: item 3.3), or null: an
+   * open roster spot or a move that can't be made.
+   */
+  drop: { id: string; name: string; fullName: string; pos: string } | null;
   /** "Drop R. Doubs", "Open roster spot", or null when he can't be added. */
-  drop: string | null;
+  dropText: string | null;
+  /** The row's main number: Helps you on a rated list, else the lineup gain (with its label: "Helps you", "Lineup gain"). */
+  main: { label: string; text: string; positive: boolean; title: string };
+  /** The second number: "Outscores R. Doubs by 18", "R. Doubs outscores him by 3", "No drop needed: 77 points"; null when he can't be added. */
+  outscores: string | null;
+  /** On a rated list: the lineup gain in the details, "+2.5 points over weeks 6–17" or "None over weeks 6–17"; null otherwise. */
+  lineupGain: string | null;
+  /**
+   * Why he can't be added (item 3.3): the sentence (naming the untouchables when they're why: their locks are on the
+   * untouchables line above the lists, review of wave C, UI-C-7), the suggestion to turn the switch off, and those players.
+   */
+  blocked: { text: string; hint: string | null; unlock: { id: string; name: string; fullName: string }[] } | null;
+  /**
+   * On a rated list, why a "No gain" row gains nothing when his odds part is a gain (review of wave C, UI-C-2): "It raises
+   * your chances, but the trade value you'd give up outweighs that (your “Protect my trade value” setting)."; else null.
+   */
+  why: string | null;
   depthOnly: boolean;
 }
 
@@ -189,6 +278,13 @@ function weeksWords(weeks: readonly number[]): string {
   return weeksText(weeks).replace(/^Weeks?/, (w) => w.toLowerCase());
 }
 
+/** A position's plural in a sentence: "RBs", "TEs", "kickers", "D/STs". */
+export function positionPlural(pos: Pos, platform?: Platform): string {
+  if (pos === "K") return "kickers";
+  if (pos === "P") return "punters";
+  return `${posLabel(pos, platform)}s`;
+}
+
 /** The section without lists: one line instead (WaiversView.empty), and the team picker's link when no team is picked. */
 function emptyView(empty: string, emptyLink: WaiversView["emptyLink"] = null): WaiversView {
   return { ros: null, underWay: null, week: null, first: "ros", intro: WAIVERS_INTRO, empty, emptyLink };
@@ -217,13 +313,49 @@ export function buildWaiversView(input: WaiversInput): WaiversView | null {
   const ros = w.ros ? listView(input, w.ros, "ros", w.teamId, labels) : null;
   const underWay = w.underWay ? listView(input, w.underWay, "underWay", w.teamId, labels) : null;
   const week = w.week ? listView(input, w.week, "week", w.teamId, labels) : null;
-  return { ros, underWay, week, first: ros ? "ros" : underWay ? "underWay" : "week", intro: WAIVERS_INTRO, empty: null, emptyLink: null };
+  const untouchables = (w.untouchables ?? []).map((id) => playerNames(snapshot, id));
+  // The season list waits for its rating (the League page's model is built without it): there's a season to rate it on and
+  // a move to rate (waivers.waiverRatingPending: the engine worker keeps the build for it by the same rule).
+  const ratable = waiverRatingPending(model);
+  return {
+    ros,
+    underWay,
+    week,
+    first: ros ? "ros" : underWay ? "underWay" : "week",
+    intro: WAIVERS_INTRO,
+    empty: null,
+    emptyLink: null,
+    samePosition: w.samePosition ?? true,
+    untouchables,
+    pendingRating: ratable ? input : null,
+  };
+}
+
+/** A player's short name (the rows') and full name (the lock's label); his id when the import doesn't know him. */
+function playerNames(snapshot: LeagueSnapshot, id: string): { id: string; name: string; fullName: string } {
+  const p = snapshot.players[id];
+  return { id, name: p ? shortName(p.name, p.pos) : id, fullName: p?.name ?? id };
 }
 
 /** The first-week list's label: "Next week" while the current week is under way (the list is for the week after), else "This week". */
 function weekLabel(input: WaiversInput, list: WaiverList): string {
   const week = list.weeks[0] ?? input.snapshot.currentWeek;
   return input.model.inProgressWeek !== null && week !== input.snapshot.currentWeek ? "Next week" : "This week";
+}
+
+/**
+ * What a rated season list's Helps you weighs, in words (Checkpoint 7e, item 3.4): the season played out, and the trade
+ * value or long-term value it counts too (WaiverListRating.weighs; no number: CLAUDE.md §2.9).
+ */
+function ratingNote(r: WaiverListRating, span: string): string {
+  const weighs =
+    r.weighs === "tradeValue"
+      ? " It counts the trade value you'd give up or gain too, as your “Protect my trade value” setting asks."
+      : r.weighs === "longTerm"
+        ? " It counts the change in your roster's long-term value too, as your Win now ↔ Future setting asks."
+        : "";
+  const sims = r.finished > 0 && r.screenSims < r.shownSims ? ` The ${r.finished === 1 ? "best move is" : `${r.finished} best moves are`} played out ${fmtWhole(r.shownSims)} times, the others ${fmtWhole(r.screenSims)} times.` : ` Each move is played out ${fmtWhole(r.screenSims)} times.`;
+  return `Helps you: how much each move raises your chances at what your league rewards over ${span}, from simulated seasons, on the same scale as trade ideas.${weighs}${sims} Outscores: his rest-of-season points against the player you'd drop.`;
 }
 
 function listView(input: WaiversInput, list: WaiverList, mode: WaiverListMode, teamId: string, labels: { underWay: string | null; week: string | null }): WaiverListView {
@@ -239,14 +371,18 @@ function listView(input: WaiversInput, list: WaiverList, mode: WaiverListMode, t
   const streamed = (model.streaming.byTeam[teamId]?.positions ?? []).map((p) => posLabel(p, snapshot.platform));
   const oneWeek = [labels.underWay, labels.week].filter((l): l is string => l !== null).map((l) => `“${l}”`);
   const streamedNote = streamed.length && oneWeek.length ? ` Positions you stream weekly (${streamed.join(", ")}) are under ${oneWeek.join(" and ")}.` : "";
+  const rating = mode === "ros" ? (list.rating ?? null) : null;
+  const when = mode === "ros" ? null : nextWeek ? "next week" : "this week";
   const note =
     mode === "ros"
-      ? `Lineup gain: what adding him adds to your starting lineup over ${span}, each week counted once, ${how}, after dropping the player named.${streamedNote}`
+      ? rating
+        ? `${ratingNote(rating, span)} Lineup gain: what the move adds to your starting lineup over ${span}, each week counted once, ${how}.${streamedNote}`
+        : `Lineup gain: what adding him adds to your starting lineup over ${span}, each week counted once, ${how}, after dropping the player named. Outscores: his rest-of-season points against the player you'd drop.${streamedNote}`
       : mode === "underWay"
-        ? `Lineup gain: what adding him adds to your starting lineup in ${span}, ${how}, after dropping the player named (the one your roster misses least over the rest of the season, among players whose games haven't started). Players whose games have started are locked: yours stay in the best lineup you could have set before kickoff.`
-        : `Lineup gain: what adding him adds to your starting lineup in ${span}, ${how}, after dropping the player named (the one your roster misses least over the rest of the season).`;
+        ? `Lineup gain: what adding him adds to your starting lineup in ${span}, ${how}, after dropping the player named (the same one as for the rest of the season, among players whose games haven't started). Outscores: his projection for the games still to play against the player you'd drop. Players whose games have started are locked: yours stay in the best lineup you could have set before kickoff.`
+        : `Lineup gain: what adding him adds to your starting lineup in ${span}, ${how}, after dropping the player named (the same one as for the rest of the season). Outscores: his projection ${when} against the player you'd drop.`;
   const weekIndex = model.weeks.indexOf(pickupWeek);
-  const rows = list.rows.map((r) => rowView(input, list, r, mode, span, weekIndex, pickupWeek));
+  const rows = list.rows.map((r) => rowView(input, list, r, mode, span, weekIndex, pickupWeek, rating, when));
   const underWay =
     underWayWeek === null ? null : mode === "underWay" ? `Week ${underWayWeek} is under way: this list counts only its games still to play.` : nextWeek ? `Week ${underWayWeek} is under way, so this list is for week ${pickupWeek}.` : null;
   // "Depth only" in words, visible under the list when a row of it carries the tag (DEPTH_ONLY_WORDS; review of Phase 7b).
@@ -268,46 +404,155 @@ function listView(input: WaiversInput, list: WaiverList, mode: WaiverListMode, t
           ? `No free agent still to play in week ${pickupWeek} projects for more points than one of your players at his position.`
           : `No free agent projects for more points in week ${pickupWeek} than one of your players at his position.`,
     caption: mode === "ros" ? "Waiver upgrades for the rest of the season" : mode === "underWay" ? `Waiver upgrades for week ${pickupWeek}'s games still to play` : `Waiver upgrades for week ${pickupWeek}`,
+    rated: rating !== null,
   };
 }
 
-function rowView(input: WaiversInput, list: WaiverList, r: WaiverRow, mode: WaiverListMode, span: string, weekIndex: number, pickupWeek: number): WaiverRowView {
+/** A position in a sentence, one player: "RB", "D/ST", "kicker", "punter". */
+function positionSingular(pos: Pos, platform?: Platform): string {
+  if (pos === "K") return "kicker";
+  if (pos === "P") return "punter";
+  return posLabel(pos, platform);
+}
+
+/**
+ * Why a move can't be made, in words (Checkpoint 7e, items 3.2 and 3.3; WaiverRow.blocked): "Every RB you could drop is
+ * untouchable: C. McCaffrey, B. Hall." (the drop had to play his position; the trade's own words, evaluate.ts
+ * untouchableDropNote: review of wave C, UI-C-4, since in the week under way a player whose game has started can't be
+ * dropped either, so "All your RBs" wasn't always true) or "All the players you could drop are untouchable: …", naming the
+ * untouchables (`unlock`; their locks are on the untouchables line above the lists, not on every row: review of wave C,
+ * UI-C-7); "No RB of yours can make room for him." or today's words; and the switch's suggestion when another position could
+ * make room.
+ */
+function blockedView(snapshot: LeagueSnapshot, b: WaiverBlocked, pos: Pos | undefined): NonNullable<WaiverRowView["blocked"]> {
+  const unlock = b.why === "untouchable" ? b.untouchable.map((id) => playerNames(snapshot, id)) : [];
+  const named = unlock.length ? `: ${unlock.map((u) => u.name).join(", ")}.` : ".";
+  const text =
+    b.why === "untouchable"
+      ? b.atPosition && pos
+        ? `Every ${positionSingular(pos, snapshot.platform)} you could drop is untouchable${named}`
+        : `All the players you could drop are untouchable${named}`
+      : b.atPosition && pos
+        ? `No ${posLabel(pos, snapshot.platform)} of yours can make room for him.`
+        : CANT_FIT_WHY;
+  return { text, hint: b.otherPosition ? SAME_POSITION_HINT : null, unlock };
+}
+
+/** "N points", with "point" when the number prints as 1 (review of wave C, UI-C-6). */
+function pointsText(shown: string): string {
+  return `${shown} ${shown === "1" ? "point" : "points"}`;
+}
+
+/** A lineup equivalent a week: "0.9 points a week", "1 point a week", "less than 0.1 points a week" (review of wave C, UI-C-6: "0 points"). */
+function weeklyPointsText(x: number): string {
+  const shown = fmtNum(x, 1);
+  return shown === "0" || shown === "-0" ? "less than 0.1 points a week" : `${pointsText(shown)} a week`;
+}
+
+/**
+ * Why a rated row reads "No gain" when its odds part, B_win, is a gain (WaiverRowRating.bWin; review of wave C, UI-C-2:
+ * "No gain" alone read as "it doesn't raise your chances", while it did): the value the swap gives up outweighs it, by the
+ * setting that weighs it (WaiverListRating.weighs). `words` ends the number's hover, `why` is the row's own line in words
+ * (a hover is missed on a phone and by screen readers). No number: Offer Sheet shows no trade value (CLAUDE.md §2.9).
+ */
+const TRADE_VALUE_COST = {
+  words: "the trade value you'd give up outweighs that, as your “Protect my trade value” setting counts it",
+  why: "It raises your chances, but the trade value you'd give up outweighs that (your “Protect my trade value” setting).",
+} as const;
+const LONG_TERM_COST = {
+  words: "the long-term value you'd give up outweighs that, as your Win now ↔ Future setting counts it",
+  why: "It raises your chances this season, but the long-term value you'd give up outweighs that (your Win now ↔ Future setting).",
+} as const;
+
+function rowView(
+  input: WaiversInput,
+  list: WaiverList,
+  r: WaiverRow,
+  mode: WaiverListMode,
+  span: string,
+  weekIndex: number,
+  pickupWeek: number,
+  rating: WaiverListRating | null,
+  when: string | null,
+): WaiverRowView {
   const { snapshot, model } = input;
   const info = snapshot.players[r.playerId];
   const pm = model.players[r.playerId];
   const pos: Pos | undefined = info?.pos;
   const posText = pos ? posLabel(pos, snapshot.platform) : "player";
   const injury = info ? INJURY_LABEL[info.injury] : null;
-  const name = (id: string) => {
-    const p = snapshot.players[id];
-    return p ? shortName(p.name, p.pos) : id;
-  };
+  const name = (id: string) => playerNames(snapshot, id).name;
+  const fullName = info?.name ?? r.playerId;
   const bye = pm?.ros.bye;
   const weekP = weekIndex >= 0 ? (pm?.weekly[weekIndex]?.p ?? 0) : 0;
   const byeThatWeek = weekIndex >= 0 && pm?.weekly[weekIndex]?.bye === true;
   const opp = mode !== "ros" && info?.nflTeam ? input.inputs?.nfl?.opponents?.[pickupWeek]?.[info.nflTeam] : undefined;
-  const dropName = r.drop ? name(r.drop) : null;
-  const move = r.drop ? `adding him and dropping ${dropName}` : "adding him into an open roster spot";
+  const dropInfo = r.drop ? snapshot.players[r.drop] : undefined;
+  const drop = r.gain !== null && r.drop ? { ...playerNames(snapshot, r.drop), pos: dropInfo ? posLabel(dropInfo.pos, snapshot.platform) : "—" } : null;
+  const dropName = drop?.name ?? null;
+  const moveWords = drop ? `adding him and dropping ${dropName}` : "adding him into an open roster spot";
   const where = mode === "ros" ? `over ${span}` : `in ${span}`;
   // Nobody of mine to beat at his position: none on my roster, or none who plays in the list's weeks (who, and why).
   const idle = list.idle.filter((x) => x.pos === pos);
-  const when = mode === "ros" ? "again this season" : `in ${span}`;
-  const nobody = idle.length ? `No ${posText} of yours plays ${when} (${idle.map((x) => `${name(x.playerId)}: ${IDLE_WORD[x.why]}`).join("; ")})` : `No ${posText} on your roster`;
+  const idleWhen = mode === "ros" ? "again this season" : `in ${span}`;
+  const nobody = idle.length ? `No ${posText} of yours plays ${idleWhen} (${idle.map((x) => `${name(x.playerId)}: ${IDLE_WORD[x.why]}`).join("; ")})` : `No ${posText} on your roster`;
+  // The lineup gain as the engine orders rows (waivers.gainSteps): a gain that rounds to 0 or below is no gain.
+  const decimals = config.waivers.gainDecimals;
+  // A move that can't be made: why, in words (item 3.3), which its number's hover says too (review of wave C, UI-C-4).
+  const blocked = r.gain === null && r.blocked ? blockedView(snapshot, r.blocked, pos) : null;
   let gain: WaiverRowView["gain"];
   if (r.gain === null) {
-    gain = { text: CANT_FIT_TEXT, positive: false, title: "None of your players can make room for him under your league's roster rules." };
+    gain = { text: r.blocked?.why === "untouchable" ? CANT_ADD_TEXT : CANT_FIT_TEXT, positive: false, title: blocked ? [blocked.text, blocked.hint].filter((x) => x !== null).join(" ") : CANT_FIT_WHY };
   } else {
-    // The gain as the engine orders rows (waivers.gainSteps): a gain that rounds to 0 or below is no gain.
-    const decimals = config.waivers.gainDecimals;
     const shown = fmtNum(r.gain, decimals);
     gain =
       gainSteps(r.gain, decimals) > 0
-        ? { text: `+${shown} pts`, positive: true, title: `${capitalize(move)} adds ${shown} points to your starting lineup ${where}.` }
-        : { text: NO_GAIN_TEXT, positive: false, title: `${capitalize(move)} doesn't add points to your starting lineup ${where}.` };
+        ? { text: `+${shown} pts`, positive: true, title: `${capitalize(moveWords)} adds ${pointsText(shown)} to your starting lineup ${where}.` }
+        : { text: NO_GAIN_TEXT, positive: false, title: `${capitalize(moveWords)} doesn't add points to your starting lineup ${where}.` };
   }
+  // The main number: Helps you on a rated list (item 3.4), else the lineup gain; a move that can't be made says so under
+  // the list's own label (review of wave C, UI-C-4: "Lineup gain" broke a rated list's column of Helps you).
+  let main: WaiverRowView["main"] = { label: rating ? "Helps you" : "Lineup gain", ...gain };
+  let why: string | null = null;
+  if (rating && r.gain !== null && r.rating) {
+    const helps = r.rating.helps;
+    const sims = fmtWhole(r.rating.sims);
+    const equivalent = rating.weighs !== "longTerm" ? lineupEquivalent(r.rating.b, rating.b3) : null;
+    const per = equivalent !== null && helps !== null ? `: about as good as adding ${weeklyPointsText(equivalent)} to your lineup for the rest of the season` : "";
+    // A move whose odds part is a gain the value it gives up outweighs (review of wave C, UI-C-2: "No gain" alone read as
+    // "it doesn't raise your chances", while it did: in Parker's second league 15 of 21 such rows).
+    const cost = rating.weighs === "tradeValue" ? TRADE_VALUE_COST : rating.weighs === "longTerm" ? LONG_TERM_COST : null;
+    const bWin = r.rating.bWin;
+    const b = r.rating.b;
+    if (helps !== null && helps > 0) main = { label: "Helps you", text: String(helps), positive: true, title: `Helps you ${helps}${per}, on the same scale as trade ideas (from ${sims} simulated seasons).` };
+    else {
+      const title =
+        typeof b === "number" && b > 0
+          ? `${capitalize(moveWords)} raises your chances at what your league rewards too little to show (from ${sims} simulated seasons).`
+          : cost && typeof bWin === "number" && bWin > 0
+            ? `${capitalize(moveWords)} raises your chances at what your league rewards, but ${cost.words} (from ${sims} simulated seasons).`
+            : `${capitalize(moveWords)} doesn't raise your chances at what your league rewards (from ${sims} simulated seasons).`;
+      main = { label: "Helps you", text: NO_GAIN_TEXT, positive: false, title };
+      if (!(typeof b === "number" && b > 0) && cost && typeof bWin === "number" && bWin > 0) why = cost.why;
+    }
+  }
+  // The second number (item 3.1): how many more points he scores than the drop in the list's terms (an open spot: his own).
+  let outscores: string | null = null;
+  if (r.gain !== null) {
+    const whole = mode === "ros";
+    const fmt = (x: number) => (whole ? fmtWhole(x) : fmtNum(x, 1));
+    const tail = when ? ` ${when}` : "";
+    if (!drop) outscores = `No drop needed: ${whole ? `${fmt(r.points)} rest-of-season ${fmt(r.points) === "1" ? "point" : "points"}` : `${pointsText(fmt(r.points))}${tail}`}`;
+    else if (typeof r.dropPoints === "number" && Number.isFinite(r.dropPoints)) {
+      const diff = r.points - r.dropPoints;
+      const shown = fmt(Math.abs(diff));
+      outscores = shown === "0" ? `Even with ${dropName}${tail}` : diff > 0 ? `Outscores ${dropName} by ${shown}${tail}` : `${dropName} outscores him by ${shown}${tail}`;
+    }
+  }
+  const lineupGain = rating && r.gain !== null ? (gainSteps(r.gain, decimals) > 0 ? `+${pointsText(fmtNum(r.gain, decimals))} ${where}` : `None ${where}`) : null;
   return {
     id: r.playerId,
-    name: info?.name ?? r.playerId,
+    name: fullName,
     pos: pos ? posLabel(pos, snapshot.platform) : "—",
     nflTeam: info?.nflTeam ?? "FA",
     bye: !bye || bye.status === "unknown" ? "bye unknown" : bye.status === "done" ? "bye done" : `bye wk ${bye.week}`,
@@ -318,7 +563,13 @@ function rowView(input: WaiversInput, list: WaiverList, r: WaiverRow, mode: Waiv
     weekText: byeThatWeek ? "bye" : fmtNum(weekP, 1),
     betterThan: r.betterThan.length ? r.betterThan.map(name).join(", ") : nobody,
     gain,
-    drop: r.gain === null ? null : dropName ? `Drop ${dropName}` : "Open roster spot",
+    drop,
+    dropText: r.gain === null ? null : dropName ? `Drop ${dropName}` : "Open roster spot",
+    main,
+    outscores,
+    lineupGain,
+    blocked,
+    why,
     depthOnly: r.depthOnly,
   };
 }

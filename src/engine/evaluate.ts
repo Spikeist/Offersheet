@@ -11,7 +11,8 @@
  *   lineup costs, trade chips, surplus scores and MV_add's bases, and every team's V*(T) priced finally (step 8a:
  *   LeagueModelBuild.pickups, the lineups behind TeamModel.scoreWithPickups; the baseline below). It reads only the
  *   settings the League model reads (streamPositions, and the goal and prizes its automatic playoff weight ω reads: league.ts
- *   step 5c, planner reply to Checkpoint 7a, §6.1; its reward, LeagueContext.reward); the search and the Analyzer take the
+ *   step 5c, planner reply to Checkpoint 7a, §6.1; its reward, LeagueContext.reward; since Checkpoint 7e my untouchables, no
+ *   drop of mine, TeamState.keep); the search and the Analyzer take the
  *   rest per call. The model is built without a simulation of its own, but with ω measured on this context's shown block
  *   (BuildLeagueModelOptions.playoffWeightSims and the seed), the seasons the League page's model measures it on, so the two
  *   have one ω and so one baseline.
@@ -132,6 +133,10 @@
  *   who don't go to its IR. Then, in order:
  *   1. A position over its positionLimits → drop that position's lowest keep value player not just received (none →
  *      illegal). ⚠️ A team already over a limit before the trade is held only to its count before the trade.
+ *      Never one of my untouchables (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.3: "Untouchables are never
+ *      suggested as drops anywhere"; TeamState.keep, mine only, here and in rule 2): when only they could go, the trade is
+ *      illegal and says so (untouchableDropNote: "Every RB you could drop is untouchable."; rule 2's, "Every player you could
+ *      drop to make room is untouchable."), so the search never suggests it and the Analyzer gives the reason.
  *   2. Over maxRosterSize → drop the lowest keep value players, never one just received, never one the starting
  *      lineup needs (optimizer.fillCount: the slots fillable before stay fillable, streaming rows counting for their
  *      position, returners not), never the last one the side rosters at a position it streams (⚠️ ours, final review of
@@ -208,8 +213,9 @@
  * exact mode's lineups, and since Checkpoint 7e the trade values and W its near-ties compare from then on too, planner
  * reply to Checkpoint 7d, item 2.3; ⚠️ the returner himself a candidate, so a return never lowers a side by more than the near-tie
  * tolerance (returners.ts: a returner worth more than W can keep his spot over a cheaper bench player); never one the
- * lineup needs, one a position's minimum needs, or the last one at a position the side streams; at his position when its
- * limit binds),
+ * lineup needs, one a position's minimum needs, the last one at a position the side streams, or, on my side, one of my
+ * untouchables (Checkpoint 7e, item 3.3: TeamState.keep; when only they could go, nobody does and the roster runs over);
+ * at his position when its limit binds),
  * SideEval.displaced. Screening and legality don't (⚠️ the marginal machinery compares like with like without it). The
  * optimizer's memoized scenario lineups of a roster are reused only when nothing is displaced; else the lineups are
  * priced again where the dropped player started. The packages' open-spot credit counts each side's active-roster moves
@@ -237,7 +243,8 @@
  *
  * Exact evaluation (M3; L6, L8). Legality in scenario lineups (keep values, and since Phase 7c rule 4's fill: rule 3's
  * minimum adds stay EV-judged), then V*(after) = the free-agent optimizer from scratch on each side's post-legality
- * roster, never dropping a legality add (the optimizer's keep set: Phase 7c, planner reply to Checkpoint 7b, section 5;
+ * roster, never dropping one of my untouchables on my side (Checkpoint 7e, item 3.3: TeamState.keep, as my baseline V*(T)
+ * never does) nor a legality add (the optimizer's keep set: Phase 7c, planner reply to Checkpoint 7b, section 5;
  * without it, on Parker's league, Oct 4 09:24Z, V*(after) dropped the fill on 21 of the 96 sides with one in a search's
  * exact trades, 18 of them in a move making one of the side's own baseline pickups again, so the card would have named a
  * pickup the evaluated roster didn't hold; with it, V*(after) still makes that pickup on 19 of the 21, with another drop,
@@ -492,9 +499,11 @@ export interface TradeContextOptions {
   now: Date;
   /**
    * The user's settings. The context reads only what the League model reads (streamPositions, and the goal and prizes its
-   * automatic playoff weight weighs my odds by, which also decide whether its simulation lists the weekly high scores:
-   * src/lib/settingsStore.ts LEAGUE_MODEL_SETTINGS); the search and the Analyzer take the rest per call (the goal and prizes
-   * too: a cached context is rebuilt when they change, since its key holds them). Default: defaultTradeSettings().
+   * automatic playoff weight weighs my odds by, which also decide whether its simulation lists the weekly high scores, and
+   * since Checkpoint 7e my untouchables, which no drop of mine makes, TeamState.keep: src/lib/settingsStore.ts
+   * LEAGUE_MODEL_SETTINGS); the search and the Analyzer take the rest per call (the goal and prizes too, and the untouchables
+   * for the search's give pool: a cached context is rebuilt when they change, since its key holds them). Default:
+   * defaultTradeSettings().
    */
   settings?: TradeSettings;
   /** Availability scenarios (default config.lineups.scenarios), their seed, and the season simulation's seed. */
@@ -642,6 +651,12 @@ export interface TeamState {
   roster: readonly string[];
   /** Its IR (team.ir, each id once; league.ts TeamWork.ir). */
   ir: readonly string[];
+  /**
+   * The players it never drops (league.ts TeamWork.keep; Checkpoint 7e, planner reply to Checkpoint 7d, item 3.3): mine, my
+   * untouchables on my active roster or IR; every other team's, none. Legality's rule 1 and 2 drops (the file header), my
+   * V*(after) (the optimizer's keep set) and the release when one of my IR players returns (sideEval) leave them alone.
+   */
+  keep: readonly string[];
   /** V*(T): the free-agent optimizer from scratch on the roster (the League model's own). */
   vstar: OptimizedRoster;
   /**
@@ -942,6 +957,20 @@ const POS_WORDS: Readonly<Record<Pos, [string, string]>> = {
 };
 const posWords = (pos: Pos, n: number): string => `${n} ${(POS_WORDS[pos] ?? [pos, `${pos}s`])[n === 1 ? 0 : 1]}`;
 
+/** No kept player (legalSide: a side without untouchables). */
+const NONE_KEPT: ReadonlySet<string> = new Set();
+
+/**
+ * Why a trade is illegal when legality's drop can't be made because every player it could drop is one of my untouchables
+ * (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.3: "If every candidate is untouchable, say so, for example 'All your
+ * RBs are untouchable.'"; the lead's words): rule 1, a position over its limit (`pos`), "Every RB you could drop is
+ * untouchable."; rule 2, the roster size (`pos` null), "Every player you could drop to make room is untouchable." The
+ * Analyzer shows it; the search never suggests such a trade.
+ */
+export function untouchableDropNote(pos: Pos | null): string {
+  return pos === null ? "Every player you could drop to make room is untouchable." : `Every ${(POS_WORDS[pos] ?? [pos])[0]} you could drop is untouchable.`;
+}
+
 // ---------------------------------------------------------------------------------------------
 // The context
 
@@ -1061,6 +1090,7 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
       stream: t.stream,
       roster: t.ids,
       ir: t.ir,
+      keep: t.keep,
       vstar: t.vstar,
       claimed: t.claimed,
       pool: t.pool,
@@ -1323,15 +1353,16 @@ function matchupWeeksOf(snapshot: LeagueSnapshot, me: string, opponentId: string
  * returner's week, the roster spot he needs, when it's full: the file header, "IR players"), and its score by
  * league.pickupScore, TeamModel.scoreWithPickups's rule (the week in progress keeps TeamModel.score's week-0 value: the
  * file header). `priced`: those final lineups when the caller has them (the baseline: the League model's,
- * LeagueModelBuild.pickups). Memoized by team, roster and spec, so a roster the trade leaves as it was gives the very same
+ * LeagueModelBuild.pickups). A return never releases one of the team's kept players (TeamState.keep: my untouchables on my
+ * side; Checkpoint 7e, item 3.3). Memoized by team, roster and spec, so a roster the trade leaves as it was gives the very same
  * numbers (the no-op test).
  */
-export function sideEval(I: TradeInternals, t: Pick<TeamState, "index" | "stream">, run: OptimizedRoster, spec: StreamSpec = t.stream, priced?: FinalLineups): SideEval {
+export function sideEval(I: TradeInternals, t: Pick<TeamState, "index" | "stream" | "keep">, run: OptimizedRoster, spec: StreamSpec = t.stream, priced?: FinalLineups): SideEval {
   const key = `${t.index}\u0004${rosterKey(run.roster, spec)}`;
   const hit = I.sideMemo.get(key);
   if (hit) return hit;
   const { league } = I;
-  const final = priced ?? finalRunLineups(league, run, spec);
+  const final = priced ?? finalRunLineups(league, run, spec, t.keep);
   const perWeek = final.scen ? (final.scen.instances as Float64Array[]) : evInstancePoints(final.ev, league.index);
   const out: SideEval = {
     roster: run.roster,
@@ -1899,18 +1930,23 @@ export function legalSide(
   const hasRow = (id: string) => I.league.table.rows.has(id);
   const limits = I.league.limits;
   const evMode = mode === "ev" || I.S === 0;
+  // The side's kept players: my untouchables on my side, never a drop of rules 1 and 2 (Checkpoint 7e; planner reply to
+  // Checkpoint 7d, item 3.3; TeamState.keep); none on the partner's.
+  const kept: ReadonlySet<string> = side.keep.length ? new Set(side.keep) : NONE_KEPT;
 
-  // 1. Positions over their limit: drop the position's lowest keep value player not just received.
+  // 1. Positions over their limit: drop the position's lowest keep value player not just received, never a kept one (when
+  // only kept ones could go, the trade is illegal, and the reason says so: untouchableDropNote).
   if (limits) {
     for (const pos of POSITIONS) {
       const limit = limits[pos];
       if (limit === undefined || !Number.isFinite(limit)) continue;
       const cap = Math.max(limit, countBefore(pos));
       while (countNow(pos) > cap) {
-        const cands = roster.filter((id) => !inbound.has(id) && hasRow(id) && I.league.posOf(id) === pos);
+        const at = roster.filter((id) => !inbound.has(id) && hasRow(id) && I.league.posOf(id) === pos);
+        const cands = kept.size ? at.filter((id) => !kept.has(id)) : at;
         const kv = cands.length ? keepValues(I, roster, spec, mode, evMode ? ev() : null) : null;
         const k = kv ? dropOrder(I, kv.keep, cands, kv.tie).next().value : undefined;
-        if (k === undefined) return { illegal: `${who} can have at most ${posWords(pos, limit)}.` };
+        if (k === undefined) return { illegal: at.length > cands.length ? untouchableDropNote(pos) : `${who} can have at most ${posWords(pos, limit)}.` };
         drop(k, kv?.raw ?? null);
       }
     }
@@ -1941,12 +1977,14 @@ export function legalSide(
     if (!(Number.isFinite(maxSize) && maxSize > 0)) return null;
     const cap = Math.max(maxSize, before.length);
     while (roster.length > cap) {
-      const cands = roster.filter((id) => {
+      const all = roster.filter((id) => {
         if (inbound.has(id) || adds.includes(id) || !hasRow(id)) return false;
         const pos = I.league.posOf(id);
         if (pos !== undefined && streamedHere.has(pos) && countNow(pos) <= 1) return false; // the last one at a streamed position
         return !(minTarget(pos) > 0 && countNow(pos as Pos) <= minTarget(pos));
       });
+      // Never a kept one (my untouchables: `kept` above).
+      const cands = kept.size ? all.filter((id) => !kept.has(id)) : all;
       const kv = cands.length ? keepValues(I, roster, spec, mode, evMode ? ev() : null) : null;
       // In drop order, the first one the starting lineup doesn't need (optimizer.fillCount), checked lazily.
       let fill: number | null = null;
@@ -1965,18 +2003,23 @@ export function legalSide(
         }
         return false;
       };
-      for (const id of kv ? dropOrder(I, kv.keep, cands, kv.tie) : []) {
-        if (sparedIn(id)) {
-          k = id;
-          break;
-        }
+      /** Whether the starting lineup doesn't need him: the fill rule (sparedIn first, a shortcut it implies). */
+      const canGo = (id: string): boolean => {
+        if (sparedIn(id)) return true;
         fill ??= fillCount(entries(roster), I.league.slots);
-        if (fillCount(entries(roster.filter((x) => x !== id)), I.league.slots) >= fill) {
+        return fillCount(entries(roster.filter((x) => x !== id)), I.league.slots) >= fill;
+      };
+      for (const id of kv ? dropOrder(I, kv.keep, cands, kv.tie) : []) {
+        if (canGo(id)) {
           k = id;
           break;
         }
       }
-      if (k === undefined) return `${who} would have more than ${maxSize} players on the active roster, and nobody can be dropped without leaving a starting spot empty.`;
+      if (k === undefined) {
+        // Only kept players could go (each one the rules above allow, the lineup not needing him): say so.
+        if (all.length > cands.length && all.some((id) => kept.has(id) && canGo(id))) return untouchableDropNote(null);
+        return `${who} would have more than ${maxSize} players on the active roster, and nobody can be dropped without leaving a starting spot empty.`;
+      }
       drop(k, kv?.raw ?? null);
     }
     return null;
@@ -2497,8 +2540,9 @@ export function tradeSides(I: TradeInternals, me: TeamState, partner: TeamState,
     // With the side's IR after the trade: a returner given away leaves its lineups, one received joins them. An inactive
     // side (A4) makes no free-agent move after the trade either. V*(after) never drops a legality add (the optimizer's keep
     // set; planner reply to Checkpoint 7b, section 5: the card names rule 4's fill, so the evaluated roster holds him),
-    // but under openSpotFill "bestAny" (Checkpoint 7b's rule, for the trade report).
-    const keep = I.openSpotFill === "bestAny" ? [] : l.change.adds;
+    // but under openSpotFill "bestAny" (Checkpoint 7b's rule, for the trade report), nor one of my untouchables (TeamState.
+    // keep, mine only; Checkpoint 7e, planner reply to Checkpoint 7d, item 3.3).
+    const keep = [...(I.openSpotFill === "bestAny" ? [] : l.change.adds), ...s.team.keep];
     const run = s.team.inactive ? optimizer.optimize(l.roster, l.spec, 0) : optimizer.optimize(l.roster, l.spec, undefined, pool, keep);
     legal[k] = l;
     runs[k] = run;

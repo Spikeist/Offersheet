@@ -16,7 +16,7 @@ import type { Pos } from "./model";
 import { defaultTradeSettings } from "./settings";
 import { rosValue, scenarioValues, tableRows, teamEval } from "./teamValue";
 import { TEST_NOW, buildTestLeague, type TestLeagueSpec, type TestPlayer } from "./testLeague";
-import { compareWaiverRows, gainSteps } from "./waivers";
+import { compareWaiverRows, gainSteps, waiverRatingPending } from "./waivers";
 
 const ZERO_MISS: Record<Pos, number> = { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, P: 0, DEF: 0, DL: 0, LB: 0, DB: 0 };
 /** No future injury risk: every healthy player plays every week of every scenario, so gains are plain arithmetic. */
@@ -156,7 +156,9 @@ describe("the drop: roster legality's rules for one pickup", () => {
   it("never the last player at a position I stream, nor one the starting lineup needs: the next one in drop order goes", () => {
     // A full roster where, by id, the first two in drop order can't go: "a1", my only kicker (a free agent kicker is the
     // streaming replacement, so mine never starts: he costs nothing), and "aa", my only TE, out for the season (costs
-    // nothing, but the TE slot needs him). b1 is next.
+    // nothing, but the TE slot needs him). b1 is next. With "Drop from the same position" off (Checkpoint 7e), so every
+    // position's players are candidates.
+    const anyPosition = { settings: { ...defaultTradeSettings(), waiverSamePosition: false } };
     const mine = [
       p("q1", "QB", 20),
       p("r1", "RB", 15),
@@ -175,7 +177,7 @@ describe("the drop: roster legality's rules for one pickup", () => {
       p("b5", "QB", 3),
       p("b7", "WR", 0.5),
     ];
-    const { model } = build({ mine, nflLastWeek: 18, freeAgents: [p("fa1", "RB", 13), p("fk", "K", 10)] });
+    const { model } = build({ mine, nflLastWeek: 18, freeAgents: [p("fa1", "RB", 13), p("fk", "K", 10)] }, NO_RISK, anyPosition);
     // The preconditions: "aa" scores nothing, and the streamed kicker (the free agent's 10) beats "a1" every week.
     expect(model.players.aa?.ros.total).toBe(0);
     expect(model.streaming.replacement.K?.every((x) => x === 10)).toBe(true);
@@ -183,8 +185,10 @@ describe("the drop: roster legality's rules for one pickup", () => {
     expect(r?.drop).toBe("b1");
     expect(r?.gain).toBeCloseTo(6 * WEEKS_LEFT, 6);
     // With a second TE on the roster, "aa" is the one who goes (the lineup no longer needs him).
-    const spare = build({ mine: [...mine.filter((x) => x.id !== "b7"), p("t9", "TE", 4)], nflLastWeek: 18, freeAgents: [p("fa1", "RB", 13), p("fk", "K", 10)] });
+    const spare = build({ mine: [...mine.filter((x) => x.id !== "b7"), p("t9", "TE", 4)], nflLastWeek: 18, freeAgents: [p("fa1", "RB", 13), p("fk", "K", 10)] }, NO_RISK, anyPosition);
     expect(rowOf(waivers(spare.model)?.ros, "fa1")?.drop).toBe("aa");
+    // "Drop from the same position" on (the default): an RB for an RB, so "aa" (a TE) never goes for him.
+    expect(rowOf(waivers(build({ mine: [...mine.filter((x) => x.id !== "b7"), p("t9", "TE", 4)], nflLastWeek: 18, freeAgents: [p("fa1", "RB", 13), p("fk", "K", 10)] }).model)?.ros, "fa1")?.drop).toBe("b1");
   });
 
   it("with long-term values (dynasty), the keep value adds them, as roster legality's does: a stash worth 9000 stays", () => {
@@ -416,7 +420,7 @@ describe("the one-week lists while the current week is under way", () => {
   it("nothing once no week is left", () => {
     const { model } = build({ currentWeek: 18, freeAgents: [p("fa1", "RB", 13)] });
     expect(model.weeks).toEqual([]);
-    expect(waivers(model)).toEqual({ teamId: "1", ros: null, underWay: null, week: null });
+    expect(waivers(model)).toEqual({ teamId: "1", ros: null, underWay: null, week: null, samePosition: true, untouchables: [] });
   });
 });
 
@@ -484,5 +488,128 @@ describe("one number in both places: the League page's pickup gain is Waiver upg
         expect(m.gainScenPlain).toBe(m.gainScen);
       }
     }
+  });
+});
+
+describe("Checkpoint 7e: one move per row, “Drop from the same position” and untouchables (planner reply to Checkpoint 7d, items 3.1–3.3)", () => {
+  /** My settings with "Drop from the same position" and the untouchables given. */
+  const settings = (samePosition: boolean, untouchables: string[] = []) => ({ settings: { ...defaultTradeSettings(), waiverSamePosition: samePosition, untouchables } });
+
+  it("each row carries the drop's points in the list's terms (3.1: “outscores B by 18”): rest-of-season points, the week's projection", () => {
+    const { model } = build({ mine: FULL, freeAgents: [p("fa1", "RB", 13)] });
+    const w = waivers(model);
+    const ros = rowOf(w?.ros, "fa1");
+    expect(ros?.drop).not.toBeNull();
+    expect(ros?.dropPoints).toBeCloseTo(model.players[ros?.drop as string]?.ros.total as number, 9);
+    const week = rowOf(w?.week, "fa1");
+    expect(week?.dropPoints).toBeCloseTo(model.players[week?.drop as string]?.weekly[0]?.p as number, 9);
+    // An open spot has no drop's points; nor does a row that can't be made.
+    expect(rowOf(waivers(build({ freeAgents: [p("fa1", "RB", 13)] }).model)?.ros, "fa1")?.dropPoints).toBeNull();
+  });
+
+  it("3.2, on (the default): the drop plays his position; off: any position (the drop order's lowest), in every list", () => {
+    // FULL's six bench players never start: each costs the lineup nothing, so the smaller id goes among them.
+    const on = waivers(build({ mine: FULL, freeAgents: [p("fa3", "WR", 12)] }).model);
+    expect(on?.samePosition).toBe(true);
+    expect(rowOf(on?.ros, "fa3")?.drop).toBe("b3");
+    expect(rowOf(on?.week, "fa3")?.drop).toBe("b3");
+    const off = waivers(build({ mine: FULL, freeAgents: [p("fa3", "WR", 12)] }, NO_RISK, settings(false)).model);
+    expect(off?.samePosition).toBe(false);
+    expect(rowOf(off?.ros, "fa3")?.drop).toBe("b1");
+    expect(rowOf(off?.week, "fa3")?.drop).toBe("b1");
+    // The same lineup gain either way: neither bench player ever starts.
+    expect(rowOf(off?.ros, "fa3")?.gain).toBeCloseTo(rowOf(on?.ros, "fa3")?.gain as number, 9);
+  });
+
+  it("3.3: an untouchable is never the drop; the next one in drop order goes, and the lists name my untouchables", () => {
+    const w = waivers(build({ mine: FULL, freeAgents: [p("fa3", "WR", 12)] }, NO_RISK, settings(true, ["b3", "q1"])).model);
+    expect(rowOf(w?.ros, "fa3")?.drop).toBe("b4");
+    expect(rowOf(w?.week, "fa3")?.drop).toBe("b4");
+    // Roster order; only my active players with a model (an untouchable id not on my roster is no drop candidate anyway).
+    expect(w?.untouchables).toEqual(["q1", "b3"]);
+  });
+
+  it("3.3: every candidate at his position untouchable: the row says so, names them, and says a player at another position could go", () => {
+    const wrs = ["w1", "w2", "w3", "b3", "b4"];
+    const w = waivers(build({ mine: FULL, freeAgents: [p("fa3", "WR", 12)] }, NO_RISK, settings(true, wrs)).model);
+    const r = rowOf(w?.ros, "fa3");
+    expect(r?.gain).toBeNull();
+    expect(r?.drop).toBeNull();
+    expect(r?.dropPoints).toBeNull();
+    expect(r?.blocked).toEqual({ why: "untouchable", atPosition: true, otherPosition: true, untouchable: wrs });
+    expect(rowOf(w?.week, "fa3")?.blocked).toEqual(r?.blocked);
+    // With the switch off a bench RB makes room: no message.
+    const off = waivers(build({ mine: FULL, freeAgents: [p("fa3", "WR", 12)] }, NO_RISK, settings(false, wrs)).model);
+    expect(rowOf(off?.ros, "fa3")?.drop).toBe("b1");
+    expect(rowOf(off?.ros, "fa3")?.blocked).toBeNull();
+  });
+
+  it("3.3, the switch off: every player who could go untouchable reads “all the players you could drop”, no suggestion", () => {
+    const all = FULL.map((x) => x.id);
+    const w = waivers(build({ mine: FULL, freeAgents: [p("fa3", "WR", 12)] }, NO_RISK, settings(false, all)).model);
+    const r = rowOf(w?.ros, "fa3");
+    expect(r?.gain).toBeNull();
+    expect(r?.blocked?.why).toBe("untouchable");
+    expect(r?.blocked?.atPosition).toBe(false);
+    expect(r?.blocked?.otherPosition).toBe(false);
+    // The ones who could otherwise go: never the last at a position I stream (my K and D/ST), nor one the lineup needs.
+    expect(r?.blocked?.untouchable).not.toContain("k1");
+    expect(r?.blocked?.untouchable).not.toContain("d1");
+    expect(r?.blocked?.untouchable).toContain("b1");
+  });
+
+  it("no room at his position (no TE of mine to drop): “room”, and turning the switch off would let a bench player go", () => {
+    // FULL without its TEs, two bench players in their place: still 16, no TE on my roster.
+    const noTe = [...FULL.filter((x) => x.pos !== "TE"), p("b8", "RB", 0.5), p("b9", "WR", 0.4)];
+    const w = waivers(build({ mine: noTe, freeAgents: [p("ft", "TE", 9)] }).model);
+    const r = rowOf(w?.ros, "ft");
+    expect(r?.gain).toBeNull();
+    expect(r?.blocked).toEqual({ why: "room", atPosition: true, otherPosition: true, untouchable: [] });
+    const off = waivers(build({ mine: noTe, freeAgents: [p("ft", "TE", 9)] }, NO_RISK, settings(false)).model);
+    expect(rowOf(off?.ros, "ft")?.gain).not.toBeNull();
+    expect(rowOf(off?.ros, "ft")?.blocked).toBeNull();
+  });
+
+  it("3.3, who's listed: a free agent must out-project one of mine a row could drop, so locking weak players lists no move that drops a better one (review of wave C, RC-ENG-2)", () => {
+    // My RBs: r1 15, r2 12, r3 6, b1 1, b2 1.5 a week. fa5 (8) and fa6 (7) beat r3, b1 and b2; fa8 (2) only b1 and b2.
+    const fas = [p("fa5", "RB", 8), p("fa6", "RB", 7), p("fa7", "RB", 6.5), p("fa8", "RB", 2)];
+    const open = waivers(build({ mine: FULL, freeAgents: fas }).model);
+    expect(ids(open?.ros)).toEqual(["fa5", "fa6", "fa7", "fa8"]);
+    // r3, b1 and b2 locked: every RB of mine a row could drop (r1, r2) out-projects them all, so none is listed (each would
+    // have dropped r2, who scores more than he does).
+    const weak = waivers(build({ mine: FULL, freeAgents: fas }, NO_RISK, settings(true, ["r3", "b1", "b2"])).model);
+    expect(ids(weak?.ros)).toEqual([]);
+    expect(ids(weak?.week)).toEqual([]);
+    // Without the switch too: the rule compares players at his position, the planner's.
+    expect(ids(waivers(build({ mine: FULL, freeAgents: fas }, NO_RISK, settings(false, ["r3", "b1", "b2"])).model)?.ros)).toEqual([]);
+    // Every RB of mine locked: the best few who beat one of them (config.waivers.perPositionCap), each saying why it can't be
+    // made; "Better than" names the locked players he beats.
+    const all = waivers(build({ mine: FULL, freeAgents: fas }, NO_RISK, settings(true, ["r1", "r2", "r3", "b1", "b2"])).model);
+    expect(ids(all?.ros)).toEqual(["fa5", "fa6", "fa7"].slice(0, config.waivers.perPositionCap));
+    expect(rowOf(all?.ros, "fa5")?.blocked?.why).toBe("untouchable");
+    expect(rowOf(all?.ros, "fa5")?.betterThan).toEqual(["r3", "b2", "b1"]);
+    // One RB unlocked who scores less than fa5: listed again, dropping him.
+    const one = waivers(build({ mine: FULL, freeAgents: fas }, NO_RISK, settings(true, ["r1", "r2", "r3", "b2"])).model);
+    expect(ids(one?.ros)).toEqual(["fa5", "fa6", "fa7", "fa8"]);
+    expect(rowOf(one?.ros, "fa8")?.drop).toBe("b1");
+  });
+
+  it("waiverRatingPending: a season list to rate (a move that can be made, not rated yet) and the odds to rate it on (review of wave C, RC-ENG-6)", () => {
+    const ros = (rows: { gain: number | null }[], rating: unknown = null) => ({ waiverUpgrades: { ros: { rows, rating } } }) as unknown as Pick<LeagueModel, "waiverUpgrades">;
+    const odds = { odds: {}, helpsCalibration: {} } as unknown as Pick<LeagueModel, "odds" | "helpsCalibration">;
+    expect(waiverRatingPending({ ...ros([{ gain: 1 }, { gain: null }]), ...odds })).toBe(true);
+    expect(waiverRatingPending({ ...ros([{ gain: null }]), ...odds })).toBe(false);
+    expect(waiverRatingPending({ ...ros([]), ...odds })).toBe(false);
+    expect(waiverRatingPending({ ...ros([{ gain: 1 }], { b3: 1 }), ...odds })).toBe(false);
+    expect(waiverRatingPending({ ...ros([{ gain: 1 }]), odds: null, helpsCalibration: odds.helpsCalibration })).toBe(false);
+    expect(waiverRatingPending({ ...ros([{ gain: 1 }]), odds: odds.odds, helpsCalibration: null })).toBe(false);
+    expect(waiverRatingPending({ waiverUpgrades: null, ...odds })).toBe(false);
+  });
+
+  it("an unrated build (no season simulated here) has no rating on its season list", () => {
+    const w = waivers(build({ mine: FULL, freeAgents: [p("fa1", "RB", 13)] }).model);
+    expect(w?.ros?.rating).toBeNull();
+    expect(rowOf(w?.ros, "fa1")?.rating).toBeUndefined();
+    expect(w?.week).not.toHaveProperty("rating");
   });
 });

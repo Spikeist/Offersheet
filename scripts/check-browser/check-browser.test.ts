@@ -36,6 +36,7 @@ import { buildImportReport } from "@/lib/importReport";
 import { buildLeagueView } from "@/lib/leagueView";
 import { NOTICE_TEXT, UNKNOWN_SETTING_NOTICE } from "@/lib/notices";
 import { bestTimeText, buildAnalysisView, buildFinderView, buildTradeCard, PROJECTIONS_SOURCE, SORT_OPTIONS } from "@/lib/tradeView";
+import { RATING_PENDING_TEXT } from "@/lib/waiversView";
 import { DEFAULT_MAX_SEARCH_SECONDS, SECOND_LEAGUE, USAGE, parseArgs, resolveArgs, type CheckBrowserArgs } from "./args";
 import { chromeArgs, chromeCandidates, devtoolsUrl, exited, findChrome, killTree, waitForDevtools } from "./chrome";
 import {
@@ -78,9 +79,11 @@ import {
   rowCount,
   valueLeaks,
   VALUES_CREDIT,
+  waiverMoveProblems,
   waiverToggleKind,
   type CreditRead,
   type PrizeGroupRead,
+  type WaiverMoveRead,
 } from "./contracts";
 import {
   CARD_HELPERS,
@@ -164,6 +167,7 @@ import {
   STEPS,
   TECHNICAL_DETAILS,
   togglePressed,
+  WAIVER_RATING_WAIT_MS,
   WAIVERS_HREF,
   WAIVERS_REVEALED,
   type SiteFiles,
@@ -1071,6 +1075,39 @@ describe("Checkpoint 7b: Settings, the waiver view and the header (5.2, §6.1, �
     expect(rowCount([row(60), row(60), row(60), row(60), row(60), row(60)])).toBe(1);
     expect(rowCount([])).toBe(0);
     expect(NAV_HREFS).toEqual(["/connect", "/import", "/league", "/league#waivers", "/trades", "/settings"]);
+  });
+});
+
+describe("Checkpoint 7e: the waiver rows as moves (planner reply to Checkpoint 7d, items 3.1–3.4)", () => {
+  const move = (over: Partial<WaiverMoveRead> = {}): WaiverMoveRead => ({ add: true, kind: "drop", main: "Helps you", mainValue: "27", outscores: true, locks: 1, lockNames: true, ...over });
+
+  it("passes rows that read as one move with Helps you, the second number and a lock next to the drop", () => {
+    expect(waiverMoveProblems([move(), move({ mainValue: "No gain" }), move({ kind: "open", locks: 0 })], { main: "Helps you", locks: true })).toEqual([]);
+    // A move that can't be made: its number under the list's label, no second number, no lock (review of wave C, UI-C-4, UI-C-7).
+    expect(waiverMoveProblems([move({ kind: "blocked", main: "Helps you", mainValue: "Can't add", outscores: false, locks: 0 })], { main: "Helps you", locks: true })).toEqual([]);
+    expect(waiverMoveProblems([move({ kind: "blocked", main: "Lineup gain", mainValue: "No room", outscores: false, locks: 0 })], { main: "Lineup gain", locks: true })).toEqual([]);
+    expect(waiverMoveProblems([move({ kind: "blocked", main: "Lineup gain", mainValue: "No room", outscores: false, locks: 2 })], { main: "Helps you", locks: true })).toEqual([
+      "row 1 (can't be made) is labeled “Lineup gain”, not “Helps you”",
+      "row 1 (can't be made) repeats 2 locks the untouchables line has",
+    ]);
+    // The one-week list: in points.
+    expect(waiverMoveProblems([move({ main: "Lineup gain", mainValue: "+2.5 pts" })], { main: "Lineup gain", locks: true })).toEqual([]);
+  });
+
+  it("names each problem: no “Add”, nothing to make room, the wrong main number, a Helps you that isn't one, no second number, a missing or unnamed lock", () => {
+    expect(waiverMoveProblems([move({ add: false })], { main: "Helps you", locks: true })).toEqual(["row 1 doesn't start “Add” with the player's name"]);
+    expect(waiverMoveProblems([move({ kind: "none" })], { main: "Helps you", locks: true })).toEqual(["row 1 names no drop, open roster spot or reason he can't join"]);
+    expect(waiverMoveProblems([move({ main: "Lineup gain", mainValue: "+1 pts" })], { main: "Helps you", locks: true })).toEqual(["row 1's main number is labeled “Lineup gain”, not “Helps you”"]);
+    expect(waiverMoveProblems([move({ mainValue: "27%" })], { main: "Helps you", locks: true })).toEqual(["row 1's Helps you reads “27%”"]);
+    expect(waiverMoveProblems([move({ outscores: false })], { main: "Helps you", locks: true })).toEqual(["row 1 doesn't say how his points compare with the drop's"]);
+    expect(waiverMoveProblems([move({ locks: 0 })], { main: "Helps you", locks: true })).toEqual(["row 1 has no lock next to its drop"]);
+    expect(waiverMoveProblems([move({ locks: 0 })], { main: "Helps you", locks: false })).toEqual([]);
+    expect(waiverMoveProblems([move(), move({ lockNames: false })], { main: "Helps you", locks: true })).toEqual(["row 2's lock doesn't say what pressing it does"]);
+  });
+
+  it("waits a minute at most for the rating, and knows its words", () => {
+    expect(WAIVER_RATING_WAIT_MS).toBe(60_000);
+    expect(RATING_PENDING_TEXT).toBe("Rating these against your odds…");
   });
 });
 

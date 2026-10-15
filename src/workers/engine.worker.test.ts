@@ -14,6 +14,12 @@ vi.mock("@/engine/league", () => ({
   buildLeagueModel: () => {
     throw new Error("the tests pass their own builder");
   },
+  buildLeagueModelWithContext: () => {
+    throw new Error("the tests pass their own builder");
+  },
+  rateWaiverUpgrades: () => {
+    throw new Error("the tests pass their own rating");
+  },
 }));
 vi.mock("@/engine/evaluate", () => ({
   buildTradeContext: () => {
@@ -44,7 +50,8 @@ vi.mock("@/engine/search", () => ({
 
 import type { TradeAnalysis, TradeContext } from "@/engine/evaluate";
 import type { ModelInputs } from "@/engine/inputs";
-import type { LeagueModel } from "@/engine/leagueModel";
+import type { LeagueModelBuild } from "@/engine/league";
+import type { LeagueModel, WaiverUpgrades } from "@/engine/leagueModel";
 import type { LeagueSnapshot } from "@/engine/model";
 import { defaultTradeSettings, type TradeSettings } from "@/engine/settings";
 import type { TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeSearchProgress, TradeSearchResult } from "@/engine/tradeModel";
@@ -64,6 +71,7 @@ import {
   type LeagueRequest,
   type RefilterRequest,
   type TradesRequest,
+  type WaiversRequest,
 } from "./engine.worker";
 
 /** Week 4's first kickoff (Thursday night) and the Sunday early games. */
@@ -778,7 +786,7 @@ describe("contextStillValid and contextKey", () => {
 
   it("keys on the league, its data, the inputs, my team and only the settings the context reads", () => {
     const key = contextKey({ snapshot, model, myTeamId: "3" }, settings);
-    expect(key).toBe(`espn|4242|2026|2026-10-01T15:00:00.000Z|2026-10-01T15:01:00.000Z|3|{"goal":"title","prizes":{"first":60,"second":30,"third":10,"weeklyHigh":null,"pointsLeader":null},"returnWeeks":{},"streamPositions":["DEF","K","QB"],"untouchables":[],"waiverSamePosition":true}`);
+    expect(key).toBe(`espn|4242|2026|2026-10-01T15:00:00.000Z|2026-10-01T15:01:00.000Z|3|{"goal":"title","prizes":{"first":60,"second":30,"third":10,"weeklyHigh":null,"pointsLeader":null},"returnWeeks":{},"returnWeeksSeason":null,"streamPositions":["DEF","K","QB"],"untouchables":[],"waiverSamePosition":true}`);
     // Checkpoint 7e: the untouchables, "Drop from the same position" and the user's return weeks are read by the League model.
     expect(contextKey({ snapshot, model, myTeamId: "3" }, { ...settings, untouchables: ["101"] })).not.toBe(key);
     // The manual playoff weight isn't one of them any more (ω is set automatically; an older version's stored one counts for
@@ -788,5 +796,144 @@ describe("contextStillValid and contextKey", () => {
     // "Several prizes"' amounts too (Checkpoint 7c: the split moves ω and whether the weekly high scores are simulated).
     expect(contextKey({ snapshot, model, myTeamId: "3" }, { ...settings, prizes: { ...settings.prizes, weeklyHigh: 5 } })).not.toBe(key);
     expect(contextKey({ snapshot, model, myTeamId: null }, { ...settings, lambda: 0.9 })).toBe(key.replace("|3|", "|-|"));
+  });
+});
+
+describe("the waiver rating (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.4)", () => {
+  type BuildWith = NonNullable<EngineHandlerDeps["buildWithContext"]>;
+  type Rate = NonNullable<EngineHandlerDeps["rateWaivers"]>;
+  const RATED = { teamId: "3", ros: null, underWay: null, week: null } as unknown as WaiverUpgrades;
+  const IN_BUILD = { teamId: "3", ros: null, underWay: null, week: null, samePosition: true } as unknown as WaiverUpgrades;
+  const waiversReq = (id: number, extra: Partial<WaiversRequest> = {}): WaiversRequest => ({ type: "waivers", id, snapshot, model, myTeamId: "3", nowIso: request.nowIso, settings, ...extra });
+
+  /** A season list in points with a move to rate, and the odds it's rated on: what a build needs to be kept (waivers.waiverRatingPending). */
+  const RATABLE = { waiverUpgrades: { ...IN_BUILD, ros: { rows: [{ gain: 1 }] } }, odds: { teams: [] }, helpsCalibration: { dPO: 0 } };
+  /** The League page's request: it asks for the rating next, so the build is kept for it (LeagueRequest.keepForWaivers). */
+  const pageRequest: LeagueRequest = { ...request, keepForWaivers: true };
+
+  /**
+   * A handler whose League model builds keep their build (a fake one: its model, and the lists rated in it when asked);
+   * `over` changes the fake model (a build with nothing to rate).
+   */
+  function harness(rate: Rate = (() => RATED) as Rate, over: Record<string, unknown> = {}) {
+    const posted: EngineResponse[] = [];
+    const builds: Parameters<BuildWith>[] = [];
+    const rates: Parameters<Rate>[] = [];
+    const made: LeagueModelBuild[] = [];
+    const buildWithContext = ((...args: Parameters<BuildWith>) => {
+      builds.push(args);
+      const b = { model: { ...RESULT, ...(args[2].waiverRating === false ? RATABLE : { waiverUpgrades: IN_BUILD }), ...over }, context: {}, bases: [], pickups: [] } as unknown as LeagueModelBuild;
+      made.push(b);
+      return b;
+    }) as BuildWith;
+    const rateWaivers = ((...args: Parameters<Rate>) => {
+      rates.push(args);
+      return rate(...args);
+    }) as Rate;
+    const handle = createEngineHandler((r) => posted.push(r), { buildWithContext, rateWaivers });
+    return { posted, builds, rates, made, handle };
+  }
+
+  it("the League model is built without the rating, its build kept; the rating for the same job rates that build", () => {
+    const h = harness();
+    h.handle(pageRequest);
+    expect(h.builds).toHaveLength(1);
+    expect(h.builds[0]?.[2]).toMatchObject({ waiverRating: false, settings });
+    expect(h.builds[0]?.[0]).toEqual({ ...snapshot, myTeamId: "3" });
+    expect(h.posted).toEqual([{ type: "league", id: 7, result: h.made[0]?.model }]);
+    h.handle(waiversReq(8));
+    expect(h.builds).toHaveLength(1);
+    expect(h.rates).toHaveLength(1);
+    const [built, inputs, opts] = h.rates[0] ?? [];
+    expect(built).toBe(h.made[0]);
+    expect(inputs).toBe(model);
+    expect(opts).toMatchObject({ waiverRating: false, settings });
+    expect(h.posted.at(-1)).toEqual({ type: "waivers", id: 8, result: RATED });
+    // Rated once, its build let go: the same job asked again builds the League model again.
+    h.handle(waiversReq(13));
+    expect(h.builds).toHaveLength(2);
+    expect(h.rates.at(-1)?.[0]).toBe(h.made[1]);
+  });
+
+  it("keeps no build with nothing to rate (no season list, no move to rate, rated already, or no odds), and keeps one whose rating failed for another try", () => {
+    const blocked = { waiverUpgrades: { ...IN_BUILD, ros: { rows: [{ gain: null }] } } };
+    const rated = { waiverUpgrades: { ...IN_BUILD, ros: { rows: [{ gain: 1 }], rating: { b3: 1 } } } };
+    for (const over of [{ waiverUpgrades: null }, { waiverUpgrades: { ...IN_BUILD, ros: null } }, { waiverUpgrades: { ...IN_BUILD, ros: { rows: [] } } }, blocked, rated, { odds: null }, { helpsCalibration: null }]) {
+      const h = harness(undefined, over);
+      h.handle(pageRequest);
+      h.handle(waiversReq(8));
+      expect(h.builds, JSON.stringify(over)).toHaveLength(2);
+    }
+    let fails = 1;
+    const flaky = harness((() => {
+      if (fails-- > 0) throw new RangeError("once");
+      return RATED;
+    }) as Rate);
+    flaky.handle(pageRequest);
+    flaky.handle(waiversReq(8));
+    expect(flaky.posted.at(-1)).toMatchObject({ type: "error", id: 8 });
+    flaky.handle(waiversReq(9));
+    expect(flaky.builds).toHaveLength(1);
+    expect(flaky.posted.at(-1)).toEqual({ type: "waivers", id: 9, result: RATED });
+  });
+
+  it("another job (another moment, team or setting the model reads) builds the League model again for it and rates that", () => {
+    const h = harness();
+    h.handle(pageRequest);
+    for (const [id, extra] of [
+      [9, { nowIso: "2026-09-30T03:00:00.000Z" }],
+      [10, { myTeamId: "4" }],
+      [11, { settings: { ...settings, waiverSamePosition: false } }],
+    ] as const) {
+      h.handle(waiversReq(id, extra));
+      expect(h.builds.at(-1)?.[2].waiverRating).toBe(false);
+      expect(h.rates.at(-1)?.[0]).toBe(h.made.at(-1));
+      expect(h.posted.at(-1)).toEqual({ type: "waivers", id, result: RATED });
+    }
+    expect(h.builds).toHaveLength(4);
+    // A setting the model doesn't read (Win now ↔ Future) is the same job: the kept build (the `league` request's, not the
+    // ones built for the other jobs) is rated, with the request's own settings, which the rating reads (review of wave C,
+    // RC-ENG-4: the kept build's were the rating's).
+    h.handle(waiversReq(12, { settings: { ...settings, lambda: 0.4, protectValue: "high" } }));
+    expect(h.builds).toHaveLength(4);
+    expect(h.rates.at(-1)?.[0]).toBe(h.made[0]);
+    expect(h.rates.at(-1)?.[2].settings).toMatchObject({ lambda: 0.4, protectValue: "high" });
+  });
+
+  it("keeps nothing for a `league` request that won't ask for the rating (the Settings page's playoff weight: review of wave C, RC-ENG-6)", () => {
+    const h = harness();
+    h.handle(request);
+    expect(h.posted).toEqual([{ type: "league", id: 7, result: h.made[0]?.model }]);
+    h.handle(waiversReq(8));
+    expect(h.builds).toHaveLength(2);
+    expect(h.rates.at(-1)?.[0]).toBe(h.made[1]);
+  });
+
+  it("with the tests' own builder (deps.build) nothing is kept, so the rating builds; a failure is an error reply with its id", () => {
+    const posted: EngineResponse[] = [];
+    const builds: Parameters<BuildWith>[] = [];
+    const buildWithContext = ((...args: Parameters<BuildWith>) => {
+      builds.push(args);
+      return { model: { ...RESULT, waiverUpgrades: IN_BUILD } } as unknown as LeagueModelBuild;
+    }) as BuildWith;
+    const rateWaivers = ((b: LeagueModelBuild) => (b.model.waiverUpgrades === IN_BUILD ? RATED : null)) as Rate;
+    const handle = createEngineHandler((r) => posted.push(r), { build: (() => RESULT) as Build, buildWithContext, rateWaivers });
+    handle(request);
+    expect(posted).toEqual([{ type: "league", id: 7, result: RESULT }]);
+    expect(builds).toHaveLength(0);
+    handle(waiversReq(8));
+    expect(builds).toHaveLength(1);
+    expect(builds[0]?.[2].waiverRating).toBe(false);
+    expect(posted.at(-1)).toEqual({ type: "waivers", id: 8, result: RATED });
+    // A list that can't be rated (no odds): null, which the page reads as "couldn't be rated".
+    const unratable = createEngineHandler((r) => posted.push(r), { build: (() => RESULT) as Build, buildWithContext, rateWaivers: (() => null) as Rate });
+    unratable(waiversReq(10));
+    expect(posted.at(-1)).toEqual({ type: "waivers", id: 10, result: null });
+    const failing = harness((() => {
+      throw new RangeError("setup");
+    }) as Rate);
+    failing.handle(pageRequest);
+    failing.handle(waiversReq(9));
+    expect(failing.posted.at(-1)).toEqual({ type: "error", id: 9, message: ENGINE_ERROR_MESSAGE, detail: "RangeError: setup" });
   });
 });
