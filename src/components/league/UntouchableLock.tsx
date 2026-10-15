@@ -1,0 +1,68 @@
+"use client";
+/**
+ * The lock icon (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.3: "users can do it from the roster card and the
+ * waiver view, with a lock icon, not only from the Trade Finder"): marks one of my players untouchable, or not, through the
+ * League page's settings edits (leagueSettingsEdit.ts: the Settings page's own untouchable edit). An untouchable player is
+ * never offered in a trade idea and never suggested as a drop (Waiver upgrades, a trade's roster moves, the release when a
+ * player comes back from IR).
+ *
+ * The icon is an inline SVG (no icon library): a closed lock when he's untouchable, an open one when not. Never color
+ * alone: the button's accessible name says which (aria-pressed too), and its title shows it on hover. 44 px square on
+ * every screen (a tap target). A change the browser refuses shows its reason next to the button (role alert). Without a
+ * League page around it (LeagueSettingsEditContext), or for a player who isn't mine, render nothing: the caller decides.
+ */
+import { useState } from "react";
+import { cx } from "../ui";
+import { useLeagueSettingsEdit } from "./leagueSettingsEdit";
+
+/** The button's accessible name (and title): what pressing it does, and the state it's in. */
+export function untouchableLockLabel(name: string, locked: boolean): string {
+  return locked ? `${name} is untouchable. Unlock him` : `Lock ${name} as untouchable`;
+}
+
+/** The lock button for my player `playerId` (named `name` in its label). */
+export function UntouchableLock({ playerId, name, className }: { playerId: string; name: string; className?: string }) {
+  const edit = useLeagueSettingsEdit();
+  const [error, setError] = useState<string | null>(null);
+  if (!edit) return null;
+  const locked = edit.isUntouchable(playerId);
+  const label = untouchableLockLabel(name, locked);
+  const toggle = () => {
+    setError(null);
+    void edit.setUntouchable(playerId, !locked).then((r) => {
+      if (!r.ok) setError(r.message);
+    });
+  };
+  return (
+    <span className={cx("inline-flex items-center gap-1", className)}>
+      <button
+        type="button"
+        aria-pressed={locked}
+        aria-label={label}
+        title={label}
+        onClick={toggle}
+        className={cx(
+          "inline-flex size-11 shrink-0 items-center justify-center rounded-xl border transition-colors",
+          locked ? "border-brand bg-brand-soft text-brand-strong dark:text-brand" : "border-transparent text-muted hover:border-line hover:bg-surface-muted",
+        )}
+      >
+        <LockIcon closed={locked} />
+      </button>
+      {error ? (
+        <span role="alert" className="text-xs font-semibold text-danger-fg">
+          {error}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/** A padlock, closed or open (decorative: the button's label says it). */
+function LockIcon({ closed }: { closed: boolean }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="9" width="12" height="8.5" rx="1.8" fill={closed ? "currentColor" : "none"} />
+      {closed ? <path d="M6.8 9V6.6a3.2 3.2 0 0 1 6.4 0V9" /> : <path d="M6.8 9V6.6a3.2 3.2 0 0 1 6.2-1.1" />}
+    </svg>
+  );
+}
