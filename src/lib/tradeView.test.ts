@@ -635,6 +635,11 @@ describe("buildTradeCard (§13: what each card shows)", () => {
         "Assumed with or without this trade: add Floopy Freeman, drop Kyle Pitts Sr., release Alec Pierce in week 7, when he returns from IR.",
         "Also assumed with or without this trade, though the League page doesn't list it: add Waverly Waiver.",
       ]);
+      // The lead's example, word for word (Parker's names: the League page's pickup and its drop, then his week-7 return).
+      const parker = rename({ "107": "Alec Pierce", "901": "Jake Ferguson", "104": "Romeo Doubs" });
+      expect(lines({ moves: [], assumed: [{ add: "901", drop: "104" }], assumedLater: [{ week: 7, player: "107", returner: "107", nearTie: harrison }] }, parker)).toEqual([
+        "Assumed with or without this trade: add Jake Ferguson, drop Romeo Doubs, release Alec Pierce in week 7, when he returns from IR.",
+      ]);
       // Alone, the lead's words; another player's release names the returner; without a week, "when" alone.
       expect(lines({ moves: [], assumed: [], assumedLater: [{ week: 7, player: "107", returner: "107", nearTie: harrison }] }, pierce)).toEqual([
         "Assumed with or without this trade: release Alec Pierce in week 7, when he returns from IR.",
