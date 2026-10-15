@@ -38,7 +38,16 @@
  *    weights from R on): among the candidates within that of the lowest keep value, the lowest perception value floored at
  *    the waiver credit W goes (ReturnerSetup.valueFloor; then the lower keep value), so a return releases a near-free bench
  *    player worth at most W rather than a tradable one, and between players worth at most W the lineup decides as before.
- *    The drop is a
+ *    Everything the choice reads is from R on (Checkpoint 7e; planner reply to Checkpoint 7d, item 2.3: "A decision that
+ *    happens in a future week compares players over the weeks from then on, not from today"). The keep values and the
+ *    near-ties' tolerance already were; the trade values the ties compare were today's, so a player who plays only before
+ *    R kept his whole value then. Now each candidate's perception value counts only the share of it left at R
+ *    (valueShareFrom: his projected points from R on ÷ his projected points over every week team numbers count; a
+ *    returner keeps all of his, a player who plays only before R none), and W is the best free agent no team claims,
+ *    valued the same way (ReturnerSetup.valueFloorFrom; W itself when no week that counts comes before R). ⚠️ Ours:
+ *    projected points each week once (the market prices rest-of-season points), long-term values as they are (they
+ *    price later seasons), W's minimum as it is, and a returner's own value is the market's today, which also prices the
+ *    chance his return slips (at his return that's settled, but the model has no healthy price for him). The drop is a
  *    masked copy of the player's row (teamValue.maskedRow: nothing from R on), and the lineups are priced again only where
  *    he started (solveEvWeeksMasked, scenarioValuesMasked). When nobody can go, ⚠️ the roster runs over (nothing is
  *    dropped). ⚠️ Applied to FINAL team evaluations only: the League model's teams as they stand (LV, ROS, PPW, strength,
@@ -98,6 +107,25 @@ export function returnerSpec(base: StreamSpec, ir: readonly string[], rowOf: (id
 // ---------------------------------------------------------------------------------------------
 // The displacement (final evaluations)
 
+/**
+ * The share of a player's trade value left at week index `from` (the file header, item 2; Checkpoint 7e, planner reply to
+ * Checkpoint 7d, item 2.3): his projected points (`ev`, availability included, each week at least 0) over the weeks team
+ * numbers count (`weights` above 0) from `from` on, ÷ those over every week team numbers count. Exactly 1 when none of his
+ * points come before `from` (nothing to leave out: a returner, or a decision in the first week that counts), 0 when all of
+ * them do (he plays only before then).
+ */
+export function valueShareFrom(ev: ArrayLike<number>, weights: ArrayLike<number>, from: number): number {
+  let before = 0;
+  let after = 0;
+  for (let w = 0; w < weights.length; w++) {
+    if (!((weights[w] ?? 0) > 0)) continue;
+    const p = Math.max(0, Number(ev[w]) || 0);
+    if (w < from) before += p;
+    else after += p;
+  }
+  return before > 0 ? after / (before + after) : 1;
+}
+
 /** Long-term values for the dynasty part of the keep value (dynasty and keeper leagues whose dynasty values loaded). */
 export interface FutureKeep {
   readonly value: (id: string) => number;
@@ -121,7 +149,10 @@ export interface ReturnerSetup {
   readonly rosterMinimums?: Partial<Record<Pos, number>> | undefined;
   /** Position and eligibility of any rostered id (the lineup-fill rule, the position rules), with a model or not. */
   readonly info: (id: string) => { readonly pos: Pos; readonly eligible: readonly Pos[] } | undefined;
-  /** Perception value (keep-value ties: the less valuable player goes). */
+  /**
+   * Perception value (keep-value ties: the less valuable player goes), today's: finalLineups counts only the share of it
+   * left at the return week (valueShareFrom; Checkpoint 7e).
+   */
   readonly dropValue: (id: string) => number;
   /**
    * Near-ties (final review of Phase 4c, finding R6; config.lineups.dropNearTieWeekly, projected points a week): without
@@ -131,6 +162,12 @@ export interface ReturnerSetup {
   readonly nearTieWeekly?: number;
   /** The waiver credit W (§9): the near-ties' values are floored at it (teamValue.lowestKeepValue's `floor`). Absent: 0. */
   readonly valueFloor?: number;
+  /**
+   * W from a week index on (Checkpoint 7e; league.ts: the best free agent no team claims, his value × valueShareFrom, at
+   * least W's minimum, never above W; W itself when no week that counts comes before it): the floor of a return in that
+   * week. Absent: valueFloor in every week.
+   */
+  readonly valueFloorFrom?: (from: number) => number;
   readonly future: FutureKeep | null;
   /** A returner's expected return week as an index into the model's weeks (0 = the current week); null when he isn't back. */
   readonly returnIndex: (id: string) => number | null;
@@ -264,14 +301,17 @@ export function finalLineups(setup: ReturnerSetup, roster: readonly string[], sp
       }
       return fillCount(entries(live.filter((x) => x !== id)), setup.slots) >= fillBefore;
     });
-    // Near-ties when the keep value is the lineup cost alone (ReturnerSetup.nearTieWeekly × the weights from his return on).
+    // Near-ties when the keep value is the lineup cost alone (ReturnerSetup.nearTieWeekly × the weights from his return on),
+    // and the trade values the ties compare from his return on too (Checkpoint 7e, the file header): each candidate's value
+    // counts the share of it left then (valueShareFrom on his own row), and the floor is W from then (valueFloorFrom).
     const perWeek = setup.nearTieWeekly ?? 0;
     let tie = 0;
     if (!fut && Number.isFinite(perWeek) && perWeek > 0) for (let w = from; w < W; w++) tie += Math.max(0, (wf[w] as number) || 0) * perWeek;
+    const valueFrom = (id: string) => (setup.dropValue(id) || 0) * valueShareFrom((team.rows[at.get(id) as number] as TableRow).ev, setup.weights, from);
     const pick = lowestKeepValue(
-      candidates.map((id) => ({ id, keep: keep(id), value: setup.dropValue(id) || 0 })),
+      candidates.map((id) => ({ id, keep: keep(id), value: valueFrom(id) })),
       tie,
-      setup.valueFloor ?? 0,
+      setup.valueFloorFrom ? setup.valueFloorFrom(from) : (setup.valueFloor ?? 0),
     );
     if (pick === null) continue; // ⚠️ nobody can go: the roster runs over
     const k = at.get(pick) as number;

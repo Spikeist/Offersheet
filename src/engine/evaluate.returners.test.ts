@@ -14,7 +14,8 @@ import { buildPools } from "./search";
 import { defaultTradeSettings } from "./settings";
 import { rosValue, solveEvWeeks, teamEval, type TableRow } from "./teamValue";
 import type { TestLeagueSpec, TestPlayer } from "./testLeague";
-import { TEST_NOW } from "./testLeague";
+import { TEST_NOW, buildTestLeague } from "./testLeague";
+import { movesMismatch } from "./moves.testing";
 import { flat, handLeague } from "./trade.testing";
 import type { TradeAsset, TradeProposal } from "./tradeModel";
 
@@ -136,6 +137,33 @@ describe("exact evaluation with IR players: the sides' specs after the trade and
     const after = y.mine.displaced[0] as { id: string; from: number; returner: string };
     expect(after.id).not.toBe(base.id);
     expect(y.evaluation.required.me.displaced).toEqual([{ playerId: after.id, week: I.league.lp.weeks.weeks[after.from], returner: "ir1" }]);
+  });
+
+  it("Checkpoint 7e (planner reply to Checkpoint 7d, item 2.3): the baseline and both sides of a trade decide a return's release from his week on, trade values too, as the League model does", () => {
+    // league.returners.test.ts's case: my IR WR is back in week 7 (index 3) on a full roster whose bench never starts, so the
+    // lowest value floored at W goes then. `front` (600 today, bye in week 10, after the return) has less of his value left
+    // then than `back` (560, bye in week 5, before it): `front` goes, where today's values released `back`.
+    const v = (id: string, pos: TestPlayer["pos"], points: number, value: number, extra: Partial<TestPlayer> = {}): TestPlayer => ({ id, pos, points, value, ...extra });
+    const starters = (t: string): TestPlayer[] => [v(`${t}q1`, "QB", 20, 9000), v(`${t}r1`, "RB", 16, 8000), v(`${t}r2`, "RB", 15, 7500), v(`${t}w1`, "WR", 15, 7000), v(`${t}w2`, "WR", 14, 6500), v(`${t}t1`, "TE", 12, 6000), v(`${t}r3`, "RB", 13, 5000), v(`${t}k1`, "K", 8, 100), v(`${t}d1`, "DEF", 8, 100)];
+    const bench = (t: string): TestPlayer[] => [v(`${t}q2`, "QB", 10, 2000), v(`${t}r4`, "RB", 9, 3000), v(`${t}t2`, "TE", 7, 2500), v(`${t}w3`, "WR", 9, 2600), v(`${t}w4`, "WR", 8, 2400)];
+    const built = buildTestLeague({
+      teams: [
+        { id: "1", roster: [...starters(""), ...bench(""), v("front", "WR", 5, 600, { nflTeam: "LTE" }), v("back", "WR", 5, 560, { nflTeam: "ERL" })], ir: [v("ret", "WR", 6, 4000, { injury: "IR", injuryReturnWeek: 7 })] },
+        { id: "2", roster: [...starters("o"), ...bench("o"), v("of", "WR", 5, 600), v("ob", "WR", 5, 560)] },
+      ],
+      freeAgents: [v("fa", "WR", 3, 300)],
+      byeWeek: { LTE: 10, ERL: 5 },
+    });
+    const I = tradeInternals(buildTradeContext(built.snapshot, built.inputs, { now: TEST_NOW, scenarios: 0, playoffWeightSims: 0 }));
+    expect((I.me as TeamState).base.displaced).toEqual([{ id: "front", from: 3, returner: "ret" }]);
+    // A swap of bench QBs keeps both WRs: `front` still goes from week 7.
+    const x = evaluateExact(I, trade("2", ["q2"], ["oq2"]), 4);
+    if ("illegal" in x) throw new Error(x.illegal);
+    expect(x.mine.displaced).toEqual([{ id: "front", from: 3, returner: "ret" }]);
+    // Giving `front` away: `back`, worth the least of the rest then, goes instead.
+    const y = evaluateExact(I, trade("2", ["front"], ["ow4"]), 4);
+    if ("illegal" in y) throw new Error(y.illegal);
+    expect(y.mine.displaced).toEqual([{ id: "back", from: 3, returner: "ret" }]);
   });
 
   it("the final pricing equals the roster's lineups with the displaced player masked from the return on (EV mode)", () => {
@@ -284,5 +312,39 @@ describe("screening and the pools with IR players", () => {
     const oldPools = buildPools(old.I, settings, null);
     expect(oldPools.give).not.toContain("ir1");
     expect(oldPools.get.get("3")?.pool).not.toContain("ir3");
+  });
+});
+
+describe("my roster moves at an IR return the trade changes (Checkpoint 7e, item 2.2; review of wave B, finding moves-before-release-unnamed)", () => {
+  // My IR RB (9, back in week 7) needs a roster spot then: my baseline (no pickups) releases my bench WR wc1 (3.1, the least
+  // valuable of my bench players). Each card names what changes at his return against that "before".
+  const evaluate = (give: string[], get: string[]) => {
+    const { I, me } = context(withIr({ 1: irRb(1) }));
+    expect(me.base.displaced).toEqual([{ id: "wc1", from: 2, returner: "ir1" }]);
+    const x = evaluateExact(I, trade("2", give, get), 3);
+    if ("illegal" in x) throw new Error(x.illegal);
+    expect(movesMismatch(I, x)).toEqual([]);
+    return x.evaluation.myMoves;
+  };
+
+  it("another player released then, with the one the before releases kept, or gone by then", () => {
+    // My WR2 for their RB1: wc1 starts at WR2 from then on, so my bench RB rc1 goes instead, and wc1 stays.
+    expect(evaluate(["wb1"], ["ra2"])).toEqual({ moves: [{ kind: "release", week: 7, player: "rc1", returner: "ir1", instead: "wc1", kept: true }], assumed: [] });
+    // wc1 goes in the trade: rc1 goes at the return, where without the trade wc1 would.
+    expect(evaluate(["wc1"], ["rc2"])).toEqual({ moves: [{ kind: "release", week: 7, player: "rc1", returner: "ir1", instead: "wc1", kept: false }], assumed: [] });
+    // Both bench players for their RB1: the open spot's WR fill goes at the return (his own line, since the before releases
+    // someone else then: the spot's sentence doesn't say "until" too).
+    expect(evaluate(["rc1", "wc1"], ["ra2"])).toEqual({
+      moves: [
+        { kind: "openSpot", week: 5, spot: { playerId: "fw", pos: "WR" } },
+        { kind: "release", week: 7, player: "fw", returner: "ir1", instead: "wc1", kept: false },
+      ],
+      assumed: [],
+    });
+  });
+
+  it("nobody released then: the player the before would release stays", () => {
+    // My IR RB himself, for nothing: no return to make room for, so wc1 stays.
+    expect(evaluate(["ir1"], [])).toEqual({ moves: [{ kind: "keepAtReturn", week: 7, player: "wc1", returner: "ir1", returnerStays: false }], assumed: [] });
   });
 });

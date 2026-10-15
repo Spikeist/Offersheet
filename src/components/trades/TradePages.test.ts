@@ -558,15 +558,20 @@ describe("TradeCard (§13: each trade card shows)", () => {
     expect(text).toContain("Depends on an injured player: Humbert Fiddlesticks (injured reserve). His projection assumes he returns at full strength, blended with the trade market.");
     expect(text).toContain("Rupert Wimbleton: his projection assumes he returns at full strength, blended with the trade market.");
     expect(text).not.toContain("Humbert Fiddlesticks: his projection");
-    expect(text).not.toContain("numbers assume");
+    // (Not the caveat's words; Checkpoint 7e's heading over the roster moves, "Roster moves these numbers assume", is another.)
+    expect(text).not.toContain("the numbers assume they return");
     expect(text.match(/Humbert Fiddlesticks/g)).toHaveLength(2);
     expect(text).toContain("Why Your WR2 spot goes from 9.1 to 14.3 projected points per week.");
   });
 
-  it("says the forced roster moves, the reasons, and the pitch behind a 44 px summary with a 44 px Copy button", () => {
+  it("says the roster moves the numbers assume, the reasons, and the pitch behind a 44 px summary with a 44 px Copy button", () => {
     const html = render(evaluation({ required: { me: { drops: ["108"], adds: [] }, partner: { drops: [], adds: [] } } }));
     const text = textOf(html);
-    expect(text).toContain("Roster moves this trade forces You'd drop Tobias Thimble (TE, JAX) to stay within your roster limits.");
+    // An evaluation without myMoves (made before Checkpoint 7e): today's words under the new heading.
+    expect(text).toContain("Roster moves these numbers assume You'd drop Tobias Thimble (TE, JAX) to stay within your roster limits.");
+    // Checkpoint 7e (planner reply to Checkpoint 7d, item 2.2): every move in order with its reason, and the moves made either way.
+    const listed = textOf(render({ ...evaluation(), myMoves: { moves: [{ kind: "makeRoom", week: 6, drop: ["108"], for: ["204"] }], assumed: [{ add: "901", drop: "105" }] } }));
+    expect(listed).toContain("Roster moves these numbers assume Make room for Cornelius Snoot: drop Tobias Thimble (TE). Assumed with or without this trade: add Floopy Freeman, drop Glimmer Oddfellow.");
     expect(text).toContain("Why Your RB2 spot goes from 9.1 to 14.3 projected points per week.");
     expect(html).toMatch(/<details class="[^"]*"><summary class="flex min-h-11[^"]*"><span>Message to send them<span class="sr-only"> \(trade idea 1, Trade with Gravel Gophers\)<\/span><\/span><span aria-hidden="true" class="text-muted">▾<\/span><\/summary>/);
     expect(html).toContain("Hey! Want Wiggleton Spoons for Cornelius Snoot?");
@@ -690,6 +695,32 @@ describe("TradeCard (§13: each trade card shows)", () => {
     // before the dot), so a wrapped line never starts with "· Week 13"; the weekly line's included.
     expect(box).toContain(`<span aria-hidden="true" class="whitespace-nowrap tabular-nums">Week 9: 68% → 64%</span><span class="sr-only">week 9 from 68% to 64%</span><span aria-hidden="true">${NBSP}· </span>`);
     expect(boxed).not.toMatch(/> · </);
+    // Checkpoint 7e (planner reply to Checkpoint 7d, item 2.2: "a Plan B box when it has moves"): the roster moves its numbers
+    // assume, under its odds and before its message.
+    const moved = renderToStaticMarkup(
+      createElement(TradeCard, {
+        card: buildTradeCard(evaluation({ planB: { ...odds, myMoves: { moves: [{ kind: "makeRoom", week: 6, drop: ["108"], for: ["203"] }], assumed: [] } } }), { snapshot, baseline: { pPlayoffs: 0.65, pTitle: 0.121 } }),
+        rank: 1,
+        feedback: NONE,
+        onFeedback: saved,
+      }),
+    );
+    expect(textOf(moved.slice(moved.indexOf("If they say no, try:")))).toContain("week 13 from 42% to 55% Roster moves these numbers assume Make room for Ignatius Fumblewick: drop Tobias Thimble (TE). Message to send them");
+    // Review of wave B (findings B-4, either-way-before-unexplained): odds that start from the trade's own "before" (its
+    // either-way moves) say so right under them, on the card and on a Plan B box.
+    const before = { pPlayoffs: 0.66, pTitle: 0.125, prizes: { first: 0.125, second: null, third: null, weeklyHigh: 0, pointsLeader: 0 } };
+    const own = renderToStaticMarkup(
+      createElement(TradeCard, {
+        card: buildTradeCard({ ...evaluation({ dPO: 0.04, dCH: 0.013, planB: { ...odds, before } }), before }, { snapshot, baseline: { pPlayoffs: 0.65, pTitle: 0.121 } }),
+        rank: 1,
+        feedback: NONE,
+        onFeedback: saved,
+      }),
+    );
+    const ownText = textOf(own);
+    expect(ownText).toContain("from 66% to 70% This idea's odds start from your odds with the moves it assumes with or without this trade.");
+    expect(textOf(own.slice(own.indexOf("If they say no, try:")))).toContain("week 13 from 42% to 55% This idea's odds start from your odds with the moves it assumes with or without this trade. Message to send them");
+    expect(textOf(boxed)).not.toContain("This idea's odds start from");
   });
 
   it("shows 'How to offer it' right under the three numbers: an ordered list, each estimate said in full to screen readers (§4)", () => {

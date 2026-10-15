@@ -1495,11 +1495,18 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
       }
       if (!r.value || (tag && !helpsBoth(finalByKey.get(candidate.core.key) ?? candidate.core))) continue;
       yield* shownRun(candidate.core.key);
-      if (!own) return r.value;
-      const box = ranOut(choosePlanB(card, [{ core: printedOf(candidate.core), kind: candidate.kind }], (c) => c, planBCfg, undefined, rules.cards));
-      if (box) return box;
+      if (!own) return boxWith(r.value, finalByKey.get(candidate.core.key) ?? candidate.core);
+      const printedCore = printedOf(candidate.core);
+      const box = ranOut(choosePlanB(card, [{ core: printedCore, kind: candidate.kind }], (c) => c, planBCfg, undefined, rules.cards));
+      if (box) return boxWith(box, printedCore);
     }
     return null;
+  }
+  // A box carries what its evaluation's numbers rest on (Checkpoint 7e, planner reply to Checkpoint 7d, items 2.1 and 2.2): my
+  // roster moves they assume (TradeEvaluation.myMoves: "a Plan B box when it has moves") and, with either-way moves, its own
+  // "before" (TradeEvaluation.before), which its odds start from.
+  function boxWith(box: PlanB, core: TradeEvaluationCore): PlanB {
+    return { ...box, ...(core.myMoves ? { myMoves: core.myMoves } : {}), ...(core.before ? { before: { ...core.before, prizes: { ...core.before.prizes } } } : {}) };
   }
   const boxByKey = new Map<string, PlanB | null>();
   const inBoxes = new Map<string, number>();

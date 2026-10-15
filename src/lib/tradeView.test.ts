@@ -38,6 +38,7 @@ import {
   IR_SLOT_TEXT,
   PLAN_B_HEADING,
   MIN_CHANCE_OPTIONS,
+  OWN_BEFORE_NOTE,
   PROJECTIONS_SOURCE,
   SORT_OPTIONS,
   SHOWN_PASS_LABEL,
@@ -346,6 +347,175 @@ describe("buildTradeCard (§13: what each card shows)", () => {
       "This trade's numbers count on one more free-agent move: you'd drop Glimmer Oddfellow (WR, SEA) and pick up Floopy Freeman (RB, CAR) to start in week 6.",
       "From week 7, when Humbert Fiddlesticks comes back from IR, you'd drop Floopy Freeman (RB, CAR).",
     ]);
+  });
+
+  it("Checkpoint 7e (item 2.2): lists every roster move my numbers assume, in order, each with its reason, a later week's with its week, and the moves made either way on one line", () => {
+    const lines = (myMoves: NonNullable<TradeEvaluation["myMoves"]>, o: Parameters<typeof evaluation>[0] = {}) => buildTradeCard({ ...evaluation(o), myMoves }, { snapshot, fantasyCalc: FC }).required;
+    expect(
+      lines({
+        moves: [
+          { kind: "positionLimit", week: 6, drop: "105", pos: "WR", limit: 3 },
+          { kind: "makeRoom", week: 6, drop: ["108"], for: ["203"] },
+          { kind: "rosterMinimum", week: 6, add: "902", pos: "RB", min: 2 },
+          { kind: "openSpot", week: 6, spot: { playerId: "901", pos: "RB" } },
+          { kind: "toIR", week: 6, player: "206" },
+          { kind: "waiver", week: 6, add: "901", drop: "105", starts: [7] },
+          { kind: "pickupDrop", week: 6, add: "901", drop: "106", instead: "105" },
+          { kind: "skip", week: 6, add: "902", keep: "108", why: "unneeded" },
+          { kind: "release", week: 7, player: "106", returner: "107" },
+        ],
+        assumed: [
+          { add: "901", drop: "108" },
+          { add: "902", drop: null, eitherWay: true },
+        ],
+      }),
+    ).toEqual([
+      "Stay within your league's limit of 3 WRs: drop Glimmer Oddfellow (WR).",
+      "Make room for Ignatius Fumblewick: drop Tobias Thimble (TE).",
+      "Keep your league's minimum of 2 RBs: add Waverly Waiver (RB).",
+      "Open roster spot: add Floopy Freeman, the best available RB.",
+      "Rupert Wimbleton goes to your IR slot (no roster spot until he's back).",
+      "This trade makes a waiver move worthwhile: add Floopy Freeman (RB) to start in week 7, drop Glimmer Oddfellow (WR).",
+      "This trade makes Glimmer Oddfellow worth keeping: for the League page's pickup, Floopy Freeman, drop Wiggleton Spoons (WR) instead.",
+      "This trade makes the League page's pickup unnecessary: skip Waverly Waiver (RB) and keep Tobias Thimble (TE).",
+      "Week 7, when Humbert Fiddlesticks returns from IR: release Wiggleton Spoons (WR).",
+      "Assumed with or without this trade: add Floopy Freeman, drop Tobias Thimble.",
+      // Item 2.1's either-way moves on a line of their own (review of wave B): the League page doesn't list them.
+      "Also assumed with or without this trade, though the League page doesn't list it: add Waverly Waiver.",
+    ]);
+    // The other wordings: the returner released himself; an open spot's fill released again at a return, in the spot's own
+    // sentence (as before); the partner claiming the League page's pickup ahead of me; a drop to make room for a roster-minimum
+    // add; the League page's pickup with another drop (none kept), or into an open spot; a waiver move into an open spot.
+    expect(
+      lines({
+        moves: [
+          { kind: "makeRoom", week: 6, drop: ["108"], for: [] },
+          { kind: "openSpot", week: 6, spot: { playerId: "901", pos: "RB" } },
+          { kind: "waiver", week: 6, add: "902", drop: null, starts: [6, 7, 8] },
+          { kind: "pickupDrop", week: 6, add: "901", drop: "106", instead: null },
+          { kind: "pickupDrop", week: 6, add: "902", drop: null, instead: null },
+          { kind: "skip", week: 6, add: "902", keep: "108", why: "taken" },
+          { kind: "release", week: 7, player: "901", returner: "107" },
+          { kind: "release", week: 9, player: "107", returner: "107" },
+        ],
+        assumed: [],
+      }),
+    ).toEqual([
+      "Make room on your roster: drop Tobias Thimble (TE).",
+      "Open roster spot: add Floopy Freeman, the best available RB, until Humbert Fiddlesticks comes back from IR in week 7.",
+      "This trade makes a waiver move worthwhile: add Waverly Waiver (RB).",
+      "For the League page's pickup, Floopy Freeman, drop Wiggleton Spoons (WR).",
+      "The League page's pickup, Waverly Waiver, takes an open roster spot.",
+      "After this trade Gravel Gophers claims the League page's pickup, Waverly Waiver (RB), ahead of you: keep Tobias Thimble (TE).",
+      "Week 9, when Humbert Fiddlesticks returns from IR: release him instead of dropping someone else.",
+    ]);
+    // Nothing to say: no line; and the partner's lines follow mine, as before.
+    expect(lines({ moves: [], assumed: [] })).toEqual([]);
+    expect(lines({ moves: [], assumed: [{ add: "901", drop: "108" }] }, { required: { me: { drops: ["105"], adds: [] }, partner: { drops: ["205"], adds: [] } } })).toEqual([
+      "Assumed with or without this trade: add Floopy Freeman, drop Tobias Thimble.",
+      "Gravel Gophers would drop Percival Plunk (WR, LAR) to stay within their roster limits.",
+    ]);
+    // ⚠️ An evaluation made before Checkpoint 7e (no myMoves): my side's lines as before, from `required.me`.
+    expect(card({ required: { me: { drops: ["105"], adds: [] }, partner: { drops: [], adds: [] } } }).required).toEqual(["You'd drop Glimmer Oddfellow (WR, SEA) to stay within your roster limits."]);
+  });
+
+  it("review of wave B: a pickup of the before brought in by legality, a player the trade brings in dropped again, a spot taken, and what happens at an IR return where the before differs", () => {
+    const lines = (myMoves: NonNullable<TradeEvaluation["myMoves"]>, snap = snapshot) => buildTradeCard({ ...evaluation(), myMoves }, { snapshot: snap, fantasyCalc: FC }).required;
+    expect(
+      lines({
+        moves: [
+          // B-3: my pickups drop a player the trade brings in, so the room isn't "for" him; inside a list, from this trade.
+          { kind: "makeRoom", week: 6, drop: ["108", "203"], for: [], received: ["203"] },
+          // B-1: the League page's pickup comes in through the open spot, and the trade keeps his drop.
+          { kind: "openSpot", week: 6, spot: { playerId: "901", pos: "RB" }, pickup: { keep: "105" } },
+          { kind: "rosterMinimum", week: 6, add: "902", pos: "RB", min: 2, pickup: { keep: null, eitherWay: true } },
+          { kind: "waiver", week: 6, add: "901", drop: "204", starts: [7], received: true },
+          // moves-waiver-takes-pickup-drop: a waiver pickup in place of the League page's own.
+          { kind: "waiver", week: 6, add: "902", drop: null, insteadOf: "901" },
+          { kind: "pickupDrop", week: 6, add: "901", drop: "204", instead: "105", received: true, eitherWay: true },
+          // moves-skip-reason-spot-taken: the players received take the spot (named, or not).
+          { kind: "skip", week: 6, add: "901", keep: null, why: "spot", by: ["204"] },
+          { kind: "skip", week: 6, add: "902", keep: "108", why: "spot" },
+          // moves-before-release-unnamed: the before's release at the same return, kept or gone, and a return with room.
+          { kind: "release", week: 7, player: "107", returner: "107", instead: "108", kept: true },
+          { kind: "release", week: 7, player: "106", returner: "107", instead: "107", kept: true },
+          { kind: "release", week: 8, player: "107", returner: "107", instead: "108", kept: false },
+          { kind: "keepAtReturn", week: 9, player: "108", returner: "107", returnerStays: true },
+          { kind: "keepAtReturn", week: 9, player: "108", returner: "107", returnerStays: false },
+          // The safety net (none on any test league).
+          { kind: "drop", week: 6, player: "105" },
+          { kind: "drop", week: 6, player: "204", received: true },
+          { kind: "keep", week: 6, player: "108" },
+          { kind: "add", week: 6, player: "901" },
+        ],
+        assumed: [
+          { add: "901", drop: "105" },
+          { add: null, drop: "108" },
+        ],
+      }),
+    ).toEqual([
+      "Make room on your roster: drop Tobias Thimble (TE) and Ignatius Fumblewick (RB, from this trade).",
+      "Open roster spot: add Floopy Freeman, the best available RB. He's the League page's pickup, so you keep Glimmer Oddfellow (WR).",
+      "Keep your league's minimum of 2 RBs: add Waverly Waiver (RB). He's a pickup worth making either way.",
+      "This trade makes a waiver move worthwhile: add Floopy Freeman (RB) to start in week 7, drop Cornelius Snoot (RB), whom this trade brings in.",
+      "This trade makes a waiver move worthwhile: add Waverly Waiver (RB) instead of the League page's pickup, Floopy Freeman (RB).",
+      "This trade makes Glimmer Oddfellow worth keeping: for the pickup worth making either way, Floopy Freeman, drop Cornelius Snoot (RB) instead, whom this trade brings in.",
+      "Cornelius Snoot takes the roster spot of the League page's pickup: skip Floopy Freeman (RB).",
+      "This trade takes the roster spot of the League page's pickup: skip Waverly Waiver (RB) and keep Tobias Thimble (TE).",
+      "Week 7, when Humbert Fiddlesticks returns from IR: release him and keep Tobias Thimble (TE).",
+      "Week 7, when Humbert Fiddlesticks returns from IR: release Wiggleton Spoons (WR) and keep him.",
+      "Week 8, when Humbert Fiddlesticks returns from IR: release him; without this trade, Tobias Thimble (TE) would go then.",
+      "Week 9, when Humbert Fiddlesticks returns from IR: this trade leaves room, so keep Tobias Thimble (TE).",
+      "Keep Tobias Thimble (TE): without this trade you'd release him in week 9, when Humbert Fiddlesticks returns from IR.",
+      "Drop Glimmer Oddfellow (WR).",
+      "Drop Cornelius Snoot (RB), whom this trade brings in.",
+      "Keep Tobias Thimble (TE).",
+      "Add Floopy Freeman (RB).",
+      "Assumed with or without this trade: add Floopy Freeman, drop Glimmer Oddfellow; drop Tobias Thimble.",
+    ]);
+    // An open spot's fill released again at a return keeps it in the spot's sentence, unless the before releases someone else
+    // then: that one's line says whom (and the spot's sentence doesn't).
+    expect(
+      lines({
+        moves: [
+          { kind: "openSpot", week: 6, spot: { playerId: "901", pos: "RB" } },
+          { kind: "release", week: 7, player: "901", returner: "107", instead: "108", kept: true },
+        ],
+        assumed: [],
+      }),
+    ).toEqual(["Open roster spot: add Floopy Freeman, the best available RB.", "Week 7, when Humbert Fiddlesticks returns from IR: release Floopy Freeman (RB) and keep Tobias Thimble (TE)."]);
+    // A name that ends with its own period ends the assumed line once (review of wave B, moves-assumed-double-period).
+    const jr = { ...snapshot, players: { ...snapshot.players, "105": { ...(snapshot.players["105"] as PlayerInfo), name: "Marvin Harrison Jr." }, "901": { ...(snapshot.players["901"] as PlayerInfo), name: "Kyle Pitts Sr." } } };
+    expect(lines({ moves: [], assumed: [{ add: "902", drop: "105" }] }, jr)).toEqual(["Assumed with or without this trade: add Waverly Waiver, drop Marvin Harrison Jr."]);
+    expect(lines({ moves: [], assumed: [{ add: "901", drop: null }] }, jr)).toEqual(["Assumed with or without this trade: add Kyle Pitts Sr."]);
+    // An either-way move alone: its own line, worded as one the League page doesn't list.
+    expect(lines({ moves: [], assumed: [{ add: "902", drop: "105", eitherWay: true }] }, jr)).toEqual(["Assumed with or without this trade, though the League page doesn't list it: add Waverly Waiver, drop Marvin Harrison Jr."]);
+  });
+
+  it("Checkpoint 7e (item 2.1): a trade with either-way moves prints its odds from its own before, and its Plan B box lists its moves", () => {
+    const before = { pPlayoffs: 0.64, pTitle: 0.112, prizes: { first: 0.112, second: 0.08, third: 0.09, weeklyHigh: 0, pointsLeader: 0 } };
+    const baseline = { pPlayoffs: 0.6, pTitle: 0.1 };
+    const own = buildTradeCard({ ...evaluation({ dPO: 0.05, dCH: 0.02 }), before }, { snapshot, baseline, fantasyCalc: FC });
+    expect(own.odds.map((o) => `${o.label} ${o.value}`)).toEqual(["Title odds 11.2% → 13.2%", "Playoff odds 64% → 69%"]);
+    // Without it, the search's baseline, as before.
+    expect(card({ dPO: 0.05, dCH: 0.02 }, baseline).odds.map((o) => `${o.label} ${o.value}`)).toEqual(["Title odds 10.0% → 12.0%", "Playoff odds 60% → 65%"]);
+    const box = planBView({ ...planBFixture({ give: ["106"], get: ["205"] }), dPO: 0.05, dCH: 0.02, before, myMoves: { moves: [{ kind: "makeRoom", week: 6, drop: ["108"], for: ["205"] }], assumed: [{ add: "901", drop: "105" }] } }, snapshot, { baseline });
+    expect(box?.odds.map((o) => `${o.label} ${o.value}`)).toEqual(["Title odds 11.2% → 13.2%", "Playoff odds 64% → 69%"]);
+    expect(box?.moves).toEqual(["Make room for Percival Plunk: drop Tobias Thimble (TE).", "Assumed with or without this trade: add Floopy Freeman, drop Glimmer Oddfellow."]);
+    expect(planBView(planBFixture({ give: ["106"], get: ["205"] }), snapshot)?.moves).toEqual([]);
+    // Review of wave B (findings B-4, either-way-before-unexplained): a card and a box whose odds start from their own "before"
+    // say so under them, and the Finder's line says some ideas do; never the Analyzer's card (its line above says it).
+    expect(own.oddsNote).toBe(OWN_BEFORE_NOTE);
+    expect(box?.oddsNote).toBe(OWN_BEFORE_NOTE);
+    expect(card({ dPO: 0.05, dCH: 0.02 }, baseline).oddsNote).toBeNull();
+    expect(planBView({ ...planBFixture({ give: ["106"], get: ["205"] }), dPO: 0.05, dCH: 0.02 }, snapshot, { baseline })?.oddsNote).toBeNull();
+    const finder = (trades: TradeEvaluation[]) => buildFinderView({ result: searchResult(trades), sort: "overall", snapshot, partnerId: null }).baselineNote;
+    expect(finder([{ ...evaluation({ key: "a", dPO: 0.05, dCH: 0.02 }), before }])).toBe(
+      "As on the League page, they count the free-agent pickups that would help each team, and every trade idea's odds start from them, except where an idea says otherwise.",
+    );
+    expect(finder([evaluation({ key: "a", dPO: 0.05, dCH: 0.02 })])).toBe("As on the League page, they count the free-agent pickups that would help each team, and every trade idea's odds start from them.");
+    const analysis = buildAnalysisView({ evaluation: { ...evaluation({ dPO: 0.05, dCH: 0.02 }), before }, illegal: null, notes: [], baseline }, snapshot);
+    expect(analysis.card?.oddsNote).toBeNull();
   });
 
   it("⚠️ names the roster spot when it's what trips the Market check: more players onto my active roster, and FantasyCalc's own values alone wouldn't (final review of Phase 4c, finding PAGES-6)", () => {
@@ -1001,6 +1171,11 @@ describe("the Analyzer's draft and choices", () => {
     const plain = buildAnalysisView({ evaluation: e, illegal: null, notes: [] }, snapshot);
     expect(plain.baseline).toBeNull();
     expect(odds(plain.card as NonNullable<typeof plain.card>)).toEqual(["+3.9 percentage points", "+9.1 percentage points"]);
+    // Checkpoint 7e (item 2.1): a trade with either-way moves starts from its own "before", the line too, saying so.
+    const own = buildAnalysisView({ evaluation: { ...e, before: { pPlayoffs: 0.65, pTitle: 0.13, prizes: { first: 0.13, second: null, third: null, weeklyHigh: 0, pointsLeader: 0 } } }, illegal: null, notes: [], baseline: { pPlayoffs: 0.63, pTitle: 0.12 } }, snapshot);
+    expect(own.baseline).toBe("Your odds before this trade: 65% to make the playoffs, 13.0% to win the title.");
+    expect(own.baselineNote).toBe("They count the free-agent pickups that would help each team, as on the League page, and the moves the card assumes with or without this trade; the trade's odds start from them.");
+    expect(odds(own.card as NonNullable<typeof own.card>)).toEqual(["13.0% → 16.9%", "65% → 74%"]);
   });
 });
 
@@ -1189,6 +1364,9 @@ describe("Plan B on the card: \"If they say no, try:\" (planner reply to Checkpo
       // A Plan B made without odds (none before Phase 4c's polish) prints none.
       odds: [],
       weekly: null,
+      // No odds of its own "before" (Checkpoint 7e: PlanB.before), nor roster moves without its evaluation's (PlanB.myMoves).
+      oddsNote: null,
+      moves: [],
       also: null,
       pitch: "Thanks for considering it! Would you trade Mortimer Gloop for Wiggleton Spoons and Tobias Thimble instead? Let me know what you think!",
       // Marked as a Plan B: the Analyzer shows it as one offer, without "How to offer it" (review of Phase 4b).

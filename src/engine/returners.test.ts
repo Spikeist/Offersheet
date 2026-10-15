@@ -10,9 +10,9 @@ import type { InjuryStatus, Pos, SlotDef } from "./model";
 import { instanceIndex, slotInstances } from "./needs";
 import { rosterKey, type StreamSpec } from "./optimizer";
 import { weeklySd } from "./projections";
-import { activeSpots, finalLineups, irAfterTrade, irEligibleStatuses, returnerSpec, tradeActiveSpots, type ReturnerSetup } from "./returners";
+import { activeSpots, finalLineups, irAfterTrade, irEligibleStatuses, returnerSpec, tradeActiveSpots, valueShareFrom, type ReturnerSetup } from "./returners";
 import { mulberry32 } from "./rng";
-import { maskedRow, scenarioValues, scenarioValuesMasked, solveEvWeeks, solveEvWeeksMasked, streamRow, teamEval, type ScenarioCells, type ScenarioValues, type TableRow } from "./teamValue";
+import { lowestKeepValue, maskedRow, scenarioValues, scenarioValuesMasked, solveEvWeeks, solveEvWeeksMasked, streamRow, teamEval, type ScenarioCells, type ScenarioValues, type TableRow } from "./teamValue";
 import { TEST_LINEUP } from "./testLeague";
 
 const slot = (name: string, count: number, eligible: Pos[]): SlotDef => ({ slot: name, count, eligible });
@@ -263,6 +263,8 @@ function build(opts: {
   /** Near-ties (points a week) and the waiver credit their values are floored at (ReturnerSetup.nearTieWeekly, valueFloor); absent: exact ties. */
   nearTie?: number;
   floor?: number;
+  /** W from a return week on (ReturnerSetup.valueFloorFrom; Checkpoint 7e); absent: `floor` in every week. */
+  floorFrom?: (from: number) => number;
 }): Built {
   const slots = prepareSlots(opts.lineup ?? LINEUP);
   const S = opts.S ?? 0;
@@ -280,6 +282,7 @@ function build(opts: {
     dropValue: (id) => opts.values?.[id] ?? 0,
     ...(opts.nearTie !== undefined ? { nearTieWeekly: opts.nearTie } : {}),
     ...(opts.floor !== undefined ? { valueFloor: opts.floor } : {}),
+    ...(opts.floorFrom ? { valueFloorFrom: opts.floorFrom } : {}),
     future: opts.future ?? null,
     returnIndex: (id) => at.get(id) ?? null,
     index: instanceIndex(slotInstances(opts.lineup ?? LINEUP), slots),
@@ -343,12 +346,68 @@ describe("finalLineups: the roster spot a returner needs from his week (final ev
     expect(finalLineups(b.setup, b.roster, b.spec, b.raw).displaced).toEqual([{ id: "wr2", from: 3, returner: "back" }]);
   });
 
+  /** A row that plays only in the week indexes `weeks` (his points there, 0 elsewhere: out before, or gone after). */
+  const only = (id: string, pos: Pos, points: number, weeks: readonly number[], S: number): TableRow => {
+    const ev = Float64Array.from({ length: W }, (_, w) => (weeks.includes(w) ? points : 0));
+    return { ...row(id, pos, points, { S }), ev, cond: Float64Array.from(ev), evSd: Float64Array.from(ev, (x) => weeklySd(x, pos)), condSd: Float64Array.from(ev, (x) => weeklySd(x, pos)), flags: S > 0 ? Uint8Array.from({ length: S * W }, (_, i) => (weeks.includes(i % W) ? 1 : 0)) : null };
+  };
+
+  it("Checkpoint 7e (planner reply to Checkpoint 7d, item 2.3): the trade values the ties compare are read from the return on too: one who plays only before it is worth nothing then and goes, though he's worth the most today", () => {
+    // From week 3 the returning RB (16) benches rb2 (12): rb2, the bench RB and the bench WR all cost nothing to lose. The
+    // bench WR plays weeks 0–2 only (worth 5000 today, nothing from week 3 on), the bench RB every week (300 today, 150 left
+    // at week 3). Today's values would release the bench RB; read from the return on, the bench WR goes. Exact ties, and
+    // near-ties with W 400 (both then floored at W, and the lower value left decides).
+    const values = { ...VALUES, wrB: 5000, rbB: 300 };
+    expect(lowestKeepValue(["rb2", "rbB", "wrB"].map((id) => ({ id, keep: 0, value: values[id as keyof typeof values] })), 0, 0)).toBe("rbB");
+    for (const S of [0, 8]) {
+      const active = team8(S).map((r) => (r.id === "wrB" ? only("wrB", "WR", 3, [0, 1, 2], S) : r));
+      const returners = [{ row: row("back", "RB", 16, { from: 3, S }), at: 3 }];
+      for (const near of [{}, { nearTie: 0.5, floor: 400 }]) {
+        const b = build({ active, returners, max: 8, values, S, ...near });
+        expect(finalLineups(b.setup, b.roster, b.spec, b.raw).displaced, `${S} scenarios ${JSON.stringify(near)}`).toEqual([{ id: "wrB", from: 3, returner: "back" }]);
+      }
+    }
+  });
+
+  it("Checkpoint 7e: one worth more from the return on stays: a teammate out until then keeps his whole value, so a player who's worth more today but has played half his season by then goes", () => {
+    // Two bench WRs who never start: wrB plays every week (600 today, 300 left at week 3), `late` is out until week 3 and
+    // plays from then on (450 today, all of it left). Today's values would release `late`; from the return on, wrB goes.
+    const values = { ...VALUES, wrB: 600, late: 450, rbB: 5000 };
+    for (const S of [0, 8]) {
+      const active = [...team8(S), only("late", "WR", 2, [3, 4, 5], S)];
+      const b = build({ active, returners: [{ row: row("back", "RB", 16, { from: 3, S }), at: 3 }], max: 9, values, S });
+      expect(finalLineups(b.setup, b.roster, b.spec, b.raw).displaced, `${S} scenarios`).toEqual([{ id: "wrB", from: 3, returner: "back" }]);
+    }
+  });
+
+  it("Checkpoint 7e: W from the return week on (ReturnerSetup.valueFloorFrom): two near-tied players worth less than W today but more than W then are told apart by their values, not by their keep values", () => {
+    // wr1's bye in week 4 puts the bench WR (3) in the lineup, so from week 3 he costs 3 to lose; the bench RB and rb2 (benched
+    // by the returning RB) cost nothing; the tolerance is 2 × 3 weeks = 6. Values left at week 3: rb2 2000, the bench RB 235,
+    // the bench WR 225. With W 500 in every week both bench players floor at W and the lower keep value goes (the bench RB);
+    // with W 200 from week 3 on (the best free agent's value left then), the bench WR, worth less then, goes.
+    const bye = (r: TableRow): TableRow => (r.id === "wr1" ? { ...r, ev: Float64Array.from(r.ev, (x, w) => (w === 4 ? 0 : x)), cond: Float64Array.from(r.cond, (x, w) => (w === 4 ? 0 : x)) } : r);
+    const values = { ...VALUES, rbB: 470, wrB: 450 };
+    const asked: number[] = [];
+    const base = { active: team8().map(bye), returners: [{ row: row("back", "RB", 16, { from: 3 }), at: 3 }], max: 8, values, nearTie: 2, floor: 500 };
+    const fixed = build(base);
+    expect(finalLineups(fixed.setup, fixed.roster, fixed.spec, fixed.raw).displaced).toEqual([{ id: "rbB", from: 3, returner: "back" }]);
+    const then = build({
+      ...base,
+      floorFrom: (from) => {
+        asked.push(from);
+        return 200;
+      },
+    });
+    expect(finalLineups(then.setup, then.roster, then.spec, then.raw).displaced).toEqual([{ id: "wrB", from: 3, returner: "back" }]);
+    expect(asked).toEqual([3]);
+  });
+
   it("the lineup-fill rule counts the returners back by then: a returner at a position frees its old starter to go (review of track E)", () => {
     // The returning TE (9) takes the TE slot from week 3, so the old TE (8) costs nothing from then, and he's no longer the
-    // only TE the lineup needs: the cheapest of the zero-cost players (te 2000, wr2 3000) goes.
-    const early: TableRow = { ...row("wr2", "WR", 11), ev: Float64Array.from([11, 11, 11, 0, 0, 0]), cond: Float64Array.from([11, 11, 11, 0, 0, 0]) };
-    const active = team8().map((r) => (r.id === "wr2" ? early : r));
-    const b = build({ active, returners: [{ row: row("back", "TE", 9, { from: 3 }), at: 3 }], max: 8, values: { ...VALUES, wrB: 5000, rbB: 5000 } });
+    // only TE the lineup needs: the cheapest of the zero-cost players (te 2000, the bench RB and WR 5000) goes. Read without
+    // the returner, the TE would be needed and the bench RB would go. (Checkpoint 7e: wr2 plays every week here; when he
+    // plays only before the return, as in the case above, his value from then on is nothing, so he goes first.)
+    const b = build({ active: team8(), returners: [{ row: row("back", "TE", 9, { from: 3 }), at: 3 }], max: 8, values: { ...VALUES, wrB: 5000, rbB: 5000 } });
     expect(finalLineups(b.setup, b.roster, b.spec, b.raw).displaced).toEqual([{ id: "te", from: 3, returner: "back" }]);
   });
 
@@ -424,8 +483,10 @@ describe("finalLineups: the roster spot a returner needs from his week (final ev
       expect(rosOf(f), `trial ${trial}`).toBeGreaterThanOrEqual(none - tolerance - 1e-7);
       if (rosOf(f) < none - 1e-7) {
         weaker++;
-        // Only to keep a returner worth more than W over a cheaper player.
-        expect(Math.max(values.ret as number, floor), `trial ${trial}`).toBeGreaterThan(Math.max(values[f.displaced[0]?.id as string] as number, floor));
+        // Only to keep a returner worth more than W over a cheaper player, both valued from his return on (Checkpoint 7e: the
+        // share of each one's value left then, valueShareFrom on his own row; W as the setup gives it).
+        const left = (id: string) => (values[id] as number) * valueShareFrom((b.rows.get(id) as TableRow).ev, b.setup.weights, at);
+        expect(Math.max(left("ret"), floor), `trial ${trial}`).toBeGreaterThan(Math.max(left(f.displaced[0]?.id as string), floor));
         if (f.displaced[0]?.id !== "ret") keptValuable++;
       }
     }
@@ -511,5 +572,31 @@ describe("finalLineups: the roster spot a returner needs from his week (final ev
     const noCells = finalLineups(b.setup, b.roster, b.spec, { ev: b.raw.ev, scen: scenarioValues(b.raw.ev.team, W, S, b.setup.index, false, true) });
     expect(noCells.displaced).toEqual(f.displaced);
     expectSameScen(noCells.scen as ScenarioValues, want, "no cells");
+  });
+});
+
+describe("valueShareFrom: the share of a player's trade value left at a return week (Checkpoint 7e)", () => {
+  it("his projected points from that week on over those of every week that counts, each counted week once", () => {
+    const flat6 = [2, 2, 2, 2, 2, 2];
+    const ones = [1, 1, 1, 1, 1, 1];
+    expect(valueShareFrom(flat6, ones, 3)).toBe(0.5);
+    expect(valueShareFrom(flat6, ones, 6)).toBe(0);
+    expect(valueShareFrom([4, 4, 2, 2, 2, 2], ones, 2)).toBe(0.5);
+    // ω doesn't weigh the weeks (the market prices points): playoff weeks at 2 change nothing.
+    expect(valueShareFrom([4, 4, 2, 2, 2, 2], [1, 1, 1, 1, 2, 2], 2)).toBe(0.5);
+    // A week that doesn't count (a week under way, weight 0) is left out of both.
+    expect(valueShareFrom([9, 2, 2, 2], [0, 1, 1, 1], 2)).toBeCloseTo(2 / 3, 15);
+  });
+
+  it("exactly 1 when none of his points come before that week (a returner, a decision in the first week that counts, no points at all), 0 when all do", () => {
+    const ones = [1, 1, 1, 1, 1, 1];
+    expect(valueShareFrom([0, 0, 3, 3, 3, 3], ones, 2)).toBe(1);
+    expect(valueShareFrom([0, 0, 3, 3, 3, 3], ones, 4)).toBe(0.5);
+    expect(valueShareFrom([2, 2, 2, 2, 2, 2], ones, 0)).toBe(1);
+    expect(valueShareFrom([9, 2, 2, 2], [0, 1, 1, 1], 1)).toBe(1);
+    expect(valueShareFrom([0, 0, 0, 0, 0, 0], ones, 3)).toBe(1);
+    expect(valueShareFrom([5, 5, 0, 0, 0, 0], ones, 2)).toBe(0);
+    // A week below 0 (a D/ST's expected points can be) counts as 0.
+    expect(valueShareFrom([-3, 2, 2], [1, 1, 1], 1)).toBe(1);
   });
 });

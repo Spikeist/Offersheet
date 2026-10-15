@@ -178,7 +178,9 @@
  *    (with exact ties not at all); never one the starting lineup needs, one a position's rosterMinimums needs, or the
  *    last one at a position the team streams; ties: the lower perception value, then the smaller id, and ⚠️ without
  *    long-term values near-ties within config.lineups.dropNearTieWeekly a week go to the less valuable player, values
- *    floored at W: returners.ts), as a masked copy of his row. ⚠️ Not inside the optimizer's moves, lineup costs, MV_add, chips
+ *    floored at W: returners.ts; since Checkpoint 7e, planner reply to Checkpoint 7d, item 2.3, those values and W from R
+ *    on too: each player's the share of it left then, W the best unclaimed free agent's, creditFrom), as a masked copy of
+ *    his row. ⚠️ Not inside the optimizer's moves, lineup costs, MV_add, chips
  *    or partner fit: that machinery compares rosters with each other, and the displacement is about the same on both
  *    sides (a constant per team). The week in progress's pre-kickoff score brings the returners in too, and leaves out a
  *    player displaced from the current week on, a returner released then included: the week as the model priced it before
@@ -430,7 +432,7 @@ import {
 import { FULL_POOL, applyStep, createOptimizer, poolRestriction, returnersOf, rosterKey, type DynastyGuard, type OptimizedRoster, type PoolRestriction, type RosterOptimizer, type StreamSpec } from "./optimizer";
 import { leaguePremiums, type StarPremiumConfig } from "./premium";
 import { baseRateSourceCounts, espnSleeperAgreement, projectPlayer, staleReturnCheck, weeklySd, type BaseRateContext, type ProjectionConfig, type SourceAgreement } from "./projections";
-import { finalLineups, returnerSpec, type FinalLineups, type FutureKeep, type ReturnerSetup } from "./returners";
+import { finalLineups, returnerSpec, valueShareFrom, type FinalLineups, type FutureKeep, type ReturnerSetup } from "./returners";
 import { assertWeeklyMeasured, paidPrizesKnown, paysWeekly, prizeOddsOf, rewardOf, runPrizeDeltas, type PrizeDeltas, type Reward } from "./reward";
 import { buildSimSetup, oddsSkippedWarning, pickupSeasonModel, seasonOdds, shownSimsOf, type SeasonConfig, type SeasonModel } from "./season";
 import { defaultTradeSettings, normalizeTradeSettings, type TradeSettings } from "./settings";
@@ -1666,8 +1668,42 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
     return { team, solved: solveEvWeeks(team, W), scen: S > 0 ? scenarioValues(team, W, S, index, true, true) : null };
   });
   mark("teams as they stand");
-  /** The displacement's setup (step 5b; returners.finalLineups) with the weeks' weights `w` and W (`credit`, its near-ties' floor). */
-  const returnerSetupWith = (w: ArrayLike<number>, credit: number): ReturnerSetup => ({
+  /**
+   * W from week index `from` on, for a return in that week (returners.ReturnerSetup.valueFloorFrom; Checkpoint 7e, planner
+   * reply to Checkpoint 7d, item 2.3: a future decision compares players from then on): the best free agent `claimed`
+   * leaves, each at the share of his value left then (returners.valueShareFrom over the weeks `w` counts), at least W's
+   * minimum (market.waiverCredit's) and never above W (`credit`); W itself when no week `w` counts comes before `from`, and
+   * without values (W is 0 then). Memoized by week.
+   */
+  const creditFrom = (w: ArrayLike<number>, credit: number, claimed: ReadonlySet<string>): ((from: number) => number) => {
+    const memo = new Map<number, number>();
+    const minimum = cfg.market.waiverCreditMinFraction * (Number.isFinite(topValue) && topValue > 0 ? topValue : 0);
+    return (from) => {
+      let x = memo.get(from);
+      if (x !== undefined) return x;
+      x = credit;
+      let before = false;
+      for (let k = 0; k < Math.min(from, w.length); k++) if ((w[k] ?? 0) > 0) before = true;
+      if (before && inputs.market) {
+        let best = 0;
+        for (const id of freeAgentIds) {
+          if (claimed.has(id)) continue;
+          const v = valueOf(id);
+          const row = table.rows.get(id);
+          const left = Number.isFinite(v) ? v * (row ? valueShareFrom(row.ev, w, from) : 1) : 0;
+          if (left > best) best = left;
+        }
+        x = Math.min(credit, Math.max(best, minimum));
+      }
+      memo.set(from, x);
+      return x;
+    };
+  };
+  /**
+   * The displacement's setup (step 5b; returners.finalLineups) with the weeks' weights `w` and W (`credit`, its near-ties'
+   * floor; from a return week on, from the free agents `claimed` leaves: creditFrom).
+   */
+  const returnerSetupWith = (w: ArrayLike<number>, credit: number, claimed: ReadonlySet<string>): ReturnerSetup => ({
     slots,
     weekCount: W,
     scenarios: S,
@@ -1679,6 +1715,7 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
     dropValue: valueOf,
     nearTieWeekly: cfg.lineups.dropNearTieWeekly ?? 0,
     valueFloor: credit,
+    valueFloorFrom: creditFrom(w, credit, claimed),
     future,
     returnIndex: (id) => {
       const r = returnWeek(id);
@@ -1703,7 +1740,7 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
     reward,
     { sims: opts.playoffWeightSims ?? opts.sims ?? shownSimsOf(cfg), seed: opts.simSeed ?? cfg.simulation.seed },
     () => {
-      const setup0 = returnerSetupWith(tw0.weights, firstCredit);
+      const setup0 = returnerSetupWith(tw0.weights, firstCredit, new Set());
       const at = { S, W, byTeam, slots };
       return specs.map((t, i) => {
         const s = standing[i] as (typeof standing)[number];
@@ -1795,7 +1832,8 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
   const credit = settled.credit;
   const { optimizer, vstars, claimed, allocation } = settled.pass;
   const market = marketSummary(modelIds, values, inputs.market ?? null, credit);
-  const returnerSetup = returnerSetupWith(weights, credit);
+  const claimedAll: ReadonlySet<string> = new Set(allocation ? claimed.flat() : []);
+  const returnerSetup = returnerSetupWith(weights, credit, claimedAll);
   const work: TeamWork[] = specs.map(({ team, ids, ir, rows, spec }, i) => {
     const cur = standing[i] as (typeof standing)[number];
     const vstar = vstars[i] as OptimizedRoster;
@@ -1963,7 +2001,7 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
     work,
     allocation,
     inactive,
-    claimedAll: new Set(allocation ? claimed.flat() : []),
+    claimedAll,
     waiverCredit: settled.fix,
     irReturners: irOn,
     returnWeek,

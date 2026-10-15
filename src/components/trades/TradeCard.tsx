@@ -8,7 +8,9 @@
  * - the risk flags apart from the numbers, each saying what it is in words (not color alone);
  * - "You get 142 ROS pts, give 118", the numbers behind the score in words, then a sentence saying the numbers weigh trade
  *   value with the "Values: FantasyCalc" link after it (§2.9; TradeCardView.valuesCredit: no trade value is ever shown,
- *   planner reply to Checkpoint 7a, 5.4), and any roster moves the trade forces;
+ *   planner reply to Checkpoint 7a, 5.4), and the roster moves its numbers assume (since Checkpoint 7e, planner reply to
+ *   Checkpoint 7d, item 2.2: every one of mine in order, each with its reason, and one line for those made either way; the
+ *   partner's after mine; a Plan B box lists its own, mine, under its odds);
  * - the reasons, the pitch message (opened on demand) with Copy, "Open in Analyzer" (the Finder's cards), and the
  *   feedback buttons (FeedbackControls). "Open in Analyzer" carries the trade's ids in its address, so it's never
  *   prefetched: the server sees that address only when the user opens it (the privacy page says so). Using it tells
@@ -31,7 +33,9 @@
  * reasons read as the card's (they sat under a Plan B that didn't include their player). The feedback buttons get the
  * card's versions (FeedbackControls asks which one was sent when there are two).
  * Under "You get 142 ROS pts, give 118", a line when my starting lineup moves the other way from those points (a backup
- * given away scores nothing for me). The roster moves the trade forces include Phase 4b's IR slots and returns.
+ * given away scores nothing for me). The roster moves its numbers assume include Phase 4b's IR slots and returns. Checkpoint
+ * 7e (planner reply to Checkpoint 7d, item 2.1; review of wave B, finding B-4): a card or Plan B box whose odds start from its
+ * own "before" (its either-way moves) says so in a small line under them (TradeCardView.oddsNote, PlanBView.oddsNote).
  * Planner reply to Checkpoint 4b (Phase 4c): under the three numbers (after the veto note, which stays right under
  * them), my real odds, "Title odds 12.1% → 13.4% · Playoff odds 65% → 69%" (change 9; each kept on one line, the arrow
  * said as "from … to" for screen readers; since Checkpoint 7c, under "Several prizes" paying 2nd or 3rd place, "Top 3
@@ -72,6 +76,13 @@ import { FeedbackControls } from "./FeedbackControls";
  * review of Phase 4c, finding PAGES-7: a Plan B box's weekly line wrapped to "· Week 13: 43% → 53%").
  */
 const SEP = `${String.fromCharCode(0xa0)}· `;
+
+/**
+ * The heading over a card's roster moves, and a Plan B box's (Checkpoint 7e; planner reply to Checkpoint 7d, item 2.2: "Each
+ * card lists every roster move its numbers assume"; "Roster moves this trade forces" before, when the list held only forced
+ * moves).
+ */
+const ROSTER_MOVES_HEADING = "Roster moves these numbers assume";
 
 /** An injury tag's tint by its tone (the words say it all; the tint only helps scanning). */
 const TAG_CLASS: Record<InjuryTone, string> = {
@@ -312,6 +323,19 @@ function PlanBBox({ planB, name, showLink, onOpen }: { planB: PlanBView; name: s
       </p>
       {planB.acceptNote ? <p className="text-muted">{planB.acceptNote}</p> : null}
       {planB.odds.length || planB.weekly ? <OddsLines odds={planB.odds} weekly={planB.weekly} /> : null}
+      {planB.oddsNote ? <p className="text-xs text-muted">{planB.oddsNote}</p> : null}
+      {planB.moves.length ? (
+        <>
+          <p className="mt-1 font-semibold">{ROSTER_MOVES_HEADING}</p>
+          <ul className="list-disc space-y-0.5 pl-5">
+            {planB.moves.map((m) => (
+              <li key={m} className="break-words">
+                {m}
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
       {planB.also ? <p className="text-muted">{planB.also}</p> : null}
       <Message text={planB.pitch} name={which} className="mt-2" />
       {showLink ? (
@@ -384,6 +408,7 @@ export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedbac
       {/* The veto note right under the numbers it qualifies (`npm run check:browser` reads it as the <dl>'s next element). */}
       {n.acceptNote ? <p className="mt-2 text-sm text-muted">{n.acceptNote}</p> : null}
       <OddsLines odds={card.odds} weekly={card.weekly} them={card.them} />
+      {card.oddsNote ? <p className="mt-1 text-xs leading-relaxed break-words text-muted">{card.oddsNote}</p> : null}
       {card.steps ? <Steps steps={card.steps} /> : null}
 
       {card.flags.length ? (
@@ -419,7 +444,7 @@ export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedbac
 
       {card.required.length ? (
         <div className="mt-3 rounded-xl bg-surface-muted px-3 py-2 text-sm">
-          <p className="font-bold">Roster moves this trade forces</p>
+          <p className="font-bold">{ROSTER_MOVES_HEADING}</p>
           <ul className="mt-1 list-disc space-y-0.5 pl-5">
             {card.required.map((r) => (
               <li key={r} className="break-words">

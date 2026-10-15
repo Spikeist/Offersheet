@@ -13,7 +13,7 @@ import type { LeagueSnapshot, Pos } from "./model";
 import { surplusScores } from "./needs";
 import { finalLineups } from "./returners";
 import { defaultTradeSettings, type TradeSettings } from "./settings";
-import { evRemovalCosts, maskedRow, solveEvWeeks, teamEval, type TableRow } from "./teamValue";
+import { evRemovalCosts, lowestKeepValue, maskedRow, solveEvWeeks, teamEval, type TableRow } from "./teamValue";
 import { TEST_NOW, buildTestLeague, type TestLeagueSpec, type TestPlayer, type TestTeam } from "./testLeague";
 
 const ZERO_MISS: Record<Pos, number> = { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, P: 0, DEF: 0, DL: 0, LB: 0, DB: 0 };
@@ -157,6 +157,38 @@ describe("IR returners in the League model (step 5b)", () => {
       on.ev.lv.forEach((x, w) => expect(x, `week ${w}`).toBeGreaterThanOrEqual((was.ev.lv[w] as number) - 1e-9));
       expect((on.scen ?? on.ev).ros).toBeGreaterThanOrEqual((was.scen ?? was.ev).ros - 1e-9);
     }
+  });
+
+  it("Checkpoint 7e (planner reply to Checkpoint 7d, item 2.3): the release is decided from the return week on, trade values and W too: of two near-free bench WRs, the one with less of his value left then goes, as rosters stand and after the pickups", () => {
+    // Team 1's IR WR is back in week 7 (index 3) on a full roster of 16 whose bench never starts (no byes among the
+    // starters, no injury risk), so from week 7 every bench player costs nothing to lose and the lowest value floored at W
+    // goes. `front` (600 today) has his bye in week 10, after the return: 10 of his 13 games are left then, 461.5; `back`
+    // (560) had his in week 5, before it: 11 of 13 left, 473.8. Every other bench player is worth more. Today's values would
+    // release `back`; read from week 7 on, `front` goes. W is the free agent's 300 today and 300 × 11 / 14 then.
+    const v = (id: string, pos: Pos, points: number, value: number, extra: Partial<TestPlayer> = {}): TestPlayer => p(id, pos, points, { value, ...extra });
+    const starters = (t: string): TestPlayer[] => [v(`${t}q1`, "QB", 20, 9000), v(`${t}r1`, "RB", 16, 8000), v(`${t}r2`, "RB", 15, 7500), v(`${t}w1`, "WR", 15, 7000), v(`${t}w2`, "WR", 14, 6500), v(`${t}t1`, "TE", 12, 6000), v(`${t}r3`, "RB", 13, 5000), v(`${t}k1`, "K", 8, 100), v(`${t}d1`, "DEF", 8, 100)];
+    const bench = (t: string): TestPlayer[] => [v(`${t}q2`, "QB", 10, 2000), v(`${t}r4`, "RB", 9, 3000), v(`${t}t2`, "TE", 7, 2500), v(`${t}w3`, "WR", 9, 2600), v(`${t}w4`, "WR", 8, 2400)];
+    const built = buildTestLeague({
+      teams: [
+        { id: "1", roster: [...starters(""), ...bench(""), v("front", "WR", 5, 600, { nflTeam: "LTE" }), v("back", "WR", 5, 560, { nflTeam: "ERL" })], ir: [v("ret", "WR", 6, 4000, { injury: "IR", injuryReturnWeek: 7 })] },
+        { id: "2", roster: [...starters("o"), ...bench("o"), v("of", "WR", 5, 600), v("ob", "WR", 5, 560)] },
+      ],
+      freeAgents: [v("fa", "WR", 3, 300)],
+      byeWeek: { LTE: 10, ERL: 5 },
+    });
+    const { model, context } = buildLeagueModelWithContext(built.snapshot, built.inputs, OPTS, NO_RISK);
+    const setup = context.returnerSetup;
+    expect(setup.returnIndex("ret")).toBe(3);
+    // W from a week on: W itself in the first week that counts; then the free agent's value left (11 of his 14 games).
+    expect(context.market.waiverCredit).toBe(300);
+    expect(setup.valueFloorFrom?.(0)).toBe(300);
+    expect(setup.valueFloorFrom?.(3)).toBeCloseTo((300 * 11) / 14, 9);
+    // The release, as rosters stand and after the pickups (none here: the bench never starts, so no free agent helps).
+    expect(teamOf(model, "1").displaced).toEqual([{ id: "front", week: 7, returner: "ret" }]);
+    expect(teamOf(model, "1").displacedWithPickups).toEqual([{ id: "front", week: 7, returner: "ret" }]);
+    // Today's values would have released `back` (every bench player costs nothing then; the lowest value floored at W goes).
+    const ids = ["q2", "r4", "t2", "w3", "w4", "front", "back", "ret"];
+    expect(lowestKeepValue(ids.map((id) => ({ id, keep: 0, value: context.valueOf(id) })), 1, 300)).toBe("back");
   });
 
   it("draws IR players' scenario flags (nobody else's change), and none under irReturners false", () => {

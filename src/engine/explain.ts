@@ -171,6 +171,7 @@ export interface ExplainContext {
    * My odds before any trade on the final block of seasons, the "before" the card's odds line prints (the search's baseline,
    * TradeSearchResult.baseline; the Analyzer's): the odds line then quotes the change the card shows, after printed minus
    * before printed (oddsLine; final review of Phase 4c, findings R9 and PAGES-2). Absent or null fields: the change itself.
+   * Checkpoint 7e (item 2.1): a trade with either-way moves starts from its own (TradeEvaluation.before), which it reads first.
    */
   baseline?: { pPlayoffs: number | null; pTitle: number | null } | null;
 }
@@ -777,7 +778,9 @@ function reasons(e: TradeEvaluationCore, ctx: ExplainContext, names: Names, cfg:
   const notes: string[] = [];
 
   const lineup = myLineupLines(e, names, cfg);
-  const odds = oddsLine(e, ctx.baseline);
+  // From the trade's own "before" when it has either-way moves (Checkpoint 7e, item 2.1: TradeEvaluation.before), the "before"
+  // its card's odds line prints; else the search's baseline.
+  const odds = oddsLine(e, e.before ?? ctx.baseline);
   const risky = riskyWeekLines(e, cfg);
   // The model's ΔDyn over my roster's long-term value, in words only (the file header, "No value numbers").
   const longTerm = longTermDirection(e, ctx, cfg);

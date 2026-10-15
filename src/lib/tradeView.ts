@@ -51,12 +51,18 @@
  *   the card printed "Trade value: You give 6,500, you get 5,400", FantasyCalc's own plain sums. Under the facts, the
  *   "Values: FantasyCalc" link (§2.9) after a sentence saying the numbers weigh trade value (TradeCardView.valuesCredit:
  *   whenever trade values, FantasyCalc's or our estimates from them, are behind the card's numbers);
- * - the roster moves the trade forces (§7 roster legality: drops and adds for either side; Phase 4b's IR players: a
+ * - the roster moves the numbers assume (§7 roster legality: drops and adds for either side; Phase 4b's IR players: a
  *   received IR player who goes into an open IR slot, RosterChange.toIR, and a player dropped from the week an IR player
  *   comes back, RosterChange.displaced; Phase 7c's open roster spots, one sentence each, RosterChange.openSpots: "Open
  *   roster spot: add Tyler Allgeier, the best available RB.", planner reply to Checkpoint 7b, section 5, with the IR return
  *   that drops a fill again and a partner's fill that takes my own League-page pickup said in the spot's sentence:
- *   openSpotText);
+ *   openSpotText). Since Checkpoint 7e (planner reply to Checkpoint 7d, item 2.2: "Each card lists every roster move its
+ *   numbers assume, in order, each with its reason and its week") mine are every one, in order, each with its reason ("Make
+ *   room for Christian Watson: drop Kyle Pitts Sr. (TE)."; a later week's with its week: "Week 7, when Alec Pierce returns
+ *   from IR: release …"), and the moves made either way on one line ("Assumed with or without this trade: add Jake Ferguson,
+ *   drop Romeo Doubs."), from TradeEvaluation.myMoves (myMovesLines); the partner's as before. With either-way moves (item
+ *   2.1) my odds start from the trade's own "before" (TradeEvaluation.before), on the card, a Plan B box and in the
+ *   Analyzer's line above its card;
  * - the reasons and the pitch message (src/engine/explain.ts wrote them; shown as they are, except explain.ts's
  *   "Depends on an injured player" caveat, which the card's flag already says: INJURED_REASON).
  *
@@ -224,9 +230,11 @@ import type {
   InjuryTag,
   OpenSpot,
   PartnerNumbers,
+  PickupOf,
   PlanB,
   PremiumFact,
   RosterChange,
+  RosterMoves,
   TradeAsset,
   TradeDetail,
   TradeEvaluation,
@@ -722,6 +730,13 @@ export interface PlanBView {
   odds: OddsView[];
   /** Its weeks whose win chance moves (weeklyLine on PlanB.winChance, the card's rule), or null. */
   weekly: WeeklyLineView | null;
+  /** OWN_BEFORE_NOTE when its odds start from its own "before" (PlanB.before; Checkpoint 7e, item 2.1), else null. */
+  oddsNote: string | null;
+  /**
+   * Checkpoint 7e (planner reply to Checkpoint 7d, item 2.2: "a Plan B box when it has moves"): my roster moves its numbers
+   * assume, in sentences (myMovesLines on PlanB.myMoves); empty when it has none, or carries none.
+   */
+  moves: string[];
   /** "Also shown as trade idea 6." when the Finder's list shows the same trade as a card of its own (its place in the sort shown); else null. */
   also: string | null;
   /** Its own message to send them (planBPitch): a follow-up naming this trade from their side. */
@@ -793,6 +808,12 @@ export interface TradeCardView {
   /** The weeks whose win chance the trade moves (weeklyLine), or null. */
   weekly: WeeklyLineView | null;
   /**
+   * OWN_BEFORE_NOTE under the odds when they start from the trade's own "before" (TradeEvaluation.before: Checkpoint 7e, item
+   * 2.1's either-way moves; review of wave B, findings B-4 and either-way-before-unexplained), else null; never on the
+   * Analyzer's card (buildAnalysisView: its line above the card gives that "before").
+   */
+  oddsNote: string | null;
+  /**
    * Checkpoint 7c (planner reply to Checkpoint 7b, §7): the partner's line after mine, "Helps them 24 · Their title odds 6.0% →
    * 6.9% · Their playoff odds 41% → 45%" (themView); null without the partner's numbers. No weekly line for them. Since
    * Checkpoint 7d (planner reply to Checkpoint 7c, answer 3) a Trade Finder card shows it only when it helps both teams
@@ -829,7 +850,11 @@ export interface TradeCardView {
    * pts: …"; else null.
    */
   rosNote: string | null;
-  /** The roster moves the trade forces (§7; Phase 4b's IR slots and returns too, and Phase 7c's open roster spots), in sentences; empty when none. */
+  /**
+   * The roster moves the numbers assume, mine first (since Checkpoint 7e every one in order with its reason, and the moves
+   * made either way on one line: myMovesLines), then the partner's (§7; Phase 4b's IR slots and returns too, and Phase 7c's
+   * open roster spots), in sentences; empty when none.
+   */
   required: string[];
   reasons: string[];
   pitch: string;
@@ -1205,9 +1230,9 @@ export function planBView(planB: TradeEvaluation["planB"], snapshot: SnapshotPar
   const acceptNote = through ? `Counting ${REVIEW_WORDS[snapshot.settings.tradeReview]}, ${through} it goes through.` : null;
   const give = side(planB.proposal.give, "give");
   const get = side(planB.proposal.get, "get");
-  // Its odds as the card prints its own (change 9; Checkpoint 7c's top-N line too), from the card's "before": none when the
-  // Plan B carries none.
-  const odds = planB.dPO !== undefined || planB.dCH !== undefined ? oddsViews({ dPO: planB.dPO ?? null, dCH: planB.dCH ?? null, dPrizes: planB.dPrizes }, ctx.baseline, ctx.reward) : [];
+  // Its odds as the card prints its own (change 9; Checkpoint 7c's top-N line too), from the card's "before" (its own when it
+  // has either-way moves: Checkpoint 7e, item 2.1, PlanB.before): none when the Plan B carries none.
+  const odds = planB.dPO !== undefined || planB.dCH !== undefined ? oddsViews({ dPO: planB.dPO ?? null, dCH: planB.dCH ?? null, dPrizes: planB.dPrizes }, planB.before ?? ctx.baseline, ctx.reward) : [];
   const weekly = weeklyLine(planB.winChance);
   const oddsText = [...odds.map((o) => `${o.label} ${o.value}`), ...(weekly ? [weekly.text] : [])].map((t) => ` · ${t}`).join("");
   return {
@@ -1220,6 +1245,8 @@ export function planBView(planB: TradeEvaluation["planB"], snapshot: SnapshotPar
     acceptNote,
     odds,
     weekly,
+    oddsNote: planB.before && odds.length ? OWN_BEFORE_NOTE : null,
+    moves: planB.myMoves ? myMovesLines(planB.myMoves, snapshot, teamNameOf(snapshot, planB.proposal.partnerId)) : [],
     also: null,
     pitch: planBPitch(planB.proposal, snapshot),
     analyzerHref: analyzerHref(planB.proposal, { from: "planB" }),
@@ -1667,6 +1694,185 @@ function faMovesLine(fa: RosterChange["faMoves"], would: string, snapshot: Snaps
   return `This trade's numbers count on ${one ? "one more free-agent move" : "more free-agent moves"}: ${would} ${parts.join(one ? " and " : ", and ")}.`;
 }
 
+/** "2 QBs", "1 kicker", "3 D/STs" (a position counted in words, the platform's labels). */
+function countWords(pos: Pos, n: number, platform: SnapshotPart["platform"]): string {
+  const word = positionWord(pos, platform);
+  return `${n} ${n === 1 ? word : `${word}s`}`;
+}
+
+/** The line that names my moves made with or without the trade (MY_MOVES_ASSUMED + the moves; Checkpoint 7e, item 2.2). */
+export const MY_MOVES_ASSUMED = "Assumed with or without this trade:";
+
+/**
+ * Under a card's odds (and a Plan B box's) when its numbers start from its own "before" (TradeEvaluation.before, PlanB.before:
+ * Checkpoint 7e, item 2.1's either-way moves; review of wave B, findings B-4 and either-way-before-unexplained): its "before"
+ * isn't the page's "Your odds before any trade". Not on the Analyzer's card, whose line above it gives that "before".
+ */
+export const OWN_BEFORE_NOTE = "This idea's odds start from your odds with the moves it assumes with or without this trade.";
+
+/**
+ * My roster moves on a card, in sentences (Checkpoint 7e; planner reply to Checkpoint 7d, item 2.2: "Each card lists every
+ * roster move its numbers assume, in order, each with its reason and its week … Moves Parker would make either way, like his
+ * Malik Washington pickup, aren't listed as part of the trade. One line can say they're assumed either way."), from
+ * TradeEvaluation.myMoves (evaluate.ts myRosterMoves, which names every way my roster after the trade differs from the trade's
+ * "before"), in its order, each with its reason; a later week's move with its week:
+ * - "Stay within your league's limit of 2 QBs: drop Jordan Love (QB)." (legality's rule 1);
+ * - "Make room for Christian Watson: drop Kyle Pitts Sr. (TE)." (rule 2; the planner's words; "Make room on your roster" when
+ *   no received player can be named, a player this trade brings in "(WR, from this trade)");
+ * - "Keep your league's minimum of 2 RBs: add Kenny Gainwell (RB)." (rule 3);
+ * - "Open roster spot: add Tyler Allgeier, the best available RB." (rule 4, today's words: openSpotText, with the return that
+ *   releases him again said in the same sentence, as before); either one, when he's a pickup the "before" makes too (review of
+ *   wave B, finding B-1): "… He's the League page's pickup, so you keep Romeo Doubs (WR)." ("He's a pickup worth making either
+ *   way" for item 2.1's either-way move; without ", so you keep …" when nobody stays);
+ * - "Jordan Mason goes to your IR slot (no roster spot until he's back)." (rule 5, today's words);
+ * - "This trade makes a waiver move worthwhile: add Darren Waller (TE), drop Kyle Pitts Sr. (TE)." (a free-agent move that
+ *   stays with the trade, item 2.1; the planner's words, a lone pickup's start weeks when one or two: "add Malik Willis (QB)
+ *   to start in week 7"; "…, drop Stefon Diggs (WR), whom this trade brings in." (finding B-3); "… add Dalton Schultz (TE)
+ *   instead of the League page's pickup, Jake Ferguson (TE).");
+ * - "This trade makes Romeo Doubs worth keeping: for the League page's pickup, Jake Ferguson, drop Rico Dowdle (RB) instead."
+ *   (the League page's pickup with another drop; without a drop kept, "For the League page's pickup, Jake Ferguson, drop …";
+ *   "the pickup worth making either way" for item 2.1's either-way move);
+ * - "This trade makes the League page's pickup unnecessary: skip Jake Ferguson (TE) and keep Romeo Doubs (WR)."; "Tetairoa
+ *   McMillan takes the roster spot of the League page's pickup: skip Jake Ferguson (TE)." (the players this trade brings in
+ *   take his spot: finding moves-skip-reason-spot-taken; "This trade takes …" when they can't be named); "After this trade
+ *   Team 8 claims the League page's pickup, Jake Ferguson (TE), ahead of you: keep Romeo Doubs (WR)." (the partner picks him
+ *   up first);
+ * - "Week 7, when Alec Pierce returns from IR: release Wan'Dale Robinson (WR)." (the planner's words; "release him instead of
+ *   dropping someone else" when it's the returner himself); where the trade's "before" would release another player then
+ *   (finding moves-before-release-unnamed): "…: release him and keep Kyle Pitts Sr. (TE)." when the roster after the trade
+ *   still holds that player, "…: release him; without this trade, Kyle Pitts Sr. (TE) would go then." when he's gone by then;
+ *   "Week 7, when Alec Pierce returns from IR: this trade leaves room, so keep Kyle Pitts Sr. (TE)." when it releases nobody
+ *   ("Keep Kyle Pitts Sr. (TE): without this trade you'd release him in week 7, when Alec Pierce returns from IR." when the
+ *   returner goes in the trade);
+ * - "Drop …", "Keep …", "Add …" (a difference the moves above don't explain: a safety net, none on any test league);
+ * - last, "Assumed with or without this trade: add Jake Ferguson, drop Romeo Doubs." (MY_MOVES_ASSUMED: the League page's
+ *   pickups and the players dropped in both versions, "drop Romeo Doubs"; names only, the sentence's own period kept after a
+ *   name that ends with one: "… drop Marvin Harrison Jr.", review of wave B, finding moves-assumed-double-period), then item
+ *   2.1's either-way moves on a line of their own, since the League page doesn't list them: "Also assumed with or without
+ *   this trade, though the League page doesn't list it: add Darren Waller, drop Kyle Pitts Sr." ("Assumed …" alone).
+ * `partnerName` names the partner in a "taken" skip.
+ */
+export function myMovesLines(moves: RosterMoves, snapshot: SnapshotPart, partnerName: string): string[] {
+  const plain = (id: string) => snapshot.players[id]?.name ?? "a player who's no longer in this league's data";
+  const who = (id: string) => {
+    const info = snapshot.players[id];
+    return info ? `${info.name} (${posLabel(info.pos, snapshot.platform)})` : "a player who's no longer in this league's data";
+  };
+  // A player this trade brings in, inside a list of drops: "Stefon Diggs (WR, from this trade)".
+  const whoIn = (id: string) => {
+    const info = snapshot.players[id];
+    return info ? `${info.name} (${posLabel(info.pos, snapshot.platform)}, from this trade)` : who(id);
+  };
+  const cap = (s: string) => `${s.charAt(0).toUpperCase()}${s.slice(1)}`;
+  const whose = (eitherWay?: boolean) => (eitherWay ? "the pickup worth making either way" : "the League page's pickup");
+  const brings = (received?: boolean) => (received ? ", whom this trade brings in" : "");
+  const pickupNote = (pk: PickupOf | undefined) =>
+    pk ? ` He's ${pk.eitherWay ? "a pickup worth making either way" : "the League page's pickup"}${typeof pk.keep === "string" ? `, so you keep ${who(pk.keep)}` : ""}.` : "";
+  const list = (moves.moves ?? []).filter((m) => m && typeof m.kind === "string");
+  // An open spot's fill released again at a return: said in the spot's own sentence (openSpotText), not on a line of its own,
+  // unless the trade's "before" would release someone else then (the line says whom, finding moves-before-release-unnamed).
+  const fills = new Set(list.flatMap((m) => (m.kind === "openSpot" ? [m.spot.playerId] : [])));
+  const until = new Map<string, { returner: string; week: number }>();
+  for (const m of list) if (m.kind === "release" && m.instead === undefined && fills.has(m.player) && m.player !== m.returner && !until.has(m.player)) until.set(m.player, { returner: m.returner, week: m.week });
+  const out: string[] = [];
+  const toIR: string[] = [];
+  const flushIR = () => {
+    if (!toIR.length) return;
+    const one = toIR.length === 1;
+    out.push(cap(`${listText(toIR.map(plain))} ${one ? "goes" : "go"} to your IR ${one ? "slot" : "slots"} (no roster ${one ? "spot" : "spots"} until ${one ? "he's" : "they're"} back).`));
+    toIR.length = 0;
+  };
+  for (const m of list) {
+    if (m.kind === "toIR") {
+      toIR.push(m.player);
+      continue;
+    }
+    flushIR();
+    switch (m.kind) {
+      case "positionLimit":
+        out.push(`Stay within your league's limit of ${countWords(m.pos, m.limit, snapshot.platform)}: drop ${who(m.drop)}.`);
+        break;
+      case "makeRoom": {
+        const brought = new Set(m.received ?? []);
+        out.push(`${m.for.length ? `Make room for ${listText(m.for.map(plain))}` : "Make room on your roster"}: drop ${listText(m.drop.map((id) => (brought.has(id) ? whoIn(id) : who(id))))}.`);
+        break;
+      }
+      case "rosterMinimum":
+        out.push(`${m.pos !== null && m.min !== null ? `Keep your league's minimum of ${countWords(m.pos, m.min, snapshot.platform)}: add ${who(m.add)}.` : `Fill your roster: add ${who(m.add)}.`}${pickupNote(m.pickup)}`);
+        break;
+      case "openSpot":
+        out.push(`${openSpotText(m.spot, "Open roster spot: add", snapshot, until.get(m.spot.playerId))}${pickupNote(m.pickup)}`);
+        break;
+      case "waiver": {
+        const weeks = (m.starts ?? []).filter((w) => Number.isFinite(w));
+        const when = weeks.length >= 1 && weeks.length <= 2 ? ` to start in ${weeks.length === 1 ? "week" : "weeks"} ${listText(weeks.map(String))}` : "";
+        const instead = typeof m.insteadOf === "string" ? ` instead of ${whose(m.insteadOfEitherWay)}, ${who(m.insteadOf)}` : "";
+        out.push(`This trade makes a waiver move worthwhile: add ${who(m.add)}${when}${instead}${m.drop !== null ? `, drop ${who(m.drop)}${brings(m.received)}` : ""}.`);
+        break;
+      }
+      case "pickupDrop": {
+        const what =
+          m.drop !== null
+            ? `for ${whose(m.eitherWay)}, ${plain(m.add)}, drop ${who(m.drop)}${m.instead !== null ? " instead" : ""}${brings(m.received)}`
+            : `${whose(m.eitherWay)}, ${plain(m.add)}, takes an open roster spot`;
+        out.push(m.instead !== null ? `This trade makes ${plain(m.instead)} worth keeping: ${what}.` : `${cap(what)}.`);
+        break;
+      }
+      case "skip": {
+        const keep = m.keep !== null ? ` and keep ${who(m.keep)}` : "";
+        const by = (m.by ?? []).filter((id) => typeof id === "string");
+        if (m.why === "taken") out.push(`After this trade ${partnerName} claims ${whose(m.eitherWay)}, ${who(m.add)}, ahead of you${m.keep !== null ? `: keep ${who(m.keep)}` : ""}.`);
+        else if (m.why === "spot") out.push(`${by.length ? `${listText(by.map(plain))} ${by.length === 1 ? "takes" : "take"}` : "This trade takes"} the roster spot of ${whose(m.eitherWay)}: skip ${who(m.add)}${keep}.`);
+        else out.push(`This trade makes ${whose(m.eitherWay)} unnecessary: skip ${who(m.add)}${keep}.`);
+        break;
+      }
+      case "release": {
+        if (m.instead === undefined && until.get(m.player)?.returner === m.returner) break; // said with his open spot
+        const when = Number.isFinite(m.week) ? `Week ${m.week}, when ${plain(m.returner)} returns from IR` : `When ${plain(m.returner)} returns from IR`;
+        const self = m.player === m.returner;
+        if (typeof m.instead === "string" && m.instead !== m.player) {
+          const go = self ? "release him" : `release ${who(m.player)}`;
+          out.push(m.kept ? `${when}: ${go} and keep ${m.instead === m.returner ? "him" : who(m.instead)}.` : `${when}: ${go}; without this trade, ${who(m.instead)} would go then.`);
+        } else out.push(`${when}: release ${self ? "him instead of dropping someone else" : who(m.player)}.`);
+        break;
+      }
+      case "keepAtReturn": {
+        const self = m.player === m.returner;
+        if (m.returnerStays) {
+          const when = Number.isFinite(m.week) ? `Week ${m.week}, when ${plain(m.returner)} returns from IR` : `When ${plain(m.returner)} returns from IR`;
+          out.push(`${when}: this trade leaves room, so keep ${self ? "him" : who(m.player)}.`);
+        } else out.push(`Keep ${who(m.player)}: without this trade you'd release him${Number.isFinite(m.week) ? ` in week ${m.week}` : ""}, when ${plain(m.returner)} returns from IR.`);
+        break;
+      }
+      case "drop":
+        out.push(`Drop ${who(m.player)}${brings(m.received)}.`);
+        break;
+      case "keep":
+        out.push(`Keep ${who(m.player)}.`);
+        break;
+      case "add":
+        out.push(`Add ${who(m.player)}.`);
+        break;
+    }
+  }
+  flushIR();
+  const partsOf = (eitherWay: boolean) =>
+    (moves.assumed ?? []).flatMap((a) => {
+      if (!a || (a.eitherWay === true) !== eitherWay) return [];
+      const words = [typeof a.add === "string" ? `add ${plain(a.add)}` : null, typeof a.drop === "string" ? `drop ${plain(a.drop)}` : null].filter((w): w is string => w !== null);
+      return words.length ? [words.join(", ")] : [];
+    });
+  // A name can end the sentence with its own period ("Jr."), as draftSummary's (review of wave B, moves-assumed-double-period).
+  const sentence = (text: string) => (text.endsWith(".") ? text : `${text}.`);
+  const own = partsOf(false);
+  if (own.length) out.push(sentence(`${MY_MOVES_ASSUMED} ${own.join("; ")}`));
+  // Item 2.1's either-way moves on a line of their own: the League page doesn't list them (review of wave B, finding
+  // either-way-before-unexplained).
+  const either = partsOf(true);
+  if (either.length) out.push(sentence(`${own.length ? "Also assumed" : "Assumed"} with or without this trade, though the League page doesn't list ${either.length === 1 ? "it" : "them"}: ${either.join("; ")}`));
+  return out;
+}
+
 /**
  * The Market check's words (the file header; the model's trigger, no number): "Market check: counting roster spots, you'd
  * give up more trade value than you get." (", much more …, so trade ideas leave it out." when the market guard hides it,
@@ -1743,9 +1949,14 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
   // The scale's wording without the search's or the Analyzer's scale: the league type, and whether long-term values loaded.
   const scaleFallback: ScaleFallback = { leagueType: snapshot.settings.leagueType, longTermOn: !e.dynMissing };
 
-  // The roster moves the trade forces, mine first (§7; Phase 4b's IR slots and returns, Phase 7c's open roster spots: requiredLines).
+  // The roster moves the numbers assume, mine first: since Checkpoint 7e every one, in order, with its reason, and those made
+  // either way on one line (item 2.2: myMovesLines, from TradeEvaluation.myMoves); an evaluation made before it words
+  // `required.me` as before (§7; Phase 4b's IR slots and returns, Phase 7c's open roster spots: requiredLines). The partner's
+  // as before.
   const required = [
-    ...requiredLines(e.required.me, { drop: "You'd drop", dropLater: "you'd drop", release: "you'd release", pickUp: "You'd pick up", their: "your", ir: "your", would: "you'd", openSpot: "Open roster spot: add" }, snapshot),
+    ...(e.myMoves
+      ? myMovesLines(e.myMoves, snapshot, partnerName)
+      : requiredLines(e.required.me, { drop: "You'd drop", dropLater: "you'd drop", release: "you'd release", pickUp: "You'd pick up", their: "your", ir: "your", would: "you'd", openSpot: "Open roster spot: add" }, snapshot)),
     ...requiredLines(
       e.required.partner,
       {
@@ -1780,7 +1991,9 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
     acceptNote: through ? `Counting ${REVIEW_WORDS[snapshot.settings.tradeReview]}, ${through} it goes through.` : null,
     overall: scoreView(e.overall, e.b),
   };
-  const odds = oddsViews(e, ctx.baseline, ctx.reward);
+  // My odds from the trade's own "before" when it has either-way moves (Checkpoint 7e, item 2.1: TradeEvaluation.before), else
+  // the search's baseline.
+  const odds = oddsViews(e, e.before ?? ctx.baseline, ctx.reward);
   const weekly = weeklyLine(e.detail.winChance);
 
   return {
@@ -1797,6 +2010,7 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
     numbers,
     odds,
     weekly,
+    oddsNote: e.before && odds.length ? OWN_BEFORE_NOTE : null,
     // The partner's line and the "Helps both" tag (Checkpoint 7c, planner reply to Checkpoint 7b, §7), from the same runs as mine.
     them,
     helpsBothTag,
@@ -1872,7 +2086,7 @@ export function cardPress(change: FeedbackChange, card: Pick<TradeCardView, "sho
  * them, the "before" of every card's top-N line ("…: 62% to make the playoffs, 30% to finish in the top 3, 9.0% to win the
  * title."), when all its parts are known.
  */
-export function baselineLines(baseline: CardContext["baseline"], page: "finder" | "analyzer", reward?: CardContext["reward"]): { text: string; note: string } | null {
+export function baselineLines(baseline: CardContext["baseline"], page: "finder" | "analyzer", reward?: CardContext["reward"], assumed = false): { text: string; note: string } | null {
   if (!baseline || baseline.pPlayoffs === null || !Number.isFinite(baseline.pPlayoffs)) return null;
   const title = baseline.pTitle !== null && Number.isFinite(baseline.pTitle) ? `, ${titleOddsText(baseline.pTitle)} to win the title` : "";
   const places = topPlacesOf(reward);
@@ -1880,7 +2094,14 @@ export function baselineLines(baseline: CardContext["baseline"], page: "finder" 
   const top = places && topP !== null ? `, ${percentText(Math.min(1, Math.max(0, topP)))} to finish in the top ${places}` : "";
   return {
     text: `Your odds ${page === "finder" ? "before any trade" : "before this trade"}: ${percentText(baseline.pPlayoffs)} to make the playoffs${top}${title}.`,
-    note: `As on the League page, they count the free-agent pickups that would help each team, and ${page === "finder" ? "every trade idea's" : "the trade's"} odds start from them.`,
+    // Checkpoint 7e (planner reply to Checkpoint 7d, item 2.1): an Analyzer trade with either-way moves starts from its own
+    // "before" (TradeEvaluation.before: the League page's pickups and those moves), which the line then gives (`assumed`); on
+    // the Finder, `assumed` says some idea shown starts from its own, which its card says (OWN_BEFORE_NOTE; review of wave B,
+    // findings B-4 and either-way-before-unexplained).
+    note:
+      assumed && page === "analyzer"
+        ? "They count the free-agent pickups that would help each team, as on the League page, and the moves the card assumes with or without this trade; the trade's odds start from them."
+        : `As on the League page, they count the free-agent pickups that would help each team, and ${page === "finder" ? "every trade idea's" : "the trade's"} odds start from them${assumed ? ", except where an idea says otherwise" : ""}.`,
   };
 }
 
@@ -2248,7 +2469,8 @@ export function buildFinderView(args: {
     return c.planB && at !== undefined ? { ...c, planB: { ...c.planB, also: planBAlsoText(at) } } : c;
   });
   const sortLabel = SORT_OPTIONS.find((o) => o.value === args.sort)?.label ?? "Overall";
-  const odds = baselineLines(baseline, "finder", reward);
+  // Qualified when an idea shown starts from its own "before" (Checkpoint 7e, item 2.1: its card says so, OWN_BEFORE_NOTE).
+  const odds = baselineLines(baseline, "finder", reward, cards.some((c) => c.oddsNote !== null || c.planB?.oddsNote));
   // What was left out on purpose: the §10 guards' counts, and under "Helps both" the trades that help both teams but are under
   // the minimum chance (HelpsBothList.byChance) in place of the Overall list's.
   const hidden = hiddenText(both ? { ...result.hidden, byChance: bothList?.byChance ?? 0 } : result.hidden);
@@ -2626,11 +2848,15 @@ export function buildAnalysisView(
   // the reward it was scored under (Checkpoint 7c: the card's top-N odds line, the words naming the prizes).
   const helpsScale = analysis.helpsScale ?? null;
   const reward = analysis.reward ?? null;
-  const card =
+  // The card's own odds note isn't needed here: the line above it gives the trade's own "before" (Checkpoint 7e, item 2.1).
+  const built =
     analysis.evaluation && !analysis.illegal
       ? buildTradeCard(analysis.evaluation, { snapshot, baseline, reward, lastNflWeek, fantasyCalc: opts.fantasyCalc, goal: opts.goal, blendOn: opts.blendOn, details: true, helpsScale, partnerLine: "always" })
       : null;
-  const odds = card ? baselineLines(baseline, "analyzer", reward) : null;
+  const card = built ? { ...built, oddsNote: null } : null;
+  // The trade's own "before" when it has either-way moves (Checkpoint 7e, item 2.1), the one its card's odds start from.
+  const own = card ? (analysis.evaluation?.before ?? null) : null;
+  const odds = card ? baselineLines(own ?? baseline, "analyzer", reward, own !== null) : null;
   // A note the card's reasons already say isn't said twice.
   const said = new Set(card?.reasons ?? []);
   const notes = [...new Set(analysis.notes)].filter((n) => !said.has(n));

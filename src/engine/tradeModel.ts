@@ -94,9 +94,130 @@ export interface RosterChange {
    * makes too whose spot one of `drops` opens after the trade (the card's "to make room for …" when the trade brings no
    * pickup of its own); absent or empty: none. My side only (the partner's estimate reads the trade itself); absent when
    * there's no such pickup and no such drop of a player worth more than the waiver credit W (evaluate.ts faShown: a drop
-   * swap between bench players worth at most W isn't named; the market term counts every such move all the same).
+   * swap between bench players worth at most W isn't named; the market term counts every such move all the same). Since
+   * Checkpoint 7e (planner reply to Checkpoint 7d, item 2.1) against the trade's own "before" (my baseline with its
+   * either-way moves: they're in both versions, so neither here nor in the market term), and the card words my moves from
+   * TradeEvaluation.myMoves instead; this stays for the report and an evaluation's readers.
    */
   faMoves?: { adds: string[]; drops: string[]; kept: string[]; starts: Record<string, number[]>; room?: string[] };
+  /**
+   * Checkpoint 7e: on legality's own change (evaluate.ts LegalSide.change; the card's `required` doesn't copy it): how many of
+   * `drops` are rule 1's (a position over its limit), the first ones; the rest are rule 2's (the roster over its size).
+   * Absent or 0: none.
+   */
+  limitDrops?: number;
+}
+
+/**
+ * Checkpoint 7e (planner reply to Checkpoint 7d, item 2.2: "Each card lists every roster move its numbers assume, in order,
+ * each with its reason and its week. … Moves Parker would make either way, like his Malik Washington pickup, aren't listed
+ * as part of the trade. One line can say they're assumed either way."; TradeEvaluation.myMoves, evaluate.ts myRosterMoves):
+ * my side's roster moves, against the "before" the numbers are measured from (my baseline V*(T) with the trade's either-way
+ * moves, item 2.1). Together they name every way my roster after the trade differs from that "before", the trade's own
+ * players aside, and nothing that doesn't (review of wave B, findings B-1, moves-skip-reason-spot-taken,
+ * moves-waiver-takes-pickup-drop and moves-before-release-unnamed; evaluate.moves.test.ts checks it on every exact trade of
+ * whole searches): each player this week, and what happens at each IR player's return.
+ */
+export interface RosterMoves {
+  /**
+   * The trade's moves, in order: this week's first (legality's drops, roster-minimum adds, open-spot fills, IR placements,
+   * then the waiver moves that go with the trade and the pickups of the "before" it changes), then the later weeks' (what
+   * happens at an IR player's return, where the trade changes it), by week. The moves made either way aren't among them
+   * (`assumed`).
+   */
+  moves: RosterMove[];
+  /**
+   * My free-agent moves the numbers assume with or without the trade, in order: the League page's pickups the roster after the
+   * trade holds too (each with the drop the "before" makes for him when that player leaves after the trade too and isn't
+   * traded), then the trade's either-way moves (item 2.1; `eitherWay`), then the players dropped in both versions whom no
+   * pickup here names (`add` null). Empty: none.
+   */
+  assumed: AssumedMove[];
+}
+
+/**
+ * A pickup the "before" makes too, brought in by legality after the trade (RosterMove's openSpot and rosterMinimum; review
+ * of wave B, finding B-1): the League page's own (`eitherWay` absent) or item 2.1's either-way move; `keep`, the player the
+ * "before" drops for him, whom my roster after the trade keeps (null: none to name).
+ */
+export interface PickupOf {
+  keep: string | null;
+  eitherWay?: true;
+}
+
+/**
+ * One of my roster moves a trade's numbers assume (RosterMoves.moves; Checkpoint 7e, planner reply to Checkpoint 7d, item
+ * 2.2), with its reason and its NFL week (`week`: the first week team numbers count for this week's moves, the returner's
+ * week for what happens at a return). Players are canonical ids. A drop or a pickup is named here only when it differs from
+ * the "before" (my baseline V*(T) with the either-way moves); one the "before" makes too goes on the assumed line.
+ * - "positionLimit": legality's rule 1 (a position over its limit `limit`): `drop` goes.
+ * - "makeRoom": legality's rule 2 (the active roster over its size): `drop` go, to make room for `for`, the players received
+ *   beyond those given (empty when a roster-minimum add needs the room, or when my pickups after the trade drop a player it
+ *   brings in: review of wave B, finding B-3); `received`, those of `drop` this trade brings in. ⚠️ When a player the
+ *   "before" drops for one of its pickups leaves through the trade (rule 2 drops him, or I send him away) and my free-agent
+ *   pickups after it make that same pickup with another drop, the other drop is named in his place (evaluate.ts
+ *   myRosterMoves: against the "before", the trade costs that player, and the pickup is assumed either way).
+ * - "rosterMinimum": legality's rule 3 (a position under its minimum `min`): `add` comes in; `pickup` when he's a pickup the
+ *   "before" makes too (then the trade's change is only `pickup.keep`).
+ * - "openSpot": legality's rule 4, a roster spot the trade opened (OpenSpot: the card's "Open roster spot: add X, the best
+ *   available RB."); `pickup` as for rosterMinimum.
+ * - "toIR": legality's rule 5, a received IR player into an open IR slot.
+ * - "waiver": a free-agent move my pickups after the trade make that the "before" doesn't and that stays with the trade
+ *   (item 2.1: it doesn't clear the pickup bar on the baseline, or can't be made there): `add` for `drop` (null: an open
+ *   roster spot), the drop as the "before" holds it (`received`: a player this trade brings in), or in place of the
+ *   "before"'s pickup `insteadOf` (`insteadOfEitherWay` when that one is an either-way move); `starts`, the weeks he starts.
+ * - "pickupDrop": the "before"'s pickup `add` (the League page's, or an either-way move: `eitherWay`), made after the trade
+ *   with another drop, `drop` (null: an open roster spot; `received`: a player this trade brings in), where the "before"
+ *   drops `instead` (null: the "before"'s drop left another way, traded or dropped): the trade makes `instead` worth keeping.
+ * - "skip": the "before"'s pickup `add` (`eitherWay` as for pickupDrop) isn't made after the trade: `why` "taken" (the
+ *   partner, claiming before me, picks him up after the trade), "spot" (the players this trade brings in take his roster
+ *   spot, named in `by` when they can be: the player the "before" drops for him goes in the trade or to make room for them;
+ *   review of wave B, finding moves-skip-reason-spot-taken) or "unneeded" (my pickups after the trade pass on him: he no
+ *   longer clears the pickup bar, or a better move took the run's place); `keep`, the "before"'s drop for him when he stays
+ *   on my roster (null otherwise).
+ * - "release": from `week`, when `returner` comes back from IR, `player` goes (the returner himself when he's the one
+ *   released), where the "before" releases nobody then, or `instead` (review of wave B, finding moves-before-release-unnamed):
+ *   `kept` when that player is still on my roster then (the trade keeps him), else he's gone by then.
+ * - "keepAtReturn": at `returner`'s return in `week` the "before" releases `player`, and my roster after the trade releases
+ *   nobody (`returnerStays`: he's still mine, so the trade leaves room; else the trade sends him away).
+ * - "drop", "keep", "add": a difference the moves above don't explain (none on any test league: a safety net, so the list
+ *   still names it): `player` goes (`received`: one this trade brings in), stays, or comes in.
+ */
+export type RosterMove =
+  | { kind: "positionLimit"; week: number; drop: string; pos: Pos; limit: number }
+  | { kind: "makeRoom"; week: number; drop: string[]; for: string[]; received?: string[] }
+  | { kind: "rosterMinimum"; week: number; add: string; pos: Pos | null; min: number | null; pickup?: PickupOf }
+  | { kind: "openSpot"; week: number; spot: OpenSpot; pickup?: PickupOf }
+  | { kind: "toIR"; week: number; player: string }
+  | { kind: "waiver"; week: number; add: string; drop: string | null; starts?: number[]; received?: true; insteadOf?: string; insteadOfEitherWay?: true }
+  | { kind: "pickupDrop"; week: number; add: string; drop: string | null; instead: string | null; received?: true; eitherWay?: true }
+  | { kind: "skip"; week: number; add: string; keep: string | null; why: "unneeded" | "taken" | "spot"; by?: string[]; eitherWay?: true }
+  | { kind: "release"; week: number; player: string; returner: string; instead?: string; kept?: boolean }
+  | { kind: "keepAtReturn"; week: number; player: string; returner: string; returnerStays: boolean }
+  | { kind: "drop"; week: number; player: string; received?: true }
+  | { kind: "keep"; week: number; player: string }
+  | { kind: "add"; week: number; player: string };
+
+/**
+ * A free-agent move my numbers assume with or without the trade (RosterMoves.assumed; Checkpoint 7e, item 2.2): add `add`
+ * (null: no pickup to name, a player dropped in both versions), dropping `drop` (null: none to name, an open roster spot or
+ * a player the trade sends away); `eitherWay` for item 2.1's either-way moves (absent: the League page's own pickup).
+ */
+export interface AssumedMove {
+  add: string | null;
+  drop: string | null;
+  eitherWay?: true;
+}
+
+/**
+ * My odds before a trade on the block its numbers came from, when they aren't the search's baseline (TradeEvaluation.before,
+ * PlanB.before; Checkpoint 7e, item 2.1): the trade's own "before", my baseline V*(T) with its either-way moves.
+ */
+export interface OddsBefore {
+  pPlayoffs: number;
+  /** Null when the league's title odds are unknown. */
+  pTitle: number | null;
+  prizes: PrizeOdds;
 }
 
 /** §11's features for the partner, as the model used them (the feedback export stores them). */
@@ -188,6 +309,20 @@ export interface TradeEvaluation {
    * carry it), absent before simulation, without odds and on an evaluation made before it.
    */
   them?: PartnerNumbers;
+  /**
+   * Checkpoint 7e (planner reply to Checkpoint 7d, item 2.1: "No credit for moves Parker could make anyway"): my odds before
+   * the trade on the block the numbers came from, when the trade has either-way moves (evaluate.ts eitherWayMoves): its own
+   * "before" (my baseline V*(T) with those moves made, simulated on the same seasons), from which dPO, dCH, dPrizes, the
+   * weekly win chances and the partner's numbers are measured, and from which the card's odds lines and the reasons start.
+   * Absent: the search's baseline (TradeSearchResult.baseline, the Analyzer's), as for every trade without such a move.
+   */
+  before?: OddsBefore;
+  /**
+   * Checkpoint 7e (planner reply to Checkpoint 7d, item 2.2): my roster moves the numbers assume, the trade's in order and
+   * those assumed either way (RosterMoves; evaluate.ts myRosterMoves), which the card lists. Set on every exact evaluation;
+   * absent on one made before it (the card then words `required.me` as before).
+   */
+  myMoves?: RosterMoves;
   /** Changes in my average weekly starting points: remaining regular-season weeks, and playoff weeks. */
   dPPW: number;
   dPPWPlayoffs: number;
@@ -380,6 +515,16 @@ export interface PlanB {
   /** Checkpoint 7c: every prize component's change from the same simulation (TradeEvaluation.dPrizes'); absent with dPO. */
   dPrizes?: PrizeDeltas | null;
   winChance?: TradeDetail["winChance"];
+  /**
+   * Checkpoint 7e (planner reply to Checkpoint 7d, item 2.1): its own "before" when it has either-way moves (TradeEvaluation.
+   * before), which its odds start from; absent: the card's (the search's baseline).
+   */
+  before?: OddsBefore;
+  /**
+   * Checkpoint 7e (item 2.2: "a Plan B box when it has moves"): my roster moves its numbers assume (its evaluation's
+   * TradeEvaluation.myMoves, carried by the search's shown pass: search.ts). Absent: a Plan B made before this field.
+   */
+  myMoves?: RosterMoves;
 }
 
 /** One version of a trade in "Offer first / if they say no" (§4 of the addendum): exact evaluation + the screening simulation. */

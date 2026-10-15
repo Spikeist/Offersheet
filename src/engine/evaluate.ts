@@ -205,7 +205,8 @@
  * both sides of every exact trade; B, n, h, the card's odds and the simulations) also puts a returner back on the active
  * roster from his return week: when that leaves it over maxRosterSize or his position over its limit, the lowest keep
  * value player goes from that week on (returners.finalLineups: its keep value over the weeks from the return on, in the
- * exact mode's lineups; ⚠️ the returner himself a candidate, so a return never lowers a side by more than the near-tie
+ * exact mode's lineups, and since Checkpoint 7e the trade values and W its near-ties compare from then on too, planner
+ * reply to Checkpoint 7d, item 2.3; ⚠️ the returner himself a candidate, so a return never lowers a side by more than the near-tie
  * tolerance (returners.ts: a returner worth more than W can keep his spot over a cheaper bench player); never one the
  * lineup needs, one a position's minimum needs, or the last one at a position the side streams; at his position when its
  * limit binds),
@@ -279,6 +280,18 @@
  * TradeDetail.depthCover (Phase 4c; the pattern note's injury cover, planner reply to Checkpoint 4b, change 6): my ΔPPW in
  * scenario lineups minus my ΔPPW in the same rosters' EV lineups (both finally priced: SideEval.ev), the part of the
  * weekly gain only injuries and byes show; absent without scenarios.
+ *
+ * No credit for moves I could make anyway (Checkpoint 7e; planner reply to Checkpoint 7d, item 2.1; eitherWayMoves): my
+ * free-agent pickups after the trade that clear the pickup bar on my baseline too (tried in V*(after)'s order on V*(T), with
+ * the ones found so far made; ⚠️ one whose very move can't be made there for a reason of its drop, with the drop my optimizer
+ * itself would make: review of wave B, finding B-2) are made in both versions. The trade's own "before" (ExactTrade.before:
+ * V*(T) with them, priced finally) is then what every number of mine is measured from: ΔPPW, the slots, the weekly scores
+ * and the depth cover, my market package and ΔDyn (which leave them out), and in the simulation ΔPO, ΔCH, the prize
+ * components and the win chances; the partner's odds before and Helps them come from that same run (beforeOddsOf: its own
+ * run on the same block, common random numbers: my row is the "before"'s there), while its acceptance (g, n, h) reads the
+ * trade itself. Every other such move stays with the trade, as before; forced moves never come there. A trade without one
+ * reads exactly as before (the baseline's run), and so does every trade under TradeContextOptions.eitherWay false. The card
+ * lists my roster moves against that "before" (TradeEvaluation.myMoves, myRosterMoves; item 2.2).
  *
  * The simulation (M4): the baseline SimSetup with my team's and the partner's mean and SD rows replaced by their
  * after-V* scores (every other team, and the week in progress, unchanged), simulateSeason on the screening block, the
@@ -436,7 +449,7 @@ import { marketValues, valuesForTerm, waiverCredit, type ActiveSpots } from "./m
 import { lineupTotal, prepareRoster } from "./lineup";
 import { instancePointsInto } from "./needs";
 import { POSITIONS, type InjuryStatus, type LeagueSnapshot, type PlayerInfo, type Pos, type Team } from "./model";
-import { FULL_POOL, fillCount, poolRestriction, returnersOf, rosterKey, type OptimizedRoster, type PoolRestriction, type StreamSpec } from "./optimizer";
+import { FULL_POOL, applyStep, fillCount, poolRestriction, returnersOf, rosterKey, type FaStep, type OptimizedRoster, type PoolRestriction, type StreamSpec } from "./optimizer";
 import { leaguePremiums, perceivedPackage, premiumFacts } from "./premium";
 import { meetsMinChance } from "./rank";
 import { activeSpots, irAfterTrade, irEligibleStatuses, type Displacement, type FinalLineups } from "./returners";
@@ -453,6 +466,7 @@ import {
   evStarter,
   isStreamId,
   lowestKeepValue,
+  positionAllows,
   ppw,
   rosValue,
   scenarioAddGain,
@@ -466,7 +480,7 @@ import {
   type TableRow,
   type WeeklyScore,
 } from "./teamValue";
-import type { OpenSpot, PartnerNumbers, RosterChange, SlotChange, TradeAsset, TradeDetail, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeStep, TradeSteps } from "./tradeModel";
+import type { AssumedMove, OddsBefore, OpenSpot, PartnerNumbers, PickupOf, RosterChange, RosterMove, RosterMoves, SlotChange, TradeAsset, TradeDetail, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeStep, TradeSteps } from "./tradeModel";
 
 /** Gains closer than this are ties or zero (float noise, not a tunable). */
 const EPS = 1e-9;
@@ -516,6 +530,13 @@ export interface TradeContextOptions {
    * before-and-after only: the app never sets it.
    */
   openSpotFill?: OpenSpotFill;
+  /**
+   * Item 2.1's either-way moves (the file header, "No credit for moves I could make anyway"; Checkpoint 7e, planner reply to
+   * Checkpoint 7d): true (the default) makes my pickups after a trade that clear the pickup bar on my baseline too in both
+   * versions; false is Checkpoint 7d's rule (every one of them stays with the trade), for tests that compare the two (review
+   * of wave B, finding B-5): the app never sets it.
+   */
+  eitherWay?: boolean;
 }
 
 /** TradeContextOptions.openSpotFill. */
@@ -826,6 +847,8 @@ export interface TradeInternals {
   irEligible: ReadonlySet<InjuryStatus>;
   /** How rule 4 fills a roster spot a trade opens (TradeContextOptions.openSpotFill; "samePosition" unless a report says otherwise). */
   openSpotFill: OpenSpotFill;
+  /** Item 2.1's either-way moves (TradeContextOptions.eitherWay; on unless a test says otherwise). */
+  eitherWay: boolean;
   notes: string[];
   warnings: string[];
   timings: Record<string, number>;
@@ -1021,6 +1044,7 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
     irOwner: new Map(league.irReturners ? league.work.flatMap((t) => t.ir.map((id): [string, string] => [id, t.team.id])) : []),
     irEligible: irEligibleStatuses(snapshot.settings),
     openSpotFill: opts.openSpotFill ?? "samePosition",
+    eitherWay: opts.eitherWay !== false,
     notes: [],
     warnings: [...model.warnings],
     timings,
@@ -1891,6 +1915,8 @@ export function legalSide(
       }
     }
   }
+  // Rule 1's drops are the first ones (RosterChange.limitDrops: the card words them apart from rule 2's; Checkpoint 7e).
+  const limitDrops = drops.length;
 
   // 2. Over the roster size: drop the lowest keep value player, never one just received (or added by rule 3), one the
   // lineup needs, one a position's minimum needs (rule 3's target), or the last one at a position the side streams (the
@@ -2026,7 +2052,7 @@ export function legalSide(
       openSpots.push({ playerId: pick.row.id, pos: null, ...(none.length ? { short: none } : {}) });
     }
   }
-  const change: RosterChange = { drops, adds, ...(openSpots.length ? { openSpots } : {}) };
+  const change: RosterChange = { drops, adds, ...(limitDrops ? { limitDrops } : {}), ...(openSpots.length ? { openSpots } : {}) };
   if (need === "none") return { roster, change, ros: null, look: null, ...placed };
   if (need === "ros") return { roster, change, ros: ros ?? rosValue(ev().lv, I.weights), look: null, ...placed };
   const final = look ?? lookOf(I, solved ?? reusable ?? ev());
@@ -2592,12 +2618,473 @@ function startWeeksOf(I: TradeInternals, ev: SolvedWeeks, ids: readonly string[]
   return out;
 }
 
+// ---------------------------------------------------------------------------------------------
+// No credit for moves I could make anyway (Checkpoint 7e; planner reply to Checkpoint 7d, item 2.1), and the card's list of
+// my roster moves (item 2.2)
+
+/**
+ * A roster's lineup points as the free-agent optimizer judges a move (optimizer.ts's header: scenario ROS when it judges in
+ * scenario lineups, else EV ROS; Σω-weighted over the weeks team numbers count, my streaming rows and IR returners in).
+ */
+function judgedRos(I: Pick<TradeInternals, "league">, roster: readonly string[], stream: StreamSpec): number {
+  const opt = I.league.optimizer;
+  const scen = opt.judgesScenarios ? opt.scenarioValuesOf(roster, stream) : null;
+  return scen ? rosValue(scen.mean, opt.setup.weights) : opt.evaluate(roster, stream).evRos;
+}
+
+/**
+ * Whether my free-agent optimizer could add `add` to `roster` at all (optimizer.ts's candidate rules, the ones V* applies):
+ * he has a model, isn't on the roster, isn't one another team claims in the baseline (TeamState.pool, excl(me)) and isn't at
+ * a position the optimizer leaves alone (K, D/ST, a position I stream).
+ */
+function claimableOn(I: TradeInternals, me: TeamState, roster: readonly string[], add: string): boolean {
+  const opt = I.league.optimizer;
+  const row = opt.setup.rows.get(add);
+  if (!row || roster.includes(add) || me.pool.excluded.has(add)) return false;
+  return !opt.cfg.optimizerExcluded.includes(row.pos) && !me.stream.positions.includes(row.pos);
+}
+
+/**
+ * Whether my free-agent optimizer could make move `m` from `roster` (optimizer.ts's candidate and drop rules, the ones V*
+ * applies): its free agent claimable there (claimableOn); into an open spot only when the roster has one; its drop is on the
+ * roster with a model, at no position the optimizer leaves alone, not untouchable (TradeSettings.untouchables, Checkpoint
+ * 7e's setting: never dropped), not needed to fill the starting lineup unless the newcomer fills it again (optimizer.fillCount,
+ * my streaming rows counting), the position limits hold after the move and, with long-term values, the dynasty guard does.
+ */
+function canMakeOn(I: TradeInternals, me: TeamState, roster: readonly string[], m: Pick<FaStep, "add" | "drop">): boolean {
+  if (!claimableOn(I, me, roster, m.add)) return false;
+  const opt = I.league.optimizer;
+  const setup = opt.setup;
+  const on = new Set(roster);
+  const row = setup.rows.get(m.add) as TableRow;
+  const excluded = new Set<Pos>([...opt.cfg.optimizerExcluded, ...me.stream.positions]);
+  const positions = roster.flatMap((id) => {
+    const info = setup.info(id);
+    return info ? [info.pos] : [];
+  });
+  if (m.drop === null) return roster.length < setup.maxRosterSize && positionAllows(setup.positionLimits, positions, row.pos);
+  const drop = setup.rows.get(m.drop);
+  if (!drop || !on.has(m.drop) || excluded.has(drop.pos) || I.settings.untouchables.includes(m.drop)) return false;
+  const left = [...positions];
+  const at = left.indexOf(drop.pos);
+  if (at >= 0) left.splice(at, 1);
+  if (!positionAllows(setup.positionLimits, left, row.pos)) return false;
+  const dyn = setup.dynasty;
+  if (dyn && dyn.value(m.drop) - dyn.value(m.add) > dyn.maxDrop + EPS) return false;
+  const entries = (ids: readonly string[]) => [
+    ...ids.flatMap((id) => {
+      const info = setup.info(id);
+      return info ? [{ id, pos: info.pos, eligible: info.eligible }] : [];
+    }),
+    ...me.stream.rows.map((r) => ({ id: r.id, pos: r.pos, eligible: r.eligible })),
+  ];
+  const fill = fillCount(entries(roster), setup.slots);
+  const rest = entries(roster.filter((id) => id !== m.drop));
+  return fillCount(rest, setup.slots) >= fill || fillCount([...rest, { id: row.id, pos: row.pos, eligible: row.eligible }], setup.slots) >= fill;
+}
+
+/**
+ * The move my free-agent optimizer itself would make from `roster` with `add` the only free agent it may pick up (one move,
+ * the rest of the pool left out, my untouchables kept: optimizer.ts's own rules for whom it drops, its pickup bar in the
+ * lineups it judges moves in, and its near-tie cut), or null when it makes none there. Memoized by the optimizer (its memo
+ * key holds the roster and the pool).
+ */
+function stepWith(I: TradeInternals, me: TeamState, roster: readonly string[], add: string): FaStep | null {
+  const opt = I.league.optimizer;
+  const pool = poolRestriction(opt.setup.freeAgents.filter((id) => id !== add));
+  const step = opt.optimize(roster, me.stream, 1, pool, I.settings.untouchables).moves[0];
+  return step && step.add === add ? step : null;
+}
+
+/**
+ * A trade's either-way moves (Checkpoint 7e; planner reply to Checkpoint 7d, item 2.1: "an optional free-agent move belongs
+ * to the trade only if the trade is what makes it worthwhile. When the trade's version of the roster wants an optional move
+ * the baseline doesn't make, test that move against the baseline with the same pickup bar: if it clears the bar there too,
+ * apply it in both versions; if it doesn't, keep it with the trade."). An optional move is a step of my free-agent optimizer
+ * after the trade, V*(after), whose free agent isn't one of my baseline's pickups (V*(T)'s, the League page's); in V*(after)'s
+ * order, each is tried on my baseline roster V*(T) with the either-way moves found so far: when V* could make it there
+ * (canMakeOn: its drop is on that roster, its free agent mine to claim, the rules V* applies) and it gains at least the
+ * pickup bar as V* judges a move (judgedRos: the same lineups and Σω-weighted weeks; the optimizer's own faMinGain, ×
+ * Σω ÷ Σω₀: LineupThresholds), it's an either-way move: made in both versions. ⚠️ Ours (review of wave B, finding B-2): when
+ * that very move can't be made there for a reason of its drop (the drop isn't on that roster, most often a player my baseline
+ * already cut for one of its own pickups; or an open-spot add with no open spot there; or a drop V* may not make there) but
+ * its free agent is mine to claim, the free agent is tried with the drop my optimizer itself would make for him there
+ * (stepWith), and when it makes that pickup, that move is the either-way one (the decisions' first reading kept such a pickup
+ * with the trade, so a trade got full credit for a pickup I could make anyway: on a league whose pickups were held to one a
+ * run, giving away a bench RB for nothing read Helps you 70). Else it stays with the trade (as every one did before). Forced
+ * moves never come here (legality's drops, roster-minimum adds and open-spot fills, IR placements and the releases when an IR
+ * player returns: they aren't V*(after)'s steps). ⚠️ Ours: the gain is the difference of the two rosters' judged ROS (the
+ * optimizer prices a move from its cells: the two agree to float noise), and the optimizer's move cap (faMaxMoves) isn't
+ * applied (the planner's rule names the bar alone). ⚠️ By construction V*(T) stops only when no move from its roster clears
+ * the bar, so an optional move clears it there only when V*(T) stopped at its move cap, or couldn't make it (a free agent its
+ * own run added and swapped away), or a near-tie cut (optimizer.ts) left it a different roster: on both of Parker's leagues
+ * (Oct 14 week 6 dumps) none of the searches' 31 and 112 optional moves does (the largest, +Tyler Allgeier −Josh Jacobs in
+ * the second, gains 4.17 against a bar of 4.94), and neither does any free agent of theirs with another drop. My side only
+ * (my odds and Helps them read the trade's own "before", the partner's acceptance the trade itself). None for an inactive
+ * side (I'm never one), without moves, or under TradeContextOptions.eitherWay false (evaluateExact).
+ */
+export function eitherWayMoves(I: TradeInternals, me: TeamState, after: Pick<OptimizedRoster, "moves">): FaStep[] {
+  if (!after.moves.length || me.inactive) return [];
+  const start = new Set(me.vstar.start);
+  const own = new Set(me.vstar.roster.filter((id) => !start.has(id)));
+  const bar = I.league.optimizer.cfg.faMinGain;
+  let roster: readonly string[] = me.vstar.roster;
+  let ros: number | null = null;
+  const out: FaStep[] = [];
+  for (const m of after.moves) {
+    if (own.has(m.add) || !claimableOn(I, me, roster, m.add)) continue;
+    let step: FaStep | null = null;
+    if (canMakeOn(I, me, roster, m)) {
+      const next = applyStep(roster, m);
+      ros ??= judgedRos(I, roster, me.stream);
+      if (judgedRos(I, next, me.stream) - ros >= bar - EPS) step = m;
+    } else step = stepWith(I, me, roster, m.add);
+    if (!step) continue;
+    out.push(step);
+    roster = applyStep(roster, step);
+    ros = null;
+  }
+  return out;
+}
+
+/** A trade's "before" with its either-way moves (item 2.1): my baseline V*(T) with them made, as an optimizer run's roster (sideEval prices it). */
+function eitherWayRun(I: TradeInternals, me: TeamState, either: readonly FaStep[]): OptimizedRoster {
+  let roster: readonly string[] = me.vstar.roster;
+  for (const m of either) roster = applyStep(roster, m);
+  const cur = I.league.optimizer.evaluate(roster, me.stream);
+  return { start: me.vstar.start, roster, moves: [...me.vstar.moves, ...either], team: cur.team, solved: cur.solved, evRos: cur.evRos, given: [] };
+}
+
+/** Each per-trade "before"'s simulation runs (item 2.1), by its side (sideEval memoizes a side by roster) and block. */
+const beforeRuns = new WeakMap<SideEval, Partial<Record<SimStage, MyOdds>>>();
+
+/** The run of a trade's own "before" on a block (item 2.1): the baseline's setup with my row replaced by `before`'s, memoized. */
+function beforeOddsOf(I: TradeInternals, before: SideEval, stage: SimStage): MyOdds {
+  let runs = beforeRuns.get(before);
+  if (!runs) {
+    runs = {};
+    beforeRuns.set(before, runs);
+  }
+  return (runs[stage] ??= runSim(I, before, null, stage));
+}
+
+/**
+ * The player each pickup of an optimizer run holds the spot of, through swaps (a pickup later swapped for another passes the
+ * spot on; null: an open spot): the run's pickups still on its roster are its keys.
+ */
+function pickupSpots(moves: readonly Pick<FaStep, "add" | "drop">[]): Map<string, string | null> {
+  const spot = new Map<string, string | null>();
+  for (const m of moves) {
+    if (m.drop !== null && spot.has(m.drop)) {
+      spot.set(m.add, spot.get(m.drop) ?? null);
+      spot.delete(m.drop);
+    } else spot.set(m.add, m.drop);
+  }
+  return spot;
+}
+
+/**
+ * My roster moves a trade's numbers assume (Checkpoint 7e; planner reply to Checkpoint 7d, item 2.2: "Each card lists every
+ * roster move its numbers assume, in order, each with its reason and its week … Moves Parker would make either way, like his
+ * Malik Washington pickup, aren't listed as part of the trade. One line can say they're assumed either way."; TradeEvaluation.
+ * myMoves, tradeModel.ts RosterMove), against the trade's "before" (`sides.before`: my baseline V*(T) with its either-way moves,
+ * item 2.1). Since the review of wave B (findings B-1, B-3, moves-skip-reason-spot-taken, moves-waiver-takes-pickup-drop,
+ * moves-before-release-unnamed) the list names every way my roster after the trade differs from the "before", the trade's own
+ * players aside, each once, and nothing that doesn't (evaluate.moves.test.ts checks it on every exact trade of whole
+ * searches): this week, the players of my roster as it stands that the "before" keeps and the roster after the trade drops
+ * ("lost"), the ones the "before" drops and the roster after the trade keeps ("kept"), the "before"'s pickups the roster after
+ * the trade leaves out, the free agents it holds that the "before" doesn't, and the players the trade brings in whom my
+ * pickups drop again; later, each IR player's return where the two release different players. Each goes with the move that
+ * makes it, worded by its cause; a move whose drop the "before" makes too stands for what that drop costs against the
+ * "before" (took): the player himself; a player the trade brings in; nothing (an open spot); or the "before"'s pickup for his
+ * spot when the roster after the trade leaves that pickup out; and when the roster after the trade holds that pickup too, the
+ * pickup is made either way with him as its drop, and the move takes over the pickup's own spot after the trade, read the
+ * same way. In order:
+ * - Legality's rule-1 drops the "before" doesn't make ("positionLimit"); its rule-2 drops ("makeRoom", to make room for the
+ *   players received beyond those given: none named when my pickups drop one of them, finding B-3), each read through
+ *   took (⚠️ ours, as before: on Parker's first league, Oct 14, Puka Nacua → Drake London + Christian Watson: legality drops
+ *   Romeo Doubs, whom the baseline cuts for Jake Ferguson, and my pickups then cut Kyle Pitts Sr. for Ferguson: "Make room for
+ *   Christian Watson: drop Kyle Pitts Sr." and "Assumed with or without this trade: add Jake Ferguson, drop Romeo Doubs."; a
+ *   rule-2 drop that stands for a pickup the trade leaves out gives that pickup's skip, "spot"); its roster-minimum adds and
+ *   open-spot fills ("rosterMinimum", "openSpot"; one that is a pickup of the "before" too says so, with the player the
+ *   "before" drops for him when the roster after the trade keeps him: finding B-1); its IR placements ("toIR").
+ * - My pickups after the trade that the "before" doesn't make ("waiver": they stay with the trade, item 2.1), each with what
+ *   its drop costs (took: a pickup of the "before" it takes the place of is named instead, finding
+ *   moves-waiver-takes-pickup-drop).
+ * - The "before"'s pickups the roster after the trade holds with another drop ("pickupDrop", with the "before"'s own drop
+ *   kept: "instead"), or with the same one (assumed either way); ⚠️ ours, as before: one whose own drop I send away (a player
+ *   my baseline cuts anyway: legality's rule 4 opens no spot for him) and that my pickups make with another drop names that
+ *   drop on the make-room line, the pickup assumed either way.
+ * - The "before"'s pickups the roster after the trade leaves out ("skip"): "taken" when the partner, claiming before me, picks
+ *   him up after the trade; "spot" when the players this trade brings in take his roster spot (his drop goes in the trade or
+ *   to make room for them; finding moves-skip-reason-spot-taken); else "unneeded".
+ * - A difference nothing above names ("drop", "keep", "add": none on any test league, a safety net).
+ * - Later weeks (finding moves-before-release-unnamed): at each IR player's return where the "before" and the roster after the
+ *   trade release different players (Displacement, one per returner), the release after the trade with the "before"'s
+ *   ("release": `instead`, `kept` when he's still on my roster then), or, when the roster after the trade releases nobody
+ *   then, the player the "before" would ("keepAtReturn", when he's still on my roster), by week.
+ * - Assumed with or without the trade: the League page's pickups my roster after the trade holds too, each with the drop the
+ *   "before" makes for him (none named when that player is traded away), then the either-way moves, then the players dropped
+ *   in both versions whom none of those names.
+ */
+function myRosterMoves(
+  I: TradeInternals,
+  me: TeamState,
+  trade: { give: readonly string[]; get: readonly string[] },
+  legal: Pick<LegalSide, "change" | "toIR" | "givenIR">,
+  run: Pick<OptimizedRoster, "roster" | "moves">,
+  either: readonly FaStep[],
+  sides: { mine: Pick<SideEval, "displaced" | "ev">; before: Pick<SideEval, "displaced" | "roster"> },
+  partnerAdds: ReadonlySet<string>,
+): RosterMoves {
+  const weeks = I.league.lp.weeks.weeks;
+  const now = weeks[I.from] ?? I.snapshot.currentWeek;
+  const asStands = me.vstar.start;
+  const given = new Set(trade.give);
+  const before = new Set(sides.before.roster);
+  const after = new Set(run.roster);
+  const eitherAdds = new Set(either.map((m) => m.add));
+  const ew = (p: string) => (eitherAdds.has(p) ? { eitherWay: true as const } : {});
+  // The "before"'s pickups (the League page's, then the either-way moves) and mine after the trade, each with the player whose
+  // spot it holds (null: an open spot), through swaps; and the "before"'s pickup for each player it drops.
+  const beforeSpot = pickupSpots([...me.vstar.moves, ...either]);
+  const afterSpot = pickupSpots(run.moves);
+  const pickupFor = new Map<string, string>();
+  for (const [p, d] of beforeSpot) if (d !== null) pickupFor.set(d, p);
+  const order = [...new Set([...me.vstar.roster.filter((id) => beforeSpot.has(id) && !eitherAdds.has(id)), ...either.map((m) => m.add).filter((id) => beforeSpot.has(id))])];
+  const receivedActive = trade.get.filter((id) => !legal.toIR.includes(id));
+  const givenActive = trade.give.filter((id) => !legal.givenIR.includes(id));
+  // The differences (the trade's own players aside): lost, kept, and the players it brings in that my pickups drop again.
+  const lost = new Set(asStands.filter((id) => !given.has(id) && before.has(id) && !after.has(id)));
+  const kept = new Set(asStands.filter((id) => !given.has(id) && !before.has(id) && after.has(id)));
+  const droppedIn = new Set(receivedActive.filter((id) => !after.has(id)));
+  /** The differences a move already names (each once), and the "before"'s pickups already placed. */
+  const named = new Set<string>();
+  const settled = new Set<string>();
+  /** The "before"'s pickups made either way, with the drop the assumed line names for each. */
+  const assumedDrop = new Map<string, string | null>();
+  /** The "before"'s pickups whose roster spot the trade's players take ("spot"), with whom to name. */
+  const spotTaken = new Map<string, string[]>();
+  /** A skipped pickup's kept player, passed on by a pickup of the "before" that took its spot. */
+  const keepFor = new Map<string, string>();
+  // The players received beyond those given (a given player the "before" drops anyway opens no spot: legality's rule 4), to
+  // make room for; none when my pickups drop one of the players the trade brings in (review of wave B, finding B-3).
+  const cuts = new Set(asStands.filter((id) => !before.has(id)));
+  const givenSpots = givenActive.filter((id) => !cuts.has(id));
+  const forPlayers = droppedIn.size ? [] : receivedActive.length > givenSpots.length ? receivedActive.slice(givenSpots.length) : [];
+
+  type Took = { kind: "lost" | "in"; id: string } | { kind: "open" } | { kind: "instead"; pickup: string };
+  const took = (x: string | null, seen: Set<string> = new Set()): Took => {
+    if (x === null) return { kind: "open" };
+    if ((lost.has(x) || droppedIn.has(x)) && !named.has(x)) {
+      named.add(x);
+      return { kind: lost.has(x) ? "lost" : "in", id: x };
+    }
+    const p = pickupFor.get(x);
+    if (p === undefined || seen.has(x) || settled.has(p)) return { kind: "open" };
+    seen.add(x);
+    if (!after.has(p)) return { kind: "instead", pickup: p };
+    settled.add(p);
+    if (!afterSpot.has(p)) return { kind: "open" };
+    assumedDrop.set(p, x);
+    return took(afterSpot.get(p) ?? null, seen);
+  };
+
+  // Legality's adds that are pickups of the "before" too (review of wave B, finding B-1): their lines say so, with the
+  // player the "before" drops for him when my roster after the trade keeps him.
+  const pickupOf = new Map<string, PickupOf>();
+  for (const id of legal.change.adds) {
+    if (!beforeSpot.has(id) || !after.has(id)) continue;
+    const d = beforeSpot.get(id) ?? null;
+    const keep = d !== null && kept.has(d) && !named.has(d) ? d : null;
+    if (keep !== null) named.add(keep);
+    pickupOf.set(id, { keep, ...ew(id) });
+    settled.add(id);
+  }
+
+  // Legality's drops: rule 1's the "before" doesn't make (one it makes too is that pickup's to say), then rule 2's, each read
+  // through took.
+  const limitCount = Math.max(0, Math.min(legal.change.limitDrops ?? 0, legal.change.drops.length));
+  const moves: RosterMove[] = [];
+  for (const id of legal.change.drops.slice(0, limitCount)) {
+    if (!lost.has(id) || named.has(id)) continue;
+    named.add(id);
+    const pos = I.league.posOf(id);
+    const limit = pos === undefined ? undefined : I.league.limits?.[pos];
+    if (pos !== undefined && limit !== undefined && Number.isFinite(limit)) moves.push({ kind: "positionLimit", week: now, drop: id, pos, limit });
+    else moves.push({ kind: "makeRoom", week: now, drop: [id], for: [] });
+  }
+  const room: string[] = [];
+  const roomIn: string[] = [];
+  const toRoom = (t: Took): void => {
+    if (t.kind === "lost" || t.kind === "in") {
+      room.push(t.id);
+      if (t.kind === "in") roomIn.push(t.id);
+    } else if (t.kind === "instead" && !partnerAdds.has(t.pickup)) spotTaken.set(t.pickup, forPlayers);
+  };
+  for (const id of legal.change.drops.slice(limitCount)) toRoom(took(id));
+
+  // Legality's adds and IR placements.
+  const legalLines: RosterMove[] = [];
+  const spots = legal.change.openSpots ?? [];
+  const filled = new Set(spots.map((s) => s.playerId));
+  const minimums = I.snapshot.settings.rosterMinimums;
+  for (const id of legal.change.adds) {
+    named.add(id);
+    if (filled.has(id)) continue;
+    const pos = I.league.posOf(id) ?? null;
+    const min = pos === null ? undefined : minimums?.[pos];
+    const pickup = pickupOf.get(id);
+    legalLines.push({ kind: "rosterMinimum", week: now, add: id, pos, min: min !== undefined && Number.isFinite(min) ? min : null, ...(pickup ? { pickup } : {}) });
+  }
+  for (const s of spots) {
+    const pickup = pickupOf.get(s.playerId);
+    legalLines.push({ kind: "openSpot", week: now, spot: { ...s, ...(s.short ? { short: [...s.short] } : {}) }, ...(pickup ? { pickup } : {}) });
+  }
+  for (const id of legal.toIR) legalLines.push({ kind: "toIR", week: now, player: id });
+
+  // My pickups after the trade that the "before" doesn't make: the waiver moves that stay with the trade (item 2.1).
+  const waivers: RosterMove[] = [];
+  for (const q of run.roster) {
+    if (!afterSpot.has(q) || before.has(q)) continue;
+    named.add(q);
+    const t = took(afterSpot.get(q) ?? null);
+    const starts = startWeeksOf(I, sides.mine.ev, [q])[q] ?? [];
+    const base = { kind: "waiver" as const, week: now, add: q, ...(starts.length ? { starts } : {}) };
+    if (t.kind === "lost") waivers.push({ ...base, drop: t.id });
+    else if (t.kind === "in") waivers.push({ ...base, drop: t.id, received: true });
+    else if (t.kind === "instead" && !partnerAdds.has(t.pickup)) {
+      settled.add(t.pickup);
+      waivers.push({ ...base, drop: null, insteadOf: t.pickup, ...(eitherAdds.has(t.pickup) ? { insteadOfEitherWay: true as const } : {}) });
+    } else waivers.push({ ...base, drop: null });
+  }
+
+  // The "before"'s pickups my roster after the trade holds too.
+  const changed: RosterMove[] = [];
+  for (const p of order) {
+    if (settled.has(p) || !after.has(p)) continue;
+    settled.add(p);
+    if (!afterSpot.has(p)) continue;
+    const d = beforeSpot.get(p) ?? null;
+    const a = afterSpot.get(p) ?? null;
+    if (a === d) {
+      assumedDrop.set(p, d);
+      continue;
+    }
+    const t = took(a);
+    if (d !== null && given.has(d)) {
+      // ⚠️ Ours (as before): its own drop goes in the trade (a player my baseline cuts anyway: legality's rule 4 opens no spot
+      // for him), so the players received take that spot, and his drop after the trade makes room for them.
+      assumedDrop.set(p, null);
+      toRoom(t);
+      continue;
+    }
+    const instead = d !== null && kept.has(d) && !named.has(d) ? d : null;
+    if (instead !== null) named.add(instead);
+    if (t.kind === "instead") {
+      // He took the spot of another pickup of the "before", which my roster after the trade leaves out: he's made either way
+      // with that spot's drop, and the other one's skip keeps his own drop (or the trade's players took the spot).
+      assumedDrop.set(p, a);
+      if (instead !== null) keepFor.set(t.pickup, instead);
+      else if (!partnerAdds.has(t.pickup)) spotTaken.set(t.pickup, []);
+      continue;
+    }
+    if (t.kind === "open" && instead === null) {
+      assumedDrop.set(p, d !== null && !after.has(d) ? d : null);
+      continue;
+    }
+    changed.push({ kind: "pickupDrop", week: now, add: p, drop: t.kind === "open" ? null : t.id, instead, ...(t.kind === "in" ? { received: true as const } : {}), ...ew(p) });
+  }
+
+  // The "before"'s pickups my roster after the trade leaves out.
+  const skips: RosterMove[] = [];
+  for (const p of order) {
+    if (settled.has(p) || after.has(p)) continue;
+    settled.add(p);
+    const d = beforeSpot.get(p) ?? null;
+    const own = d !== null && kept.has(d) && !named.has(d) ? d : null;
+    if (own !== null) named.add(own);
+    const keep = own ?? keepFor.get(p) ?? null;
+    const spot = spotTaken.get(p);
+    const why = partnerAdds.has(p) ? "taken" : spot !== undefined || (d !== null && given.has(d)) || (d === null && forPlayers.length > 0) ? "spot" : "unneeded";
+    const by = why === "spot" ? (spot ?? forPlayers) : [];
+    skips.push({ kind: "skip", week: now, add: p, keep, why, ...(by.length ? { by: [...by] } : {}), ...ew(p) });
+  }
+
+  // A difference none of the above names (none on any test league: the safety net, so the list still names it).
+  const extra: RosterMove[] = [];
+  for (const id of asStands) {
+    if (named.has(id)) continue;
+    if (lost.has(id)) extra.push({ kind: "drop", week: now, player: id });
+    else if (kept.has(id)) extra.push({ kind: "keep", week: now, player: id });
+  }
+  for (const id of droppedIn) if (!named.has(id)) extra.push({ kind: "drop", week: now, player: id, received: true });
+  const mine = new Set(asStands);
+  const received = new Set(trade.get);
+  for (const id of run.roster) if (!mine.has(id) && !received.has(id) && !before.has(id) && !named.has(id)) extra.push({ kind: "add", week: now, player: id });
+
+  if (room.length) moves.push({ kind: "makeRoom", week: now, drop: room, for: forPlayers, ...(roomIn.length ? { received: roomIn } : {}) });
+  moves.push(...legalLines, ...waivers, ...changed, ...skips, ...extra);
+
+  // Later weeks: what happens at each IR player's return, where the "before" and my roster after the trade differ.
+  const firstOf = (list: readonly Displacement[]) => {
+    const out = new Map<string, Displacement>();
+    for (const d of list) if (!out.has(d.returner)) out.set(d.returner, d);
+    return out;
+  };
+  const relAfter = firstOf(sides.mine.displaced);
+  const relBefore = firstOf(sides.before.displaced);
+  const goes = new Map<string, number>();
+  for (const d of sides.mine.displaced) goes.set(d.id, Math.min(goes.get(d.id) ?? Number.POSITIVE_INFINITY, d.from));
+  // Whether a player is still on my roster after the trade at week index `from`: the returner himself while he's mine, else
+  // one it holds this week and doesn't release by then.
+  const stays = (id: string, returner: string, from: number) => (id === returner ? !given.has(id) : after.has(id) && !((goes.get(id) ?? Number.POSITIVE_INFINITY) <= from));
+  const later: { from: number; move: RosterMove }[] = [];
+  for (const returner of new Set([...relAfter.keys(), ...relBefore.keys()])) {
+    const a = relAfter.get(returner);
+    const b = relBefore.get(returner);
+    if (a && b && a.id === b.id && a.from === b.from) continue;
+    if (a) {
+      const week = weeks[a.from];
+      if (week === undefined) continue;
+      const other = b && b.id !== a.id ? { instead: b.id, kept: stays(b.id, returner, a.from) } : {};
+      later.push({ from: a.from, move: { kind: "release", week, player: a.id, returner, ...other } });
+    } else if (b) {
+      const week = weeks[b.from];
+      if (week === undefined || !stays(b.id, returner, b.from)) continue;
+      later.push({ from: b.from, move: { kind: "keepAtReturn", week, player: b.id, returner, returnerStays: !given.has(returner) } });
+    }
+  }
+  later.sort((x, y) => x.from - y.from);
+  moves.push(...later.map((l) => l.move));
+
+  // Assumed with or without the trade.
+  const assumed: AssumedMove[] = [];
+  const dropsNamed = new Set<string>();
+  for (const p of order) {
+    if (!assumedDrop.has(p)) continue;
+    const d = assumedDrop.get(p) ?? null;
+    const drop = d !== null && !given.has(d) ? d : null;
+    if (drop !== null) dropsNamed.add(drop);
+    assumed.push({ add: p, drop, ...ew(p) });
+  }
+  for (const id of asStands) if (cuts.has(id) && !after.has(id) && !given.has(id) && !dropsNamed.has(id)) assumed.push({ add: null, drop: id });
+  return { moves, assumed };
+}
+
 /** An exactly evaluated trade with what its simulation needs. */
 export interface ExactTrade {
   evaluation: TradeEvaluationCore;
   partner: TeamState;
   mine: SideEval;
   theirs: SideEval;
+  /**
+   * Checkpoint 7e (planner reply to Checkpoint 7d, item 2.1): the trade's own "before" when it has either-way moves
+   * (eitherWayMoves): my baseline V*(T) with them made, priced finally (sideEval), which simulateTrade simulates on each block
+   * (beforeOddsOf) in place of the baseline's run. Null or absent: the baseline (TeamState.base), as for every trade without
+   * such a move.
+   */
+  before?: SideEval | null;
   /** ΔDyn and MyDynTotal (dynasty and keeper leagues with long-term values), else null. */
   dynasty: { delta: number; total: number } | null;
   /**
@@ -2627,12 +3114,18 @@ export function evaluateExact(I: TradeInternals, proposal: TradeProposal, maxPer
   const mine = sideEval(I, me, after.mine, after.specs.mine);
   const theirs = sideEval(I, partner, after.theirs, after.specs.theirs);
   const weeks = I.league.lp.weeks.weeks;
+  // Item 2.1 (Checkpoint 7e; eitherWayMoves): my moves after the trade that clear the pickup bar on my baseline too are made in
+  // both versions, so my numbers start from my baseline with them (the trade's own "before"), never from the baseline alone
+  // (none under TradeContextOptions.eitherWay false: Checkpoint 7d's rule, for tests and reports).
+  const either = I.eitherWay ? eitherWayMoves(I, me, after.mine) : [];
+  const beforeRun = either.length ? eitherWayRun(I, me, either) : null;
+  const before = beforeRun ? sideEval(I, me, beforeRun) : me.base;
 
-  const dPPW = ppw(mine.lv, weeks, I.regWeeks) - ppw(me.base.lv, weeks, I.regWeeks);
-  const dPPWPlayoffs = ppw(mine.lv, weeks, I.poWeeks) - ppw(me.base.lv, weeks, I.poWeeks);
+  const dPPW = ppw(mine.lv, weeks, I.regWeeks) - ppw(before.lv, weeks, I.regWeeks);
+  const dPPWPlayoffs = ppw(mine.lv, weeks, I.poWeeks) - ppw(before.lv, weeks, I.poWeeks);
   // The depth cover (TradeDetail.depthCover): the part of ΔPPW, scenario lineups, that the same rosters' EV lineups don't
   // see (both finally priced: SideEval.ev); only with scenarios.
-  const depthCover = I.S > 0 ? dPPW - (ppw(mine.ev.lv, weeks, I.regWeeks) - ppw(me.base.ev.lv, weeks, I.regWeeks)) : null;
+  const depthCover = I.S > 0 ? dPPW - (ppw(mine.ev.lv, weeks, I.regWeeks) - ppw(before.ev.lv, weeks, I.regWeeks)) : null;
   const delta = partnerLineupDelta(partner.base.lv, theirs.lv, I.from);
   const hole = holeFeature(holeSlots(I, partner.base.hole, theirs.hole, I.medians.exact), receivedStarters(I, theirs.ev, give));
   // Each side's open-spot credit follows its own active roster after rule 5 (an IR slot isn't a roster spot: market.ts's
@@ -2641,8 +3134,9 @@ export function evaluateExact(I: TradeInternals, proposal: TradeProposal, maxPer
   const theirSpots = spotsOf(theirLegal, get, give);
   // My free-agent moves after the trade that my baseline doesn't make (the file header, "Exact evaluation"; final review of
   // Phase 4c, finding R1) join my package: each pickup as received, each drop as given, each with an active roster spot
-  // (a player received and dropped at once leaves both). The partner's package is the trade's alone.
-  const fa = freeAgentMovesOf(me.vstar, after.mine);
+  // (a player received and dropped at once leaves both). The partner's package is the trade's alone. Since Checkpoint 7e
+  // (item 2.1) against the trade's own "before": an either-way move is in both versions, so it isn't counted.
+  const fa = freeAgentMovesOf(beforeRun ?? me.vstar, after.mine);
   const both = new Set(fa.drops.filter((id) => get.includes(id)));
   const myRecv = [...get.filter((id) => !both.has(id)), ...fa.adds];
   const myGive = [...give, ...fa.drops.filter((id) => !both.has(id))];
@@ -2681,7 +3175,7 @@ export function evaluateExact(I: TradeInternals, proposal: TradeProposal, maxPer
   if (I.snapshot.settings.leagueType === "keeper") notes.push("Keeper costs aren't modeled.");
   const detail: TradeDetail = {
     myTeamId: me.id,
-    mySlots: slotChanges(me.base.regular, mine.regular),
+    mySlots: slotChanges(before.regular, mine.regular),
     partnerSlots: slotChanges(partner.base.regular, theirs.regular).map((s, i) => ({ ...s, rank: partnerRanks[i] as number })),
     teams: I.snapshot.teams.length,
     holes: hole.holes,
@@ -2694,7 +3188,7 @@ export function evaluateExact(I: TradeInternals, proposal: TradeProposal, maxPer
     hotReceived: give.filter((id) => I.hot.has(id)),
     hotGiven: get.filter((id) => I.hot.has(id)),
     urgency: I.urg,
-    weekly: weeks.map((week, w) => ({ week, before: me.base.score.mean[w] as number, after: mine.score.mean[w] as number })),
+    weekly: weeks.map((week, w) => ({ week, before: before.score.mean[w] as number, after: mine.score.mean[w] as number })),
     riskyWeeks: [...I.riskyWeeks],
     notes,
     // One fact per player the partner gives (e may be 0).
@@ -2711,10 +3205,14 @@ export function evaluateExact(I: TradeInternals, proposal: TradeProposal, maxPer
     stage: "exact",
     sims: 0,
     required: {
-      me: rosterChangeOf(I, mineLegal, mine, me, faMovesShown),
+      // My displacements against the trade's own "before" (item 2.1): its releases are made either way.
+      me: rosterChangeOf(I, mineLegal, mine, { base: before }, faMovesShown),
       // A partner that claims before me can fill its spot with one of my own baseline pickups (OpenSpot.yours).
       partner: rosterChangeOf(I, theirLegal, theirs, partner, undefined, after.first === "partner" ? baselinePickups(me) : []),
     },
+    // Every roster move my numbers assume, in order, and those made either way (item 2.2; myRosterMoves): a partner that claims
+    // before me takes one of my League-page pickups first when its pickups after the trade add him (legality's or V*'s).
+    myMoves: myRosterMoves(I, me, { give, get }, mineLegal, after.mine, either, { mine, before }, new Set(after.first === "partner" ? [...theirLegal.change.adds, ...claimedBy(after.theirs)] : [])),
     b: null,
     tradeScore: null,
     pAccept: accept.pAccept,
@@ -2742,7 +3240,7 @@ export function evaluateExact(I: TradeInternals, proposal: TradeProposal, maxPer
     flags: tradeFlags({ gMine, b: null, injured }),
     detail,
   };
-  return { evaluation, partner, mine, theirs, dynasty, partnerDynasty };
+  return { evaluation, partner, mine, theirs, before: beforeRun ? before : null, dynasty, partnerDynasty };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2972,8 +3470,12 @@ export function simulateTrade(I: TradeInternals, x: ExactTrade, stage: SimStage,
   let dPrizes: TradeEvaluationCore["dPrizes"] = null;
   let winChance: TradeDetail["winChance"];
   let them: PartnerNumbers | undefined;
+  let before: OddsBefore | undefined;
   if (I.sim && I.me) {
-    const base = I.sim.base[stage];
+    // The trade's own "before" when it has either-way moves (item 2.1, Checkpoint 7e: ExactTrade.before), on this block's
+    // seasons: every change below, the partner's too, is measured from it. Else the baseline's run, as before.
+    const base = x.before ? beforeOddsOf(I, x.before, stage) : I.sim.base[stage];
+    if (x.before) before = { pPlayoffs: base.pPlayoffs, pTitle: base.pTitle, prizes: { ...base.prizes } };
     const after = runSim(I, x.mine, { partner: x.partner, side: x.theirs }, stage);
     dPO = after.pPlayoffs - base.pPlayoffs;
     dCH = after.pTitle !== null && base.pTitle !== null ? after.pTitle - base.pTitle : null;
@@ -3010,6 +3512,7 @@ export function simulateTrade(I: TradeInternals, x: ExactTrade, stage: SimStage,
     dEW,
     dPrizes,
     ...(them ? { them } : {}),
+    ...(before ? { before } : {}),
     flags: tradeFlags({ gMine: ev.gMine, b: b.b, injured: ev.flags.injured }),
     detail: { ...ev.detail, notes, ...(winChance ? { winChance } : {}) },
   };

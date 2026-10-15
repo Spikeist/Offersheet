@@ -161,6 +161,14 @@ describe("my side", () => {
     expect(at(0.0508, 0.01938, null)).toBe("Raises your playoff odds by 5.1 and your title odds by 1.9 percentage points.");
     expect(at(0.0508, 0.01938, { pPlayoffs: 0.602, pTitle: null })).toBe("Raises your playoff odds by 5 and your title odds by 1.9 percentage points.");
     expect(at(0.0508, 0.01938, { pPlayoffs: 0.602, pTitle: 0.10546 }, "exact")).toBe("Raises your playoff odds by 5.1 and your title odds by 1.9 percentage points.");
+    // Checkpoint 7e (planner reply to Checkpoint 7d, item 2.1): a trade with either-way moves starts from its own "before"
+    // (TradeEvaluation.before), the one its card's odds line prints: 61.45% → 66.53% prints 61% → 67%, so 6 (5 from the
+    // search's baseline, 60.2%); the title 11.04% → 12.98%, 11.0% → 13.0%, so 2.
+    const own = { pPlayoffs: 0.6145, pTitle: 0.1104, prizes: { first: 0.1104, second: null, third: null, weeklyHigh: 0, pointsLeader: 0 } };
+    const r = explainTrade(tradeEvaluation({ ...QUIET, dPO: 0.0508, dCH: 0.01938, dPPW: 2, stage: "final" }), explainContext({ ...FC_EVEN, baseline: { pPlayoffs: 0.602, pTitle: 0.10546 } })).reasons;
+    const withOwn = explainTrade({ ...tradeEvaluation({ ...QUIET, dPO: 0.0508, dCH: 0.01938, dPPW: 2, stage: "final" }), before: own }, explainContext({ ...FC_EVEN, baseline: { pPlayoffs: 0.602, pTitle: 0.10546 } })).reasons;
+    expect(r.find((x) => / odds by /.test(x))).toBe("Raises your playoff odds by 5 and your title odds by 2 percentage points.");
+    expect(withOwn.find((x) => / odds by /.test(x))).toBe("Raises your playoff odds by 6 and your title odds by 2 percentage points.");
   });
 
   it("says 'point' for exactly one", () => {
