@@ -666,7 +666,12 @@ export interface MergedCards {
   helpsBoth: MergedTrade[];
   /** The rounds each list's merge took, the last one folding nothing (1: nothing folded). */
   rounds: { overall: number; helpsBoth: number };
-  /** The ladders the search worked out to merge (cards with another card of their list among their possible offers). */
+  /**
+   * The ladders the merge read (each card with a card of its list below it among its possible offers, and to give a trade
+   * back, the cards above it that could offer it): worked out during the search, or read back when a re-filter of the same
+   * search at the same minimum chance had them already (offers.ts keeps each choice per search and minimum), so the count is
+   * the same either way.
+   */
   ladders: number;
   /** ⚠️ The trades folded and then given back, in no offers of a card above them on their list (the release rule; ours). */
   released: number;

@@ -69,6 +69,11 @@
  * on the list says so with its place, where it said no offer was one), Plan B is a different set of their players (D-ENG-5,
  * UI-D-5: the planner's "a different target"), and "Now or after this week" (item 4.2) is explained on both pages
  * (nowOrLaterWords: UI-D-9).
+ * Checkpoint 7f (planner reply to Checkpoint 7e, decision 3, merged cards; search.ts, "Merged cards"): the Finder says that
+ * when one idea's offers include another idea on the list, only the one with the higher Overall shows and the other is among
+ * its offers, and that an offer which is another idea is one with a higher Overall that can't offer this one back (the lead's
+ * call, policy (a)), still labeled with its place; the Plan B sentence stays. The Analyzer's words don't change (it shows one
+ * card).
  * A native <details>, closed at first; its summary is a 44 px target.
  */
 import type { HelpsScale } from "@/engine/benefit";

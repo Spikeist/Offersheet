@@ -18,6 +18,7 @@ import { buildLeagueModel } from "@/engine/league";
 import { neutralThrowIns } from "@/engine/market";
 import { ladderChoice, ladderJobOfSearch, offerLadderOfSearch } from "@/engine/offers";
 import type { LeagueSnapshot, Pos } from "@/engine/model";
+import { compareOverall } from "@/engine/rank";
 import { prizeOddsOf, prizePercents, prizePeriods, rewardWith } from "@/engine/reward";
 import { runTradeSearch, searchStateOf, type SearchState } from "@/engine/search";
 import { GOALS, defaultTradeSettings } from "@/engine/settings";
@@ -69,7 +70,10 @@ import {
   laneShown,
   ladderSummary,
   measuredRunsText,
+  mergeLines,
+  mergeSection,
   oddsByOrder,
+  offerMarkText,
   parseArgs,
   prizesSettingsOf,
   pctPlain,
@@ -94,6 +98,7 @@ import {
   type HelpsBothCounts,
   type LaneCounts,
   type LadderSection,
+  type MergeSection,
   type Runtime,
   type RuntimeRun,
   type Tagger,
@@ -584,15 +589,62 @@ describe("trade report: what Helps both costs a search (section 10)", () => {
     );
   });
 
-  it("section 11's words (Checkpoint 7e): each offer's place as the card says it, and the console's line on the split's ladders", () => {
+  it("section 11's words (Checkpoint 7e): each offer's place as the card says it, and the console's line on the split's ladders (Checkpoint 7f: a kept ladder, the merges)", () => {
     expect(OFFER_WORDS).toEqual({ open: "Open with", then: "Then", suggested: "The suggested trade", last: "Last offer" });
-    const row = (n: number, ms: number[]) => ({ card: tradeEvaluation({ give: ["a"], get: ["b"] }), ladder: { cardKey: "k", steps: Array.from({ length: n }, () => ({})) }, candidates: 54, screened: 12, ms }) as unknown as LadderSection["other"]["rows"][number];
+    const row = (n: number, ms: number[], kept = false) => ({ card: tradeEvaluation({ give: ["a"], get: ["b"] }), ladder: { cardKey: "k", steps: Array.from({ length: n }, () => ({})) }, candidates: 54, screened: 12, ms, kept }) as unknown as LadderSection["other"]["rows"][number];
     const better = (n: number, same = true) => ({ card: tradeEvaluation({ give: ["a"], get: ["b"] }), screened: 40, likelier: 9, better: Array.from({ length: n }, () => ({})), same }) as unknown as LadderSection["other"]["better"][number];
-    const section = (rows: LadderSection["other"]["rows"], b: LadderSection["other"]["better"]): LadderSection => ({ title: { rows: [], better: [] }, other: { rows, better: b } });
+    const section = (rows: LadderSection["other"]["rows"], b: LadderSection["other"]["better"], merge: LadderSection["other"]["merge"] = null): LadderSection => ({ title: { rows: [], better: [], merge: null }, other: { rows, better: b, merge } });
     expect(ladderSummary(section([row(2, [480, 504, 476]), row(1, [251]), row(3, [1200, 1250])], [better(0), better(1), better(0, false)]), "Several prizes")).toBe(
       "How to offer it (Several prizes): the top 3 cards hold 2 / 1 / 3 offers, built in 480 ms / 251 ms / 1.23 s (first opens, medians); 1 of the top 3 has a candidate printing a higher Helps you and a higher chance; the pre-screen picks every candidate's offers on 2 of 3",
     );
     expect(ladderSummary(section([], []), "Several prizes")).toBe("How to offer it: no cards under Several prizes");
+    // A ladder the search's merge kept reads "kept"; the merges close the line.
+    const merge = { merged: { overall: [{ key: "x", into: "k", kind: "open" }], helpsBoth: [{ key: "y", into: "k", kind: "then" }, { key: "z", into: "k", kind: "last" }], rounds: { overall: 2, helpsBoth: 3 }, ladders: 2, released: 0 } } as unknown as LadderSection["other"]["merge"];
+    expect(ladderSummary(section([row(2, [0.01], true), row(1, [251])], [better(0)], merge), "Several prizes")).toBe(
+      "How to offer it (Several prizes): the top 2 cards hold 2 / 1 offers, built in kept / 251 ms (first opens, medians); 0 of the top 1 have a candidate printing a higher Helps you and a higher chance; the pre-screen picks every candidate's offers on 1 of 1; 3 merged into another card (1 on the Overall list)",
+    );
+    // An offer's mark: another card by its place, else a merged trade by its place without the merge.
+    const fake = { trades: [{ key: "p" }, { key: "q" }], helpsBoth: { trades: [{ key: "q" }] } } as unknown as Pick<TradeSearchResult, "trades" | "helpsBoth">;
+    const step = (kind: OfferStep["kind"], key: string) => ({ kind, evaluation: { key } }) as unknown as OfferStep;
+    const rows = { rows: [{ list: "overall", trade: { key: "m1" }, was: 3 }, { list: "helpsBoth", trade: { key: "m2" }, was: 2 }, { list: "helpsBoth", trade: { key: "m3" }, was: null }] } as unknown as Pick<MergeSection, "rows">;
+    expect([offerMarkText(fake, rows, step("open", "q")), offerMarkText(fake, rows, step("open", "m1")), offerMarkText(fake, rows, step("then", "m2")), offerMarkText(fake, rows, step("last", "m3")), offerMarkText(fake, rows, step("last", "zz")), offerMarkText(fake, null, step("open", "m1"))]).toEqual([
+      "also trade idea 2",
+      "merged: was trade idea 3",
+      "merged: was “Helps both” idea 2",
+      "merged",
+      null,
+      null,
+    ]);
+    // The merge in words (mergeLines) on a made-up section: a merged trade with its card, a card that came in, one that left,
+    // a pair kept with a label; with the merge off; and for a search that stopped before ranking.
+    const ev = (give: string[], get: string[], partnerId = "2") => tradeEvaluation({ partnerId, give, get });
+    const into = ev([ids.wilson as string], [ids.hubbard as string]);
+    const folded = ev([ids.wilson as string], [ids.hubbard as string, ids.evans as string]);
+    const other = ev([ids.wilson as string], [ids.evans as string], "4");
+    const section7f: MergeSection = {
+      merged: { overall: [{ key: folded.key, into: into.key, kind: "open" }], helpsBoth: [], rounds: { overall: 2, helpsBoth: 1 }, ladders: 3, released: 1 },
+      rows: [{ list: "overall", trade: folded, was: 2, into, intoPlace: 1, kind: "open" }],
+      cameIn: [{ list: "overall", card: other, place: 6 }],
+      left: [{ list: "helpsBoth", card: other, was: 3 }],
+      labels: [{ list: "overall", holder: other, holderPlace: 6, held: into, heldPlace: 1, kind: "last" }],
+      cards: { overall: { without: 6, with: 6 }, helpsBoth: { without: 3, with: 2 } },
+      ms: 178.4,
+    };
+    const team = (id: string) => `Team ${id}`;
+    const n = (t: TradeEvaluation) => threeNumbers(t);
+    expect(mergeLines(snapshot, section7f, team)).toEqual([
+      `**Merged cards** (planner reply to Checkpoint 7e, decision 3: a card whose "How to offer it" holds a card of its list below it on Overall takes it among its offers, and the next idea takes its place): 1 merged on the Overall list (2 rounds), 0 on "Helps both" (1 round); 3 ladders read by the merge, worked out during the search in 178 ms (its "offers" timing); 1 given back (in no offers of a card above it). The lists' cards without the merge → with it: Overall 6 → 6, "Helps both" 3 → 2.`,
+      "",
+      `- Overall: Team 2: Garrett Wilson → Chuba Hubbard + Mike Evans (${n(folded)}), idea 2 without the merge, is now among the offers of idea 1 (“Open with”), Team 2: Garrett Wilson → Chuba Hubbard (${n(into)}).`,
+      `- Came in: Overall idea 6, Team 4: Garrett Wilson → Mike Evans (${n(other)}).`,
+      `- Left, not merged (the usual rules after a merge): “Helps both” idea 3 without the merge, Team 4: Garrett Wilson → Mike Evans (${n(other)}).`,
+      `- Kept with a label (⚠️ the lead's call: an idea whose offers hold an idea above it, which can't offer it back, so both stay and that offer says "Also shown as trade idea N."): Overall idea 6, Team 4: Garrett Wilson → Mike Evans (${n(other)}), offers idea 1 (“Last offer”).`,
+      "",
+    ]);
+    const quiet = mergeLines(snapshot, { ...section7f, merged: null, rows: [], cameIn: [], left: [], labels: [], ms: null }, team);
+    expect(quiet[0]).toContain(': off. The lists\' cards without the merge → with it: ');
+    expect(quiet).toContain("- No card's offers hold another card of its list.");
+    expect(mergeLines(snapshot, null, team)).toEqual(["**Merged cards**: the search stopped before ranking.", ""]);
   });
 
   it("the search without Helps them (withoutHelpsThem): every partner's calibration run is none, so no partner's scale is known", () => {
@@ -622,7 +674,7 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     expect(trades.length).toBeGreaterThan(0);
     expect(report.result.myTeamId).toBe("1");
     expect([...doc.matchAll(/^## (\d+)\./gm)].map((m) => Number(m[1]))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
-    expect(doc).toContain("# Trade search: Parker's ESPN league (Checkpoint 7e)");
+    expect(doc).toContain("# Trade search: Parker's ESPN league (Checkpoint 7f)");
     expect(doc).toContain("Generated by `npm run trade:report -- --offline data-local/synthetic --team 1 --prizes 2000,1600,900,0` on ");
     expect(doc).toContain("- Synthetic test league.");
     expect(doc).toContain(
@@ -1337,7 +1389,7 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     expect(s).toContain(`| The Finder's "checked N closely", without → with ${pair((x) => `${x.exact.without} → ${x.exact.with}`)}`);
     expect(s).toContain(`| The Finder's "Left out on purpose": ideas that wouldn't help you · that give up much more trade value · under the minimum chance, without → with ${pair((x) => `${left(x.leftOut.without)} → ${left(x.leftOut.with)}`)}`);
     expect(s).toContain(`**What the lane costs** (⚠️ ours: under "Only the champion", section 4's runs, each timed one followed by the same search without the lane on its own context`);
-    for (const label of [`| The lane's exact evaluations (${l.cost.exact.count}: its trades and their lean companions) |`, `| Their screening simulations (${l.cost.simScreen.count}, the legal ones) |`, "| The rest: final simulation, ranking, the shown pass and Plan B, with the lane less without | – |", "| **The lane's extra: the three parts** |", "| Search total with the lane (the app: section 4's) |", "| Search total without the lane (measured) | – |"]) expect(s).toContain(label);
+    for (const label of [`| The lane's exact evaluations (${l.cost.exact.count}: its trades and their lean companions) |`, `| Their screening simulations (${l.cost.simScreen.count}, the legal ones) |`, "| The rest: final simulation, ranking, the shown pass, the merge's ladders and Plan B, with the lane less without | – |", "| **The lane's extra: the three parts** |", "| Search total with the lane (the app: section 4's) |", "| Search total without the lane (measured) | – |"]) expect(s).toContain(label);
     expect(s).toMatch(/Under "Several prizes", section 2's one search \(warm, [^)]+\): the lane's exact evaluations [^;]+ and screening simulations [^;]+; the search without the lane, on a context of its own, /);
   });
 
@@ -1350,7 +1402,10 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     for (const row of l.title.rows) {
       expect(row.ladder).toEqual(offerLadderOfSearch(report.result, row.card.key));
       expect(row.ms).toHaveLength(report.runtime.runs.length);
-      for (const x of row.ms) expect(x).toBeGreaterThan(0);
+      // Checkpoint 7f: a ladder the search's merge read is kept and handed back as it is (a lookup: it can take no time at all).
+      expect(row.kept).toBe(st.ladders?.has(row.card.key) ?? false);
+      for (const x of row.ms) expect(x).toBeGreaterThanOrEqual(0);
+      if (!row.kept) for (const x of row.ms) expect(x).toBeGreaterThan(0);
       // The card's Plan B barred (the lead's call, wave D: another card of its list can be an offer), the candidates
       // pre-screened (the review of wave D, D-ENG-1).
       const choice = ladderChoice(ladderJobOfSearch(st, row.card));
@@ -1396,7 +1451,7 @@ describe("trade report: the whole offline report on a synthetic league", () => {
       const n = row.ladder.steps.length;
       expect(s).toContain(`${i + 1}. Team ${c.proposal.partnerId}: `);
       expect(s).toContain(`(${threeNumbers(c)}`);
-      expect(s).toContain(`${n} offer${n === 1 ? "" : "s"} from ${row.candidates} candidates, ${row.screened} legal ${row.screened === 1 ? "one" : "ones"} played out after the pre-screen, built in `);
+      expect(s).toContain(`${n} offer${n === 1 ? "" : "s"} from ${row.candidates} candidates, ${row.screened} legal ${row.screened === 1 ? "one" : "ones"} played out after the pre-screen, ${row.kept ? "kept from the search (its merge read it), handed back in " : "built in "}`);
       row.ladder.steps.forEach((x, k) => expect(s).toContain(`   ${k + 1}. ${OFFER_WORDS[x.kind]}: `));
       for (const x of row.ladder.steps) expect(s).toContain(`Helps you ${x.evaluation.tradeScore ?? "–"} · ${chancePrinted(x.evaluation.pAccept)} ${x.evaluation.acceptLabel}`);
       // An offer that is another card is marked by its place on the list (the lead's call, wave D); the card itself isn't.
@@ -1411,13 +1466,52 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     }
     const offered = l.title.rows.flatMap((row) => row.ladder.steps.filter((x) => x.kind !== "suggested"));
     const marked = offered.filter((x) => alsoCardText(report.result, x) !== null).length;
-    expect(s).toContain(`Of these ${offered.length} offer${offered.length === 1 ? "" : "s"} besides the cards themselves, ${marked} ${marked === 1 ? "is" : "are"} another card of the list.`);
+    // Checkpoint 7f: the offers that are merged trades counted apart.
+    const folded = offered.filter((x) => alsoCardText(report.result, x) === null && offerMarkText(report.result, l.title.merge, x) !== null).length;
+    expect(s).toContain(`Of these ${offered.length} offer${offered.length === 1 ? "" : "s"} besides the cards themselves, ${marked} ${marked === 1 ? "is" : "are"} another card of the list${folded ? ` and ${folded} ${folded === 1 ? "is a trade" : "are trades"} merged into ${folded === 1 ? "its card" : "their cards"}` : ""}.`);
     // alsoCardText on made-up keys: the Overall list's place, else the "Helps both" list's; none for the suggested trade.
     const fake = { trades: [{ key: "p" }, { key: "q" }], helpsBoth: { trades: [{ key: "q" }, { key: "z" }] } } as unknown as Pick<TradeSearchResult, "trades" | "helpsBoth">;
     const step = (kind: OfferStep["kind"], key: string) => ({ kind, evaluation: { key } }) as unknown as OfferStep;
     expect([alsoCardText(fake, step("open", "q")), alsoCardText(fake, step("last", "z")), alsoCardText(fake, step("then", "x")), alsoCardText(fake, step("suggested", "p"))]).toEqual(["also trade idea 2", "also “Helps both” idea 2", null, null]);
     expect(s.match(/⚠️ Candidates that print a higher Helps you and a higher chance than their card/g)).toHaveLength(2);
     expect(s.match(/The pre-screen picks the offers every candidate gives on \d+ of these \d+ cards\./g)).toHaveLength(2);
+    // Checkpoint 7f, the merge under each setting (mergeSection): the search's merged trades, each with the card it went into,
+    // against the same search without the merge (mergeCards false); the same section again from the report's own search.
+    const title = l.title.merge as MergeSection;
+    expect(title).not.toBeNull();
+    expect(title.merged).toEqual(report.result.merged ?? null);
+    expect(l.other.merge?.merged).toEqual(report.goals.result.merged ?? null);
+    const plain = runTradeSearch(report.ctx, { settings, mergeCards: false });
+    expect(mergeSection(report.result, plain, title.ms)).toEqual(title);
+    const offersTimed = report.runtime.search.offers;
+    expect(title.ms).toBe(offersTimed !== undefined && Number.isFinite(offersTimed) ? offersTimed : null);
+    for (const [m, r] of [
+      [title, report.result],
+      [l.other.merge as MergeSection, report.goals.result],
+    ] as const) {
+      const merged = m.merged;
+      expect(m.rows).toHaveLength((merged?.overall.length ?? 0) + (merged?.helpsBoth.length ?? 0));
+      for (const row of m.rows) {
+        const list = row.list === "overall" ? r.trades : (r.helpsBoth?.trades ?? []);
+        expect(list[row.intoPlace - 1]?.key).toBe(row.into.key);
+        expect(list.some((t) => t.key === row.trade.key)).toBe(false);
+        const step = offerLadderOfSearch(r, row.into.key)?.steps.find((x) => x.evaluation.key === row.trade.key);
+        expect(step?.kind).toBe(row.kind);
+        expect(compareOverall(row.into, row.trade as TradeEvaluation)).toBeLessThan(0);
+        expect(s).toContain(`is now among the offers of idea ${row.intoPlace} (“${OFFER_WORDS[row.kind]}”), `);
+      }
+      // A label only for a card above its holder; each list's cards both ways add up.
+      for (const x of m.labels) {
+        expect(compareOverall(x.held, x.holder)).toBeLessThan(0);
+        expect(offerLadderOfSearch(r, x.holder.key)?.steps.find((y) => y.evaluation.key === x.held.key)?.kind).toBe(x.kind);
+      }
+      for (const name of ["overall", "helpsBoth"] as const) {
+        const of = <T extends { list: string }>(xs: readonly T[]) => xs.filter((x) => x.list === name).length;
+        expect(m.cards[name].with).toBe(m.cards[name].without - m.rows.filter((x) => x.list === name && x.was !== null).length - of(m.left) + of(m.cameIn));
+      }
+      expect(s).toContain(`The lists' cards without the merge → with it: Overall ${m.cards.overall.without} → ${m.cards.overall.with}, "Helps both" ${m.cards.helpsBoth.without} → ${m.cards.helpsBoth.with}.`);
+    }
+    expect(s.match(/\*\*Merged cards\*\* \(planner reply to Checkpoint 7e, decision 3:/g)).toHaveLength(2);
     // Its own runs are timed with the report's stages.
     expect(report.timing.ladders).toBeGreaterThan(0);
     expect(doc).toContain(`section 11's runs under "Several prizes" and its candidates played out `);
