@@ -30,20 +30,21 @@
  *   card's. (Checkpoint 7e barred the box from the candidates, which changed none of 893 ladders on Parker's leagues and 68
  *   synthetic ones; ⚠️ the report switches planB otherTargetOnly false and minAcceptGain null can make a box an offer.)
  * - ⚠️ Another card of its list can be an offer (the lead's call, wave D; it replaces the review's barring, D-ENG-2 and
- *   UI-D-2): the rules choose it as they choose any candidate. Since Checkpoint 7f (planner reply to Checkpoint 7e, decision 3:
- *   "When one card's offer list contains another card's trade, merge them") the search folds it into the card when the card
- *   has the higher Overall (search.ts, "Merged cards"), so it shows only among the card's offers; when it has the higher
- *   Overall itself, and so its own offers don't include the card (the review of the merge, MERGE-1), both stay, and the card
- *   labels it with that card's place in the sort the Trade Finder shows ("Also shown as trade idea 2.", Plan B's words:
- *   tradeView.ts planBAlsoText, TradeCard.tsx `places`). Two shapes: (i) the card is a likelier variant of the other, a
- *   smaller ask that opens with the bigger one, which the other's ladder can't hold (its offers before its suggested trade
- *   are less likely than it, and its Last offer is itself plus a player of mine); (ii) the card is the other's lean version,
- *   the other being the card plus a player of mine (the card's Last offer), which the other's ladder could hold as its Open
- *   or a Then by the rules but passed over, picking those by Helps you on the screening block's 1,000 seasons (Parker's
- *   "Helps both" list, Oct 15: Puka Nacua → Drake London + Christian Watson, whose Last offer is Marvin Harrison Jr. + Puka
- *   Nacua → Drake London + Christian Watson). Why not bar it: the card's plan is lost, and "no version of it makes
- *   a better first offer" can be false (barred, on Parker's league, week 6, his top 3 cards each read "Offer this trade as
- *   it is", though #1 opens with #2's trade, #2 ends with #1's as its Last offer and #3 opens with #5's).
+ *   UI-D-2): the rules choose it as they choose any candidate. Since Checkpoint 7f (planner reply to Checkpoint 7e,
+ *   decision 3: "When one card's offer list contains another card's trade, merge them") the search folds it into the
+ *   card when the card has the higher Overall (search.ts, "Merged cards"), so it shows only among the card's offers;
+ *   when it has the higher Overall itself (its own offers then don't include the card, or the merge would have folded
+ *   the card into it: the review of the merge, MERGE-1), both stay, and the card labels it with that card's place in the
+ *   sort the Trade Finder shows ("Also shown as trade idea 2.", Plan B's words: tradeView.ts planBAlsoText,
+ *   TradeCard.tsx `places`). Two shapes: (i) the card is a likelier variant of the other, a smaller ask that opens with
+ *   the bigger one, which the other's ladder can't hold (its offers before its suggested trade are less likely than it,
+ *   and its Last offer is itself plus a player of mine); (ii) the card is the other's lean version, the other being the
+ *   card plus a player of mine (the card's Last offer), which the other's ladder could hold as its Open or a Then by the
+ *   rules but passed over, picking those by Helps you on the screening block's 1,000 seasons (Parker's "Helps both"
+ *   list, Oct 15: Puka Nacua → Drake London + Christian Watson, whose Last offer is Marvin Harrison Jr. + Puka Nacua →
+ *   Drake London + Christian Watson). Why not bar it: the card's plan is lost, and "no version of it makes a better
+ *   first offer" can be false (barred, on Parker's league, week 6, his top 3 cards each read "Offer this trade as it
+ *   is", though #1 opens with #2's trade, #2 ends with #1's as its Last offer and #3 opens with #5's).
  * The pre-screen (preScreened; ⚠️ ours, the review of wave D, D-ENG-1 and D-ENG-7: evaluating every candidate exactly kept
  * about 33 MB a card in the engine worker's context, the optimizer's memos, and took 1.4–2.0 s in Node with 3 players a
  * side): each candidate's quick estimate of the chance on the screening's fast method (evaluate.ts quickScreen, as the Last
