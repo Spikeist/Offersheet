@@ -1429,9 +1429,19 @@ describe("Checkpoint 7c: “Helps both” (planner reply to Checkpoint 7b, §7)"
       "const OFFER_ALSO = /^Also shown as trade idea \\d+\\.$/;",
       "function cardPlaces(a)",
       'a.closest("li[data-trade-key]")',
+      // Checkpoint 7e's live check: once an outcome press's version question has loaded the offers, "How to offer it"
+      // holds their messages, closed, ahead of the card's own, so the card's own is found past them and the Plan B box's.
+      "function ownMessage(a)",
+      "!(offers && offers.contains(d)) && !(box && box.contains(d))",
+      "const pitch = ownMessage(a);",
     ]) {
       expect(CARD_HELPERS, piece).toContain(piece);
     }
+    // TradeCard puts "How to offer it" ahead of the card's own message, which is why the card step can't take the first one.
+    const card = buildTradeCard(base, { snapshot });
+    const html = renderToStaticMarkup(createElement(TradeCard, { card, rank: 1, feedback: noFeedback, onFeedback: saved, onOffers: async () => ladder }));
+    expect(html.indexOf(">How to offer it")).toBeGreaterThan(-1);
+    expect(html.indexOf(">How to offer it")).toBeLessThan(html.lastIndexOf(">Message to send them"));
   });
 
   it("Checkpoint 7e: an offer that is another idea shown says so with that idea's place, and no other offer does (offersAlsoProblems; the lead's call, wave D)", () => {

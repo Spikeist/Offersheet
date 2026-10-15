@@ -1391,11 +1391,13 @@ export async function cardStep(ctx: StepContext): Promise<void> {
     report.check(step, saved && undone, `Report saves a reason and a note (${form.reasons} reasons offered), and Undo removes it`, saved ? "Undo didn't remove the report" : "Save report didn't save it");
   }
 
-  // The message to send them: opened, then Copy (a trusted tap) puts it on the clipboard.
+  // The message to send them: opened, then Copy (a trusted tap) puts it on the clipboard. The card's own (inPage.ts
+  // ownMessage): by now the version question has loaded the offers, whose messages sit first in the card, inside the closed
+  // "How to offer it", where a tap can't reach them.
   if (!ctx.firstCard.hasPitch) {
     report.skip(step, "the first idea has no message to copy");
   } else {
-    const details = `[...${first}.querySelectorAll("details")].find((d) => txt(d.querySelector("summary")).startsWith("Message to send them"))`;
+    const details = `ownMessage(${first})`;
     await page.click(`${details}.querySelector("summary")`, "Message to send them");
     await page.click(`${details}.querySelector("button")`, "Copy message");
     const copied = await page
@@ -1405,7 +1407,7 @@ export async function cardStep(ctx: StepContext): Promise<void> {
       const d = ${details};
       const text = d ? txt(d.querySelector("div p")) : "";
       try { const c = await navigator.clipboard.readText(); return { same: txt({ textContent: c }) === text, read: true }; } catch (e) { return { same: false, read: false }; }
-    `);
+    `, { cards: true });
     report.check(
       step,
       copied === "copied" && (clip.same || !clip.read),

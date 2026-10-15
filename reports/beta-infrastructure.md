@@ -328,3 +328,34 @@ npm run snapshot:pull -- --live
 The app never reads those two names, and the scripts read only after the store refuses a write made with the token;
 otherwise they stop and read nothing (`scripts/lib/storeReader.ts`; ⚠️ the refusal's wording is assumed until the
 first such run).
+
+## A normal deploy (after launch: Checkpoint 7e on)
+
+The planner (reply to Checkpoint 7d): "The one-time launch steps (secrets and firewall rules) are done, so a normal
+deploy is the dry run, Parker's go, the deploy with its checks, and his phone check." PowerShell, one command per line,
+in the project folder, with the approved tag (for Checkpoint 7e, `checkpoint-7e`, once Parker approves it and it's
+tagged):
+
+1. **The dry run** (it uploads nothing; every line must be ✅; it names the rollback target, the deployment production
+   serves until then: `checkpoint-7d`'s, offersheet-e50m4rlg3-parker-daniels.vercel.app, until 7e deploys):
+   ```
+   npm run prod:deploy -- --checkpoint checkpoint-7e
+   ```
+
+**Parker writes "go."**
+
+2. **The deploy**, then the checks again only with `--verify`, never a second `--live` (Hobby's Instant Rollback reaches
+   only the previous production deployment):
+   ```
+   npm run prod:deploy -- --live --checkpoint checkpoint-7e
+   npm run prod:deploy -- --verify --checkpoint checkpoint-7e
+   ```
+3. **The phone:** open https://offersheet.vercel.app, reload any Offer Sheet tab left open from before the deploy, and
+   check the League page and a trade card. (⚠️ Until Phase 5 makes the league store keep fields it doesn't know, a tab
+   still running the previous version erases the new version's settings and feedback steps when it saves: CLAUDE.md §17,
+   Phase 5.)
+
+**The rollback** is the one above (Vercel → offersheet → Deployments → the deployment the dry run names → ⋯ → Instant
+Rollback → Confirm). ⚠️ After a rollback to 7d, 7d drops 7e's new settings ("Drop from the same position", return weeks)
+the next time it saves a setting in a browser, and a feedback press there drops a 7e step's version (the same Phase 5
+item); a roll forward then starts those settings from their defaults.

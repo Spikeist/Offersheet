@@ -423,6 +423,14 @@ const OFFER_ALSO = /^Also shown as trade idea \d+\.$/;
 function offersDetails(a) {
   return [...a.querySelectorAll("details")].find((d) => txt(d.querySelector("summary")).startsWith("How to offer it")) || null;
 }
+// The card's own "Message to send them" (TradeCard.tsx Message, after the card's facts), or null: never an offer's inside
+// "How to offer it", which comes first in the card and holds its offers' messages, closed, once the card has asked for them
+// (an outcome press's version question does), nor the Plan B box's.
+function ownMessage(a) {
+  const offers = offersDetails(a);
+  const box = planBBox(a);
+  return [...a.querySelectorAll("details")].find((d) => txt(d.querySelector("summary")).startsWith("Message to send them") && !(offers && offers.contains(d)) && !(box && box.contains(d))) || null;
+}
 function offersData(a) {
   const d = offersDetails(a);
   if (!d) return null;
@@ -479,7 +487,7 @@ function partnerLine(a, skip) {
 }
 function cardData(a) {
   const link = ownAnalyzerLink(a);
-  const pitch = [...a.querySelectorAll("details")].find((d) => txt(d.querySelector("summary")).startsWith("Message to send them"));
+  const pitch = ownMessage(a);
   const box = planBBox(a);
   const them = partnerLine(a, box);
   return {
