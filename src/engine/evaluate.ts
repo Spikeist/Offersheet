@@ -77,8 +77,12 @@
  *   Rows no ranking run had play every season: "now or after this week" (this week as before the trade, another setup), a
  *   trade the search never ranked, the Analyzer before any search. The progress is kept for the context's life (about 5 KB a
  *   run: +0.3–0.7 MB of heap after a search on Parker's leagues, against 135–150 MB for the search). TradeContextOptions.resume
- *   false plays every run in full (tests and reports). On Parker's leagues (Oct 14, Node) the shown pass plays 390,000
- *   seasons where it played 520,000 (league 1) and 315,000 where it played 420,000 (league 2).
+ *   false plays every run in full (tests and reports). On Parker's leagues, with the merge (search.ts, "Merged cards"; the
+ *   review of the speed track, SPEED-2), a search's runs on the shown block all continue: on his first league 29 runs on Oct
+ *   14 (21 trades, cards and boxes, and 8 partners' scales), 435,000 seasons played where full runs would play 580,000, and
+ *   38 on Oct 15 (27 trades, 9 partners' scales and 2 ladder offers the search had ranked), 570,000 of 760,000; on his
+ *   12-team league 21 runs (315,000 of 420,000) and 23 (345,000 of 460,000). A ladder offer the search never ranked plays
+ *   every season (none in those searches, at 2 players a side; 2 of 26 runs at 3 a side on his first league, Oct 15).
  * - Once: partner profiles (acceptance.partnerProfile, P(playoffs) from the shown block's baseline), hot players, the
  *   deadline urgency, perception values and the waiver credit W (the League model's), long-term values and MyDynTotal
  *   when they loaded (benefit.futureValuesLoaded; since Checkpoint 7c every team's long-term total too, for "Helps
@@ -3859,13 +3863,54 @@ export function inKeyOrder(p: TradeProposal): TradeProposal {
   return { partnerId: p.partnerId, give: sorted(p.give), get: sorted(p.get) };
 }
 
-/** A version of `proposal`'s key listing its players in `proposal`'s order: the version itself when it already does. */
+/**
+ * A version of `proposal`'s key listing its players in `proposal`'s order: the version itself when it already does. Its
+ * evaluation and its numbers on the screening block are put in that order whole (coreInOrder): the proposal and, since
+ * Checkpoint 7f, the per-player lists that follow the order the version was evaluated in.
+ */
 function inProposalOrder(v: TradeVersion, proposal: TradeProposal): TradeVersion {
   const sameOrder = (a: readonly TradeAsset[], b: readonly TradeAsset[]) => a.length === b.length && a.every((x, i) => assetKey(x) === assetKey(b[i] as TradeAsset));
   const have = v.screen.proposal;
   if (sameOrder(have.give, proposal.give) && sameOrder(have.get, proposal.get)) return v;
-  const ordered: TradeProposal = { partnerId: have.partnerId, give: proposal.give.map((a) => ({ ...a })), get: proposal.get.map((a) => ({ ...a })) };
-  return { x: { ...v.x, evaluation: { ...v.x.evaluation, proposal: ordered } }, screen: { ...v.screen, proposal: ordered } };
+  return { x: { ...v.x, evaluation: coreInOrder(v.x.evaluation, proposal) }, screen: coreInOrder(v.screen, proposal) };
+}
+
+/**
+ * An evaluation of `proposal`'s key put in `proposal`'s order of players (Checkpoint 7f; the review of the merge, MERGE-4):
+ * its proposal (copies of `proposal`'s assets, its own partner), and the lists that follow the order it was evaluated in,
+ * each put in that order too: TradeDetail.premium (a fact for each player I'd get) and hotGiven by the players I get,
+ * hotReceived by the players I give, and ⚠️ flags.injured by the players I get (ours: the words read the hot and injured
+ * lists in their order, explain.ts hotLine and injuredLine; premium orders itself). An id the proposal doesn't hold keeps
+ * its place after the others (a stable sort). A version is evaluated in the order of whoever asked first (the search's
+ * screening order for its exact trades, the key's for a version evaluated afresh: tradeVersion), so without this a ladder
+ * step reusing one of the search's versions and the same step evaluated afresh on another context listed those facts in
+ * different orders (40 of 119 ladders on Parker's leagues and synthetic ones, review of the merge), and a kept ladder
+ * wasn't deep-equal to the worker's fallback, though the page showed the same. offers.ts puts every offer it prints in its
+ * own order this way (its numbers may be the search's, in the search's order).
+ */
+export function coreInOrder<T extends TradeEvaluationCore>(core: T, proposal: TradeProposal): T {
+  const placeIn = (side: readonly TradeAsset[]) => {
+    const at = new Map<string, number>();
+    for (const a of side) if (!at.has(assetKey(a))) at.set(assetKey(a), at.size);
+    return (id: string) => at.get(id) ?? Number.MAX_SAFE_INTEGER;
+  };
+  const byGet = placeIn(proposal.get);
+  const byGive = placeIn(proposal.give);
+  // Each list sorted by its players' places (an older evaluation without a list keeps it absent).
+  const ids = (xs: readonly string[], place: (id: string) => number): string[] => [...xs].sort((a, b) => place(a) - place(b));
+  const d = core.detail;
+  const detail: TradeDetail = {
+    ...d,
+    ...(Array.isArray(d.hotReceived) ? { hotReceived: ids(d.hotReceived, byGive) } : {}),
+    ...(Array.isArray(d.hotGiven) ? { hotGiven: ids(d.hotGiven, byGet) } : {}),
+    ...(Array.isArray(d.premium) ? { premium: [...d.premium].sort((a, b) => byGet(a.playerId) - byGet(b.playerId)) } : {}),
+  };
+  return {
+    ...core,
+    proposal: { partnerId: core.proposal.partnerId, give: proposal.give.map((a) => ({ ...a })), get: proposal.get.map((a) => ({ ...a })) },
+    detail,
+    flags: { ...core.flags, ...(Array.isArray(core.flags.injured) ? { injured: ids(core.flags.injured, byGet) } : {}) },
+  };
 }
 
 /**

@@ -279,10 +279,13 @@
  * that doesn't help both as printed) and 8 partners' scales, about 1.2 s of a 6.5 s search. Since Checkpoint 7f (planner
  * reply to Checkpoint 7e, answer 2) each of those runs continues its ranking run (evaluate.ts runSim and
  * partnerCalibrationOf; sim.ts, "Continuing a run"), so the pass plays 15,000 of each one's 20,000 seasons, with the same
- * numbers bit for bit (the Oct 14 dump: 18 trades and 8 partners' scales, about 0.9 s of a 6.3 s search). When the shown block is the
- * ranking block (shownSims at most finalSims) a trade's ranking numbers are its shown ones, bit for bit, and are taken as
- * they are, and without the pass (TradeSearchOptions.shownPass false) every number is the ranking block's: either way the
- * search is Checkpoint 7d's exactly.
+ * numbers bit for bit. With the merge ("Merged cards" below), a search's runs on the shown block on his league, Oct 14: 29
+ * (21 trades, cards and boxes, and 8 partners' scales), 435,000 seasons played where full runs would play 580,000; Oct 15:
+ * 38 (27 trades, 9 partners' scales and 2 ladder offers the search had ranked), 570,000 of 760,000; on his 12-team league 21
+ * runs (315,000 of 420,000) and 23 (345,000 of 460,000), each continuing its ranking run (the review of the speed track,
+ * SPEED-2). When the shown block is the ranking block (shownSims at most finalSims) a trade's ranking numbers are its shown
+ * ones, bit for bit, and are taken as they are, and without the pass (TradeSearchOptions.shownPass false) every number is
+ * the ranking block's: either way the search is Checkpoint 7d's exactly.
  *
  * Merged cards (Checkpoint 7f; planner reply to Checkpoint 7e, decision 3: "When one card's offer list contains another
  * card's trade, merge them: Keep only the card with the higher Overall in the list. The other trade appears only inside that
@@ -299,20 +302,32 @@
  * reading them as kept (rank.ts RankOptions.shownElsewhere; ⚠️ the lead's call, for that rule only, never a place or a cap:
  * without it their own filler variants took the freed places on Parker's league, Oct 14, and counted for the caps the freed
  * places mostly couldn't be filled), until a round merges none. ⚠️ The lead's calls: a card whose offers hold a card ABOVE it
- * (the holder below: a smaller ask that opens with a bigger one, which can't offer it back, since its offers before it are
- * less likely and its Last offer is itself plus a player of mine) merges nothing, both stay and that offer keeps its label
- * ("Also shown as trade idea N.": on Parker's league, Oct 15, idea 3, Breece Hall + Marvin Harrison Jr. → Mike Evans, opens
- * with idea 2); a merged trade may still be an offer of other cards (ladders don't depend on the list); and the release rule
- * (⚠️ ours; never seen): once a round merges none, a merged trade no card of the list above it offers (its card merged in
- * turn, or pushed off by the rules) comes back for good, never merged again, and the rounds go on, while one whose card left
- * but that another card above it offers is that card's from then on (MergedTrade.into is a card of the list). A trade merges
- * at most once and comes back at most once, so the rounds end. A card's ladder is worked out once per minimum chance (offers.ts
+ * (the holder below) merges nothing, both stay and that offer keeps its label ("Also shown as trade idea N."); what holds is
+ * that the higher card's own offers don't include this one (the review of the merge, MERGE-1: these words had said it "can't
+ * offer it back", true of the first shape only). Two shapes: (i) a likelier variant, a smaller ask that opens with a bigger
+ * one, which the higher card's ladder can't hold (before its suggested trade a ladder offers only versions less likely than
+ * the card, and its Last offer is itself plus a player of mine): on Parker's league, Oct 15, idea 3, Breece Hall + Marvin
+ * Harrison Jr. → Mike Evans (65%), opens with idea 2, the same two for Mike Evans + Ollie Gordon II (35%); (ii) the higher
+ * card's lean version, when the higher card is the lower one plus a player of mine (the lower card's Last offer), which the
+ * higher card's ladder could hold as its Open or a Then by the rules but passed over, since it picks its Open and Thens by
+ * Helps you on the screening block's 1,000 seasons: his "Helps both" list, Oct 15, Puka Nacua → Drake London + Christian
+ * Watson, whose Last offer is Marvin Harrison Jr. + Puka Nacua → Drake London + Christian Watson (4 of the 36 holder-below
+ * pairs the review found are this shape, that pair 3 times; option (d) of the merge's design, letting a ladder hold a
+ * smaller ask after the suggested trade, is a planner question, and so is this shape); a merged trade may still be an offer
+ * of other cards (ladders don't depend on the list); and the release rule (⚠️ ours; never seen on Parker's dumps or 1,369
+ * synthetic searches, the review of the merge; search.merge.release.test.ts drives it with made-up ladders, MERGE-5): once a
+ * round merges none, a merged trade no card of the list above it offers (its card merged in turn, or pushed off by the
+ * rules) comes back for good, never merged again, and the rounds go on, while one whose card left but that another card
+ * above it offers is that card's from then on (MergedTrade.into is a card of the list). A trade merges at most once and
+ * comes back at most once, so the rounds end. A card's ladder is worked out once per minimum chance (offers.ts
  * searchLadderChoiceSteps, in the search's store, which its re-filters share: a re-filter back to a minimum seen reads it
- * there), in steps of one exact evaluation or one run on the shown block (offers.ts ladderChoiceSteps), each a progress unit
- * and a yield, so the search's slices stay short (a ladder takes up to about 100 ms on Parker's leagues, about 200 ms searching
- * one team); the ones the merge read are kept with words (SearchState.ladders) and handed back as they are when the card is
- * opened (offers.ts offerLadderOfSearch: the ladder worked out on demand, or from the card's trade on a fresh context, is the
- * same). Plan B reads a list's merged trades as its cards (barredFromBoxes, dominatedByCard: the lead's call), so no box is
+ * there), in steps of one exact evaluation or one run on the shown block (offers.ts ladderChoiceSteps), each a progress
+ * unit and a yield, so the search's slices stay short (a ladder takes up to about 100 ms on Parker's leagues, about 200 ms
+ * searching one team); the ones the merge read are kept with words (SearchState.ladders) and handed back as they are when
+ * the card is opened (offers.ts offerLadderOfSearch: the ladder worked out on demand, or from the card's trade on a fresh
+ * context, is the same, deep-equal since the review of the merge, MERGE-4: evaluate.ts coreInOrder puts every offer's
+ * per-player facts in its own order). Plan B reads a list's merged trades as its cards (barredFromBoxes, dominatedByCard:
+ * the lead's call), so no box is
  * one or one they match or beat. The counts: dropped.merged (both lists') counts them, filter.qualifying and
  * HelpsBothList.qualifying count them among the qualifying (Phase 4c counted its folded cards so); "Left out on purpose"
  * (hidden) and counts.exact don't (a ladder's evaluations aren't counted, as an opened card's aren't); simShown counts cards
@@ -365,13 +380,22 @@
  * calibration run, each exact trade, each final simulation; then under the "rank" stage one unit each for every card's
  * numbers (and until Checkpoint 7e its steps), since Checkpoint 7c the "Helps both" list's cards the Overall list doesn't
  * show too, every card's Plan B, with a yield before each of Plan B's simulations, and since Checkpoint 7e every run on the
- * shown block, a card's, a
- * box's or a partner's scale, and since Checkpoint 7f each step of a ladder the merge works out: done of the units planned so
- * far, a later round's added as done, so the bar only moves forward (the review's SHOWN-5: the pass
- * restarted it), with TradeSearchProgress.part "shown" while the pass runs on a block of its own, which tradeView.ts names,
- * still the "rank" stage so a re-filter reads as one), so a worker can slice it and stop it. ⚠️ A run on the shown block is
- * one unit of about 45–50 ms on Parker's league in Node (20,000 seasons), over the 40 ms the other units keep to; about 35 ms
- * since Checkpoint 7f, continuing its ranking run (about 47 ms on his 12-team league, 61 before). Timings:
+ * shown block, a card's, a box's or a partner's scale, and since Checkpoint 7f each step of a ladder the merge works out:
+ * done of the units planned so far, a later round's added as done, so the bar only moves forward (the review's SHOWN-5: the
+ * pass restarted it); since Checkpoint 7f a card the rounds take off its list (merged, or left under the usual rules) leaves
+ * its Plan B's unit out of the total, so the last event is the count itself, every unit done (the review of the merge: on
+ * Parker's league, Oct 15, the bar stood at 79 of 82 until a last event set it done), with TradeSearchProgress.part "shown"
+ * while the pass runs on a block of its own and since Checkpoint 7f "offers" while the merge works a ladder out, which
+ * tradeView.ts names (still the "rank" stage, so a re-filter reads as one), so a worker can slice it and stop it. ⚠️ A run on
+ * the shown block is one unit of about 45–50 ms on Parker's league in Node (20,000 seasons), over the 40 ms the other units
+ * keep to; about 35 ms since Checkpoint 7f, continuing its ranking run (about 47 ms on his 12-team league, 61 before). ⚠️ A
+ * ladder's run on the shown block, which the merge makes during the search since Checkpoint 7f, plays all 20,000 seasons, a
+ * unit of about 44 ms on his league and 61 ms on his 12-team one: a ladder's versions are screened but never ranked, so
+ * there's no ranking run to continue, unless the version is one the search ranked anyway (at 2 players a side every ladder
+ * offer printed on Parker's four dumps was such a trade; at 3 a side, on his league, Oct 15, 2 of the search's 26 runs on
+ * the shown block played every season; the review of the speed track). The review of the merge (MERGE-3) measured the
+ * stage's longest slice at about 44–57 ms with the merge, 35–40 ms without it, within the 45–65 ms units Checkpoint 7e
+ * accepted. Timings:
  * one key per TradeSearchStage, "steps" (the shown trades' Plan B and words; until Checkpoint 7e their steps too: the key
  * keeps its name), "shown" (the runs on the shown block,
  * Checkpoint 7e), "offers" (Checkpoint 7f: the ladders the merge works out, their runs on the shown block among them, and their
@@ -1425,15 +1449,17 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
   // Progress under "rank" (the file header, "Progress"): units done of the units planned (each card's numbers, its Plan B,
   // each run on the shown block, each partner's scale there, and since Checkpoint 7f each step of a ladder the merge works
   // out), planned up front for the cards of the first rankings and, for any other, as it's done (a unit added to both
-  // counts), so the bar only moves forward; with `part` "shown" while the pass plays the ideas out on a block of its own
-  // (tradeView.ts progressView names it).
+  // counts), so the bar only moves forward; a card the rounds take off its list leaves its Plan B's unit out of the total
+  // (below), so the units done reach the total; with `part` "shown" while the pass plays the ideas out on a block of its own,
+  // and since Checkpoint 7f "offers" while the merge works a ladder out (tradeView.ts progressView names both).
   const planned = new Set<string>();
   const finished = new Set<string>();
   const unit = (id: string) => {
     planned.add(id);
     finished.add(id);
   };
-  const progress = (): TradeSearchProgress => ({ stage: "rank", done: finished.size, total: Math.max(1, planned.size), ...(own ? { part: "shown" as const } : {}) });
+  let part: TradeSearchProgress["part"] = own ? "shown" : undefined;
+  const progress = (): TradeSearchProgress => ({ stage: "rank", done: finished.size, total: Math.max(1, planned.size), ...(part ? { part } : {}) });
   function* shownRun(key: string): Generator<TradeSearchProgress, void, void> {
     if (!state.shownPass || !sim || state.shownByKey.has(key)) return;
     if (!own) {
@@ -1474,7 +1500,10 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
   // The ladders the merge reads (Checkpoint 7f; the file header, "Merged cards"): a card's choices (offers.ts
   // searchLadderChoiceSteps, once per minimum chance and card in the search's store), worked out in steps of one exact
   // evaluation or one run on the shown block each, a progress unit and a yield each, so no slice of the search holds more;
-  // by card key, each read once per finish.
+  // by card key, each read once per finish. Its progress reads `part` "offers" meanwhile (the bar says the ideas' offers are
+  // being worked out, not played out). ⚠️ A ladder's run on the shown block plays all 20,000 seasons unless the search
+  // ranked that version: its versions are screened, not ranked, so most have no ranking run to continue (about 44 ms on
+  // Parker's league in Node, 61 ms on his 12-team one: the file header, "Progress").
   const choices = new Map<string, LadderChoice | null>();
   let ladderSteps = 0;
   function* choiceOf(card: TradeEvaluation): Generator<TradeSearchProgress, LadderChoice | null, void> {
@@ -1482,6 +1511,8 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
     if (known !== undefined) return known;
     mark("steps");
     const it = searchLadderChoiceSteps(ladderJobOfSearch(state, card));
+    const was = part;
+    part = "offers";
     let r = it.next();
     while (!r.done) {
       mark("offers");
@@ -1489,6 +1520,7 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
       yield progress();
       r = it.next();
     }
+    part = was;
     mark("offers");
     choices.set(card.key, r.value);
     return r.value;
@@ -1612,6 +1644,13 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
   const overallKeys = new Set(overall.trades.map((t) => t.key));
   const bothKeys = new Set(bothShown.trades.map((t) => t.key));
   const cards = [...overall.trades, ...bothShown.trades.filter((t) => !overallKeys.has(t.key))];
+  // A card of the first rankings that neither list shows now (merged into a card's offers, left in a later round under the
+  // usual rules, or left on its printed numbers) gets no Plan B: its box's unit, planned up front, leaves the total, so the
+  // units done reach it (Checkpoint 7f; the review of the merge: the bar stood at 79 of 82 units before its last step on
+  // Parker's league, Oct 15, the boxes of the cards the merge took off its lists planned and never done). The bar only moves
+  // forward: the units done stay, the total shrinks.
+  const finalCards = new Set(cards.map((t) => t.key));
+  for (const t of firstListed) if (!finalCards.has(t.key)) planned.delete(`box:${t.key}`);
   // A box never names a trade its list shows as a card (planB.ts: the card above or below already offers it), nor ⚠️ one that
   // is a card plus more players who don't make it minAcceptGain likelier (barredFromBoxes); and ⚠️ none that a card with the
   // same partner matches or beats on both numbers (planB.ts dominatedByCard), on the ranking numbers and again on the
@@ -1761,8 +1800,9 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
   const merged: MergedCards | null = merging
     ? { overall: [...so.merged.values()], helpsBoth: [...sb.merged.values()], rounds: { overall: so.rounds, helpsBoth: sb.rounds }, ladders: choices.size, released: so.released.size + sb.released.size }
     : null;
-  const n = Math.max(1, planned.size);
-  yield { stage: "rank", done: n, total: n, ...(own ? { part: "shown" as const } : {}) };
+  // The last event is the count itself: every unit planned is done by now (above), so it reads done = total (with nothing
+  // planned at all, empty lists, one unit done of one). Until Checkpoint 7f it was set to done = total whatever the count.
+  yield planned.size ? progress() : { ...progress(), done: 1 };
   return {
     shown,
     hidden: { byBenefit: ranked.hidden.byBenefit + overall.hidden.byBenefit, byMarket: ranked.hidden.byMarket + overall.hidden.byMarket, byChance: ranked.hidden.byChance + overall.hidden.byChance },

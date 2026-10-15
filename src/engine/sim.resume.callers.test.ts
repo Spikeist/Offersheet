@@ -4,9 +4,12 @@
  * - The trade context: its baseline and my "Helps you" calibration on the ranking block keep their progress, and their runs
  *   on the shown block continue them; with TradeContextOptions.resume false, every run on the shown block plays all its
  *   seasons and nothing is kept.
- * - A search: every run it makes on the shown block (each card's and box's, each partner's scale) continues its ranking run,
- *   and so do a re-filter's and the Analyzer's on a trade the search ranked; "now or after this week" (rows of its own) and
- *   the Analyzer before any search play every season.
+ * - A search: every card's, box's and partner scale's run on the shown block continues its ranking run (each has one:
+ *   rankProgressOf, SimState.partnerProgress), and so do a re-filter's new cards' and boxes' and the Analyzer's on a trade
+ *   the search ranked, while a ladder offer the search never ranked (the merge's, offers.ts) plays every season; so the
+ *   shown block's runs are checked card by card, box by box and scale by scale, not all at once (the review of the speed
+ *   track, SPEED-3: at 3 players a side on Parker's league, Oct 15, 2 of the search's 26 runs there played every season).
+ *   "Now or after this week" (rows of its own) and the Analyzer before any search play every season.
  * - The waiver rating (league.ts rateWaiverUpgrades, waiverRating.ts): every finishing run continues its screening run.
  * The numbers these runs give are the full runs', bit for bit: sim.resume.test.ts and search.resume.test.ts. Synthetic leagues
  * (trade.testing.ts smallLeague: made-up players, placeholder teams).
@@ -28,7 +31,7 @@ vi.mock("./sim", async (importOriginal) => {
 });
 
 import { config } from "./config";
-import { analyzeTrade, buildTradeContext, laterNumbers, simCounts, tradeInternals, type ExactTrade, type SimState } from "./evaluate";
+import { analyzeTrade, buildTradeContext, laterNumbers, rankProgressOf, simCounts, tradeInternals, type ExactTrade, type SimState } from "./evaluate";
 import { buildLeagueModelWithContext, rateWaiverUpgrades, type LeagueModelConfig } from "./league";
 import { runRefilter, runTradeSearch, searchStateOf, type SearchState } from "./search";
 import { defaultTradeSettings, type TradeSettings } from "./settings";
@@ -67,7 +70,7 @@ describe("which runs continue another (simulateSeason's calls, counted)", { time
     expect(off.every((r) => r.from === 0 && !r.keep)).toBe(true);
   });
 
-  it("a search: every run on the shown block continues its ranking run (cards, boxes, partners' scales); a re-filter's and the Analyzer's on a ranked trade too", () => {
+  it("a search: every card's, box's and partner scale's run on the shown block continues its ranking run; a re-filter's and the Analyzer's on a ranked trade too", () => {
     const ctx = buildTradeContext(league.snapshot, league.inputs, opts);
     const sim = tradeInternals(ctx).sim as SimState;
     const { value: r, runs } = logged(() => runTradeSearch(ctx, { settings: at(0.1) }));
@@ -75,18 +78,35 @@ describe("which runs continue another (simulateSeason's calls, counted)", { time
     // Runs on the ranking block keep their progress (the finalists', Plan B's candidates', the partners' scales); the
     // screening block's don't.
     for (const x of runs) expect(x.keep, JSON.stringify(x)).toBe(x.sims === final);
-    // Every run on the shown block continues: one per trade the shown pass simulated (SearchState.shownByKey: the cards and
-    // boxes shown, and those their printed numbers took off a list or out of a box) and one per partner's scale there.
-    const shownRuns = onShown(runs);
-    expect(shownRuns).toHaveLength(st.shownByKey.size + sim.partners.size);
+    // Every trade the shown pass simulated (SearchState.shownByKey: the cards and boxes shown, and those their printed numbers
+    // took off a list or out of a box) had a ranking run that kept its progress, so its run on the shown block continued it;
+    // and so did every partner's scale there.
     expect(st.shownByKey.size).toBeGreaterThan(r.counts.simShown ?? 0); // a fact of the synthetic data: one left
-    expect(shownRuns.length).toBeGreaterThan(0);
-    for (const x of shownRuns) expect(x).toEqual({ sims: shown, from: final, keep: false });
-    expect(sim.partnerProgress.size).toBeGreaterThanOrEqual(sim.partners.size);
+    for (const key of st.shownByKey.keys()) {
+      const x = st.exactByKey.get(key) as ExactTrade;
+      expect(rankProgressOf(sim, x.mine, x.theirs)?.sims, key).toBe(final);
+    }
+    expect(sim.partners.size).toBeGreaterThan(0);
+    for (const id of sim.partners.keys()) expect(sim.partnerProgress.get(id)?.sims, id).toBe(final);
+    // At sim.ts's door: those runs from the ranking block's last season, and any other run on the shown block (a ladder offer
+    // the merge printed that the search never ranked) from the first; none keeps its progress.
+    const shownRuns = onShown(runs);
+    expect(shownRuns.filter((x) => x.from === final).length).toBeGreaterThanOrEqual(st.shownByKey.size + sim.partners.size);
+    for (const x of shownRuns) {
+      expect([final, 0], JSON.stringify(x)).toContain(x.from);
+      expect(x.keep).toBe(false);
+    }
     // Re-filtering to Any: the new cards and boxes continue their ranking runs too.
+    const before = new Set(st.shownByKey.keys());
     const any = onShown(logged(() => runRefilter(ctx, st, { minChance: 0 })).runs);
-    expect(any.length).toBeGreaterThan(0); // a fact of the synthetic data: Any shows more
-    for (const x of any) expect(x).toEqual({ sims: shown, from: final, keep: false });
+    const added = [...st.shownByKey.keys()].filter((k) => !before.has(k));
+    expect(added.length).toBeGreaterThan(0); // a fact of the synthetic data: Any shows more
+    for (const key of added) {
+      const x = st.exactByKey.get(key) as ExactTrade;
+      expect(rankProgressOf(sim, x.mine, x.theirs)?.sims, key).toBe(final);
+    }
+    expect(any.filter((x) => x.from === final).length).toBeGreaterThanOrEqual(added.length);
+    for (const x of any) expect([final, 0], JSON.stringify(x)).toContain(x.from);
     // The Analyzer on a card's trade: its run continues the search's ranking run; its "now or after this week" (rows of its
     // own: this week as before the trade) plays every season.
     const card = r.trades[0];

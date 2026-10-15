@@ -70,10 +70,11 @@
  * UI-D-5: the planner's "a different target"), and "Now or after this week" (item 4.2) is explained on both pages
  * (nowOrLaterWords: UI-D-9).
  * Checkpoint 7f (planner reply to Checkpoint 7e, decision 3, merged cards; search.ts, "Merged cards"): the Finder says that
- * when one idea's offers include another idea on the list, only the one with the higher Overall shows and the other is among
- * its offers, and that an offer which is another idea is one with a higher Overall that can't offer this one back (the lead's
- * call, policy (a)), still labeled with its place; the Plan B sentence stays. The Analyzer's words don't change (it shows one
- * card).
+ * when an idea's offers include another idea below it on Overall, only the higher one shows and the other is among its
+ * offers, and that an offer which is another idea is one above it on Overall whose own offers don't include this one (the
+ * lead's call, policy (a); the review of the merge, MERGE-1 and MERGE-2: the first words stated the rule for every pair and
+ * said the higher idea "can't offer this one back", which is false when this one is its lean version), still labeled with
+ * its place; the Plan B sentence stays. The Analyzer's words don't change (it shows one card).
  * A native <details>, closed at first; its summary is a 44 px target.
  */
 import type { HelpsScale } from "@/engine/benefit";
@@ -103,10 +104,10 @@ const offersCountWords = (n: number): string => `${n} ${n === 1 ? "offer" : "off
  * config.search.steps.minAcceptGain likelier; the last adding a player I can spare while B stays at least
  * config.search.steps.minBShare of the suggested trade's), what each shows, and when it says to offer the trade as it is.
  * The Analyzer names the trade built, where its minimum chance is set (the Trade Finder's control: the Analyzer has none), and
- * how a trade opened from Plan B is shown; the Finder, that since Checkpoint 7f an idea another idea above it offers is among
- * that idea's offers only (search.ts, "Merged cards"), that an offer which is another idea of the list (one with a higher
- * Overall that can't offer this one back) says so with its place ("Also shown as trade idea 2.": TradeCard.tsx) and that
- * none is its Plan B (offers.ts).
+ * how a trade opened from Plan B is shown; the Finder, that since Checkpoint 7f an idea another idea above it on Overall
+ * offers is among that idea's offers only (search.ts, "Merged cards"), that an offer which is another idea of the list (one
+ * above it on Overall whose own offers don't include this one) says so with its place ("Also shown as trade idea 2.":
+ * TradeCard.tsx) and that none is its Plan B (offers.ts).
  */
 export function offersWords(page: HowToReadPage): string {
   const analyzer = page === "analyzer";
@@ -123,7 +124,7 @@ export function offersWords(page: HowToReadPage): string {
     : `works out, when you open it on an idea that helps you, up to ${offersCountWords(config.offers.maxSteps)} to the same team, in order:`;
   const tail = analyzer
     ? `When no other version makes a better first offer, it says to offer the trade as it is. A trade opened from a trade idea's “${PLAN_B_HEADING}” is shown as one offer instead: they've just turned down a trade with the same team.`
-    : `When one idea's offers include another idea on the list, the list shows only the one with the higher Overall, and the other is among its offers. An offer can still be another idea with a higher Overall, when that idea can't offer this one back; it then says so, with that idea's place (“${planBAlsoText(2)}”). The idea's own “${PLAN_B_HEADING}” trade is never one of its offers. When no other version makes a better first offer, it says to offer the trade as it is.`;
+    : `When an idea's offers include another idea below it on Overall, the list shows only the higher one, and the other is among its offers. An offer can still be an idea above it on Overall whose own offers don't include this one; it then says so, with that idea's place (“${planBAlsoText(2)}”). The idea's own “${PLAN_B_HEADING}” trade is never one of its offers. When no other version makes a better first offer, it says to offer the trade as it is.`;
   return `${lead} ${steps} ${each} ${tail}`;
 }
 
