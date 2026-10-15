@@ -275,7 +275,10 @@
  * list they'd take out at Any too). The pattern note is made on the list shown; its drivers read the ranking block's
  * trades, as its ranking does. On Parker's league (week 6 under his prizes; Node) the pass simulated 19 trades at
  * Checkpoint 7e's wave A (the 17 its lists showed, cards and boxes, and 2 cards a list held, then left: one folded off, one
- * that doesn't help both as printed) and 8 partners' scales, about 1.2 s of a 6.5 s search. When the shown block is the
+ * that doesn't help both as printed) and 8 partners' scales, about 1.2 s of a 6.5 s search. Since Checkpoint 7f (planner
+ * reply to Checkpoint 7e, answer 2) each of those runs continues its ranking run (evaluate.ts runSim and
+ * partnerCalibrationOf; sim.ts, "Continuing a run"), so the pass plays 15,000 of each one's 20,000 seasons, with the same
+ * numbers bit for bit (the Oct 14 dump: 18 trades and 8 partners' scales, about 0.9 s of a 6.4 s search). When the shown block is the
  * ranking block (shownSims at most finalSims) a trade's ranking numbers are its shown ones, bit for bit, and are taken as
  * they are, and without the pass (TradeSearchOptions.shownPass false) every number is the ranking block's: either way the
  * search is Checkpoint 7d's exactly.
@@ -327,7 +330,8 @@
  * box's or a partner's scale: done of the units planned so far, so the bar only moves forward (the review's SHOWN-5: the pass
  * restarted it), with TradeSearchProgress.part "shown" while the pass runs on a block of its own, which tradeView.ts names,
  * still the "rank" stage so a re-filter reads as one), so a worker can slice it and stop it. ⚠️ A run on the shown block is
- * one unit of about 45–50 ms on Parker's league in Node (20,000 seasons), over the 40 ms the other units keep to. Timings:
+ * one unit of about 45–50 ms on Parker's league in Node (20,000 seasons), over the 40 ms the other units keep to; about 35 ms
+ * since Checkpoint 7f, continuing its ranking run (about 50 ms on his 12-team league). Timings:
  * one key per TradeSearchStage, "steps" (the shown trades' Plan B and words; until Checkpoint 7e their steps too: the key
  * keeps its name), "shown" (the runs on the shown block,
  * Checkpoint 7e) and "total"; a re-filter's: "rank", "steps", "shown" (when the pass has a block of its own) and "total".
@@ -1350,8 +1354,9 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
     }
     const x = exactByKey.get(key);
     if (!x) return;
-    // A yield before each run too: a run on the shown block is the stage's longest unit of work (about 45–55 ms on Parker's
-    // leagues in Node), so no slice holds a run and other work besides.
+    // A yield before each run too: a run on the shown block is the stage's longest unit of work (about 35–50 ms on Parker's
+    // leagues in Node since Checkpoint 7f, continuing its ranking run; 45–65 before), so no slice holds a run and other work
+    // besides.
     yield progress();
     if (!sim.partners.has(x.partner.id)) {
       mark("steps");

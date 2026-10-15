@@ -1141,8 +1141,8 @@ describe("progressView (M14's progress bar)", () => {
     expect(progressView(null)).toEqual({ label: "Getting your league ready", detail: null, percent: 0, valueText: "Getting your league ready" });
     const screening = progressView({ stage: "screening", done: 120, total: 480 });
     expect(screening).toEqual({ label: "Screening trade ideas", detail: "120 of 480", percent: 16, valueText: "Screening trade ideas: 120 of 480" });
-    // Checkpoint 7e: setup 7%, screening 36% (the ranking stage plays out the ideas shown on 20,000 seasons: 16%; the review's
-    // SHOWN-5). Phase 4c: setup 5%, screening 45%.
+    // Checkpoint 7e: setup 7%, screening 36% (the ranking stage plays out the ideas shown on 20,000 seasons: 16%, 13% since
+    // Checkpoint 7f, each run continuing its ranking run; the review's SHOWN-5). Phase 4c: setup 5%, screening 45%.
     expect(progressView({ stage: "exact", done: 0, total: 200 }).percent).toBe(43);
     const percents = (["setup", "screening", "exact", "simScreen", "simFinal", "rank"] as const).map((stage) => progressView({ stage, done: 0, total: 10 }).percent);
     expect(percents).toEqual([...percents].sort((x, y) => x - y));
@@ -1150,11 +1150,11 @@ describe("progressView (M14's progress bar)", () => {
     expect(progressView({ stage: "exact", done: 1300, total: 1200 }).detail).toBe("1,200 of 1,200");
   });
 
-  it("Checkpoint 7e: the ranking stage while it plays out the ideas shown (part \"shown\") says so, and holds the bar's last 16% (the review's SHOWN-5)", () => {
+  it("Checkpoint 7e: the ranking stage while it plays out the ideas shown (part \"shown\") says so, and holds the bar's last 13% (16% at Checkpoint 7e; the review's SHOWN-5)", () => {
     expect(SHOWN_PASS_LABEL).toBe(`Playing out the ideas you'll see ${Math.max(config.simulation.finalSims, config.simulation.shownSims).toLocaleString("en-US")} times`);
     expect(SHOWN_PASS_LABEL).toBe("Playing out the ideas you'll see 20,000 times");
-    expect(progressView({ stage: "rank", done: 3, total: 12, part: "shown" })).toEqual({ label: SHOWN_PASS_LABEL, detail: "3 of 12", percent: 88, valueText: `${SHOWN_PASS_LABEL}: 3 of 12` });
-    expect(progressView({ stage: "rank", done: 0, total: 12, part: "shown" }).percent).toBe(84);
+    expect(progressView({ stage: "rank", done: 3, total: 12, part: "shown" })).toEqual({ label: SHOWN_PASS_LABEL, detail: "3 of 12", percent: 90, valueText: `${SHOWN_PASS_LABEL}: 3 of 12` });
+    expect(progressView({ stage: "rank", done: 0, total: 12, part: "shown" }).percent).toBe(87);
     expect(progressView({ stage: "rank", done: 6, total: 12, part: "shown" }, "refilter")).toMatchObject({ label: SHOWN_PASS_LABEL, percent: 50 });
     // Without the part, the stage's own words.
     expect(progressView({ stage: "rank", done: 3, total: 12 }).label).toBe("Ranking the trade ideas");
@@ -1834,8 +1834,9 @@ describe("Phase 4c: the card's words that the planner's reply to Checkpoint 4b c
     expect(progressView({ stage: "rank", done: 5, total: 10 }, "refilter").percent).toBe(50);
     expect(progressView({ stage: "rank", done: 10, total: 10 }, "refilter").percent).toBe(99);
     expect(progressView({ stage: "screening", done: 120, total: 480 }, "refilter")).toEqual(progressView({ stage: "screening", done: 120, total: 480 }));
-    // A search's "rank" stage is its last 16% (Checkpoint 7e: it plays out the ideas shown on 20,000 seasons; 4% before).
-    expect(progressView({ stage: "rank", done: 5, total: 10 }).percent).toBe(92);
+    // A search's "rank" stage is its last 13% (Checkpoint 7f: its runs on the shown block continue their ranking runs; 16% at
+    // Checkpoint 7e, when it played out the ideas shown on all 20,000 seasons; 4% before).
+    expect(progressView({ stage: "rank", done: 5, total: 10 }).percent).toBe(93);
   });
 
   it("gives the Analyzer's card 'Details': what Helps you is worth in points a week, its trade-value part as a lineup equivalent, never a trade value figure (planner reply to Checkpoint 7a, §2 question 5 and 5.4)", () => {

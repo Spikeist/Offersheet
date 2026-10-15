@@ -75,10 +75,10 @@
  *   block continues it: every card and Plan B box of a search, a trade's own "before", a re-filter's new cards, an offer's
  *   version and the Analyzer's trade when the search ranked them; each partner's scale likewise (partnerCalibrationOf).
  *   Rows no ranking run had play every season: "now or after this week" (this week as before the trade, another setup), a
- *   trade the search never ranked, the Analyzer before any search. The progress is kept for the context's life (about 4–6
- *   KB a run: +0.3–0.4 MB a search on Parker's leagues). TradeContextOptions.resume false plays every run in full (tests
- *   and reports). On Parker's leagues (Oct 14, Node) the shown pass plays 390,000 seasons where it played 520,000 (league
- *   1) and 315,000 where it played 420,000 (league 2).
+ *   trade the search never ranked, the Analyzer before any search. The progress is kept for the context's life (about 5 KB a
+ *   run: +0.3–0.7 MB of heap after a search on Parker's leagues, against 135–150 MB for the search). TradeContextOptions.resume
+ *   false plays every run in full (tests and reports). On Parker's leagues (Oct 14, Node) the shown pass plays 390,000
+ *   seasons where it played 520,000 (league 1) and 315,000 where it played 420,000 (league 2).
  * - Once: partner profiles (acceptance.partnerProfile, P(playoffs) from the shown block's baseline), hot players, the
  *   deadline urgency, perception values and the waiver credit W (the League model's), long-term values and MyDynTotal
  *   when they loaded (benefit.futureValuesLoaded; since Checkpoint 7c every team's long-term total too, for "Helps

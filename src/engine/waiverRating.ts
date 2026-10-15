@@ -215,8 +215,8 @@ export function createWaiverRater(x: WaiverRaterInputs, cfg: WaiverRaterConfig):
     const of = (row: SimRow): MyRun => {
       let r = memo.get(row.key);
       if (!r) {
-        const from = prior?.progressOf(row.key);
-        r = runOn(row === beforeRow ? null : row, normals, from ? { resume: from } : { keep });
+        const kept = prior?.progressOf(row.key);
+        r = runOn(row === beforeRow ? null : row, normals, kept ? { resume: kept } : { keep });
         memo.set(row.key, r);
       }
       return r.run;
