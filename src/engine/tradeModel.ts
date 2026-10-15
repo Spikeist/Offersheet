@@ -580,6 +580,36 @@ export interface TradeSteps {
   ranked: "full" | "offerFirst";
 }
 
+/**
+ * A step's place in "How to offer it" (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1: "one ordered list of up to 4
+ * offers to the same team"): "open", the version best for me that still prints a fair chance; "then", a little less good
+ * for me, each likelier than the step before; "suggested", the card's own trade; "last", the suggested trade plus a
+ * throw-in.
+ */
+export type OfferStepKind = "open" | "then" | "suggested" | "last";
+
+/** One offer of a card's ladder (OfferLadder): its place, its own evaluation and its copy-ready message. */
+export interface OfferStep {
+  kind: OfferStepKind;
+  /**
+   * The version's own evaluation, with its words: its proposal and key, its printed numbers (the shown block, as a card's),
+   * its roster moves (myMoves) and its reasons and pitch.
+   */
+  evaluation: TradeEvaluation;
+  /** The step's message to send: the first step's pitch, a later step's a follow-up naming its version. */
+  message: string;
+}
+
+/** "How to offer it" for one card (Checkpoint 7e, item 4.1), built on demand in the engine worker. */
+export interface OfferLadder {
+  /** The card's key: its suggested trade's proposalKey. */
+  cardKey: string;
+  /** The offers in order, the suggested trade always among them; the suggested trade alone: nothing better to open with. */
+  steps: OfferStep[];
+  /** How long the ladder took to build, in ms, when the engine had a clock. */
+  ms?: number;
+}
+
 /** The star premium on one player the partner would give (§1 of the addendum), for the explanations and the tags. */
 export interface PremiumFact {
   playerId: string;
