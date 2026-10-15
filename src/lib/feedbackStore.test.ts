@@ -256,7 +256,23 @@ describe("which version was sent (planner reply to Checkpoint 4, change 6 and an
     expect(r).toMatchObject({ outcome: { kind: "sent", at: T1 }, version: "planB", versionKey: PLAN_B.key, versionAccept: { pAccept: 0.3, pComplete: 0.15 } });
     // The record's numbers stay the card's (the trade idea), the version's estimate beside them.
     expect(r?.numbers.pAccept).toBe(0.42);
-    expect(FEEDBACK_VERSIONS).toEqual(["offerFirst", "full", "planB"]);
+    // Checkpoint 7e (planner reply to Checkpoint 7d, item 4.1): a step's place in "How to offer it" and Plan B, then the
+    // kinds an older card recorded, still valid.
+    expect(FEEDBACK_VERSIONS).toEqual(["open", "then", "suggested", "last", "planB", "offerFirst", "full"]);
+  });
+
+  it("Checkpoint 7e: records every step's place in “How to offer it”, and still reads and keeps an older card's kinds (planner reply to Checkpoint 7d, item 4.1)", () => {
+    for (const version of FEEDBACK_VERSIONS) {
+      const sent = { version, key: `2|give:101|get:${version}`, pAccept: 0.3, pComplete: 0.3 };
+      const [r] = applyFeedback([], { leagueKey: LEAGUE, evaluation: evaluation(), change: { outcome: "sent", sent }, at: T1 });
+      expect(r, version).toMatchObject({ version, versionKey: sent.key, versionAccept: { pAccept: 0.3, pComplete: 0.3 } });
+      // Stored and read back, and through the export, with its own kind.
+      expect(parseFeedback(JSON.stringify([r]))[0]?.version, version).toBe(version);
+      expect(parseFeedbackExport(feedbackExportText([r as FeedbackRecord], T3))?.[0]?.version?.kind, version).toBe(version);
+    }
+    // An older card's file (version 3, "offerFirst" and "full") still reads.
+    const older = { kind: "offersheet-trade-feedback", version: 3, exportedAt: "2026-10-13", count: 2, records: ["offerFirst", "full"].map((kind) => ({ league: "league-1", trade: { partnerId: "2", give: [{ kind: "player", id: "101" }], get: [{ kind: "player", id: "204" }] }, shown: { helps: "39", chance: "40%", overall: "18" }, outcome: { kind: "sent" }, version: { kind } })) };
+    expect(parseFeedbackExport(JSON.stringify(older))?.map((r) => r.version?.kind)).toEqual(["offerFirst", "full"]);
   });
 
   it("later outcomes keep it; clearing the outcome clears it (it belongs to the sending); a report alone never has one", () => {

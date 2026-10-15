@@ -394,16 +394,77 @@ function ownAnalyzerLink(a) {
 // Checkpoint 7c ("Helps both"): the card's tag, a leaf with those words outside any screen-reader-only part, and the
 // partner's line, the odds line whose first item is "Helps them": its score (the item's number) and the labels of their
 // odds after it; null without the line. A Plan B box has neither. Checkpoint 7d: the card's own line is read outside its
-// "If they say no, try:" box (planBBox), and whether the box shows one of its own (it never may) is read apart.
+// Plan B box (planBBox), and whether the box shows one of its own (it never may) is read apart.
 const HELPS_BOTH_TEXT = "Helps both";
 const LINE_ITEM = ":scope > span.whitespace-nowrap > span.font-semibold";
 function hasHelpsBothTag(a) {
   return [...a.querySelectorAll("span")].some((e) => e.children.length === 0 && e.textContent.trim() === HELPS_BOTH_TEXT && !e.closest(".sr-only"));
 }
-// The card's "If they say no, try:" box (TradeCard.tsx PlanBBox: its first paragraph is that heading), or null.
+// The card's Plan B box (TradeCard.tsx PlanBBox: its first paragraph is its heading, the planner's "If they won't move: try …"
+// since Checkpoint 7e), or null. ⚠️ Only that heading: a box under Phase 4's "If they say no, try:" reads as none, and the card
+// step says so (cardPlanBHeadings).
+const PLAN_B_HEADING = "If they won't move: try …";
 function planBBox(a) {
-  const head = [...a.querySelectorAll("p")].find((p) => txt(p) === "If they say no, try:");
+  const head = [...a.querySelectorAll("p")].find((p) => txt(p) === PLAN_B_HEADING);
   return head ? head.parentElement : null;
+}
+// Every Plan B heading the cards show, by its words (Checkpoint 7e): each box's first paragraph, the one followed by its kind
+// line ("A different set of their players", "The same players of theirs, a different package").
+function cardPlanBHeadings() {
+  const kinds = ["A different set of their players", "The same players of theirs, a different package"];
+  return [...document.querySelectorAll("article p")].filter((p) => p.nextElementSibling && kinds.includes(txt(p.nextElementSibling))).map(txt);
+}
+// Checkpoint 7e (planner reply to Checkpoint 7d, item 4.1): the card's "How to offer it" (TradeCard.tsx OffersDisclosure: a
+// <details> whose summary starts with those words), or null; and, opened, what it shows (contracts.ts OffersRead): its status
+// line, each offer of its numbered list (its label, Helps you and the chance as printed from the paragraph that starts with
+// "Helps you", whether its own message has a Copy button; its key, the item's data-offer-key, and its "Also shown as trade
+// idea N." line when it's another card shown: the lead's call, wave D), and whether it shows a failure.
+const OFFER_ALSO = /^Also shown as trade idea \d+\.$/;
+function offersDetails(a) {
+  return [...a.querySelectorAll("details")].find((d) => txt(d.querySelector("summary")).startsWith("How to offer it")) || null;
+}
+function offersData(a) {
+  const d = offersDetails(a);
+  if (!d) return null;
+  const status = d.querySelector("p[role=status]");
+  const list = d.querySelector("ol");
+  const offers = list
+    ? [...list.children]
+        .filter((li) => li.tagName === "LI")
+        .map((li) => {
+          const ps = [...li.children].filter((c) => c.tagName === "P");
+          const lead = ps[0] ? ps[0].querySelector("span.font-semibold") : null;
+          const numbers = ps.map(txt).find((t) => t.startsWith("Helps you ")) || "";
+          const helps = /Helps you (\S+)/.exec(numbers);
+          const chance = /Chance they accept (\S+)/.exec(numbers);
+          // Its veto note, when the league's review could cut it (the chance the ladder's rules read: contracts.ts throughOf).
+          const note = ps.map(txt).find((t) => / it goes through\.$/.test(t)) || "";
+          const through = /(?:about (\d{1,3})%|under 5%) it goes through/.exec(note);
+          const message = [...li.querySelectorAll("details")].find((m) => txt(m.querySelector("summary")).startsWith("Message to send them"));
+          return {
+            label: lead ? txt(lead).replace(/:$/, "") : "",
+            helps: helps ? helps[1] : null,
+            chance: chance ? chance[1] : null,
+            through: through ? (through[1] ? through[1] + "%" : "<5%") : null,
+            copy: !!message && [...message.querySelectorAll("button")].some((b) => visibleText(b) === "Copy message"),
+            key: li.getAttribute("data-offer-key"),
+            also: ps.map(txt).find((t) => OFFER_ALSO.test(t)) || null,
+          };
+        })
+    : [];
+  return { status: status ? txt(status) : "", offers: offers, failed: !!d.querySelector("[role=alert]") };
+}
+// The Trade Finder's cards by key, each its place in the list the card is on (its item's data-trade-key, 1 = first), as the
+// page gives TradeCard its places; {} for a card outside such a list (the Analyzer's).
+function cardPlaces(a) {
+  const item = a.closest("li[data-trade-key]");
+  const list = item ? item.parentElement : null;
+  const out = {};
+  if (!list) return out;
+  [...list.children].filter((li) => li.matches("li[data-trade-key]")).forEach((li, i) => {
+    out[li.dataset.tradeKey] = i + 1;
+  });
+  return out;
 }
 function partnerLine(a, skip) {
   for (const p of a.querySelectorAll("p")) {
@@ -442,6 +503,23 @@ function cardData(a) {
 }
 function allCards() {
   return [...document.querySelectorAll("article")].map(cardData);
+}
+// Checkpoint 7e (planner reply to Checkpoint 7d, item 4.2): a card's "now or after this week" line, one of the card's own
+// paragraphs (never inside its Plan B box or its offers), its words as seen (no screen-reader-only part) and its tooltip; and
+// the card's fact that says the tooltip's words ("After this week's games"). contracts.ts nowOrLaterProblems reads them.
+function nowOrLaterOf(a) {
+  const seen = (el) => {
+    const c = el.cloneNode(true);
+    for (const x of c.querySelectorAll(".sr-only")) x.remove();
+    return txt(c);
+  };
+  const p = [...a.querySelectorAll(":scope > p")].find((x) => /^Helps you \S+ now\b/.test(txt(x)));
+  const dt = [...a.querySelectorAll("dt")].find((d) => txt(d) === "After this week's games");
+  const dd = dt ? dt.nextElementSibling : null;
+  return { helps: scoreOf(a, "Helps you"), line: p ? { text: seen(p), title: p.getAttribute("title") } : null, fact: dd ? txt(dd) : null };
+}
+function allNowOrLater() {
+  return [...document.querySelectorAll("article")].map(nowOrLaterOf);
 }
 `;
 

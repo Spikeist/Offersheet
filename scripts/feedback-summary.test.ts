@@ -201,16 +201,44 @@ describe("by version sent (planner reply to Checkpoint 4, change 6 and answer 8)
 
   it("counts each latest outcome by the version sent, records without one as unknown", () => {
     const s = summarizeFeedback(entriesOf(withVersions()));
+    const none = { sent: 0, accepted: 0, rejected: 0, countered: 0 };
+    // Checkpoint 7e (planner reply to Checkpoint 7d, item 4.1): the steps of "How to offer it" first, then Plan B, then an
+    // older card's kinds, each a row whether or not a record names it.
     expect(s.byVersion.map((v) => [v.version, v.total, v.outcomes])).toEqual([
+      ["open", 0, none],
+      ["then", 0, none],
+      ["suggested", 0, none],
+      ["last", 0, none],
+      ["planB", 1, { sent: 0, accepted: 1, rejected: 0, countered: 0 }],
       ["offerFirst", 1, { sent: 0, accepted: 0, rejected: 1, countered: 0 }],
       ["full", 1, { sent: 0, accepted: 1, rejected: 0, countered: 0 }],
-      ["planB", 1, { sent: 0, accepted: 1, rejected: 0, countered: 0 }],
       ["unknown", 7, { sent: 1, accepted: 2, rejected: 3, countered: 1 }],
     ]);
     const text = formatSummary(s);
     expect(text).toContain("## By version sent");
-    expect(text).toContain("| If they say no (Plan B) | 1 | 0 | 1 | 0 | 0 | 0 |");
+    expect(text).toContain("| If they won't move (Plan B) | 1 | 0 | 1 | 0 | 0 | 0 |");
+    expect(text).toContain("| First offer (older cards) | 1 | 0 | 0 | 1 | 0 | 0 |");
     expect(text).toContain("| Unknown (not recorded) | 7 | 1 | 2 | 3 | 1 | 7 |");
+  });
+
+  it("Checkpoint 7e: counts the step of “How to offer it” that was sent, the suggested trade as the card's own (planner reply to Checkpoint 7d, item 4.1)", () => {
+    let r = sample();
+    r = idea(r, "o1", 0.25, [{ outcome: "sent", sent: { version: "open", key: "2|give:101|get:202,203", pAccept: 0.15, pComplete: 0.15 } }, { outcome: "rejected" }]);
+    r = idea(r, "o2", 0.25, [{ outcome: "sent", sent: { version: "then", key: "2|give:101|get:203", pAccept: 0.2, pComplete: 0.2 } }, { outcome: "countered" }]);
+    r = idea(r, "o3", 0.25, [{ outcome: "accepted", sent: { version: "suggested", key: "2|give:101|get:201", pAccept: 0.25, pComplete: 0.25 } }]);
+    r = idea(r, "o4", 0.25, [{ outcome: "sent", sent: { version: "last", key: "2|give:101,108|get:201", pAccept: 0.35, pComplete: 0.35 } }]);
+    const entries = entriesOf(r);
+    const s = summarizeFeedback(entries);
+    expect(s.byVersion.slice(0, 4).map((v) => [v.version, v.total, v.cardOwn])).toEqual([
+      ["open", 1, 0],
+      ["then", 1, 0],
+      ["suggested", 1, 1],
+      ["last", 1, 0],
+    ]);
+    // Each calibrates on the chance its own line printed.
+    expect(entries.filter((e) => e.version).map((e) => predictedAccept(e))).toEqual([0.15, 0.2, 0.25, 0.35]);
+    const text = formatSummary(s);
+    for (const row of ["| Open with | 1 | 0 | 0 | 1 | 0 | 0 |", "| Then | 1 | 0 | 0 | 0 | 1 | 0 |", "| The suggested trade | 1 | 0 | 1 | 0 | 0 | 1 |", "| Last offer | 1 | 1 | 0 | 0 | 0 | 0 |"]) expect(text).toContain(row);
   });
 
   it("says per version how many sent the card's own trade, the one whose numbers the card printed (review of track F)", () => {
@@ -219,10 +247,10 @@ describe("by version sent (planner reply to Checkpoint 4, change 6 and answer 8)
     const records = idea(withVersions(), "v4", 0.35, [{ outcome: "sent", sent: { version: "full", key: "2|give:101,108|get:201", pAccept: 0.5, pComplete: 0.5 } }]);
     const entries = entriesOf(records);
     const s = summarizeFeedback(entries);
-    expect(s.byVersion.map((v) => [v.version, v.total, v.cardOwn])).toEqual([
+    expect(s.byVersion.filter((v) => v.total > 0).map((v) => [v.version, v.total, v.cardOwn])).toEqual([
+      ["planB", 1, 0],
       ["offerFirst", 1, 0],
       ["full", 2, 1],
-      ["planB", 1, 0],
       ["unknown", 7, 7],
     ]);
     const at = (i: number) => entries[records.findIndex((r) => r.tradeKey === `v${i}`)] as FeedbackExportEntry;
@@ -233,7 +261,7 @@ describe("by version sent (planner reply to Checkpoint 4, change 6 and answer 8)
     expect(sentCardTrade({ trade: { partnerId: "2", give: [{ kind: "player", id: "108" }, { kind: "player", id: "101" }], get: [] }, version: { kind: "full", give: [{ kind: "player", id: "101" }, { kind: "player", id: "108" }], get: [] } })).toBe(true);
     const text = formatSummary(s);
     expect(text).toContain("| Version | Trade ideas | Sent | Accepted | Rejected | Countered | The card's own trade |");
-    expect(text).toContain("| Full trade | 2 | 1 | 1 | 0 | 0 | 1 |");
+    expect(text).toContain("| Full trade (older cards) | 2 | 1 | 1 | 0 | 0 | 1 |");
   });
 
   it("calibrates on the sent version's printed chance when the record has one (the prediction acted on), else the card's", () => {

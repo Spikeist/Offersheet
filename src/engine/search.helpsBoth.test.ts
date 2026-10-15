@@ -4,7 +4,8 @@
  * order, with the minimum chance and §13's caps; the extras are the top config.search.helpsBothFinalists screening trades
  * that help both, checked again on the final run; a card on both lists is one evaluation; no Plan B box names a card of a
  * list its card is on; the review's findings (HB-1 to HB-5): the Overall list is what it is without the second list, a card
- * that helps both offers first and falls back only on trades that help both, the list shows no filler of its own cards; a
+ * that helps both falls back only on trades that help both and (since Checkpoint 7e, offers.ts) offers only such versions in
+ * its "How to offer it", the list shows no filler of its own cards; a
  * lower minimum's suggestion; re-filtering equals a fresh search; one partner and must-include players. Checkpoint 7d
  * (planner reply to Checkpoint 7c, answer 2): the helps-both lane (search.ts helpsBothLaneOf), its condition, order, cap,
  * skipping, lean companions, one partner, must-include players, the report switch, that it changes nothing when no screened
@@ -15,7 +16,8 @@
 import { describe, expect, it } from "vitest";
 import { helpsBoth } from "./benefit";
 import { config } from "./config";
-import { analyzeTrade, assetValue, buildTradeContext, proposalKey, tradeInternals, tradeSteps, type Screened, type SimState, type TeamState, type TradeContext, type TradeInternals, type TradeVersion } from "./evaluate";
+import { analyzeTrade, assetValue, buildTradeContext, proposalKey, tradeInternals, tradeVersion, type Screened, type SimState, type TeamState, type TradeContext, type TradeInternals } from "./evaluate";
+import { ladderCandidates, ladderJobOfSearch, offerLadderOfProposal, offerLadderOfSearch } from "./offers";
 import { assetId, meetsMinChance, rankTrades } from "./rank";
 import {
   atMostWaiverCredit,
@@ -191,18 +193,15 @@ describe("the “Helps both” list (TradeSearchResult.helpsBoth)", { timeout: 1
     expect(shared).toBeGreaterThan(0); // a fact of the synthetic data
   });
 
-  it("no Plan B box names a card of a list its card is on, nor a version that list's steps show; ⚠️ an Overall card's box may be a card only the “Helps both” list shows (HB-2: the page shows one list at a time)", () => {
+  it("no Plan B box names a card of a list its card is on; ⚠️ an Overall card's box may be a card only the “Helps both” list shows (HB-2: the page shows one list at a time)", () => {
     let boxes = 0;
     let otherList = 0;
     for (const seed of [...SEEDS, 40]) {
       for (const minChance of [0, 0.1]) {
         const r = search(seed, minChance);
         const lists = [r.trades, listOf(r)];
-        const bars = lists.map((list) => {
-          const barred = new Set(keys(list));
-          for (const c of list) if (c.steps) for (const k of [c.steps.offerFirst.key, c.steps.ifNo.full.key]) barred.add(k);
-          return barred;
-        });
+        // (Until Checkpoint 7e nor a version its list's steps showed: the cards carry no steps since.)
+        const bars = lists.map((list) => new Set(keys(list)));
         for (const c of new Set([...r.trades, ...listOf(r)])) {
           if (!c.planB) continue;
           boxes++;
@@ -211,7 +210,7 @@ describe("the “Helps both” list (TradeSearchResult.helpsBoth)", { timeout: 1
           });
           if (!listOf(r).includes(c) && keys(listOf(r)).includes(c.planB.key)) otherList++;
           expect(c.planB.proposal.partnerId).toBe(c.proposal.partnerId);
-          // One Plan B per card: never next to steps.
+          // No card carries steps (Checkpoint 7e: "How to offer it" is worked out when it's opened, offers.ts).
           expect(c.steps).toBeUndefined();
         }
       }
@@ -220,7 +219,7 @@ describe("the “Helps both” list (TradeSearchResult.helpsBoth)", { timeout: 1
     expect(otherList).toBeGreaterThan(0); // smallLeague(40): a fact of the synthetic data
   });
 
-  it("⚠️ the Overall list is what it is without the second list (HB-2, HB-5): with every partner's scale unknown, so that no trade helps both, the same cards, steps, boxes, words, `few`, pattern note and counts but the final runs", () => {
+  it("⚠️ the Overall list is what it is without the second list (HB-2, HB-5): with every partner's scale unknown, so that no trade helps both, the same cards, boxes, words, `few`, pattern note and counts but the final runs", () => {
     let wouldEnter = 0;
     for (const seed of [8, 12, 13, 40]) {
       const r = search(seed, 0.1);
@@ -246,7 +245,7 @@ describe("the “Helps both” list (TradeSearchResult.helpsBoth)", { timeout: 1
     expect(wouldEnter).toBeGreaterThan(0);
   });
 
-  it("⚠️ a card that helps both teams, on either list, offers first only a version that helps both and has a box that helps both (HB-1, HB-4); smallLeague(20): the rule takes a card's steps", () => {
+  it("⚠️ a card that helps both teams, on either list, has a box that helps both (HB-4) and since Checkpoint 7e offers only versions that help both in its “How to offer it” (HB-1, offers.ts); smallLeague(20): the rule keeps a card's lean version out", () => {
     let tagged = 0;
     for (const seed of [...SEEDS, 20, 32, 36]) {
       for (const minChance of [0, 0.1]) {
@@ -255,29 +254,39 @@ describe("the “Helps both” list (TradeSearchResult.helpsBoth)", { timeout: 1
         for (const c of new Set([...r.trades, ...listOf(r)])) {
           if (!helpsBoth(c)) continue;
           tagged++;
-          if (c.steps) expect(helpsBoth(st.versions.get(c.steps.offerFirst.key)?.screen as TradeEvaluationCore), `seed ${seed} ${c.key}`).toBe(true);
           if (c.planB) expect(helpsBoth(st.finalByKey.get(c.planB.key) as TradeEvaluationCore), `seed ${seed} ${c.key} → ${c.planB.key}`).toBe(true);
+          for (const s of offerLadderOfSearch(r, c.key)?.steps ?? []) expect(helpsBoth(s.evaluation), `seed ${seed} ${c.key}: ${s.kind} ${s.evaluation.key}`).toBe(true);
         }
       }
     }
     expect(tagged).toBeGreaterThan(0);
-    // smallLeague(20): a card that helps both whose lean version doesn't (a fact of the synthetic data). Without the rule its
-    // steps would offer that version first; with it, none, and the card is one offer. The Analyzer says the same.
+    // smallLeague(20): a card that helps both whose lean version helps me but not them (a fact of the synthetic data): the
+    // steps' case 1 offered it first until Checkpoint 7c's HB-1; the ladder never offers it. The Analyzer says the same.
     const r = search(20, 0.1);
     const st = stateOf(r);
     const settings = at(0.1);
-    const card = listOf(r).find((t) => {
-      const plain = tradeSteps(st.I, st.versions.get(t.key) as TradeVersion, { settings, maxPerSide: settings.maxPerSide, versions: st.versions });
-      return plain !== null && plain.ranked === "full" && !helpsBoth(st.versions.get(plain.offerFirst.key)?.screen as TradeEvaluationCore);
-    });
-    expect(card).toBeDefined();
-    const c = card as TradeEvaluation;
+    let found: { card: TradeEvaluation; lean: string } | null = null;
+    for (const t of listOf(r)) {
+      const lean = ladderCandidates(ladderJobOfSearch(st, t)).find((x) => x.kind === "lean");
+      if (!lean) continue;
+      const v = tradeVersion(st.I, lean.proposal, { settings, maxPerSide: settings.maxPerSide, versions: st.versions });
+      if (v && (v.screen.b as number) > 0 && !helpsBoth(v.screen)) {
+        found = { card: t, lean: lean.key };
+        break;
+      }
+    }
+    expect(found).not.toBeNull();
+    const { card: c, lean } = found as { card: TradeEvaluation; lean: string };
     expect(c.steps).toBeUndefined();
-    expect(tradeSteps(st.I, st.versions.get(c.key) as TradeVersion, { settings, maxPerSide: settings.maxPerSide, versions: st.versions, helpsBoth: true })).toBeNull();
+    expect((offerLadderOfSearch(r, c.key)?.steps ?? []).map((s) => s.evaluation.key)).not.toContain(lean);
     const a = analyzeTrade(contextOf(20), c.proposal, { settings }).evaluation as TradeEvaluation;
     expect(helpsBoth(a)).toBe(true);
     expect(a.steps).toBeUndefined();
-    // The pitch names the card's own trade (no offer-first version): every player of mine in it, the throw-in too.
+    for (const s of offerLadderOfProposal(contextOf(20), c.proposal, { settings }).steps) {
+      expect(helpsBoth(s.evaluation), s.evaluation.key).toBe(true);
+      expect(s.evaluation.key).not.toBe(lean);
+    }
+    // The pitch names the card's own trade: every player of mine in it, the throw-in too.
     for (const id of given(c)) expect(c.pitch, id).toContain(st.I.snapshot.players[id]?.name as string);
   });
 

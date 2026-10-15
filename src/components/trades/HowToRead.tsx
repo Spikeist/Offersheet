@@ -58,6 +58,17 @@
  * both teams, the Analyzer's card always ("then it reads 0" when the trade costs them), and the tag needs the bar on both
  * scores; the sentence on what it counts names Helps them, which the sentence before it no longer ends on (review of
  * Checkpoint 7d, cards-export-4).
+ * Checkpoint 7e (planner reply to Checkpoint 7d, items 4.1 and 2.2): "How to offer it" is the ladder of offers on every
+ * card that helps me, worked out when it's opened (offersWords: up to config.offers.maxSteps offers in order, "Open with",
+ * "Then", the suggested trade or the trade built, "Last offer", by their rules from config, and what each shows; the
+ * Analyzer's names the trade built, and a trade opened from Plan B is one offer), replacing Phase 4's two steps; Plan B
+ * reads "If they won't move: try …", below an idea; and the "Roster moves these numbers assume" box is explained on both
+ * pages (rosterMovesWords: its lines, the line of moves made either way, and whose odds start from them), which wave B left
+ * unexplained. The review of wave D: the Analyzer names where its minimum chance is set (the Trade Finder: UI-D-9), the
+ * Finder says no offer is the idea's Plan B (D-ENG-2; since the lead's call for wave D, that an offer which is another idea
+ * on the list says so with its place, where it said no offer was one), Plan B is a different set of their players (D-ENG-5,
+ * UI-D-5: the planner's "a different target"), and "Now or after this week" (item 4.2) is explained on both pages
+ * (nowOrLaterWords: UI-D-9).
  * A native <details>, closed at first; its summary is a 44 px target.
  */
 import type { HelpsScale } from "@/engine/benefit";
@@ -65,13 +76,80 @@ import { config } from "@/engine/config";
 import type { LeagueSettings } from "@/engine/model";
 import type { Reward } from "@/engine/reward";
 import { fmtNum } from "@/lib/format";
-import { GOAL_LABEL, HARDER_TO_GET_TAG, HELPS_BOTH_TAG, HELPS_THEM_LABEL, cardOddsWords, harderToGetWho, minChanceLabel, weighedOddsWords } from "@/lib/tradeView";
+import { GOAL_LABEL, HARDER_TO_GET_TAG, HELPS_BOTH_TAG, HELPS_THEM_LABEL, OFFERS_HEADING, PLAN_B_HEADING, ROSTER_MOVES_HEADING, cardOddsWords, harderToGetWho, minChanceLabel, planBAlsoText, weighedOddsWords } from "@/lib/tradeView";
 
 export type HowToReadPage = "finder" | "analyzer";
 
 /** Plan B's least Helps you, as a share of the card's (config.search.planB.minHelpsShare): "half as much", "60% as much". */
 export function planBShareWords(share: number = config.search.planB.minHelpsShare): string {
   return share === 0.5 ? "half as much" : `${Math.round(share * 100)}% as much`;
+}
+
+/** A share in words, "80%" (a whole percent). */
+const percentWords = (share: number): string => `${Math.round(share * 100)}%`;
+
+/** "4 offers", "1 offer" (config.offers.maxSteps). */
+const offersCountWords = (n: number): string => `${n} ${n === 1 ? "offer" : "offers"}`;
+
+/**
+ * "How to offer it" in words, after the paragraph's bold heading (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1):
+ * up to config.offers.maxSteps offers to the same team, in order, by the ladder's rules (offers-engine: an opening offer
+ * printing at least config.offers.openMinChance, or the minimum chance when that's higher; each later one at least
+ * config.search.steps.minAcceptGain likelier; the last adding a player I can spare while B stays at least
+ * config.search.steps.minBShare of the suggested trade's), what each shows, and when it says to offer the trade as it is.
+ * The Analyzer names the trade built, where its minimum chance is set (the Trade Finder's control: the Analyzer has none), and
+ * how a trade opened from Plan B is shown; the Finder, that an offer which is another idea of the list says so with its place
+ * ("Also shown as trade idea 2.": TradeCard.tsx) and that none is its Plan B (offers.ts).
+ */
+export function offersWords(page: HowToReadPage): string {
+  const analyzer = page === "analyzer";
+  const own = analyzer ? "the trade you built" : "the idea itself";
+  const gain = planBGainWords(config.search.steps.minAcceptGain);
+  const steps =
+    `“Open with” the version that helps you most while it still has at least a ${percentWords(config.offers.openMinChance)} chance they accept (or ${analyzer ? "the minimum chance you set on the Trade Finder" : "your minimum chance"}, ` +
+    `when that's higher); “Then”, versions that help you a little less, each at least ${gain} likelier than the one before; ` +
+    `“${analyzer ? "The trade you built" : "The suggested trade"}”${analyzer ? "" : `, ${own}`}; and “Last offer”, ${analyzer ? "the trade you built" : "the suggested trade"} plus a player you can spare ` +
+    `(losing him costs your lineup little), when that makes it at least ${gain} likelier while it still does at least ${percentWords(config.search.steps.minBShare)} as much for you.`;
+  const each = `Each offer shows Helps you, the chance they accept, the roster moves its numbers assume when they aren't ${analyzer ? "this card's" : "the idea's"}, and its own message to send them.`;
+  const lead = analyzer
+    ? `works out, when you open it, up to ${offersCountWords(config.offers.maxSteps)} of this trade to the same team, in order:`
+    : `works out, when you open it on an idea that helps you, up to ${offersCountWords(config.offers.maxSteps)} to the same team, in order:`;
+  const tail = analyzer
+    ? `When no other version makes a better first offer, it says to offer the trade as it is. A trade opened from a trade idea's “${PLAN_B_HEADING}” is shown as one offer instead: they've just turned down a trade with the same team.`
+    : `An offer that is also another idea on the list says so, with that idea's place (“${planBAlsoText(2)}”); the idea's own “${PLAN_B_HEADING}” trade is never one of its offers. When no other version makes a better first offer, it says to offer the trade as it is.`;
+  return `${lead} ${steps} ${each} ${tail}`;
+}
+
+/**
+ * "Now or after this week" in words (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.2; the review of wave D, UI-D-9:
+ * How to read didn't explain the line): when a card shows it (the two printed Helps you more than config.explain.
+ * nowOrLaterMin apart, at least config.explain.nowOrLaterWeeks weeks before the deadline) and the planner's tooltip.
+ */
+export function nowOrLaterWords(): string {
+  const min: number = config.explain.nowOrLaterMin;
+  const weeks: number = config.explain.nowOrLaterWeeks;
+  return (
+    `shows on a card when making the same trade after this week's games would change Helps you by more than ${min} (“Helps you 37 now · 41 if done after this week's games.”), ` +
+    `while at least ${weeks} ${weeks === 1 ? "week remains" : "weeks remain"} before your trade deadline. It assumes the same deal is still there next week: injuries, big games or another trade can change that, and their answer may change too.`
+  );
+}
+
+/**
+ * The roster moves box in words (Checkpoint 7e: planner reply to Checkpoint 7d, item 2.2, "Each card lists every roster move
+ * its numbers assume, in order, each with its reason and its week"; wave B's box, which How to read hadn't explained): what
+ * its lines are, the line of moves made either way, and (item 2.1) whose odds then start from them.
+ */
+export function rosterMovesWords(page: HowToReadPage): string {
+  const either =
+    page === "analyzer"
+      ? "when one isn't on the League page's list, your odds before this trade count it too."
+      : "when one isn't on the League page's list, the idea's odds start from your odds with it, and the card says so.";
+  return (
+    "lists, in order, each move to your roster that the card's numbers count on, with its reason and its week: a player you'd drop to stay within your " +
+    "league's limits or to make room, a free agent for a roster spot the trade opens, a waiver move the trade makes worthwhile, and who you'd release when a " +
+    `player comes back from IR. Moves you'd make with or without the trade, like the pickups the League page suggests, are named on one line at the end and aren't counted for the trade; ${either} ` +
+    "The other team's moves follow yours."
+  );
 }
 
 /**
@@ -274,28 +352,23 @@ export function HowToRead({
           <span className="font-bold">{HARDER_TO_GET_TAG}</span> marks a player you&apos;d get who is {harderToGetWho("their")}: managers want a little extra for
           players like that, and the chance they accept counts it.
         </p>
-        {analyzer ? (
+        <p>
+          <span className="font-bold">{OFFERS_HEADING}</span> {offersWords(page)}
+        </p>
+        {analyzer ? null : (
           <p>
-            <span className="font-bold">How to offer it</span> shows when the trade is worth offering in two steps: offer the first version, and if they say no,
-            add the player named, one you can spare (losing him costs your lineup little), which raises the chance they accept. If the trade you built gives a
-            player you can spare along with someone else, the first version leaves him out, and adding him back gives the trade you built. The message to send
-            them proposes the first version; the three numbers are for the trade you built. A trade opened from a trade idea&apos;s &ldquo;If they say no,
-            try&rdquo; is shown as one offer instead: they&apos;ve just turned down a trade with the same team.
+            <span className="font-bold">{PLAN_B_HEADING}</span> shows below an idea when the same team has a trade they&apos;re likelier to accept: at least{" "}
+            {planBGainWords()} likelier to go through, while still helping you at least {planBShareWords()}. It&apos;s the best such trade for a different set of their
+            players (other versions of the idea&apos;s own trade are in {OFFERS_HEADING}), with its own three numbers and odds, its own message to send them, and a link to
+            open it in the Trade Analyzer, where it&apos;s shown as one offer.
           </p>
-        ) : (
-          <>
-            <p>
-              <span className="font-bold">How to offer it</span> shows on some ideas: offer the first version, and if they say no, add the player named, one you can
-              spare (losing him costs your lineup little), which raises the chance they accept. The message to send them proposes the first version.
-            </p>
-            <p>
-              <span className="font-bold">If they say no, try</span> shows on other ideas when the same team has a trade they&apos;re likelier to accept: at least{" "}
-              {planBGainWords()} likelier to go through, while still helping you at least {planBShareWords()}. It&apos;s the best such trade, a different package for the
-              same players of theirs when there is one, else a different set of their players, with its own three numbers and odds, its own message to send them, and a link
-              to open it in the Trade Analyzer, where it&apos;s shown as one offer.
-            </p>
-          </>
         )}
+        <p>
+          <span className="font-bold">{ROSTER_MOVES_HEADING}</span> {rosterMovesWords(page)}
+        </p>
+        <p>
+          <span className="font-bold">Now or after this week</span> {nowOrLaterWords()}
+        </p>
         <p>
           <span className="font-bold">Injury tags</span> show under any player in the trade who isn&apos;t healthy, on either side: for example &ldquo;Questionable&rdquo; or
           &ldquo;Out — expected back week 8&rdquo;. The week shows when his projection counts on it, so a questionable player whose league site doesn&apos;t expect him

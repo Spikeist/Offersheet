@@ -654,6 +654,33 @@ export function tradeDeadlinePassed(deadline: LeagueSettings["tradeDeadline"], n
   return isFiniteNumber(deadline.week) && isFiniteNumber(week) && week > deadline.week;
 }
 
+/**
+ * Weeks left before the trade deadline (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.2: "only when at least 2 weeks
+ * remain before the trade deadline"; here with the deadline's other readings since the review of wave D, D-ENG-9, so the
+ * client-safe src/workers/freshness.ts reads it too; evaluate.ts re-exports it): with its date (read first, as
+ * tradeDeadlinePassed does), the whole days from `now` to it ÷ 7; else, with its week D, D − `week` (the week the platform
+ * numbers it in: leagueWeek ?? currentWeek, transactionWeek). Below 0 once it has passed. Null without a deadline: none, or
+ * (⚠️ ours) one the platform doesn't report, which, as for tradeDeadlinePassed, never stops a trade.
+ */
+export function weeksToDeadline(deadline: LeagueSettings["tradeDeadline"], now: Date, week: number): number | null {
+  if (!deadline) return null;
+  const at = deadlineMs(deadline);
+  const nowMs = now.getTime();
+  if (at !== null && Number.isFinite(nowMs)) return Math.floor((at - nowMs) / DAY_MS) / 7;
+  const d = deadline.week;
+  return isFiniteNumber(d) && isFiniteNumber(week) ? d - week : null;
+}
+
+/**
+ * Whether "Now or after this week" may show by the trade deadline (evaluate.ts laterApplies's deadline part; Checkpoint 7e,
+ * item 4.2): no known deadline, or at least config.explain.nowOrLaterWeeks weeks left (weeksToDeadline). Its own reading, so
+ * src/workers/freshness.ts holds a context only while it stays the same (the review of wave D, D-ENG-9).
+ */
+export function laterBeforeDeadline(deadline: LeagueSettings["tradeDeadline"], now: Date, week: number): boolean {
+  const left = weeksToDeadline(deadline, now, week);
+  return left === null || left >= config.explain.nowOrLaterWeeks - 1e-9;
+}
+
 // ---------------------------------------------------------------------------------------------
 // The model
 

@@ -8,11 +8,14 @@
  *
  * That is: no NFL kickoff (ModelInputs.nfl.kickoffs) between the two moments (a game kicks off at its time: kickoff ≤
  * now means started, as the engine reads it; an unreadable time never starts), since a game that kicks off no longer
- * counts (§6 step 7); and ⚠️ ours, on top of M12: the trade deadline's two readings (acceptance.ts urgencyTerm and
+ * counts (§6 step 7); and ⚠️ ours, on top of M12: the trade deadline's readings (acceptance.ts urgencyTerm and
  * tradeDeadlinePassed) are the same at both times, since crossing either changes the numbers (deadline urgency; "Your
- * league's trade deadline has passed").
+ * league's trade deadline has passed"), and since Checkpoint 7e so is "Now or after this week"'s (acceptance.ts
+ * laterBeforeDeadline: at least config.explain.nowOrLaterWeeks weeks left; the review of wave D, D-ENG-9: a context built
+ * Monday night 2.1 weeks before Parker's deadline stayed in use till Thursday night's kickoff, 32 hours past the 2-week mark,
+ * and its cards kept the line).
  */
-import { tradeDeadlinePassed, transactionWeek, urgencyTerm } from "@/engine/acceptance";
+import { laterBeforeDeadline, tradeDeadlinePassed, transactionWeek, urgencyTerm } from "@/engine/acceptance";
 import type { ModelInputs } from "@/engine/inputs";
 import type { LeagueSnapshot } from "@/engine/model";
 
@@ -37,5 +40,9 @@ export function contextStillValid(
   const week = transactionWeek(snapshot);
   const then = new Date(builtForMs);
   const now = new Date(nowMs);
-  return urgencyTerm(deadline, then, week) === urgencyTerm(deadline, now, week) && tradeDeadlinePassed(deadline, then, week) === tradeDeadlinePassed(deadline, now, week);
+  return (
+    urgencyTerm(deadline, then, week) === urgencyTerm(deadline, now, week) &&
+    tradeDeadlinePassed(deadline, then, week) === tradeDeadlinePassed(deadline, now, week) &&
+    laterBeforeDeadline(deadline, then, week) === laterBeforeDeadline(deadline, now, week)
+  );
 }

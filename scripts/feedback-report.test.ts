@@ -128,6 +128,31 @@ describe("an older version's goal, and the prize splits (Checkpoint 7c)", () => 
   });
 });
 
+describe("the version sent (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1)", () => {
+  it("reads and counts a copy naming a step of “How to offer it”, and an older browser's “offerFirst” and “full” still", () => {
+    const sent = (rid: string, version: "open" | "then" | "suggested" | "last" | "planB" | "offerFirst" | "full", key: string) =>
+      ({ ...copyOf(rid, [{ outcome: "sent", sent: { version, key, pAccept: 0.2, pComplete: 0.2 } }]), day: "2026-10-04" }) as StoredFeedbackEvent;
+    const entries = [
+      sent(A, "open", "2|give:106|get:203,204"),
+      sent(B, "then", "2|give:106|get:203"),
+      sent(C, "suggested", "2|give:106|get:204"),
+      sent(D, "last", "2|give:106,108|get:204"),
+      sent("EEEEEEEEEEEEEEEEEEEEEA", "offerFirst", "2|give:106|get:204"),
+      sent("FFFFFFFFFFFFFFFFFFFFFQ", "full", "2|give:106,108|get:204"),
+    ].map((e) => JSON.stringify(e));
+    const { events, invalid } = parseFeedbackEntries(entries);
+    expect(invalid).toBe(0);
+    expect(summarizeFeedback(events, invalid, new Map([["2026-10-04", 6]])).byVersion).toEqual([
+      ["open", 1],
+      ["then", 1],
+      ["suggested", 1],
+      ["last", 1],
+      ["offerFirst", 1],
+      ["full", 1],
+    ]);
+  });
+});
+
 describe("feedbackReportArgs and the days", () => {
   it("previews and the store's whole year by default; --env production; --days 1–366; anything else in words", () => {
     expect(MAX_DAYS).toBe(feedbackLimits.retainDays + 1);

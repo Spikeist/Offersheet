@@ -116,7 +116,7 @@ describe("exact evaluation with IR players: the sides' specs after the trade and
     expect(I.league.lp.weeks.weeks[d.from]).toBe(7);
     // Team 2 gave its returner away: its baseline displacement is gone, and nothing new is forced on it.
     expect(x.evaluation.required.partner).toEqual({ drops: [expect.any(String)], adds: [] });
-    // The steps' versions carry the same fields (TradeStep.required is the version's own).
+    // A version on the screening block carries the same fields (offers.ts's versions; until Checkpoint 7e the steps').
     const s = simulateTrade(I, x, "screen", null);
     expect(s.required).toEqual(x.evaluation.required);
   });

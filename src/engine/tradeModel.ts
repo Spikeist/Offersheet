@@ -220,6 +220,21 @@ export interface OddsBefore {
   prizes: PrizeOdds;
 }
 
+/**
+ * Checkpoint 7e (planner reply to Checkpoint 7d, item 4.2, "Now or after this week": "run the simulation once more with the
+ * trade starting next week"; TradeEvaluation.later, evaluate.ts laterNumbers): the same trade done after this week's games.
+ * The current week is played by both teams as in the trade's "before" (mine: my baseline, or the trade's own "before" with
+ * its either-way moves; the partner's: its baseline), every later week as after the trade, simulated on the shown block of
+ * seasons and scored on the card's own "Helps you" scale (the shown block's B₃). Nothing else changes: the rosters, the roster
+ * moves, the trade value and the chance they accept are the trade's.
+ */
+export interface LaterNumbers {
+  /** B if the trade is done after this week's games (its market term the trade's own); null when it can't be known. */
+  b: number | null;
+  /** Its Helps you on the same B₃ as the card's: round(100 × (1 − e^(−B / B₃))) when B > 0, else null (a card prints 0 for B ≤ 0). */
+  tradeScore: number | null;
+}
+
 /** §11's features for the partner, as the model used them (the feedback export stores them). */
 export interface AcceptanceFeatures {
   /**
@@ -282,8 +297,9 @@ export interface TradeEvaluation {
    * b3, floored at config.benefit.helpsFloor): the B of a uniform +config.benefit.helpsGain (3) projected points a week for
    * my team, under the same goal, on the same baseline and seasons (evaluate.ts helpsScaleOf); in a dynasty or keeper league
    * with long-term values B_ref(λ) = (1 − λ) × that + λ × F₁₀, F₁₀ = 4, the B of +10% long-term value (planner reply to
-   * Checkpoint 7a, §2 question 6; λ the trade's). The same for every trade of a search (its steps' and Plan B's numbers too)
-   * and for the Analyzer's call with the same settings. So B = B₃ reads 63, and helpsGain × B / B₃ is what the trade is worth
+   * Checkpoint 7a, §2 question 6; λ the trade's). The same for every trade of a search (its Plan B's numbers and, since Checkpoint 7e,
+   * its "How to offer it" offers too: the shown block's; until then its steps', and since 7e the screening block's versions
+   * read the ranking block's) and for the Analyzer's call with the same settings. So B = B₃ reads 63, and helpsGain × B / B₃ is what the trade is worth
    * in lineup points a week (the Analyzer's Details, benefit.lineupEquivalent; in units of the scale's mix with long-term
    * values). B's market term is priced on it too (marketWeekly). Null before simulation or without odds.
    */
@@ -305,8 +321,8 @@ export interface TradeEvaluation {
   /**
    * Checkpoint 7c (planner reply to Checkpoint 7b, §7, "Helps them": "the partner's version of Helps you, from the same
    * simulation runs"): the partner's side of the runs dPO came from (evaluate.ts simulateTrade). Set on every simulated
-   * evaluation (the search's screened and final trades, the steps' versions and the Analyzer's; a TradeStep and a PlanB don't
-   * carry it), absent before simulation, without odds and on an evaluation made before it.
+   * evaluation (the search's screened and final trades, the versions "How to offer it" reads and offers, the steps' until
+   * Checkpoint 7e, and the Analyzer's; a TradeStep and a PlanB don't carry it), absent before simulation, without odds and on an evaluation made before it.
    */
   them?: PartnerNumbers;
   /**
@@ -323,6 +339,16 @@ export interface TradeEvaluation {
    * absent on one made before it (the card then words `required.me` as before).
    */
   myMoves?: RosterMoves;
+  /**
+   * Checkpoint 7e (planner reply to Checkpoint 7d, item 4.2, "Now or after this week"): the same trade done after this week's
+   * games (LaterNumbers; evaluate.ts laterNumbers), for the card's "Helps you 37 now · 41 if done after this week's games."
+   * The Trade Analyzer sets it with each evaluation (analyzeTrade); the Trade Finder's cards get theirs from the engine
+   * worker once the search has answered (engine.worker.ts `later`), so a search's own evaluations don't carry it. Absent
+   * when a week is under way (its games are held as rosters stand before and after every trade, so "now" already starts next
+   * week), when no week after this one counts, when fewer than config.explain.nowOrLaterWeeks weeks remain before the trade
+   * deadline, without odds or a team, and on an evaluation made before it.
+   */
+  later?: LaterNumbers;
   /** Changes in my average weekly starting points: remaining regular-season weeks, and playoff weeks. */
   dPPW: number;
   dPPWPlayoffs: number;
@@ -402,20 +428,23 @@ export interface TradeEvaluation {
   detail: TradeDetail;
   /**
    * "Offer first / if they say no" (planner addendum to Checkpoint 3, §4): absent when no step qualifies (or before the
-   * addendum). Ranking and the three numbers above stay the ranked trade's.
+   * addendum). Ranking and the three numbers above stay the ranked trade's. Since Checkpoint 7e (planner reply to Checkpoint
+   * 7d, item 4.1) no evaluation has steps: a card's "How to offer it" is an OfferLadder, worked out when it's opened
+   * (src/engine/offers.ts). Kept so an evaluation made before still reads.
    */
   steps?: TradeSteps;
   /**
-   * "If they say no, try:" (planner reply to Checkpoint 4, change 6): on a Trade Finder card without steps, the best other
+   * "If they say no, try:" (planner reply to Checkpoint 4, change 6; since Checkpoint 7e "If they won't move: try …", planner
+   * reply to Checkpoint 7d, item 4.1): on a Trade Finder card without steps (since Checkpoint 7e every card), the best other
    * exactly evaluated trade with the same partner that still helps (B > 0, Helps you at least config.search.planB.
    * minHelpsShare of the card's, not hidden by the market guard) and, ⚠️ since the review of track F, is likelier to go
    * through (P_complete at least config.search.steps.minAcceptGain above the card's), the same players of theirs first,
    * with at most config.ranking.perGivenPlayerInTop20 boxes adding the same player of mine, and ⚠️ never a trade the
    * search bars from the boxes (search.ts barredFromBoxes: a trade the list shows as a card itself, final review of Phase
    * 4b, or such a card plus more players who don't make it minAcceptGain likelier, Phase 4c; and since the final review of
-   * Phase 4c a version a card's steps show, or one another card with its partner matches or beats on both Helps you and
-   * P_complete: planB.ts dominatedByCard) (src/engine/planB.ts). Absent when none qualifies, on a card with steps, and in
-   * the Analyzer.
+   * Phase 4c a version a card's steps show (until Checkpoint 7e), or one another card with its partner matches or beats on
+   * both Helps you and P_complete: planB.ts dominatedByCard) (src/engine/planB.ts). Absent when none qualifies, on a card
+   * with steps (until Checkpoint 7e), and in the Analyzer. A card's "How to offer it" never offers it (offers.ts).
    */
   planB?: PlanB;
   /** Plain-English reasons (§13), most important first (src/engine/explain.ts). */
@@ -531,7 +560,11 @@ export interface PlanB {
   myMoves?: RosterMoves;
 }
 
-/** One version of a trade in "Offer first / if they say no" (§4 of the addendum): exact evaluation + the screening simulation. */
+/**
+ * One version of a trade in "Offer first / if they say no" (§4 of the addendum): exact evaluation + the screening simulation.
+ * Until Checkpoint 7e (planner reply to Checkpoint 7d, item 4.1, which replaced the steps with OfferLadder); kept so an
+ * evaluation made before still reads.
+ */
 export interface TradeStep {
   proposal: TradeProposal;
   /** proposalKey of the proposal. */
@@ -561,7 +594,8 @@ export interface TradeStep {
 }
 
 /**
- * The two steps (§4 of the addendum). A throw-in is one of my players whose loss costs me at most
+ * The two steps (§4 of the addendum), until Checkpoint 7e (planner reply to Checkpoint 7d, item 4.1: "How to offer it" is an
+ * OfferLadder since, src/engine/offers.ts; its Last offer keeps the second case's rule). A throw-in is one of my players whose loss costs me at most
  * config.search.throwInMaxCost ROS lineup points (scenario lineups; × Σω ÷ Σω₀ under the automatic playoff weight: league.ts
  * step 5c, LineupThresholds) against my free-agent-optimized roster.
  * - The ranked trade gives a throw-in (and keeps a player on my side without it): offer first = the trade without my
@@ -735,8 +769,8 @@ export interface TradeSearchResult {
   hidden: { byBenefit: number; byMarket: number; /** Phase 4c: finalists under the minimum chance (TradeSettings.minChance). */ byChance?: number };
   /**
    * Trades the final ranking's variety rules left out (§13 diversity, rank.ts RankedTrades.dropped: over the per-partner
-   * cap in the top 20, over the per-core cap, filler variants (with the cards folded into another card's steps since the
-   * final review of Phase 4c: search.ts foldedCards), and over Phase 4b's given-player cap in the top 20),
+   * cap in the top 20, over the per-core cap, filler variants (with the cards folded into another card's steps from the
+   * final review of Phase 4c until Checkpoint 7e: search.ts foldedCards), and over Phase 4b's given-player cap in the top 20),
    * counted so a page can say so. The search always sets it (every key, 0 when it stops before ranking); optional only
    * so that fakes needn't (end-of-Phase-4 review, finding 5).
    */
@@ -792,13 +826,13 @@ export interface TradeSearchResult {
  * helps-both finalists among them, that help both teams on their final numbers (benefit.ts helpsBoth: Helps you and Helps
  * them each at least config.benefit.helpsThemMin, both as printed), in Helps-you order (B, highest first), after the §10
  * guards and the minimum chance, through §13's diversity rules in that order (rank.ts RankOptions order "helps", keep), and
- * the folding of cards that show one plan. A card the Overall list shows too is the very same evaluation (one set of steps,
- * one Plan B and one set of words per card).
+ * until Checkpoint 7e the folding of cards that showed one plan. A card the Overall list shows too is the very same evaluation
+ * (one Plan B and one set of words per card; until Checkpoint 7e one set of steps).
  */
 export interface HelpsBothList {
   /** At most config.search.resultsShown trades, Helps-you order. */
   trades: TradeEvaluation[];
-  /** The finalists that pass the guards, help both teams and meet the minimum chance, before the diversity rules (the folded cards included, as the Overall list counts them). */
+  /** The finalists that pass the guards, help both teams and meet the minimum chance, before the diversity rules (until Checkpoint 7e the folded cards included, as the Overall list counted them). */
   qualifying: number;
   /** The finalists that help both teams and pass the guards but are under the minimum chance (the hidden line's count for this list). */
   byChance: number;
@@ -807,7 +841,7 @@ export interface HelpsBothList {
    * does, so a lower setting would add some (the page's suggestion); false at Any.
    */
   lowerWouldAdd: boolean;
-  /** Dropped by the diversity rules, as TradeSearchResult.dropped counts the Overall list's (the folded cards as filler). */
+  /** Dropped by the diversity rules, as TradeSearchResult.dropped counts the Overall list's (until Checkpoint 7e the folded cards as filler). */
   dropped: { partnerCap: number; core: number; filler: number; givenPlayer: number };
 }
 

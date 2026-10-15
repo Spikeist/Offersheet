@@ -90,26 +90,29 @@
  *   injured player: Jadarian Price (injured reserve). His projection assumes he returns at full strength, blended with
  *   the trade market.") and the caveat isn't repeated among the reasons: his tag and the flag say it. The sentence under
  *   the two lists stays for the other tagged players I'd get (Probable, Questionable, Doubtful), whom no flag names.
- * - "If they say no, try:" (TradeEvaluation.planB, the Trade Finder's cards without steps; since the review of track
- *   F a trade likelier to go through than the card): the other trade in words, each tagged player with his tag (the
+ * - Plan B, "If they won't move: try …" since Checkpoint 7e (the planner's words, planner reply to Checkpoint 7d, item 4.1:
+ *   PLAN_B_HEADING; "If they say no, try:" before; TradeEvaluation.planB, the Trade Finder's cards, since Checkpoint 7e on
+ *   every card; since the review of track F a trade likelier to go through than the card): the other trade in words, each tagged player with his tag (the
  *   card's own for a player it shares with the card, else the search's tag for him on another idea, which knows his
  *   far date, else the snapshot's: ⚠️ PlanB carries no tags of its own), whether it's the same players of theirs or "A
  *   different set of their players", its three numbers (with the chance it goes through when a veto could cut it), its
  *   title and playoff odds before and after and its "Win chance by week" line (Phase 4c, change 9: as the card's, from
  *   its own final-block simulation), "Also shown as trade idea 6." when the list shows it as a card of its own (its
  *   place in the sort shown), its own message to send them (planBPitch: a follow-up naming the trade from their side)
- *   and its own "Open in Analyzer" link, which says it comes from "If they say no, try:" (`from=planB`), so the
- *   Analyzer shows that trade as one offer, without "How to offer it" (review of Phase 4b: its first offer could be
- *   smaller than the trade they had just turned down, and its message proposed that smaller offer).
- * - Feedback versions (TradeCardView.versions): the versions the card shows, for "Which version did you send?" (the
- *   first offer and the full one with steps; this trade and Plan B's; this trade alone otherwise). The "Version:" line
+ *   and its own "Open in Analyzer" link, which says it comes from Plan B (`from=planB`), so the Analyzer shows that trade
+ *   as one offer, without "How to offer it" (review of Phase 4b: its first offer could be smaller than the trade they had
+ *   just turned down, and its message proposed that smaller offer; CardContext.offers "none").
+ * - Feedback versions (TradeCardView.versions): the versions the card shows, for "Which version did you send?" (its own
+ *   trade, "suggested", and Plan B's; since Checkpoint 7e, once "How to offer it" has loaded, its offers in order in their
+ *   place, cardVersions; an older evaluation's steps aren't read). The "Version:" line
  *   under the outcome buttons (versionLine) names the recorded version only when its key is one the card shows; a
- *   recorded version the card no longer shows (its Plan B or throw-in changed since, or the Analyzer's card for the same
- *   trade) reads "an earlier one" with its players, read from its key (CardFeedback.versionWords). Phase 4c (planner
+ *   recorded version the card no longer shows (its Plan B changed since, or the Analyzer's card for the same trade) reads
+ *   "an earlier one" with its players, read from its key (CardFeedback.versionWords), and an offer of "How to offer it" its
+ *   place and players ("Open with: …"). Phase 4c (planner
  *   reply to Checkpoint 4b, change 7 and answer 9): each version carries its model inputs (VersionChoice.inputs:
  *   feedbackStore.VersionInputs), saved with the outcome: its acceptance features, raw g_mkt(P), B and the goal B was
  *   weighted by (CardContext.goal: the settings the numbers were computed with); the card's own numbers for the version
- *   that is the card's trade (its final simulation), the step's or Plan B's for theirs.
+ *   that is the card's trade (its final simulation), an offer's own or Plan B's for theirs.
  *
  * The chance a version goes through when the league's review could veto it (throughText) is said when it prints
  * differently from the chance they accept ("about 20%", or "under 5%" when it prints "<5%": review of Phase 4b, "5% …
@@ -130,11 +133,19 @@
  * Planner addendum to Checkpoint 3 (lead decisions N2, N8):
  * - "Harder to get" next to each player I'd get whose premium for his manager earns the tag (TradeDetail.premium:
  *   one of their two most valuable players who is also a top-12 one), in words with why on hover;
- * - "How to offer it" when the trade has steps (TradeEvaluation.steps, §4): "Offer first: Wiggleton Spoons for
- *   Cornelius Snoot · Est. 35%" and "If they say no, add Tobias Thimble · Est. 55%", each with its own estimate (the
- *   chance they accept, like the card's; with the chance it goes through when the league's review could veto that
- *   version). The card's numbers stay the ranked trade's (its give and get: the full trade, or the first offer).
- *   The pitch (explain.ts) proposes the first offer.
+ * - "How to offer it": until Checkpoint 7e the two steps of §4 (TradeEvaluation.steps: "Offer first: … · Est. 35%" and "If
+ *   they say no, add … · Est. 55%"). Since Checkpoint 7e (planner reply to Checkpoint 7d, item 4.1: "one ordered list of up
+ *   to 4 offers to the same team") a closed disclosure on every card that helps me (offersView: not on a trade that doesn't
+ *   help me or that the market guard hides, nor on a Plan B opened in the Analyzer), whose offers the engine worker works out
+ *   when it's opened (OfferLadder, src/engine/offers.ts) and buildLadderView words: each offer with its label ("Open with",
+ *   "Then", "The suggested trade", "The trade you built" in the Analyzer, "Last offer"), its players with their injury tags,
+ *   Helps you and the chance they accept as the card prints them, the chance it goes through when the league's review could
+ *   veto it, its roster moves when they aren't the card's (moveLinesOf) and its own message; "Offer them in order: if they
+ *   say no, try the next." above them, or "Offer this trade as it is: no version of it with Team 8 makes a better first
+ *   offer." when the ladder holds the suggested trade alone (⚠️ the lead's words, ours). The card's numbers and message are its
+ *   own trade's. An offer can be another card of the list (the lead's call, wave D): on the Trade Finder it then says so under
+ *   its players, Plan B's words, "Also shown as trade idea 2." with that card's place in the sort shown (planBAlsoText; the
+ *   page gives the places at render time, TradeCard.tsx `places`, so they follow a re-sort); never the card's Plan B's trade.
  * The evaluation's own notes (TradeDetail.notes: the week in progress on game days, keeper costs not modeled, …)
  * aren't repeated per card: the Finder lists every distinct one once with the search's notes (the week in progress
  * worded for the whole list: listNote), and the Analyzer shows its notes with its result, leaving out any its card's
@@ -228,6 +239,9 @@ import type { Goal, TradeSettings } from "@/engine/settings";
 import type {
   AcceptanceFeatures,
   InjuryTag,
+  LaterNumbers,
+  OfferLadder,
+  OfferStepKind,
   OpenSpot,
   PartnerNumbers,
   PickupOf,
@@ -243,7 +257,6 @@ import type {
   TradeSearchResult,
   TradeSearchStage,
   TradeSort,
-  TradeStep,
 } from "@/engine/tradeModel";
 import {
   feedbackFor,
@@ -677,35 +690,68 @@ export interface FactView {
   value: string;
 }
 
-/** One step of "How to offer it" (TradeEvaluation.steps; the file header). */
-export interface StepView {
-  /** "Offer first:" or "If they say no, add" (bold on the card). */
-  lead: string;
-  /** The first offer in words ("Wiggleton Spoons for Cornelius Snoot"), or the player to add ("Tobias Thimble"). */
-  what: string;
-  /** "Est. 35%": the chance they accept, rounded like the card's (kept on one line; "Est. <5%" under 5%). */
-  est: string;
-  /**
-   * "about 20% it goes through" when the league's review could veto this version and that prints differently ("under 5%
-   * it goes through" when it prints "<5%": throughText); else null.
-   */
-  through: string | null;
-  /** The estimate for screen readers: "an estimated 35% chance they accept" (", about 20% that it goes through"). */
-  acceptSr: string;
-  /** The whole line: "Offer first: Wiggleton Spoons for Cornelius Snoot · Est. 35%". */
+/**
+ * "How to offer it" on a card, before its offers load (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1: the file
+ * header, "How to offer it"): the disclosure's summary, and what the card's own trade is called among the offers.
+ */
+export interface OffersView {
+  /** "How to offer it" (OFFERS_HEADING). */
+  heading: string;
+  /** The suggested trade's label among the offers: "The suggested trade" on the Trade Finder, "The trade you built" in the Analyzer. */
+  suggested: string;
+}
+
+/** One offer of "How to offer it" (OfferStep; the file header), in words. */
+export interface OfferStepView {
+  kind: OfferStepKind;
+  /** "Open with", "Then", "The suggested trade" ("The trade you built" in the Analyzer) or "Last offer" (OFFER_STEP_LABEL). */
+  label: string;
+  /** The offer in words, each injury-tagged player with his tag after his name: "Puka Nacua for Drake London and Chris Olave". */
+  trade: string;
+  /** "Helps you 52", then "Chance they accept 20%" with its label apart, "(Est. · Possible)", each kept on one line by the card (Plan B's). */
+  numberParts: { text: string; label?: string }[];
+  /** "Counting a league veto vote, about 10% it goes through." when the veto rule cuts it and that prints differently; else null. */
+  acceptNote: string | null;
+  /** The roster moves its numbers assume, in sentences (the card's own rules), when they differ from the card's; else empty. */
+  moves: string[];
+  /** Its own message to send them: the first offer's pitch, a later one's follow-up naming it (OfferStep.message). */
+  message: string;
+  /** Its trade key. */
+  key: string;
+  /** The whole offer in one line (tests, hover): "Open with: Puka Nacua for Drake London and Chris Olave · Helps you 52 · …". */
   text: string;
 }
 
-export interface StepsView {
-  /** "How to offer it". */
-  heading: string;
-  /** Offer first, then what to add if they say no. */
-  items: [StepView, StepView];
+/** "How to offer it" once its offers load (buildLadderView; the file header). */
+export interface LadderView {
+  /** The card it's for (OfferLadder.cardKey). */
+  cardKey: string;
+  /** The offers in order; the suggested trade alone when nothing makes a better first offer. */
+  steps: OfferStepView[];
+  /**
+   * The line above the list, which the panel's status line says: OFFERS_INTRO_TEXT; with the suggested trade alone, "Offer
+   * this trade as it is: no version of it with Team 8 makes a better first offer." (offersAloneText; the lead's words).
+   */
+  intro: string;
+  /** The suggested trade alone (no list shows: `intro` says why). */
+  alone: boolean;
+  /**
+   * No offer at all: the engine couldn't evaluate the trade as the league stands now (offers.ts offerLadderOfProposal's empty
+   * ladder: an illegal trade, a player gone since; the review of wave D, UI-D-8): `intro` says so (OFFERS_NONE_TEXT), no list.
+   */
+  none: boolean;
+  /**
+   * The first offer isn't the card's own trade ("Open with"): the card's own message proposes the trade as it is, so it says
+   * that "How to offer it" opens with another offer (OWN_MESSAGE_NOTE; the review of wave D, UI-D-6).
+   */
+  opensElsewhere: boolean;
+  /** Each offer as a version the user may have sent (the feedback's "Which version did you send?"), in order. */
+  versions: VersionChoice[];
 }
 
-/** "If they say no, try:" (TradeEvaluation.planB; the file header). */
+/** "If they won't move: try …" (TradeEvaluation.planB; the file header). */
 export interface PlanBView {
-  /** "If they say no, try:". */
+  /** "If they won't move: try …" (PLAN_B_HEADING). */
   heading: string;
   /** "The same players of theirs, a different package" or "A different set of their players". */
   kindText: string;
@@ -760,7 +806,10 @@ export interface PlanBView {
  * (Phase 4c, FeedbackSent.inputs) its model inputs.
  */
 export interface VersionChoice extends FeedbackSent {
-  /** "The first offer", "With Tobias Thimble added", "This trade" or "The “If they say no” trade". */
+  /**
+   * "The suggested trade" ("The trade you built" in the Analyzer), an offer of "How to offer it" with its players ("Open with:
+   * Puka Nacua for Drake London and Chris Olave"), or "If they won't move: Garrett Wilson for Nico Collins" (Checkpoint 7e).
+   */
   label: string;
 }
 
@@ -820,6 +869,13 @@ export interface TradeCardView {
    */
   oddsNote: string | null;
   /**
+   * Checkpoint 7e (planner reply to Checkpoint 7d, item 4.2): "Helps you 37 now · 41 if done after this week's games." under
+   * the three numbers (nowOrLaterView), with the planner's tooltip; null when the trade has no later numbers (CardContext.
+   * later, else TradeEvaluation.later: a Trade Finder card's arrive after the search) or its two printed Helps you differ by
+   * config.explain.nowOrLaterMin or less. The tooltip's words are among the card's facts too, for a phone (NOW_OR_LATER_LABEL).
+   */
+  nowOrLater: NowOrLaterView | null;
+  /**
    * Checkpoint 7c (planner reply to Checkpoint 7b, §7): the partner's line after mine, "Helps them 24 · Their title odds 6.0% →
    * 6.9% · Their playoff odds 41% → 45%" (themView); null without the partner's numbers. No weekly line for them. Since
    * Checkpoint 7d (planner reply to Checkpoint 7c, answer 3) a Trade Finder card shows it only when it helps both teams
@@ -830,9 +886,13 @@ export interface TradeCardView {
   helpsBothTag: HelpsBothTagView | null;
   /** The Trade Analyzer's "Details" (what Helps you is worth in points a week: detailsView); null on the Trade Finder's cards. */
   details: DetailsView | null;
-  /** "How to offer it" (offer first, then what to add if they say no), or null when the trade has no steps. */
-  steps: StepsView | null;
-  /** "If they say no, try:" (Plan B), or null when the trade has none (it has steps, nothing qualified, or it's the Analyzer's). */
+  /**
+   * "How to offer it" (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1: offers in order, worked out when it's opened:
+   * buildLadderView), or null: a trade that doesn't help me, one the market guard hides or one not scored (offersView), and
+   * the Analyzer's card for a trade opened from a card's "If they won't move: try …" (shown as one offer).
+   */
+  offers: OffersView | null;
+  /** "If they won't move: try …" (Plan B), or null when the trade has none (nothing qualified, or it's the Analyzer's). */
   planB: PlanBView | null;
   /**
    * Once per card, for injury-tagged players I'd get whom the "Depends on an injured player" flag doesn't name (the flag
@@ -932,6 +992,19 @@ export interface CardContext {
    * trade costs them).
    */
   partnerLine?: "always" | "helpsBoth" | undefined;
+  /**
+   * The Trade Finder's "now or after this week" numbers by card key (Checkpoint 7e, item 4.2: the engine worker posts them once
+   * the search has answered, engineClient.ts laterLinesOf; a card without its own yet shows no line). Absent or null: the
+   * evaluation's own (TradeEvaluation.later, the Trade Analyzer's).
+   */
+  later?: ReadonlyMap<string, LaterNumbers | null> | null | undefined;
+  /**
+   * "How to offer it" (Checkpoint 7e, item 4.1; offersView): "finder" (the default), the Trade Finder's card, its own trade
+   * "The suggested trade"; "analyzer", the Trade Analyzer's, its own trade "The trade you built"; "none", the Analyzer's card
+   * for a trade opened from a card's "If they won't move: try …", shown as one offer (review of Phase 4b: they've just turned
+   * down a trade with the same team).
+   */
+  offers?: "finder" | "analyzer" | "none" | undefined;
 }
 
 /** A 0–100 score as printed (printed.ts printedScore): its number; 0 for a trade that doesn't help me (B ≤ 0); "—" when B is unknown. */
@@ -1090,6 +1163,45 @@ export function weeklyLine(winChance: TradeDetail["winChance"], cfg: { readonly 
 }
 
 /**
+ * The tooltip on "Helps you 37 now · 41 if done after this week's games." (Checkpoint 7e; planner reply to Checkpoint 7d, item
+ * 4.2: the planner's words), said on hover and, since a phone can't hover, among the card's facts (NOW_OR_LATER_LABEL).
+ */
+export const NOW_OR_LATER_TITLE = "Assumes the same deal is still there next week. Injuries, big games or another trade can change that, and their answer may change too.";
+
+/** The card's fact that carries the line's tooltip (⚠️ ours: the tooltip's words where a phone shows them). */
+export const NOW_OR_LATER_LABEL = "After this week's games";
+
+/** "Helps you 37 now · 41 if done after this week's games." (nowOrLaterView). */
+export interface NowOrLaterView {
+  /** "Helps you 37 now". */
+  now: string;
+  /** "41 if done after this week's games." */
+  later: string;
+  /** The whole line. */
+  text: string;
+  /** The tooltip: NOW_OR_LATER_TITLE. */
+  title: string;
+}
+
+/**
+ * "Now or after this week" on a card (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.2: "Show it as 'Helps you 37 now ·
+ * 41 if done after this week's games.' … only when the two numbers differ by more than the noise found in 1.1"): the card's
+ * Helps you as printed (printedScore: 0 when B ≤ 0) and the same trade's if done after this week's games (LaterNumbers, on the
+ * card's own scale), when both are known and differ by more than config.explain.nowOrLaterMin; null otherwise, and without
+ * later numbers (a week under way, no week after this one, the trade deadline within config.explain.nowOrLaterWeeks weeks, or
+ * a Trade Finder card's not arrived yet). The ranking stays on the first.
+ */
+export function nowOrLaterView(e: Pick<TradeEvaluation, "tradeScore" | "b">, later: LaterNumbers | null | undefined, min: number = config.explain.nowOrLaterMin): NowOrLaterView | null {
+  if (!later) return null;
+  const now = printedScore(e.tradeScore, e.b);
+  const then = printedScore(later.tradeScore, later.b);
+  if (now === "—" || then === "—" || !(Math.abs(Number(now) - Number(then)) > min)) return null;
+  const nowText = `Helps you ${now} now`;
+  const laterText = `${then} if done after this week's games.`;
+  return { now: nowText, later: laterText, text: `${nowText} · ${laterText}`, title: NOW_OR_LATER_TITLE };
+}
+
+/**
  * Why a trade that doesn't help me (B ≤ 0: trade ideas leave it out, only the Analyzer shows it) doesn't, by what pulled
  * B down (§10). Review of Phase 4: "it wouldn't raise your chances this season" also showed on trades that do raise them,
  * whose B the trade-value term ("Protect my trade value", planner addendum to Checkpoint 3 §3) or long-term value pulled
@@ -1131,41 +1243,172 @@ export function tradeWords(p: Pick<TradeProposal, "give" | "get">, snapshot: Sna
   return `${side(p.give)} for ${side(p.get)}`;
 }
 
-/** "an estimated 35% chance they accept"; "an estimated chance under 5% that they accept" for "<5%". */
-function acceptSrPhrase(p: number): string {
-  return underStep(p) ? `an estimated chance ${acceptSrText(p)} that they accept` : `an estimated ${acceptText(p)} chance they accept`;
+// ---------------------------------------------------------------------------------------------
+// "How to offer it": offers in order (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1; the file header)
+
+/** The disclosure's summary, on every card that has one (TradeCardView.offers). */
+export const OFFERS_HEADING = "How to offer it";
+
+/** What the opened disclosure says while the engine works the offers out (TradeCard.tsx: its status line). */
+export const OFFERS_LOADING_TEXT = "Working out the offers…";
+
+/** What it says when the engine couldn't, above a Try again button. */
+export const OFFERS_FAILED_TEXT = "The offers couldn't be worked out this time.";
+
+/**
+ * What it says when the engine answers with no offer at all (the review of wave D, UI-D-8: an empty ladder read as "Offer this
+ * trade as it is", though nothing could be worked out): the trade can't be evaluated with the league as it stands now.
+ */
+export const OFFERS_NONE_TEXT = "This trade can't be worked out with the league as it stands now.";
+
+/**
+ * Over the card's own "Message to send them" once "How to offer it" opens with another offer (LadderView.opensElsewhere; the
+ * review of wave D, UI-D-6: the card's own message proposed the trade as it is, while the offers said to open with another).
+ */
+export const OWN_MESSAGE_NOTE = "This message proposes the trade as it is. “How to offer it” opens with another offer: send its message first.";
+
+/** The line over a card's own "Message to send them" (OWN_MESSAGE_NOTE) once its offers open with another trade; else null (none loaded, or they open with the card's own). */
+export function ownMessageNote(ladder: Pick<LadderView, "opensElsewhere"> | null | undefined): string | null {
+  return ladder?.opensElsewhere ? OWN_MESSAGE_NOTE : null;
+}
+
+/** The line above the offers, which the disclosure's status line says once they're in (⚠️ ours). */
+export const OFFERS_INTRO_TEXT = "Offer them in order: if they say no, try the next.";
+
+/** Each offer's label on the card (the lead's words for Checkpoint 7e). */
+export const OFFER_STEP_LABEL: Readonly<Record<OfferStepKind, string>> = { open: "Open with", then: "Then", suggested: "The suggested trade", last: "Last offer" };
+
+/** The suggested trade's label in the Trade Analyzer (⚠️ ours: there it's the trade the user built, not one Offer Sheet suggests). */
+export const ANALYZER_SUGGESTED_LABEL = "The trade you built";
+
+/**
+ * What the disclosure says when the ladder holds the suggested trade alone (the lead's words, ⚠️ ours): "Offer this trade as it
+ * is: no version of it with Team 8 makes a better first offer."
+ */
+export function offersAloneText(partnerName: string): string {
+  return `Offer this trade as it is: no version of it with ${partnerName} makes a better first offer.`;
 }
 
 /**
- * A step's estimate, the way the card shows its own: the chance they accept ("<5%" under 5%), and the chance it goes
- * through when the league's review could veto that version, only when it prints differently ("Est. 5%, about 5% it goes
- * through" said nothing more; the card's own note already says a veto vote could stop the ranked trade; throughText).
+ * "How to offer it" on a card (TradeCardView.offers), or null (⚠️ ours, Phase 4's rule for its steps kept: "the Analyzer gives
+ * steps only to a trade the Trade Finder could show"): a trade that doesn't help me (B ≤ 0) or wasn't scored, one the market
+ * guard hides, and the Analyzer's card for a trade opened from "If they won't move: try …" (`page` "none": one offer).
  */
-function stepAccept(s: Pick<TradeStep, "pAccept" | "pComplete">): { est: string; through: string | null; sr: string } {
-  const est = acceptText(s.pAccept);
-  const through = throughText(s.pAccept, s.pComplete);
-  if (!through) return { est: `Est. ${est}`, through: null, sr: acceptSrPhrase(s.pAccept) };
-  return { est: `Est. ${est}`, through: `${through} it goes through`, sr: `${acceptSrPhrase(s.pAccept)}, ${through} that it goes through` };
+export function offersView(e: Pick<TradeEvaluation, "b" | "flags">, page: CardContext["offers"] = "finder"): OffersView | null {
+  if (page === "none") return null;
+  if (e.b === null || !Number.isFinite(e.b) || e.b <= 0 || e.flags.hiddenByBenefit || e.flags.hiddenByMarket) return null;
+  return { heading: OFFERS_HEADING, suggested: page === "analyzer" ? ANALYZER_SUGGESTED_LABEL : OFFER_STEP_LABEL.suggested };
 }
 
-/** "How to offer it" (TradeEvaluation.steps; the file header), or null without steps. */
-export function stepsView(steps: TradeEvaluation["steps"], snapshot: SnapshotPart): StepsView | null {
-  if (!steps) return null;
-  const item = (lead: string, what: string, step: TradeStep): StepView => {
-    const accept = stepAccept(step);
-    return { lead, what, est: accept.est, through: accept.through, acceptSr: accept.sr, text: `${lead} ${what} · ${accept.est}${accept.through ? `, ${accept.through}` : ""}` };
-  };
+/** What buildLadderView reads besides the ladder and its card. */
+export interface LadderContext {
+  snapshot: SnapshotPart;
+  /** The NFL regular season's last week (ModelInputs.nfl.lastWeek), for "Out for the season" in the injury tags (seasonEndOf). */
+  lastNflWeek?: number | undefined;
+  /** What the league rewards as the offers' numbers were weighed (each version's model inputs, as the card's: CardContext.goal). */
+  goal?: Goal | null | undefined;
+}
+
+/** A version's "Helps you" scale for its feedback inputs: its own B₃ when it has one, and why that scale departs from 63 (helpsReasonOf). */
+function scaleOf(e: { b3?: number | null | undefined; detail?: Pick<TradeDetail, "notes"> | undefined }): ScaleInputs {
+  return { b3: typeof e.b3 === "number" && Number.isFinite(e.b3) && e.b3 > 0 ? e.b3 : null, helpsReason: helpsReasonOf(e.detail?.notes) };
+}
+
+/**
+ * "How to offer it" in words (the file header), from the engine's ladder (OfferLadder, built in the engine worker when the
+ * card's disclosure is opened) and the card it's for: each offer with its label ("Open with", "Then", the card's own
+ * OffersView.suggested, "Last offer"), its players with their injury tags in words (its own evaluation's: tagsOf), Helps you
+ * and the chance they accept with its label as the card prints its own (printed.ts), the chance it goes through when the
+ * league's review could veto it and that prints differently (the card's own note), the roster moves its numbers assume (the
+ * card's words: moveLinesOf) only when they differ from the card's, and its own message (OfferStep.message); and each as a
+ * version the feedback can record (its place, key, estimate and model inputs on its own scale; the suggested trade is the
+ * card's own version). With the suggested trade alone, no list: offersAloneText says to offer it as it is.
+ */
+export function buildLadderView(ladder: OfferLadder, card: Pick<TradeCardView, "key" | "partnerName" | "required" | "offers" | "versions">, ctx: LadderContext): LadderView {
+  const { snapshot } = ctx;
+  const suggested = card.offers?.suggested ?? OFFER_STEP_LABEL.suggested;
+  const end = seasonEndOf(snapshot.settings, ctx.lastNflWeek);
+  const source = dateSourceOf(snapshot);
+  const own = card.versions.find((v) => v.key === card.key);
+  const sameAsCard = (lines: readonly string[]) => lines.length === card.required.length && lines.every((l, i) => l === card.required[i]);
+  const steps = (ladder.steps ?? []).filter((s) => s && s.evaluation && typeof s.evaluation.key === "string");
+  const built = steps.map((s) => {
+    const e = s.evaluation;
+    const label = s.kind === "suggested" ? suggested : (OFFER_STEP_LABEL[s.kind] ?? OFFER_STEP_LABEL.then);
+    const tags = tagsOf(e, snapshot);
+    const named = (a: TradeAsset, side: InjuryTag["side"]) => {
+      const name = assetView(a, snapshot).name;
+      const t = a.kind === "player" ? tags.find((x) => x.playerId === a.id && x.side === side) : undefined;
+      return t ? `${name} (${injuryTagText(t, end, source)})` : name;
+    };
+    const listed = (assets: readonly TradeAsset[], side: InjuryTag["side"]) => (assets.length ? listText(assets.map((a) => named(a, side))) : "nothing");
+    const trade = `${listed(e.proposal.give, "give")} for ${listed(e.proposal.get, "get")}`;
+    const numberParts = [{ text: `Helps you ${printedScore(e.tradeScore, e.b)}` }, { text: `Chance they accept ${acceptText(e.pAccept)}`, label: `(Est. · ${e.acceptLabel})` }];
+    // The chance it goes through, as the card says its own (buildTradeCard).
+    const showsVeto = e.detail.vetoRisk || Math.abs(displayAcceptance(e.pComplete) - displayAcceptance(e.pAccept)) > 1e-9;
+    const through = showsVeto ? throughText(e.pAccept, e.pComplete) : null;
+    const acceptNote = through ? `Counting ${REVIEW_WORDS[snapshot.settings.tradeReview]}, ${through} it goes through.` : null;
+    // The roster moves its numbers assume, only where they aren't the card's (the suggested trade is the card).
+    const lines = s.kind === "suggested" ? [] : moveLinesOf(e, snapshot, card.partnerName);
+    const numbers = numberParts.map((p) => (p.label ? `${p.text} ${p.label}` : p.text)).join(" · ");
+    const view: OfferStepView = {
+      kind: s.kind,
+      label,
+      trade,
+      numberParts,
+      acceptNote,
+      moves: sameAsCard(lines) ? [] : lines,
+      message: s.message,
+      key: e.key,
+      text: `${label}: ${trade} · ${numbers}${acceptNote ? ` · ${acceptNote}` : ""}`,
+    };
+    const version: VersionChoice =
+      s.kind === "suggested" && own && own.key === e.key
+        ? { ...own, label: suggested }
+        : { version: s.kind, key: e.key, pAccept: e.pAccept, pComplete: e.pComplete, inputs: versionInputs(e, ctx.goal ?? null, scaleOf(e)), label: s.kind === "suggested" ? suggested : `${label}: ${tradeWords(e.proposal, snapshot)}` };
+    return { view, version };
+  });
+  // No offer at all (the review of wave D, UI-D-8): the engine couldn't evaluate the trade, which isn't "as it is".
+  const none = built.length === 0;
+  const alone = built.length === 1 && built[0]?.view.kind === "suggested";
   return {
-    heading: "How to offer it",
-    items: [
-      item("Offer first:", tradeWords(steps.offerFirst.proposal, snapshot), steps.offerFirst),
-      item("If they say no, add", assetView({ kind: "player", id: steps.ifNo.add }, snapshot).name, steps.ifNo.full),
-    ],
+    cardKey: ladder.cardKey,
+    steps: built.map((b) => b.view),
+    intro: none ? OFFERS_NONE_TEXT : alone ? offersAloneText(card.partnerName) : OFFERS_INTRO_TEXT,
+    alone,
+    none,
+    opensElsewhere: !none && built[0]?.view.kind !== "suggested",
+    versions: built.map((b) => b.version),
   };
 }
 
-/** Plan B's heading on the card (the planner's words). */
-export const PLAN_B_HEADING = "If they say no, try:";
+/**
+ * The versions a card shows (the feedback's "Which version did you send?"; the file header): its own trade and Plan B's
+ * (TradeCardView.versions) until "How to offer it" has loaded; then its offers in order (`ladder`: the suggested trade among
+ * them), and Plan B's after them (planner reply to Checkpoint 7d, item 4.1: "Feedback records which step was sent").
+ */
+export function cardVersions(card: Pick<TradeCardView, "versions">, ladder: Pick<LadderView, "versions"> | null | undefined): VersionChoice[] {
+  if (!ladder || !ladder.versions.length) return card.versions;
+  const offered = new Set(ladder.versions.map((v) => v.key));
+  return [...ladder.versions, ...card.versions.filter((v) => !offered.has(v.key))];
+}
+
+/**
+ * The keys a Trade Finder card's "How to offer it" may not offer (the review of wave D, D-ENG-3 and UI-D-4): its Plan B's (the
+ * box keeps it), what the engine bars itself while it keeps the card's search (offers.ts ladderJobOfSearch), which the page
+ * sends for a card whose search it no longer keeps (engine.worker.ts OffersSource.barred). ⚠️ Only that (the lead's call, wave
+ * D, in place of the review's D-ENG-2 and UI-D-2): another card of its list can be an offer, which the card labels with that
+ * card's place in the sort shown ("Also shown as trade idea 2.": planBAlsoText, TradeCard.tsx `places`).
+ */
+export function offersBarredOf(card: Pick<TradeEvaluation, "planB">): string[] {
+  return card.planB ? [card.planB.key] : [];
+}
+
+/** Plan B's heading on the card (the planner's words, planner reply to Checkpoint 7d, item 4.1; "If they say no, try:" until Checkpoint 7e). */
+export const PLAN_B_HEADING = "If they won't move: try …";
+
+/** Plan B's name as a version the user may have sent ("If they won't move: Garrett Wilson for Nico Collins"). */
+export const PLAN_B_VERSION_LABEL = "If they won't move";
 
 /**
  * Which kind of Plan B it is (review of track F: "Different players of theirs" read wrong for a Plan B that keeps one of
@@ -1208,7 +1451,7 @@ export function planBPitch(p: Pick<TradeProposal, "give" | "get">, snapshot: Sna
 }
 
 /**
- * "If they say no, try:" (TradeEvaluation.planB; the file header), or null without one: the trade in words (each
+ * Plan B, "If they won't move: try …" (TradeEvaluation.planB; the file header), or null without one: the trade in words (each
  * injury-tagged player with his tag: the card's own tag for a player the card has on the same side, so a player reads the
  * same in both places, else the search's tag for him on another idea (`knownTags`: it knows his far ESPN date), else
  * explain.injuryTags from the snapshot with the week now; ⚠️ PlanB carries no tags of its own, so a conflicted Probable,
@@ -1261,7 +1504,7 @@ export function planBView(planB: TradeEvaluation["planB"], snapshot: SnapshotPar
   };
 }
 
-/** "Also shown as trade idea 6." (PlanBView.also). */
+/** "Also shown as trade idea 6." (PlanBView.also; since wave D of Checkpoint 7e also under an offer of "How to offer it" that is another card shown: TradeCard.tsx). */
 export function planBAlsoText(place: number): string {
   return `Also shown as trade idea ${place}.`;
 }
@@ -1291,9 +1534,9 @@ export function helpsReasonOf(notes: readonly string[] | undefined): HelpsReason
 /**
  * A version's model inputs for the feedback (the file header; FeedbackSent.inputs): its acceptance features, raw
  * g_mkt(P), B, the goal B was weighted by, and (Phase 7a) the B₃ its B is scored on and the scale's reason: the card's for
- * the card's own trade and its Plan B (both on the shown block since Checkpoint 7e), a step's own for a step (TradeStep.b3,
- * the ranking block's since Checkpoint 7e: the review's SHOWN-4; before, every version shared the card's). feedbackStore.ts
- * keeps only finite numbers.
+ * the card's own trade and its Plan B (both on the shown block since Checkpoint 7e), an offer's own for an offer of "How to
+ * offer it" (its own evaluation's TradeEvaluation.b3, scaleOf; Checkpoint 7e, item 4.1; before it, a step's own TradeStep.b3:
+ * the review's SHOWN-4). feedbackStore.ts keeps only finite numbers.
  */
 function versionInputs(x: { features?: AcceptanceFeatures | undefined; gPartner?: number | undefined; b: number | null }, goal: Goal | null, scale: ScaleInputs): VersionInputs {
   return {
@@ -1307,34 +1550,26 @@ function versionInputs(x: { features?: AcceptanceFeatures | undefined; gPartner?
 }
 
 /**
- * The versions of a trade idea its card shows (TradeCardView.versions; the feedback's "Which version did you send?"),
- * each with its key, estimate and model inputs (the file header: the card's own when the version is the card's trade,
- * else the step's or Plan B's; `goal`: "What matters most" as the numbers were computed, null when unknown; the B₃ each
- * version's B is scored on and its scale's reason, helpsReasonOf: the card's for the card's trade and its Plan B, a step's
- * own for a step, versionInputs): with steps, the first offer and the full version (the throw-in added); with a Plan B,
- * this trade and Plan B's; else this trade alone ("full").
+ * The versions of a trade idea its card shows before "How to offer it" loads (TradeCardView.versions; the feedback's "Which
+ * version did you send?"), each with its key, estimate and model inputs (the file header: the card's own for the card's
+ * trade and its Plan B, both on the card's scale, versionInputs; `goal`: what the league rewards as the numbers were
+ * computed, null when unknown): the card's own trade ("suggested", `suggested` its label: OffersView.suggested), and
+ * Plan B's when it has one ("If they won't move: Garrett Wilson for Nico Collins"). Since Checkpoint 7e (planner reply to
+ * Checkpoint 7d, item 4.1) the offers of "How to offer it" join them once loaded (cardVersions), and an older evaluation's
+ * steps (TradeEvaluation.steps, which the search no longer makes) aren't read.
  */
 export function versionChoices(
-  e: Pick<TradeEvaluation, "key" | "pAccept" | "pComplete" | "steps" | "planB" | "features" | "gPartner" | "b"> & Partial<Pick<TradeEvaluation, "b3" | "detail">>,
+  e: Pick<TradeEvaluation, "key" | "pAccept" | "pComplete" | "planB" | "features" | "gPartner" | "b"> & Partial<Pick<TradeEvaluation, "b3" | "detail">>,
   snapshot: SnapshotPart,
   goal: Goal | null = null,
+  suggested: string = OFFER_STEP_LABEL.suggested,
 ): VersionChoice[] {
-  const scale: ScaleInputs = { b3: typeof e.b3 === "number" && Number.isFinite(e.b3) && e.b3 > 0 ? e.b3 : null, helpsReason: helpsReasonOf(e.detail?.notes) };
-  const own = versionInputs(e, goal, scale);
-  // A step's own scale (TradeStep.b3 and its notes' reason), else the card's (a step made before TradeStep.b3).
-  const stepScale = (step: TradeStep): ScaleInputs =>
-    typeof step.b3 === "number" && Number.isFinite(step.b3) && step.b3 > 0 ? { b3: step.b3, helpsReason: helpsReasonOf(step.detail?.notes) } : scale;
-  const of = (step: TradeStep): VersionInputs => (step.key === e.key ? own : versionInputs(step, goal, stepScale(step)));
-  const s = e.steps;
-  if (s) {
-    return [
-      { version: "offerFirst", key: s.offerFirst.key, pAccept: s.offerFirst.pAccept, pComplete: s.offerFirst.pComplete, inputs: of(s.offerFirst), label: "The first offer" },
-      { version: "full", key: s.ifNo.full.key, pAccept: s.ifNo.full.pAccept, pComplete: s.ifNo.full.pComplete, inputs: of(s.ifNo.full), label: `With ${assetView({ kind: "player", id: s.ifNo.add }, snapshot).name} added` },
-    ];
-  }
-  const self: VersionChoice = { version: "full", key: e.key, pAccept: e.pAccept, pComplete: e.pComplete, inputs: own, label: "This trade" };
+  const scale = scaleOf(e);
+  const self: VersionChoice = { version: "suggested", key: e.key, pAccept: e.pAccept, pComplete: e.pComplete, inputs: versionInputs(e, goal, scale), label: suggested };
   const p = e.planB;
-  return p ? [self, { version: "planB", key: p.key, pAccept: p.pAccept, pComplete: p.pComplete, inputs: versionInputs(p, goal, scale), label: "The “If they say no” trade" }] : [self];
+  return p
+    ? [self, { version: "planB", key: p.key, pAccept: p.pAccept, pComplete: p.pComplete, inputs: versionInputs(p, goal, scale), label: `${PLAN_B_VERSION_LABEL}: ${tradeWords(p.proposal, snapshot)}` }]
+    : [self];
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1710,6 +1945,12 @@ function countWords(pos: Pos, n: number, platform: SnapshotPart["platform"]): st
 export const MY_MOVES_ASSUMED = "Assumed with or without this trade:";
 
 /**
+ * The heading over a card's roster moves, a Plan B box's and an offer's of "How to offer it" (Checkpoint 7e; planner reply to
+ * Checkpoint 7d, item 2.2: "Each card lists every roster move its numbers assume"; TradeCard.tsx, HowToRead.tsx).
+ */
+export const ROSTER_MOVES_HEADING = "Roster moves these numbers assume";
+
+/**
  * Under a card's odds (and a Plan B box's) when its numbers start from its own "before" (TradeEvaluation.before, PlanB.before:
  * Checkpoint 7e, item 2.1's either-way moves; review of wave B, findings B-4 and either-way-before-unexplained): its "before"
  * isn't the page's "Your odds before any trade". Not on the Analyzer's card, whose line above it gives that "before".
@@ -1910,6 +2151,35 @@ export function marketCheckText(e: Pick<TradeEvaluation, "proposal" | "flags" | 
   return `Market check: counting roster spots, you'd give up ${much} trade value than you get${tail}`;
 }
 
+/**
+ * The roster moves a trade's numbers assume, in sentences (TradeCardView.required; an offer of "How to offer it" reads its
+ * own the same way, buildLadderView), mine first: since Checkpoint 7e every one, in order, with its reason, and those made
+ * either way on one line (item 2.2: myMovesLines, from TradeEvaluation.myMoves); an evaluation made before it words
+ * `required.me` as before (§7; Phase 4b's IR slots and returns, Phase 7c's open roster spots: requiredLines). The partner's
+ * as before.
+ */
+export function moveLinesOf(e: Pick<TradeEvaluation, "required" | "myMoves">, snapshot: SnapshotPart, partnerName: string): string[] {
+  return [
+    ...(e.myMoves
+      ? myMovesLines(e.myMoves, snapshot, partnerName)
+      : requiredLines(e.required.me, { drop: "You'd drop", dropLater: "you'd drop", release: "you'd release", pickUp: "You'd pick up", their: "your", ir: "your", would: "you'd", openSpot: "Open roster spot: add" }, snapshot)),
+    ...requiredLines(
+      e.required.partner,
+      {
+        drop: `${partnerName} would drop`,
+        dropLater: `${partnerName} would drop`,
+        release: `${partnerName} would release`,
+        pickUp: `${partnerName} would pick up`,
+        their: "their",
+        ir: possessive(partnerName),
+        would: `${partnerName} would`,
+        openSpot: `${possessive(partnerName)} open roster spot: they'd add`,
+      },
+      snapshot,
+    ),
+  ];
+}
+
 export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardView {
   const { snapshot } = ctx;
   const partnerName = teamNameOf(snapshot, e.proposal.partnerId);
@@ -1952,32 +2222,15 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
   // shows neither).
   const theirLongTerm = them ? theirLongTermFact(e) : null;
   if (theirLongTerm) facts.push(theirLongTerm);
+  // "Now or after this week" (Checkpoint 7e, item 4.2): the Trade Finder's numbers as they arrive (CardContext.later), else the
+  // evaluation's own (the Analyzer's); the tooltip's words among the facts too, which a phone shows (⚠️ ours).
+  const nowOrLater = nowOrLaterView(e, ctx.later?.get(e.key) ?? e.later);
+  if (nowOrLater) facts.push({ label: NOW_OR_LATER_LABEL, value: nowOrLater.title });
   // The scale's wording without the search's or the Analyzer's scale: the league type, and whether long-term values loaded.
   const scaleFallback: ScaleFallback = { leagueType: snapshot.settings.leagueType, longTermOn: !e.dynMissing };
 
-  // The roster moves the numbers assume, mine first: since Checkpoint 7e every one, in order, with its reason, and those made
-  // either way on one line (item 2.2: myMovesLines, from TradeEvaluation.myMoves); an evaluation made before it words
-  // `required.me` as before (§7; Phase 4b's IR slots and returns, Phase 7c's open roster spots: requiredLines). The partner's
-  // as before.
-  const required = [
-    ...(e.myMoves
-      ? myMovesLines(e.myMoves, snapshot, partnerName)
-      : requiredLines(e.required.me, { drop: "You'd drop", dropLater: "you'd drop", release: "you'd release", pickUp: "You'd pick up", their: "your", ir: "your", would: "you'd", openSpot: "Open roster spot: add" }, snapshot)),
-    ...requiredLines(
-      e.required.partner,
-      {
-        drop: `${partnerName} would drop`,
-        dropLater: `${partnerName} would drop`,
-        release: `${partnerName} would release`,
-        pickUp: `${partnerName} would pick up`,
-        their: "their",
-        ir: possessive(partnerName),
-        would: `${partnerName} would`,
-        openSpot: `${possessive(partnerName)} open roster spot: they'd add`,
-      },
-      snapshot,
-    ),
-  ];
+  // The roster moves the numbers assume, mine first (moveLinesOf).
+  const required = moveLinesOf(e, snapshot, partnerName);
 
   // Injury tags in words on both sides (the evaluation's; else, a core without them, tags from the snapshot: tagsOf).
   const tags = tagsOf(e, snapshot);
@@ -2001,6 +2254,8 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
   // the search's baseline.
   const odds = oddsViews(e, e.before ?? ctx.baseline, ctx.reward);
   const weekly = weeklyLine(e.detail.winChance);
+  // "How to offer it" (Checkpoint 7e, item 4.1): its offers are worked out when it's opened (buildLadderView).
+  const offers = offersView(e, ctx.offers);
 
   return {
     key: e.key,
@@ -2017,14 +2272,15 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
     odds,
     weekly,
     oddsNote: e.before && odds.length ? OWN_BEFORE_NOTE : null,
+    nowOrLater,
     // The partner's line and the "Helps both" tag (Checkpoint 7c, planner reply to Checkpoint 7b, §7), from the same runs as mine.
     them,
     helpsBothTag,
     details: ctx.details ? detailsView(e, snapshot.settings.leagueType, ctx.helpsScale) : null,
-    steps: stepsView(e.steps, snapshot),
+    offers,
     planB: planBView(e.planB, snapshot, { cardTags: tags, knownTags: ctx.knownTags, seasonEnd: end, baseline: ctx.baseline, reward: ctx.reward }),
     injuryNote: incomingInjuryNote(tags, snapshot, flagged, blendOn),
-    versions: versionChoices(e, snapshot, ctx.goal ?? null),
+    versions: versionChoices(e, snapshot, ctx.goal ?? null, offers?.suggested ?? (ctx.offers === "finder" || ctx.offers === undefined ? OFFER_STEP_LABEL.suggested : ANALYZER_SUGGESTED_LABEL)),
     flags,
     facts,
     valuesCredit: valuesBehind(ctx.fantasyCalc) ? VALUES_CREDIT_TEXT : null,
@@ -2209,6 +2465,12 @@ export interface FinderView {
    */
   few: string | null;
   cards: TradeCardView[];
+  /**
+   * Checkpoint 7e (item 4.2): the cards' "now or after this week" numbers, "pending" while some are still to come (the Trade
+   * Finder's list says so in a data attribute, which `npm run check:browser` waits on), "done" once every card has its own;
+   * absent when none are expected (buildFinderView's `later`).
+   */
+  nowOrLater?: "pending" | "done";
   /** "25 trade ideas, sorted by Overall." ("4 trade ideas that help both teams, sorted by Helps you." under "Helps both"; "" when none). */
   countText: string;
   /** The status line once the search is done: "Found 25 trade ideas." ("Found 4 trade ideas that help both teams.") or the empty state's title. */
@@ -2446,6 +2708,12 @@ export function buildFinderView(args: {
   goal?: Goal | null | undefined;
   /** Whether the market blend reaches anyone (marketBlendOn: CardContext.blendOn); absent: on. */
   blendOn?: boolean | undefined;
+  /**
+   * The cards' "now or after this week" numbers as they've arrived (Checkpoint 7e, item 4.2: engineClient.ts laterLinesOf), by
+   * card key (CardContext.later), and whether every card has its own (FinderView.nowOrLater). Absent or null: none expected
+   * (a result without cards, or one the worker posts none for), so no card shows the line.
+   */
+  later?: { readonly lines: ReadonlyMap<string, LaterNumbers | null>; readonly done: boolean } | null | undefined;
 }): FinderView {
   const { result, snapshot } = args;
   const baseline = result.baseline;
@@ -2465,7 +2733,7 @@ export function buildFinderView(args: {
   const reward = result.reward ?? null;
   // The partner's line only on the cards that help both teams (planner reply to Checkpoint 7c, answer 3), in every sort.
   const sorted = listed.map((e) =>
-    buildTradeCard(e, { snapshot, baseline, reward, lastNflWeek: args.lastNflWeek, knownTags, fantasyCalc: args.fantasyCalc, goal: args.goal, blendOn: args.blendOn, helpsScale, partnerLine: "helpsBoth" }),
+    buildTradeCard(e, { snapshot, baseline, reward, lastNflWeek: args.lastNflWeek, knownTags, fantasyCalc: args.fantasyCalc, goal: args.goal, blendOn: args.blendOn, helpsScale, partnerLine: "helpsBoth", later: args.later?.lines }),
   );
   // A Plan B that is also a card of its own says so, with that card's place in this sort (review of track F: the same
   // trade showed twice without a word).
@@ -2535,6 +2803,7 @@ export function buildFinderView(args: {
     pattern: !both && cards.length && result.pattern?.text ? result.pattern.text : null,
     few: !cards.length ? null : both ? helpsBothFewText(cards.length, lowerWouldAdd) : fewText(result),
     cards,
+    ...(args.later && cards.length ? { nowOrLater: args.later.done ? ("done" as const) : ("pending" as const) } : {}),
     countText: !cards.length ? "" : both ? `${bothWords(cards.length)}, sorted by ${SORT_OPTIONS.find((o) => o.value === "helps")?.label ?? "Helps you"}.` : `${plural(cards.length, "trade idea")}, sorted by ${sortLabel}.`,
     statusText: !cards.length ? `${empty?.title ?? "No trade ideas right now"}.` : both ? `Found ${bothWords(cards.length)}.` : `Found ${plural(cards.length, "trade idea")}.`,
     // Said once: in the empty state when that's where it is.
@@ -2662,7 +2931,7 @@ export function finderHref(partnerId: string | null): string {
 }
 
 /**
- * Where an Analyzer trade came from, when that changes how it's shown: "planB", a card's "If they say no, try:" (the
+ * Where an Analyzer trade came from, when that changes how it's shown: "planB", a card's Plan B, "If they won't move: try …" (the
  * Analyzer shows it as one offer, without "How to offer it": review of Phase 4b, whose first offer could be smaller than
  * the trade they had just turned down).
  */
@@ -2683,9 +2952,11 @@ export function readAnalyzerFrom(search: string | null | undefined): AnalyzerFro
   return new URLSearchParams(search ?? "").get("from") === "planB" ? "planB" : null;
 }
 
-/** The Analyzer's note for a trade opened from "If they say no, try:" (buildAnalysisView). */
-export const FROM_PLAN_B_NOTE =
-  "You opened this from “If they say no, try:” on a trade idea, so it's shown as one offer, without a smaller first offer to try before it: they've just turned down a trade with the same team.";
+/**
+ * The Analyzer's note for a trade opened from "If they won't move: try …" (buildAnalysisView): shown as one offer, without
+ * "How to offer it" (Checkpoint 7e: its first offer would ask for more than the trade they had just turned down).
+ */
+export const FROM_PLAN_B_NOTE = `You opened this from “${PLAN_B_HEADING}” on a trade idea, so it's shown as one offer, without offers to try before it: they've just turned down a trade with the same team.`;
 
 // A trade's key read back into a proposal, for naming a recorded version the card no longer shows (CardFeedback.versionWords):
 // feedbackStore.ts proposalFromKey since Checkpoint 7d (the export reads a version's players from its key too); re-exported
@@ -2836,8 +3107,8 @@ export interface AnalysisView {
  * the same as on the Trade Finder (review of Phase 4: the Finder's "+9.1 percentage points (63% to 72%)" read "+9.1
  * percentage points" here). Without it, the card shows the changes alone. The card has "Details" (what Helps you is
  * worth in points a week: detailsView), and the Finder's odds and weekly lines; its tooltip, the info line and Details on
- * the evaluation's own scale (TradeAnalysis.helpsScale). `from` "planB" (a trade opened from a card's "If they say no,
- * try:", evaluated without "How to offer it": the worker's `steps: false`) says so first among the notes, with a card; a
+ * the evaluation's own scale (TradeAnalysis.helpsScale). `from` "planB" (a trade opened from a card's Plan B, "If they
+ * won't move: try …", shown without "How to offer it": CardContext.offers "none") says so first among the notes, with a card; a
  * saved FantasyCalc list standing in says so last (the card's numbers rest on its values). `fantasyCalc`: FantasyCalc's
  * values as the page holds them (fantasyCalcLookup: CardContext.fantasyCalc, never shown); `goal`: what the league rewards
  * as the evaluation weighted B (the feedback's inputs); `blendOn`: whether the market blend reaches anyone (marketBlendOn:
@@ -2857,7 +3128,7 @@ export function buildAnalysisView(
   // The card's own odds note isn't needed here: the line above it gives the trade's own "before" (Checkpoint 7e, item 2.1).
   const built =
     analysis.evaluation && !analysis.illegal
-      ? buildTradeCard(analysis.evaluation, { snapshot, baseline, reward, lastNflWeek, fantasyCalc: opts.fantasyCalc, goal: opts.goal, blendOn: opts.blendOn, details: true, helpsScale, partnerLine: "always" })
+      ? buildTradeCard(analysis.evaluation, { snapshot, baseline, reward, lastNflWeek, fantasyCalc: opts.fantasyCalc, goal: opts.goal, blendOn: opts.blendOn, details: true, helpsScale, partnerLine: "always", offers: opts.from === "planB" ? "none" : "analyzer" })
       : null;
   const card = built ? { ...built, oddsNote: null } : null;
   // The trade's own "before" when it has either-way moves (Checkpoint 7e, item 2.1), the one its card's odds start from.
@@ -2918,7 +3189,10 @@ export function cardFeedback(records: readonly FeedbackRecord[] | undefined, lea
  * is one the card shows (on a card with two; a plain card's one version goes without saying; a record without a key,
  * made before keys were saved, by its kind alone), else "an earlier one" with its trade in words when a version with a
  * key is recorded that the card doesn't show (review of Phase 4b: after a refresh changed a card's Plan B, the line named
- * the box shown now; the Analyzer's card for the same trade said nothing).
+ * the box shown now; the Analyzer's card for the same trade said nothing). Checkpoint 7e (planner reply to Checkpoint 7d,
+ * item 4.1): an offer of "How to offer it" the card doesn't show right now (its offers aren't open since the page loaded,
+ * or were worked out again) reads by its place and its players, which say what was sent: "Open with: Puka Nacua for Drake
+ * London and Chris Olave" (⚠️ ours: never "an earlier one", which would read as if the card had changed).
  */
 export function versionLine(feedback: Pick<CardFeedback, "outcome" | "version" | "versionKey" | "versionWords">, versions: readonly VersionChoice[]): string | null {
   if (!feedback.outcome || feedback.version === null) return null;
@@ -2926,5 +3200,8 @@ export function versionLine(feedback: Pick<CardFeedback, "outcome" | "version" |
   const shown = key !== null ? versions.find((v) => v.key === key) : versions.length > 1 ? versions.find((v) => v.version === feedback.version) : undefined;
   if (shown) return versions.length > 1 ? shown.label : null;
   if (key === null) return null;
+  const v = feedback.version;
+  const place = v === "open" || v === "then" || v === "last" ? OFFER_STEP_LABEL[v] : null;
+  if (place && feedback.versionWords) return `${place}: ${feedback.versionWords}`;
   return feedback.versionWords ? `an earlier one (${feedback.versionWords})` : "an earlier one";
 }

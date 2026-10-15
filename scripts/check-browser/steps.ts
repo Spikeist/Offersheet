@@ -20,7 +20,13 @@
  * 5. Trade card (the first idea): the four sorts reorder the ideas without a new search (Chance they accept by the
  *    chance it goes through when the card shows one: the sort's own number, rank.ts; among the ideas that help); an
  *    outcome button (Rejected; on a card that shows two versions the first outcome asks which one, and the step picks the first) saves and clears; Report saves a reason and a
- *    note, and Undo removes it; the message's Copy puts it on the clipboard; the report form's tap targets.
+ *    note, and Undo removes it; the message's Copy puts it on the clipboard; the report form's tap targets. Checkpoint 7e (planner
+ *    reply to Checkpoint 7d, item 4.1): last, every Plan B box reads "If they won't move: try …", and "How to offer it" on the
+ *    first idea, opened, works its offers out (timed, `offersSeconds`) and holds the ladder's rules on the numbers it prints
+ *    (contracts.ts offersProblems: the opening offer at least config.offers.openMinChance, each offer likelier than the one
+ *    before by config.search.steps.minAcceptGain, Helps you above 0 and never rising), an offer that is another idea shown
+ *    saying so with that idea's place ("Also shown as trade idea N.": contracts.ts offersAlsoProblems; the lead's call, wave
+ *    D), each offer's Copy putting its own message on the clipboard (offersChecks).
  * 6. Analyzer (the card's "Open in Analyzer"): it evaluates the same trade with the same three numbers as the card;
  *    both sides shown, no tag on mine; the layout; "Back to the Trade Finder" shows the ideas again. Then step "Waivers"
  *    (Phase 7b, below).
@@ -89,7 +95,7 @@
  *   the Finder's done state can show, whatever sort a remembered Finder opens in.
  *
  * Checkpoint 7d (planner reply to Checkpoint 7c; contracts.ts decides): answer 3, in every sort a Trade Finder card shows the
- * partner's line exactly when it's tagged "Helps both", never in an "If they say no, try:" box (finderPartnerLineProblems), and
+ * partner's line exactly when it's tagged "Helps both", never in a Plan B box (finderPartnerLineProblems), and
  * the Analyzer's card shows it whatever it is, the same number as the Finder's card when that one showed it, with the same tag,
  * and that tag the one its own printed scores call for (analyzerPartnerLineProblems; review of Checkpoint 7d, cards-export-3:
  * only the Analyzer's card prints both scores of an untagged idea); "Also", step "DynastyProcess link" with the public pages:
@@ -101,6 +107,11 @@
  *   champion", so there they see the line absent; the Settings step, with "Several prizes" saved (its prefilled 3rd place
  *   paid), goes back to the League page, the Trade Finder (the search the new setting starts) and the Analyzer's card for
  *   its first idea to see it present (prizeOddsChecks; review of the prizes UI, prizes-ui-1: the line was never seen live).
+ * Checkpoint 7e (planner reply to Checkpoint 7d, item 4.2, "Now or after this week"; contracts.ts nowOrLaterProblems): the card
+ *   step waits until every Trade Finder card's later numbers are in (the list's data-now-or-later), then holds each line it
+ *   shows to "Helps you 37 now · 41 if done after this week's games.": its card's own Helps you first, the two more than
+ *   config.explain.nowOrLaterMin apart, the planner's tooltip, and the same words among the card's facts (a phone shows
+ *   those); the Analyzer step holds its card's line, which comes with its evaluation, to the same (nowOrLaterChecks).
  * After each step: no console errors (page or worker), CSP violations (Part B: enforced or report-only, page or worker),
  * uncaught exceptions, failed requests to the app, or requests to any other site. Screenshots, when on, go to the shots folder after the page's names are replaced with placeholders,
  * put back right after (one that can't be saved is a skip: it's a record to look at, not a check of the app).
@@ -119,7 +130,7 @@ import type { MarketInputs } from "@/engine/inputs";
 import type { LeagueSettings, LeagueSnapshot } from "@/engine/model";
 import { rewardOf, rewardWith } from "@/engine/reward";
 import { GOALS, PRIZE_KEYS, normalizeTradeSettings, type TradeSettings } from "@/engine/settings";
-import { bestTimeText, freshnessText, inTradingSeason, topPlacesOf } from "@/lib/tradeView";
+import { ANALYZER_SUGGESTED_LABEL, NOW_OR_LATER_TITLE, OFFER_STEP_LABEL, PLAN_B_HEADING, bestTimeText, freshnessText, inTradingSeason, topPlacesOf } from "@/lib/tradeView";
 import { RATING_FAILED_TEXT, RATING_PENDING_TEXT, SAME_POSITION_HELP, SAME_POSITION_LABEL } from "@/lib/waiversView";
 import { LEAGUE_ID_PLACEHOLDER, mergeLeagueNames, nameRules, type CheckReport, type LeagueNames } from "./report";
 import {
@@ -171,7 +182,10 @@ import {
   NAV_HREFS,
   noticeCount,
   noticeLeaks,
+  nowOrLaterProblems,
   oddsLabelProblems,
+  offersAlsoProblems,
+  offersProblems,
   pageValueLeaks,
   PARKER_QUIET_LINE,
   PLAYOFF_WEIGHT_RANGE,
@@ -185,6 +199,8 @@ import {
   waiverToggleKind,
   type CreditRead,
   type FantasyCalcLink,
+  type NowOrLaterRead,
+  type OffersRead,
   type PrizeGroupRead,
   type WaiverMoveRead,
 } from "./contracts";
@@ -207,7 +223,7 @@ export interface CardInfo {
   theirOdds: string[] | null;
   /** The "Helps both" tag shows with the card's heading. */
   helpsBothTag: boolean;
-  /** Checkpoint 7d: the card's "If they say no, try:" box shows a partner's line (it never may). */
+  /** Checkpoint 7d: the card's Plan B box ("If they won't move: try …" since Checkpoint 7e) shows a partner's line (it never may). */
   planBHelpsThem: boolean;
   analyzerHref: string | null;
   /** The card's Analyzer link opens the card's own trade (its key's partner and players). */
@@ -653,7 +669,7 @@ export async function cardOddsChecks(ctx: StepContext, step: string, label: (i: 
   const { page, report } = ctx;
   const lead = under ? `${under}, ` : "";
   const cards = await page.run<string[][][]>(READ_CARD_ODDS);
-  const lines = cards.flatMap((card, i) => card.map((labels, j) => ({ labels, where: j === 0 ? label(i) : `${label(i)}'s “If they say no, try:”` })));
+  const lines = cards.flatMap((card, i) => card.map((labels, j) => ({ labels, where: j === 0 ? label(i) : `${label(i)}'s “If they won't move: try …”` })));
   if (!lines.length) {
     report.skip(step, `${lead}the odds lines: no card shows them`);
     return;
@@ -1233,6 +1249,39 @@ export const SORTS = [
   { value: "overall", label: "Overall" },
 ] as const;
 
+/**
+ * Checkpoint 7e (planner reply to Checkpoint 7d, item 4.2, "Now or after this week"): on the Trade Finder, once the worker's
+ * numbers are all in (the list's data-now-or-later stops reading "pending"), and on the Analyzer's card, every card's line
+ * reads "Helps you 37 now · 41 if done after this week's games.", starts from its own Helps you, shows only when the two
+ * differ by more than config.explain.nowOrLaterMin, and carries the planner's words as its tooltip and among its facts
+ * (contracts.ts nowOrLaterProblems). How many show it is noted ("nowOrLater").
+ */
+export async function nowOrLaterChecks(ctx: StepContext, step: string, where: "finder" | "analyzer"): Promise<void> {
+  const { page, report } = ctx;
+  if (where === "finder") {
+    const state = await page
+      .waitFor<string>(`(() => { const v = document.querySelector("ol[data-now-or-later]"); if (!v) return "none"; const s = v.getAttribute("data-now-or-later"); return s === "pending" ? null : s; })()`, 120_000, "the cards' later lines", 100)
+      .catch(() => "pending");
+    if (state === "pending") {
+      report.fail(step, "the cards' “Helps you … if done after this week's games” numbers didn't all arrive in 2 minutes");
+      return;
+    }
+  }
+  const cards = await page.run<NowOrLaterRead[]>(where === "finder" ? "return allNowOrLater();" : `const a = document.querySelector("article"); return a ? [nowOrLaterOf(a)] : [];`, { cards: true });
+  const shown = cards.filter((c) => c.line !== null).length;
+  if (where === "finder") report.note(step, "nowOrLater", shown);
+  const problems = nowOrLaterProblems(cards, { min: config.explain.nowOrLaterMin, title: NOW_OR_LATER_TITLE }, (i) => (where === "finder" ? `idea ${i + 1}` : "the Analyzer's card"));
+  report.check(
+    step,
+    problems.length === 0,
+    where === "finder"
+      ? `“Helps you … now · … if done after this week's games.” shows on ${shown} of ${pl(cards.length, "card")}, each from its own Helps you, more than ${config.explain.nowOrLaterMin} apart, its tooltip's words among its facts`
+      : `the Analyzer's card ${shown ? "shows" : "doesn't need"} the “… if done after this week's games” line${shown ? ", from its own Helps you, its tooltip's words among its facts" : ""}`,
+    "a card's “… if done after this week's games” line doesn't read as it should",
+    problems,
+  );
+}
+
 export async function cardStep(ctx: StepContext): Promise<void> {
   const step = "Trade card";
   const { page, report } = ctx;
@@ -1241,6 +1290,8 @@ export async function cardStep(ctx: StepContext): Promise<void> {
     report.skip(step, ctx.myTeam ? "no trade idea to try the buttons on" : "no team picked");
     return;
   }
+  // Checkpoint 7e (item 4.2): the cards' "now or after this week" lines, once they're all in, in the default sort.
+  await nowOrLaterChecks(ctx, step, "finder");
 
   // The sorts: each reorders the ideas from the highest down (sortInversions), and none starts a new search. Checkpoint 7c
   // (planner reply to Checkpoint 7b, §7): in every sort the "Helps both" tag shows on exactly the cards that help both teams
@@ -1282,7 +1333,7 @@ export async function cardStep(ctx: StepContext): Promise<void> {
   report.check(
     step,
     lineProblems.size === 0,
-    `in every sort the partner's line shows only with the “Helps both” tag (${pl(lines, "card")} showed it across the ${pl(SORTS.length, "sort")}), never in an “If they say no, try:” box`,
+    `in every sort the partner's line shows only with the “Helps both” tag (${pl(lines, "card")} showed it across the ${pl(SORTS.length, "sort")}), never in an “If they won't move: try …” box`,
     "the partner's line shows on a card that doesn't help both, or is missing from one that does",
     [...lineProblems],
   );
@@ -1368,6 +1419,96 @@ export async function cardStep(ctx: StepContext): Promise<void> {
     "the card links to the Trade Analyzer with its own trade",
     ctx.firstCard.analyzerHref ? "the card's Analyzer link names another trade than the card's" : "the card has no Open in Analyzer link",
   );
+  await offersChecks(ctx, step, first);
+}
+
+/**
+ * "How to offer it" on the first card (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1; the lead's check:browser
+ * bullet): opened, the engine worker works its offers out (timed: `offersSeconds`); they hold the ladder's rules on the numbers
+ * they print (contracts.ts offersProblems: "Open with" at least config.offers.openMinChance, or the minimum chance when that's
+ * higher, each offer at least config.search.steps.minAcceptGain likelier than the one before, Helps you above 0 and never
+ * rising, each with its own Copy); an offer that is another idea of the list says so with that idea's place, "Also shown as
+ * trade idea N." (contracts.ts offersAlsoProblems, the places from the list's data-trade-key: the lead's call, wave D), and no
+ * other offer does; each offer's Copy puts its own message on the clipboard; and every Plan B box the list
+ * shows reads the planner's heading, "If they won't move: try …". Runs last in the card step: once open, the offers' messages
+ * come before the card's own on the card. The tab's minimum chance is the default (a fresh browser: the Settings step runs
+ * after this one).
+ */
+async function offersChecks(ctx: StepContext, step: string, first: string): Promise<void> {
+  const { page, report } = ctx;
+  const headings = await page.run<string[]>(`return cardPlanBHeadings();`, { cards: true });
+  report.check(
+    step,
+    headings.every((h) => h === PLAN_B_HEADING),
+    headings.length ? `every Plan B box reads “${PLAN_B_HEADING}” (${headings.length} ${headings.length === 1 ? "box" : "boxes"})` : "no Plan B box shows (nothing to read)",
+    "a Plan B box reads another heading",
+    [...new Set(headings.filter((h) => h !== PLAN_B_HEADING))],
+  );
+  const has = await page.run<boolean>(`return !!offersDetails(${first});`, { cards: true });
+  if (!report.check(step, has, "the first idea has “How to offer it”", "the first idea has no “How to offer it”")) return;
+  const started = Date.now();
+  await page.click(`offersDetails(${first}).querySelector("summary")`, "How to offer it");
+  const read = await page
+    .waitFor<OffersRead>(`(() => { const o = offersData(${first}); return o && (o.offers.length || o.failed || /^Offer this trade as it is/.test(o.status)) ? o : null; })()`, 30_000, "the offers", 50)
+    .catch(() => null);
+  const took = seconds(Date.now() - started);
+  report.note(step, "offersSeconds", took);
+  if (!read) {
+    report.fail(step, "“How to offer it” didn't answer within 30 s");
+    return;
+  }
+  const openMin = Math.round(Math.max(config.offers.openMinChance, config.ranking.minChanceDefault) * 100);
+  const gain = Math.round(config.search.steps.minAcceptGain * 100);
+  const suggested = [OFFER_STEP_LABEL.suggested, ANALYZER_SUGGESTED_LABEL];
+  const problems = offersProblems(read, { openMin, gain, suggested });
+  report.note(step, "offers", read.offers.map((o) => `${o.label}: Helps you ${o.helps ?? "?"}, ${o.chance ?? "?"}${o.also ? ` (${o.also})` : ""}`));
+  report.check(
+    step,
+    problems.length === 0,
+    read.offers.length
+      ? `“How to offer it” lists ${pl(read.offers.length, "offer")} in ${took} s, each at least ${gain} points likelier than the one before (the first at least ${openMin}%), Helps you above 0 and never rising, each with its own Copy`
+      : `“How to offer it” says to offer the trade as it is, in ${took} s`,
+    "“How to offer it” breaks its rules",
+    problems,
+  );
+  // An offer that is another idea shown says so with that idea's place (the lead's call for Checkpoint 7e's wave D:
+  // contracts.ts offersAlsoProblems, the list's places read from its items' data-trade-key).
+  if (read.offers.length) {
+    const places = await page.run<Record<string, number>>(`return cardPlaces(${first});`, { cards: true });
+    const alsoProblems = offersAlsoProblems(read, places, suggested);
+    const labeled = read.offers.filter((o) => o.also).length;
+    report.check(
+      step,
+      alsoProblems.length === 0,
+      labeled
+        ? `${pl(labeled, "offer")} that ${labeled === 1 ? "is another idea shown says" : "are other ideas shown say"} so with ${labeled === 1 ? "its" : "their"} place (“Also shown as trade idea N.”), and no other offer does`
+        : "no offer is another idea shown, and none says it is",
+      "an offer's “Also shown as trade idea N.” is missing or wrong",
+      alsoProblems,
+    );
+  }
+  // Each offer's own message: opened, then Copy (a trusted tap) puts it on the clipboard.
+  const copies: string[] = [];
+  for (let i = 0; i < read.offers.length; i++) {
+    const details = `[...offersDetails(${first}).querySelector("ol").children[${i}].querySelectorAll("details")].find((d) => txt(d.querySelector("summary")).startsWith("Message to send them"))`;
+    try {
+      await page.click(`${details}.querySelector("summary")`, `offer ${i + 1}'s message`);
+      await page.click(`${details}.querySelector("button")`, `offer ${i + 1}'s Copy`);
+    } catch (err) {
+      copies.push(`offer ${i + 1}: ${err instanceof Error ? err.message : "its message couldn't be opened"}`);
+      continue;
+    }
+    const copied = await page
+      .waitFor<string>(`(() => { const b = ${details}.querySelector("button"); const t = b ? txt(b) : ""; return t === "Copied!" ? "copied" : t.startsWith("Select the text") ? "refused" : null; })()`, 5_000, `offer ${i + 1}'s copy`)
+      .catch(() => "no answer");
+    const clip = await page.run<{ same: boolean; read: boolean }>(
+      `const d = ${details}; const text = d ? txt(d.querySelector("div p")) : ""; try { const c = await navigator.clipboard.readText(); return { same: txt({ textContent: c }) === text, read: true }; } catch (e) { return { same: false, read: false }; }`,
+      { cards: true },
+    );
+    if (copied !== "copied") copies.push(`offer ${i + 1}: Copy ${copied === "refused" ? "says the browser refused the clipboard" : "didn't answer"}`);
+    else if (clip.read && !clip.same) copies.push(`offer ${i + 1}: the clipboard doesn't hold its message`);
+  }
+  if (read.offers.length) report.check(step, copies.length === 0, `each offer's Copy puts its own message on the clipboard (${pl(read.offers.length, "offer")})`, "an offer's Copy doesn't work", copies);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1426,6 +1567,8 @@ export async function analyzerStep(ctx: StepContext): Promise<void> {
     await cardValueChecks(ctx, step, () => "the Analyzer's card", await readTradingLeague(ctx));
     // Checkpoint 7c: its odds lines as the Trade Finder's.
     await cardOddsChecks(ctx, step, () => "the Analyzer's card");
+    // Checkpoint 7e (item 4.2): its "now or after this week" line, with its evaluation.
+    await nowOrLaterChecks(ctx, step, "analyzer");
   }
   await fantasyCalcDomCheck(ctx, step);
   layoutChecks(ctx, step, await measurePage(ctx));

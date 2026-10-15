@@ -149,24 +149,27 @@
  * config.ranking.minChanceFew trades and the same finalists ranked with no minimum (Any, the lowest setting) would show
  * more (review of track SR, finding 2: read on the qualifying finalists, before the caps, it missed lists the caps cut
  * short, and at Any it suggested a setting that doesn't exist; on Parker's league, the 00:51Z dump, at 50%: 4 cards from
- * 10 qualifying, 17 at Any; ours: never when a lower setting would add no card). Then each shown trade gets its
- * "Offer first / if they say no" steps (planner addendum to Checkpoint 3, §4; lead decision N4: evaluate.ts
- * tradeSteps, the versions on the screening block, reusing the exact stage's evaluations; ⚠️ Phase 4c: a lean offer-first
- * version prints at least the user's minimum chance too, evaluate.offerFirstBar, so a step can come and go with the
- * minimum while its card stays). ⚠️ Folding (final review of Phase 4c, finding PAGES-3; foldedCards): when a card's steps
- * name another card of the list (its offer first or its full version), the two show one plan and both messages would
- * propose the same first offer (on Parker's league, Oct 4 09:24Z, Kyle Monangai + Bo Nix → Jadarian Price said "Offer
- * first: Bo Nix for Jadarian Price", the card two places above it), so the lower-ranked of the two leaves the list and the
- * finalists are ranked again without it, until no two cards share a plan; the cards folded count among the variety rules'
- * drops (as filler) and among the qualifying, and the ranking behind `few` and the pattern note leaves them out too. One
- * without steps gets a Plan B ("If they say no, try:", planner reply to Checkpoint 4,
- * change 6; planB.ts: the best other exact trade with that partner by its rules, ⚠️ at least the steps' minAcceptGain
- * likelier to go through than the card and never one the list shows as a card), from a pool fixed before any card picks,
+ * 10 qualifying, 17 at Any; ours: never when a lower setting would add no card). Since Checkpoint 7e (planner reply to
+ * Checkpoint 7d, item 4.1) the shown trades get no "Offer first / if they say no" steps (planner addendum to Checkpoint 3,
+ * §4; lead decision N4): a card's "How to offer it" is worked out when it's opened, offers in order (src/engine/offers.ts,
+ * from this search's state: "What the ladder reads" below). With the steps went their folding (final review of Phase 4c,
+ * finding PAGES-3: when a card's steps named another card of the list, the lower-ranked of the two left the list, since both
+ * messages proposed the same first offer). ⚠️ A ladder's Open, Then or Last offer can be another card of its list (on
+ * Parker's league, week 6, card #1 opens with card #2's trade and #2 ends with #1's, #3 opens with #5's and #5 ends with
+ * #3's): the card then says so, "Also shown as trade idea 2." (the lead's call, wave D, in place of the review's barring,
+ * D-ENG-2 and UI-D-2, which lost those plans and read "Offer this trade as it is" where a better first offer existed; no
+ * folding either: a ladder is built when its card is opened, after the search, which can't know whether that card would
+ * take a place). Every card gets a Plan B ("If they won't move: try …", a different target: the planner's words in the
+ * reply to Checkpoint 7d, item 4.1, and since the review of wave D, D-ENG-5, only another set of their players; "If they say no,
+ * try:" on a card without steps until then, planner reply to Checkpoint 4, change 6; planB.ts: the best other exact trade
+ * with that partner by its rules, ⚠️ at least the steps' minAcceptGain likelier to go through than the card and never one
+ * the list shows as a card), from a pool fixed before any card picks,
  * of every exact trade with its best numbers, a finalist's final ones; a chosen trade that wasn't a finalist is simulated
  * on the ranking block first, once per key, ⚠️ not counted in counts.simFinal, which stays the finalists'. A box's odds
  * (PlanB.dPO, dCH, winChance; planner reply to Checkpoint 4b, change 9) come from its simulation on the shown block, the
- * card's basis (since Checkpoint 7e: "The shown pass" below; until then the final block's). ⚠️ Nor is a box a version a
- * card's steps show (final review of Phase 4c, finding PAGES-3), nor one another card with its partner matches or beats on
+ * card's basis (since Checkpoint 7e: "The shown pass" below; until then the final block's). ⚠️ Nor is a box (until
+ * Checkpoint 7e) a version a card's steps showed (final review of Phase 4c, finding PAGES-3), nor one another card with its
+ * partner matches or beats on
  * both Helps you (as printed) and P_complete (planB.ts dominatedByCard, on the ranking block's numbers and, since
  * Checkpoint 7e, again on the printed ones: "The shown pass" below; same review, finding R2: Garrett Wilson → Tee Higgins +
  * Mike Evans, 25 and 32.0%, sat on a Team 4 card while the list showed Garrett Wilson → Chuba Hubbard + Mike Evans, 30 and
@@ -189,7 +192,7 @@
  * ⚠️ The Plan Bs of the cards in the top-20 window keep to the given-player cap among themselves (planB.ts: in the cards'
  * order, each box counts the players of mine its card doesn't give, and a candidate that would add one already added by
  * that many boxes is skipped). Then its words and its injury tags (evaluate.ts withWords, as the Analyzer's: explain.ts
- * with the app's names, the pitch naming the offer-first version; flags.tagged, explain.injuryTags from the snapshot with
+ * with the app's names, the pitch naming the card's own trade; flags.tagged, explain.injuryTags from the snapshot with
  * explain.tagContextOf: the week now and the League model's word on which conflicted Probable, Questionable or Doubtful
  * players follow their ESPN return date). The ranking stays on the ranked trades' numbers. Hidden counts: the finalists'
  * (rankTrades: byBenefit and byMarket, and byChance for the minimum chance) plus the other exact trades the guards hide at
@@ -222,20 +225,20 @@
  * ⚠️ Only the second list ranks them (review of the "Helps both" engine track, finding HB-5): they're simulated so that
  * list has enough candidates, and in the Overall list a trade that missed the finalists would get a second chance only
  * because it helps the partner (on synthetic leagues one pushed a card out under the core cap); Plan B's pool keeps their
- * screening numbers as before. So the Overall list, its steps, boxes, words, `few` and pattern note are the same as without
+ * screening numbers as before. So the Overall list, its boxes, words, `few` and pattern note are the same as without
  * the second list, but for the rules of a card that helps both, below. finish then ranks a second list
  * (TradeSearchResult.helpsBoth) from every finalist, the extras too: rankTrades with RankOptions.order "helps" (B, highest
  * first, the order the caps go through them in) and keep benefit.helpsBoth (on the final numbers: the re-check), the §10
  * guards, the minimum chance and §13's caps as the Overall list's (one partner, must-include players alike; ⚠️ the filler
- * rule judging each pair as the Overall order does: rank.ts, HB-3), its own folding of cards that show one plan, and
- * lowerWouldAdd (the same finalists at Any, its folded cards left out, would show more: the page's suggestion of a lower
- * setting). Steps, Plan B and words are made once per card for both lists: a card on both is the very same evaluation (the
- * Overall list's cards first, then the second list's others). ⚠️ A card that helps both teams (its "Helps both" tag, on its
- * printed numbers since Checkpoint 7e, in either list) offers first only a version that helps both too (evaluate.ts tradeSteps,
- * StepOptions.helpsBoth; HB-1), and its Plan B box helps both too (planB.ts planBPasses; HB-4): judged by the card's own
- * numbers, never by the list it's on, so its steps are one per card (both lists fold on them) and the tag the page shows in
- * every sort holds for what the card suggests. ⚠️ A Plan B box names no card of its card's list, nor a version that list's
- * steps show, nor one a card of that list matches or beats (a card on both lists reads both lists' cards: its one box is
+ * rule judging each pair as the Overall order does: rank.ts, HB-3), and lowerWouldAdd (the same finalists at Any would
+ * show more: the page's suggestion of a lower setting). (Until Checkpoint 7e each list also folded its cards that showed one
+ * plan, by their steps.) Plan B and words are made once per card for both lists: a card on both is the very same evaluation
+ * (the Overall list's cards first, then the second list's others). ⚠️ A card that helps both teams (its "Helps both" tag, on
+ * its printed numbers since Checkpoint 7e, in either list) has a Plan B box that helps both too (planB.ts planBPasses; HB-4),
+ * and since Checkpoint 7e every offer of its "How to offer it" helps both too (offers.ts; until then its offer-first step,
+ * HB-1): judged by the card's own numbers, never by the list it's on, so the tag the page shows in every sort holds for what
+ * the card suggests. ⚠️ A Plan B box names no card of its card's list, nor one a card of that list matches or beats (a card
+ * on both lists reads both lists' cards: its one box is
  * read in either; HB-2: the page shows one list at a time, so an Overall card's box doesn't depend on the second list); ⚠️
  * the second list's boxes keep to the given-player cap among themselves in its own top-20 window, the boxes its cards on
  * the Overall list already have counted first. The pattern note is the Overall list's only.
@@ -244,16 +247,16 @@
  * points across seeds: raise the final simulation for the cards shown to 10,000 or 20,000 seasons"; the lead's design, as
  * built, with the review of it, SHOWN-1 to SHOWN-3): everything above ranks and chooses on the ranking block, the final
  * simulation's config.simulation.finalSims seasons (evaluate.ts: the first seasons of the shown block, the same draws),
- * scored on that block's B₃ and partners' scales: the finalists, the "Helps both" extras, both lists' membership and
- * folding, Plan B's candidates and choice, `few` and lowerWouldAdd. Every card of either list and every Plan B box is
+ * scored on that block's B₃ and partners' scales: the finalists, the "Helps both" extras, both lists' membership (and until
+ * item 4.1 their folding), Plan B's candidates and choice, `few` and lowerWouldAdd. Every card of either list and every Plan B box is
  * simulated once more on the shown block, config.simulation.shownSims seasons (20,000), against its baseline (the League
  * page's headline), on its B₃ and each partner's scale there (made when first needed, one calibration run a yield), once
- * per key (SearchState.shownByKey): a card the first time a list holds it, before its steps are made; a box when its card's
- * choice reaches it. Every number a card or a box prints comes from that run (B, Helps you, Overall, the odds lines, the
- * weekly line, Helps them and the "Helps both" tag), and its words are made on it. ⚠️ Ours (the review), so every rule the
- * lists and the boxes are chosen by holds on the numbers they print, as it did before Checkpoint 7e:
- * - a card's "Helps both" rules for its steps and its box read its printed numbers, its tag (SHOWN-1): its steps are made
- *   once its shown run is in (StepOptions.helpsBoth), so they and its pitch are the Analyzer's (on the shown block) too;
+ * per key (SearchState.shownByKey): a card the first time a list holds it; a box when its card's choice reaches it. Every
+ * number a card or a box prints comes from that run (B, Helps you, Overall, the odds lines, the weekly line, Helps them and
+ * the "Helps both" tag), and its words are made on it. ⚠️ Ours (the review), so every rule the lists and the boxes are chosen
+ * by holds on the numbers they print, as it did before Checkpoint 7e:
+ * - a card's "Helps both" rule for its box reads its printed numbers, its tag (SHOWN-1; until item 4.1 its steps' too), and so
+ *   does "How to offer it" (offers.ts), so its pitch and its offers are the Analyzer's (on the shown block) too;
  * - each list is ranked again on its cards' printed numbers by rank.ts, in its own order (the Overall list by EG, the "Helps
  *   both" list by B; SHOWN-3): nothing comes in, but a card whose shown B isn't above 0 leaves (§10's guard: counted among
  *   the trades that wouldn't help me), one whose printed numbers don't help both teams leaves the "Helps both" list (the
@@ -266,13 +269,12 @@
  *   SHOWN-2: 19 of about 1,180 boxes on 300 synthetic searches broke one), else the next candidate is tried (within
  *   planB.tries), so a box never prints numbers its rules turn down.
  * ⚠️ Not done (ours): a card whose printed numbers help both teams and its ranking numbers don't is tagged "Helps both" (its
- * steps and box held to the rule) but doesn't join the "Helps both" list, whose cards the ranking chose, as a card that
- * list's caps leave out doesn't (1 card in 150 synthetic searches under the default goal, 2 under "Several prizes"). The
- * steps stay on the screening block and the ranking block's scale (item 4.1 of the planner's reply replaces them; each
- * step carries its own B₃, TradeStep.b3). `few` and lowerWouldAdd compare the rankings at Any and at the minimum, as before
- * (what the printed numbers take out of a list they'd take out at Any too). The pattern note is made on the list shown;
- * its drivers read the ranking block's trades, as its ranking does. On Parker's league (week 6 under his prizes; Node) the
- * pass simulates 19 trades (the 17 its lists show, cards and boxes, and 2 cards a list held, then left: one folded off, one
+ * box and its offers held to the rule) but doesn't join the "Helps both" list, whose cards the ranking chose, as a card that
+ * list's caps leave out doesn't (1 card in 150 synthetic searches under the default goal, 2 under "Several prizes").
+ * `few` and lowerWouldAdd compare the rankings at Any and at the minimum, as before (what the printed numbers take out of a
+ * list they'd take out at Any too). The pattern note is made on the list shown; its drivers read the ranking block's
+ * trades, as its ranking does. On Parker's league (week 6 under his prizes; Node) the pass simulated 19 trades at
+ * Checkpoint 7e's wave A (the 17 its lists showed, cards and boxes, and 2 cards a list held, then left: one folded off, one
  * that doesn't help both as printed) and 8 partners' scales, about 1.2 s of a 6.5 s search. When the shown block is the
  * ranking block (shownSims at most finalSims) a trade's ranking numbers are its shown ones, bit for bit, and are taken as
  * they are, and without the pass (TradeSearchOptions.shownPass false) every number is the ranking block's: either way the
@@ -281,11 +283,18 @@
  * Re-filtering (planner reply to Checkpoint 4b, change 10: "re-filter instantly from the finalists, without re-running the
  * search"): a finished search keeps its finalists and caches (searchStateOf: the result object → its state; null when the
  * search stopped before ranking, whose result holds for any minimum), and refilterSearch ranks them again with another
- * minimum chance on the ranking block, recomputing the shown lists' steps, Plan Bs, words and pattern note from them, and
- * running the shown pass for the trades it shows that no earlier list showed (versions on the screening block, final
- * simulations and shown runs reused by key: they're deterministic, so the result equals a fresh search's with that
- * minimum, the "Helps both" list included; Plan B's pool stays the one fixed before any card picked). Only the minimum
- * changes; any other setting needs a new search.
+ * minimum chance on the ranking block, recomputing the shown lists' Plan Bs, words and pattern note from them, and
+ * running the shown pass for the trades it shows that no earlier list showed (final simulations and shown runs reused by
+ * key: they're deterministic, so the result equals a fresh search's with that minimum, the "Helps both" list included;
+ * Plan B's pool stays the one fixed before any card picked). Only the minimum changes; any other setting needs a new
+ * search.
+ *
+ * What the ladder reads (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1; src/engine/offers.ts): a card's "How to
+ * offer it" is built on demand from the search's state (offerLadderOfSearch, by the result object), so the state keeps what
+ * it needs besides the caches above: each partner's get pool H and its must-include players as the search built them
+ * (SearchState.getPools: the ladder's variants keep my side and take any 1 to maxPerSide of them), the exact trades'
+ * versions on the screening block (SearchState.versions, which the ladder adds its own to: a re-filter shares them), and the
+ * printed numbers of the cards and boxes (shownByKey). A card's Plan B is its result's (TradeEvaluation.planB).
  *
  * One partner (⚠️ ours, end-of-Phase-4 review, finding 5): a search of a single partner (opts.partnerId, must-include
  * players of theirs, or a league with one other team: Pools.partners holds one team) ranks without the per-partner cap,
@@ -312,13 +321,15 @@
  *
  * Progress (M8, M14): the generator yields between units of work (a batch of screens, each partner's "Helps them"
  * calibration run, each exact trade, each final simulation; then under the "rank" stage one unit each for every card's
- * numbers and steps, since Checkpoint 7c the "Helps both" list's cards the Overall list doesn't show too, every card's Plan
- * B, with a yield before each of Plan B's simulations, and since Checkpoint 7e every run on the shown block, a card's, a
+ * numbers (and until Checkpoint 7e its steps), since Checkpoint 7c the "Helps both" list's cards the Overall list doesn't
+ * show too, every card's Plan B, with a yield before each of Plan B's simulations, and since Checkpoint 7e every run on the
+ * shown block, a card's, a
  * box's or a partner's scale: done of the units planned so far, so the bar only moves forward (the review's SHOWN-5: the pass
  * restarted it), with TradeSearchProgress.part "shown" while the pass runs on a block of its own, which tradeView.ts names,
  * still the "rank" stage so a re-filter reads as one), so a worker can slice it and stop it. ⚠️ A run on the shown block is
  * one unit of about 45–50 ms on Parker's league in Node (20,000 seasons), over the 40 ms the other units keep to. Timings:
- * one key per TradeSearchStage, "steps" (the shown trades' steps, Plan B and words), "shown" (the runs on the shown block,
+ * one key per TradeSearchStage, "steps" (the shown trades' Plan B and words; until Checkpoint 7e their steps too: the key
+ * keeps its name), "shown" (the runs on the shown block,
  * Checkpoint 7e) and "total"; a re-filter's: "rank", "steps", "shown" (when the pass has a block of its own) and "total".
  */
 import { benefit, benefitNotes, helpsBoth, helpsScaleNotes } from "./benefit";
@@ -336,7 +347,6 @@ import {
   screenTrade,
   simulateTrade,
   tradeInternals,
-  tradeSteps,
   withWords,
   type ExactTrade,
   type Screened,
@@ -354,7 +364,7 @@ import { addGainExact } from "./teamValue";
 import { addedGiven, choosePlanB, givenCapSkip, planBCandidates, planBConfig, type PlanBConfig } from "./planB";
 import { rankTrades, type RankConfig, type RankedTrades } from "./rank";
 import { defaultTradeSettings, normalizeTradeSettings, type TradeSettings } from "./settings";
-import type { HelpsBothList, PatternNote, PlanB, TradeAsset, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeSearchProgress, TradeSearchResult, TradeSearchStage, TradeSteps } from "./tradeModel";
+import type { HelpsBothList, PatternNote, PlanB, TradeAsset, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeSearchProgress, TradeSearchResult, TradeSearchStage } from "./tradeModel";
 
 export interface TradeSearchOptions {
   /**
@@ -490,9 +500,40 @@ export function buildPools(I: TradeInternals, settings: TradeSettings, partnerId
   const chips = (myModel?.chips ?? []).map((c) => c.playerId).filter((id) => me.roster.includes(id) && tradable(id));
   const give = [...new Set([...top, ...chips, ...forcedGive])];
   if (!give.length) return stop("None of your players can be offered with your settings (untouchable, or at positions left out of the search).");
+  // H per partner (getPoolPicker): its top players by what they'd add to my lineup (MV_add(me, j), EV), the "Harder to get"
+  // ones apart, and its must-include players.
+  const pick = getPoolPicker(I, settings);
+  for (const p of partners) {
+    const forced = p.id === forcedTeam ? forcedGet : [];
+    out.get.set(p.id, { pool: pick(p, forced), forced });
+  }
+  if (partners.every((p) => (out.get.get(p.id)?.pool.length ?? 0) === 0)) {
+    return stop(settings.targetPositions.length > 0 || settings.avoidPositions.length > 0 ? "No player at the positions your settings allow would improve your lineup." : "No player on the other teams would improve your lineup right now.");
+  }
+  out.partners = partners;
+  out.give = give;
+  out.forcedGive = forcedGive;
+  return out;
+}
 
-  // H per partner: its top players by what they'd add to my lineup (MV_add(me, j), EV), the "Harder to get" ones apart,
-  // and its must-include players.
+/**
+ * The get pool H of a partner (§12 step 2; the file header, "Pools"), as buildPools builds it for each partner it searches:
+ * the partner's tradable players (active roster and, with IR returners, IR) by MV_add(me, j) in EV lineups above 0, after the
+ * position filters (targetPositions, avoidPositions, the K/D/ST/IDP rule), the top config.search.getPool untagged and the top
+ * getPoolTagged "Harder to get" ones in MV_add order, then `forced` (its must-include players, kept out of the ranking). A
+ * partner's IR player whom an open IR slot of mine would take is priced as a returner. Since Checkpoint 7e (planner reply to
+ * Checkpoint 7d, item 4.1) "How to offer it" reads it for the Trade Analyzer's card, and for a Finder card whose search the
+ * engine no longer keeps (offers.ts); a search's own are kept in its state (SearchState.getPools). Empty without my team.
+ */
+export function getPoolOf(I: TradeInternals, settings: TradeSettings, partner: TeamState, forced: readonly string[] = []): string[] {
+  return I.me ? getPoolPicker(I, settings)(partner, forced) : [];
+}
+
+/** getPoolOf's work for any number of partners, its per-call parts made once (buildPools). */
+function getPoolPicker(I: TradeInternals, settings: TradeSettings): (p: TeamState, forced: readonly string[]) => string[] {
+  const me = I.me as TeamState;
+  const excluded = new Set<Pos>(settings.includeKDefIdp ? [] : config.market.tradeSearchExcluded);
+  const tradableOf = (t: TeamState): readonly string[] => (I.irOn ? [...t.roster, ...t.ir] : t.roster);
   const target = new Set<Pos>(settings.targetPositions);
   const avoid = new Set<Pos>(settings.avoidPositions);
   const addValue = addValueOf(I.league);
@@ -502,8 +543,7 @@ export function buildPools(I: TradeInternals, settings: TradeSettings, partnerId
   // A partner's IR player comes to me as a returner when I'd have an open IR slot (⚠️ judged before any trade: my IR as it
   // stands) and the slot takes his status (evaluate.ts rule 5): MV_add is then what he adds to V*(me)'s lineups, no drop.
   const myIrOpen = I.irOn && me.ir.length < Math.max(0, Math.floor(I.snapshot.settings.irSlots));
-  for (const p of partners) {
-    const forced = p.id === forcedTeam ? forcedGet : [];
+  return (p, forced) => {
     const scored: { id: string; mv: number }[] = [];
     for (const id of new Set(tradableOf(p))) {
       const row = I.league.table.rows.get(id);
@@ -527,16 +567,8 @@ export function buildPools(I: TradeInternals, settings: TradeSettings, partnerId
     for (const x of scored) {
       if (harderToGetFor(I, p.id, x.id) ? tagged++ < getPoolTagged : untagged++ < getPool) top.push(x.id);
     }
-    const pool = [...top, ...forced];
-    out.get.set(p.id, { pool, forced });
-  }
-  if (partners.every((p) => (out.get.get(p.id)?.pool.length ?? 0) === 0)) {
-    return stop(target.size > 0 || avoid.size > 0 ? "No player at the positions your settings allow would improve your lineup." : "No player on the other teams would improve your lineup right now.");
-  }
-  out.partners = partners;
-  out.give = give;
-  out.forcedGive = forcedGive;
-  return out;
+    return [...top, ...forced];
+  };
 }
 
 /** Notes that hold for the whole search: positions left out, picks deferred, B's own (benefit.benefitNotes). */
@@ -1109,7 +1141,8 @@ export function finalistsOf(
 /**
  * What a finished search keeps so the shown list can be ranked again with another minimum chance (refilterSearch; the file
  * header, "Re-filtering"): the context it ran on, its settings, its finalists and Plan B's pool, and the caches the shown
- * list's steps and Plan Bs read (deterministic numbers, keyed by trade: reusing them changes nothing).
+ * list's Plan Bs read, and since Checkpoint 7e what "How to offer it" reads (the file header, "What the ladder reads";
+ * deterministic numbers, keyed by trade: reusing them changes nothing).
  */
 export interface SearchState {
   /** The context's internals the search ran on (refilterSearch checks it's given the same context). */
@@ -1119,6 +1152,11 @@ export interface SearchState {
   readonly onePartner: boolean;
   /** My must-include players (Pools.forcedGive): in every trade, so the given-player cap and the pattern note skip them. */
   readonly forcedGive: readonly string[];
+  /**
+   * Checkpoint 7e ("How to offer it", planner reply to Checkpoint 7d, item 4.1; the file header, "What the ladder reads"): each
+   * searched partner's get pool H and its must-include players (Pools.get), as the search built them.
+   */
+  readonly getPools: ReadonlyMap<string, { readonly pool: readonly string[]; readonly forced: readonly string[] }>;
   readonly notes: readonly string[];
   readonly counts: TradeSearchResult["counts"];
   /**
@@ -1160,13 +1198,16 @@ export interface SearchState {
   readonly planBCfg: PlanBConfig;
   /** Checkpoint 7e: whether the shown pass runs (TradeSearchOptions.shownPass; the file header, "The shown pass"). */
   readonly shownPass: boolean;
-  /** Versions on the screening block by key (the steps; new versions are added as they're evaluated). */
+  /**
+   * Versions on the screening block by key: the exact trades' (their screening numbers) and, since Checkpoint 7e, the ones
+   * "How to offer it" evaluates (offers.ts adds them; a re-filter's state shares the map). Until then the steps'.
+   */
   readonly versions: Map<string, TradeVersion>;
   /** Numbers on the ranking block by key: the finalists', then each Plan B candidate's once simulated. */
   readonly finalByKey: Map<string, TradeEvaluationCore>;
   /**
    * Checkpoint 7e (the file header, "The shown pass"): numbers on the shown block by key, simulated once each: every card a
-   * list of the search or of a re-filter of it held (before its steps were made, so also one folded or ruled out after),
+   * list of the search or of a re-filter of it held (so also one its printed numbers ruled out after),
    * and every Plan B candidate a card's choice reached (a box, or one its printed numbers turned down). A re-filter
    * simulates only the trades no earlier list held.
    */
@@ -1191,7 +1232,7 @@ interface Finished {
   shown: TradeEvaluation[];
   /**
    * The Overall list's counts (rank.ts RankedTrades): the trades the guards and the minimum chance kept out, those that
-   * qualified, and those the variety rules (and the folding) left out, ⚠️ with what the printed numbers took out (Checkpoint
+   * qualified, and those the variety rules left out (until Checkpoint 7e with the folded cards), ⚠️ with what the printed numbers took out (Checkpoint
    * 7e; the file header, "The shown pass": a card whose shown B isn't above 0 among the hidden by benefit, one §13's rules
    * drop in the printed order among the dropped).
    */
@@ -1246,43 +1287,16 @@ export function patternInputsOf(I: TradeInternals, ranked: readonly TradeEvaluat
 }
 
 /**
- * Folding (finish; final review of Phase 4c, finding PAGES-3: on Parker's league, Oct 4 09:24Z, the card Kyle Monangai +
- * Bo Nix → Jadarian Price said "Offer first: Bo Nix for Jadarian Price", the card shown two places above it, and both
- * cards' messages proposed that trade): the keys of the cards, in list order, that leave the list because they and another
- * card show one plan. For each card not already leaving, each version its steps show (offer first, full) that is another
- * card not already leaving: the lower-ranked of the two leaves (the card itself when the other is above it, then its other
- * versions aren't checked; else the other). Cards without steps fold nothing themselves.
- */
-export function foldedCards(cards: readonly { readonly key: string; readonly steps: TradeSteps | null }[]): string[] {
-  const at = new Map(cards.map((c, i) => [c.key, i]));
-  const out = new Set<string>();
-  cards.forEach((c, i) => {
-    if (out.has(c.key) || !c.steps) return;
-    for (const k of [c.steps.offerFirst.key, c.steps.ifNo.full.key]) {
-      const j = at.get(k);
-      if (k === c.key || j === undefined || out.has(k)) continue;
-      if (j < i) {
-        out.add(c.key);
-        return;
-      }
-      out.add(k);
-    }
-  });
-  return [...out];
-}
-
-/**
  * Rank the state's finalists with `minChance` and build the shown lists (the file header, "Final stages" from the final
- * ranking on, "Helps both" and "The shown pass"): the Overall ranking on the ranking block, each card's numbers on the shown
- * block and its steps (by its "Helps both" tag as it prints) and the folding (foldedCards: ranked again until no two cards
- * show one plan), the uncapped ranking behind the pattern note; the "Helps both" list the same way in Helps-you order (its
- * own folding); then each list ranked again on the numbers its cards print, which only takes out and sorts; then each card's
- * Plan B in the printed order, its words and its injury tags, once per card for both lists, reusing and growing the state's
- * caches; `few` and the "Helps both" list's lowerWouldAdd last, on the lists shown.
+ * ranking on, "Helps both" and "The shown pass"): the Overall ranking on the ranking block and the uncapped ranking behind
+ * the pattern note, the "Helps both" list's in Helps-you order, each card's numbers on the shown block; then each list ranked
+ * again on the numbers its cards print, which only takes out and sorts; then each card's Plan B in the printed order, its
+ * words and its injury tags, once per card for both lists, reusing and growing the state's caches; `few` and the "Helps both"
+ * list's lowerWouldAdd last, on the lists shown. (Until Checkpoint 7e each card also got its "Offer first / if they say no"
+ * steps here, and each list folded the cards that showed one plan.)
  */
 function* finish(state: SearchState, settings: TradeSettings, mark: (stage: TimingKey) => void): Generator<TradeSearchProgress, Finished, void> {
-  const { I, onePartner, forcedGive, versions, finalByKey, exactByKey } = state;
-  const maxPerSide = settings.maxPerSide;
+  const { I, onePartner, forcedGive, finalByKey, exactByKey } = state;
   const value = assetValue(I);
   const minChance = settings.minChance;
   const reward = rewardFor(I, settings);
@@ -1296,15 +1310,15 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
   const extras = new Set(state.helpsBothExtras);
   const regular = extras.size ? all.filter((c) => !extras.has(c.key)) : all;
   const caps = rankCaps({ relaxed: false, onePartner });
-  const without = (list: TradeEvaluation[], folded: ReadonlySet<string>) => (folded.size ? list.filter((c) => !folded.has(c.key)) : list);
-  const rankOf = (folded: ReadonlySet<string>) => rankTrades(without(regular, folded), value, caps, { minChance, givenCapExempt: forcedGive });
+  const ranked = rankTrades(regular, value, caps, { minChance, givenCapExempt: forcedGive });
   // The "Helps both" list's ranking (Checkpoint 7c; the file header, "Helps both"): every finalist, the extras too, with the
   // same guards, minimum and caps, only the trades that help both teams on their ranking numbers (benefit.helpsBoth), in
   // Helps-you order.
   const keepBoth = (t: TradeEvaluation) => helpsBoth(t);
-  const rankBothOf = (folded: ReadonlySet<string>) => rankTrades(without(all, folded), value, caps, { minChance, givenCapExempt: forcedGive, order: "helps", keep: keepBoth });
-  let ranked = rankOf(new Set());
-  const bothFirst = rankBothOf(new Set());
+  const both = rankTrades(all, value, caps, { minChance, givenCapExempt: forcedGive, order: "helps", keep: keepBoth });
+  // The pattern note (pattern.ts): the same finalists without the given-player cap, never naming a must-include player; it
+  // says how many of them the list itself shows (made on the list shown, below). The Overall list's only.
+  const uncapped = rankTrades(regular, value, { ...caps, perGivenPlayerInTop20: Number.POSITIVE_INFINITY }, { minChance, givenCapExempt: forcedGive });
   mark("rank");
 
   // The numbers a card or a box prints (Checkpoint 7e; the file header, "The shown pass"): its run on the shown block,
@@ -1316,10 +1330,10 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
   const sim = I.sim;
   const own = state.shownPass && sim !== null && sim.blocks.shown !== sim.blocks.final;
   const printedOf = (t: TradeEvaluationCore): TradeEvaluationCore => (state.shownPass ? (state.shownByKey.get(t.key) ?? t) : t);
-  // Progress under "rank" (the file header, "Progress"): units done of the units planned (each card's numbers and steps, its
-  // Plan B, each run on the shown block, each partner's scale there), planned up front for the cards of the first rankings
-  // and, for any other, as it's done (a unit added to both counts), so the bar only moves forward; with `part` "shown" while
-  // the pass plays the ideas out on a block of its own (tradeView.ts progressView names it).
+  // Progress under "rank" (the file header, "Progress"): units done of the units planned (each card's numbers, its Plan B,
+  // each run on the shown block, each partner's scale there), planned up front for the cards of the first rankings and, for
+  // any other, as it's done (a unit added to both counts), so the bar only moves forward; with `part` "shown" while the pass
+  // plays the ideas out on a block of its own (tradeView.ts progressView names it).
   const planned = new Set<string>();
   const finished = new Set<string>();
   const unit = (id: string) => {
@@ -1352,7 +1366,8 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
     unit(`run:${key}`);
     yield progress();
   }
-  for (const t of new Map([...ranked.trades, ...bothFirst.trades].map((c) => [c.key, c])).values()) {
+  const listed = [...new Map([...ranked.trades, ...both.trades].map((c) => [c.key, c])).values()];
+  for (const t of listed) {
     planned.add(`card:${t.key}`);
     planned.add(`box:${t.key}`);
     const partner = exactByKey.get(t.key)?.partner.id;
@@ -1361,53 +1376,13 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
     if (sim && !sim.partners.has(partner)) planned.add(`partner:${partner}`);
   }
 
-  // The shown trades' steps ("Offer first / if they say no", N4), once per trade (deterministic, so a trade ranked again,
-  // or shown on both lists, keeps them), each made once the card's printed numbers are in. ⚠️ Folding (final review of Phase
-  // 4c, finding PAGES-3; the file header, "Final stages"): when a card's steps name another card of the list (its offer-first
-  // version or its full one), the two show one plan, and both messages would propose the same first offer: the lower-ranked
-  // of the two leaves the list, and the list is ranked again without it, so another idea can take its place (a card that
-  // leaves through another card's steps, or whose own steps name a card above it, is never one whose steps fold a third).
-  // Repeated until no two cards share a plan. Each list folds its own cards (the "Helps both" list in its own order). ⚠️ A
-  // card that helps both teams (its "Helps both" tag, on its printed numbers: Checkpoint 7e, the review's SHOWN-1) offers
-  // first only a version that helps both too (evaluate.ts tradeSteps, StepOptions.helpsBoth; the file header, "Helps both"):
-  // judged by the card's own numbers, so its steps are the same on both lists, and the same as the Analyzer's (which
-  // evaluates on the shown block).
-  const stepsByKey = new Map<string, TradeSteps | null>();
-  function* settle(rank: (folded: ReadonlySet<string>) => RankedTrades, first: RankedTrades): Generator<TradeSearchProgress, { ranked: RankedTrades; folded: Set<string> }, void> {
-    const folded = new Set<string>();
-    let r = first;
-    for (;;) {
-      for (const t of r.trades) {
-        if (stepsByKey.has(t.key)) continue;
-        yield* shownRun(t.key);
-        const version = versions.get(t.key);
-        stepsByKey.set(t.key, version ? tradeSteps(I, version, { settings, maxPerSide, versions, helpsBoth: helpsBoth(printedOf(t)) }) : null);
-        unit(`card:${t.key}`);
-        yield progress();
-      }
-      const fold = foldedCards(r.trades.map((t) => ({ key: t.key, steps: stepsByKey.get(t.key) ?? null })));
-      if (!fold.length) break;
-      for (const k of fold) folded.add(k);
-      r = rank(folded);
-    }
-    return { ranked: r, folded };
+  // Each card's numbers on the shown block, once per key: the Overall list's cards first, then the "Helps both" list's
+  // others (a card on both lists is one evaluation).
+  for (const t of listed) {
+    yield* shownRun(t.key);
+    unit(`card:${t.key}`);
+    yield progress();
   }
-  const main = yield* settle(rankOf, ranked);
-  ranked = main.ranked;
-  const folded = main.folded;
-  const kept = without(regular, folded);
-  // The pattern note (pattern.ts): the same finalists without the given-player cap (the folded cards left out), never
-  // naming a must-include player; it says how many of them the list itself shows (made on the list shown, below). The
-  // Overall list's only.
-  const uncapped = rankTrades(kept, value, { ...caps, perGivenPlayerInTop20: Number.POSITIVE_INFINITY }, { minChance, givenCapExempt: forcedGive });
-  // The folded cards count among the trades the variety rules left out (as filler: each is a card's other version), and
-  // among those that qualified.
-  if (folded.size) ranked = { ...ranked, qualifying: ranked.qualifying + folded.size, dropped: { ...ranked.dropped, filler: ranked.dropped.filler + folded.size } };
-
-  // The "Helps both" list: its steps and folding as above.
-  const second = yield* settle(rankBothOf, bothFirst);
-  let both = second.ranked;
-  if (second.folded.size) both = { ...both, qualifying: both.qualifying + second.folded.size, dropped: { ...both.dropped, filler: both.dropped.filler + second.folded.size } };
 
   // ⚠️ Each list ranked again on the numbers its cards print (ours: Checkpoint 7e's review, SHOWN-3; the file header, "The
   // shown pass"): rankTrades on the list's own cards, so it can only take cards out and sort the rest (a card whose shown B
@@ -1418,10 +1393,11 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
   const overall = rankTrades(ranked.trades.map(printed), value, caps, { minChance, givenCapExempt: forcedGive });
   const bothShown = rankTrades(both.trades.map(printed), value, caps, { minChance, givenCapExempt: forcedGive, order: "helps", keep: keepBoth });
 
-  // A Plan B for each card without steps (planB.ts), once per card, in the printed order: the Overall list's cards first,
-  // then the "Helps both" list's that the Overall list doesn't show (a card on both lists is the very same evaluation). Chosen
-  // on the ranking block's numbers, as the lists are (a Plan B candidate that isn't a finalist is simulated on the ranking
-  // block once, whichever card asks first: finalByKey keeps it), then held to the same rules on the numbers it would print.
+  // A Plan B for every card (planB.ts; since Checkpoint 7e on a card with steps too, which no card has now), once per card,
+  // in the printed order: the Overall list's cards first, then the "Helps both" list's that the Overall list doesn't show (a
+  // card on both lists is the very same evaluation). Chosen on the ranking block's numbers, as the lists are (a Plan B
+  // candidate that isn't a finalist is simulated on the ranking block once, whichever card asks first: finalByKey keeps it),
+  // then held to the same rules on the numbers it would print.
   const finalOf = (core: TradeEvaluationCore): TradeEvaluationCore => {
     const known = finalByKey.get(core.key);
     if (known) return known;
@@ -1437,22 +1413,14 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
   const bothKeys = new Set(bothShown.trades.map((t) => t.key));
   const cards = [...overall.trades, ...bothShown.trades.filter((t) => !overallKeys.has(t.key))];
   // A box never names a trade its list shows as a card (planB.ts: the card above or below already offers it), nor ⚠️ one that
-  // is a card plus more players who don't make it minAcceptGain likelier (barredFromBoxes), nor ⚠️ a version a card's steps
-  // show (its offer first or its full trade: final review of Phase 4c, finding PAGES-3); and ⚠️ none that a card with the
+  // is a card plus more players who don't make it minAcceptGain likelier (barredFromBoxes); and ⚠️ none that a card with the
   // same partner matches or beats on both numbers (planB.ts dominatedByCard), on the ranking numbers and again on the
-  // printed ones. ⚠️ "Its list" (Checkpoint 7c; review of the "Helps both" engine track, finding HB-2): the cards of the
-  // list the card is on, and of both lists for a card on both (its one box is read in either), so an Overall card's box is
-  // what it was before the second list: the page shows one list at a time.
-  const barOf = (list: readonly TradeEvaluation[]): Set<string> => {
-    const keys = barredFromBoxes(state.planBPool, list);
-    for (const t of list) {
-      const s = stepsByKey.get(t.key);
-      if (s) for (const k of [s.offerFirst.key, s.ifNo.full.key]) keys.add(k);
-    }
-    return keys;
-  };
-  const barOverall = barOf(overall.trades);
-  const barBoth = barOf(bothShown.trades);
+  // printed ones. (Until Checkpoint 7e nor a version a card's steps showed: final review of Phase 4c, finding PAGES-3.) ⚠️
+  // "Its list" (Checkpoint 7c; review of the "Helps both" engine track, finding HB-2): the cards of the list the card is on,
+  // and of both lists for a card on both (its one box is read in either), so an Overall card's box is what it was before the
+  // second list: the page shows one list at a time.
+  const barOverall = barredFromBoxes(state.planBPool, overall.trades);
+  const barBoth = barredFromBoxes(state.planBPool, bothShown.trades);
   const barShared = new Set([...barOverall, ...barBoth]);
   const boxRules = (key: string): { bar: ReadonlySet<string>; cards: readonly TradeEvaluation[] } => {
     const onOverall = overallKeys.has(key);
@@ -1474,7 +1442,6 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
   // helping both under a card tagged "Helps both", no card of its list matching or beating it), or the next candidate is
   // tried, so a box never prints numbers its rules turn down.
   function* boxOf(card: TradeEvaluation, boxes: Map<string, number> | null): Generator<TradeSearchProgress, PlanB | null, void> {
-    if (stepsByKey.get(card.key)) return null;
     const skip = boxes ? givenCapSkip(card.proposal, boxes, planBCfg.givenPlayerCap) : undefined;
     const rules = boxRules(card.key);
     const rankingCards = rules.cards.map(rankingOf);
@@ -1535,16 +1502,15 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
     yield progress();
   }
 
-  // Each card's words and injury tags on its printed numbers (evaluate.ts withWords: the pitch names the offer-first
-  // version), with its steps (the screening block's) and its box.
+  // Each card's words and injury tags on its printed numbers (evaluate.ts withWords: the pitch names the card's own trade),
+  // with its box.
   const byKeyDone = new Map<string, TradeEvaluation>();
   for (const t of cards) {
     const { reasons: _reasons, pitch: _pitch, ...core } = t;
     void _reasons;
     void _pitch;
-    const steps = stepsByKey.get(t.key) ?? null;
     const box = boxByKey.get(t.key) ?? null;
-    byKeyDone.set(t.key, withWords(I, { ...core, ...(steps ? { steps } : {}), ...(box ? { planB: box } : {}) }));
+    byKeyDone.set(t.key, withWords(I, { ...core, ...(box ? { planB: box } : {}) }));
     yield progress();
   }
   mark("steps");
@@ -1553,12 +1519,12 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
   const bothCards = bothShown.trades.map((t) => byKeyDone.get(t.key) as TradeEvaluation);
   const pattern = patternNote({ ...patternInputsOf(I, uncapped.trades, forcedGive), shown });
   // "Few": the list shows fewer than minChanceFew trades, and a lower setting would show more (Any, the lowest, ranks the
-  // same finalists with no minimum, the folded cards left out as here). And the "Helps both" list's lowerWouldAdd: the same
-  // finalists at Any (its folded cards left out) would show more trades that help both. ⚠️ "Would show more" compares the
-  // ranking at Any with the ranking at the minimum, both on the ranking block's numbers (Checkpoint 7e): what the printed
-  // numbers take out of a list (the file header, "The shown pass") they'd take out at Any too.
-  const few = minChance > 0 && shown.length < config.ranking.minChanceFew && rankTrades(kept, value, caps, { givenCapExempt: forcedGive }).trades.length > ranked.trades.length;
-  const lowerWouldAdd = minChance > 0 && rankTrades(without(all, second.folded), value, caps, { givenCapExempt: forcedGive, order: "helps", keep: keepBoth }).trades.length > both.trades.length;
+  // same finalists with no minimum). And the "Helps both" list's lowerWouldAdd: the same finalists at Any would show more
+  // trades that help both. ⚠️ "Would show more" compares the ranking at Any with the ranking at the minimum, both on the
+  // ranking block's numbers (Checkpoint 7e): what the printed numbers take out of a list (the file header, "The shown pass")
+  // they'd take out at Any too.
+  const few = minChance > 0 && shown.length < config.ranking.minChanceFew && rankTrades(regular, value, caps, { givenCapExempt: forcedGive }).trades.length > ranked.trades.length;
+  const lowerWouldAdd = minChance > 0 && rankTrades(all, value, caps, { givenCapExempt: forcedGive, order: "helps", keep: keepBoth }).trades.length > both.trades.length;
   const bothList: HelpsBothList = {
     trades: bothCards,
     qualifying: both.qualifying,
@@ -1582,7 +1548,7 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
 }
 
 /**
- * The timings' keys (TradeSearchResult.timings): the progress stages, "steps" (the shown trades' steps, Plan B and words),
+ * The timings' keys (TradeSearchResult.timings): the progress stages, "steps" (the shown trades' Plan B and words; their steps too until Checkpoint 7e),
  * since Checkpoint 7e "shown" (the shown pass alone: the file header), and "total".
  */
 type TimingKey = TradeSearchStage | "steps" | "shown";
@@ -1627,7 +1593,7 @@ function resultOf(state: SearchState, done: Finished, timings: Record<string, nu
     filter: { minChance: settings.minChance, qualifying: done.qualifying, few: done.few },
     ...(done.pattern ? { pattern: done.pattern } : {}),
     // The one scale every card and Plan B box shown was scored on (and its B's market term priced on): the shown block's
-    // (Checkpoint 7e; the steps, on the screening block, read the ranking block's), and the reward behind it.
+    // (Checkpoint 7e; "How to offer it" screens its versions on the ranking block's: offers.ts), and the reward behind it.
     helpsScale: helpsScaleOf(I, settings.lambda, reward),
     reward,
     // The "Helps both" list (Checkpoint 7c; the file header).
@@ -1787,6 +1753,7 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
     settings,
     onePartner,
     forcedGive: [...pools.forcedGive],
+    getPools: new Map(pools.get),
     notes,
     counts: { ...counts },
     companions: companions.map((s) => s.key),

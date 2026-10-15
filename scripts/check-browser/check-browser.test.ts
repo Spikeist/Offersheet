@@ -22,7 +22,7 @@ import { GOAL_LABEL, PRIZE_LABEL, PRIZE_TEXT_MESSAGES, PRIZES_HELP, PRIZES_LEGEN
 import { snapshot as settingsSnapshot } from "@/components/settings/testFixtures";
 import { AnalysisResult } from "@/components/trades/AnalyzerPage";
 import { evaluation, searchResult, steppedFull, tradeFantasyCalc, tradeSnapshot } from "@/components/trades/testFixtures";
-import { TradeCard } from "@/components/trades/TradeCard";
+import { OffersPanel, TradeCard } from "@/components/trades/TradeCard";
 import { FinderFrame } from "@/components/trades/TradeFinderPage";
 import { config } from "@/engine/config";
 import type { PlayerBlend } from "@/engine/leagueModel";
@@ -35,7 +35,7 @@ import type { ImportResponse } from "@/lib/api";
 import { buildImportReport } from "@/lib/importReport";
 import { buildLeagueView } from "@/lib/leagueView";
 import { NOTICE_TEXT, UNKNOWN_SETTING_NOTICE } from "@/lib/notices";
-import { bestTimeText, buildAnalysisView, buildFinderView, buildTradeCard, PROJECTIONS_SOURCE, SORT_OPTIONS } from "@/lib/tradeView";
+import { ANALYZER_SUGGESTED_LABEL, OFFER_STEP_LABEL, PLAN_B_HEADING, bestTimeText, buildAnalysisView, buildFinderView, buildLadderView, buildTradeCard, PROJECTIONS_SOURCE, SORT_OPTIONS } from "@/lib/tradeView";
 import { RATING_PENDING_TEXT } from "@/lib/waiversView";
 import { DEFAULT_MAX_SEARCH_SECONDS, SECOND_LEAGUE, USAGE, parseArgs, resolveArgs, type CheckBrowserArgs } from "./args";
 import { chromeArgs, chromeCandidates, devtoolsUrl, exited, findChrome, killTree, waitForDevtools } from "./chrome";
@@ -81,7 +81,14 @@ import {
   VALUES_CREDIT,
   waiverMoveProblems,
   waiverToggleKind,
+  OFFERS_ALONE,
+  offersAlsoProblems,
+  offersProblems,
+  printedChancePoints,
+  throughOf,
   type CreditRead,
+  type OfferRead,
+  type OffersRead,
   type PrizeGroupRead,
   type WaiverMoveRead,
 } from "./contracts";
@@ -1311,7 +1318,7 @@ describe("Checkpoint 7c: “Helps both” (planner reply to Checkpoint 7b, §7)"
     expect(finderPartnerLineProblems([line("39", "4", false), line("39", null, true), line("39", "24", true, true)], (i) => `card ${i + 1}`)).toEqual([
       "card 1 shows “Helps them 4” without the “Helps both” tag",
       "card 2 is tagged “Helps both” without the partner's line",
-      "card 3's “If they say no, try:” shows a partner's line",
+      "card 3's “If they won't move: try …” shows a partner's line",
     ]);
     // The Analyzer: the line whatever it is, the Finder's number when the Finder showed one, the same tag.
     expect(analyzerPartnerLineProblems(line("39", "0", false), { helpsThem: null, helpsBothTag: false }, MIN)).toEqual([]);
@@ -1345,12 +1352,108 @@ describe("Checkpoint 7c: “Helps both” (planner reply to Checkpoint 7b, §7)"
     const analyzerBoth = buildAnalysisView({ evaluation: both, illegal: null, notes: [] }, snapshot).card;
     expect([asRead(finderBoth).helpsBothTag, asRead(analyzerBoth ?? undefined).helpsBothTag]).toEqual([true, true]);
     expect(analyzerPartnerLineProblems(asRead(analyzerBoth ?? undefined), asRead(finderBoth), MIN)).toEqual([]);
-    // The reader keeps a Plan B box apart: the box is the parent of its "If they say no, try:" heading, as TradeCard renders it.
+    // The reader keeps a Plan B box apart: the box is the parent of its heading (the planner's "If they won't move: try …" since
+    // Checkpoint 7e), as TradeCard renders it, followed by its kind line (cardPlanBHeadings reads every box's heading by it).
     const planB = planBFixture({ partnerId: "2", give: ["105"], get: ["203"] });
     const boxed = renderToStaticMarkup(createElement(TradeCard, { card: buildTradeCard(withThem(evaluation({ planB }), 24), { snapshot }), rank: 1, feedback: noFeedback, onFeedback: saved }));
-    expect(boxed).toMatch(/<div class="[^"]*"><p class="font-bold">If they say no, try:<\/p>/);
-    expect(CARD_HELPERS).toContain('txt(p) === "If they say no, try:"');
+    expect(boxed).toMatch(/<div class="[^"]*"><p class="font-bold">If they won&#x27;t move: try …<\/p><p class="text-xs text-muted">A different set of their players<\/p>/);
+    expect(CARD_HELPERS).toContain(`const PLAN_B_HEADING = ${JSON.stringify(PLAN_B_HEADING)};`);
+    expect(CARD_HELPERS).toContain("txt(p) === PLAN_B_HEADING");
+    expect(CARD_HELPERS).toContain('const kinds = ["A different set of their players", "The same players of theirs, a different package"];');
     expect(CARD_HELPERS).toContain("planBHelpsThem: box ? !!partnerLine(box, null) : false");
+  });
+
+  it("Checkpoint 7e: “How to offer it” on the numbers it prints (offersProblems), and the reader of the opened list as TradeCard renders it (planner reply to Checkpoint 7d, item 4.1)", () => {
+    const want = { openMin: Math.round(config.offers.openMinChance * 100), gain: Math.round(config.search.steps.minAcceptGain * 100), suggested: [OFFER_STEP_LABEL.suggested, ANALYZER_SUGGESTED_LABEL] };
+    expect([want.openMin, want.gain]).toEqual([15, 5]);
+    const offer = (label: string, helps: string, chance: string, copy = true): OfferRead => ({ label, helps, chance, copy });
+    const read = (offers: OfferRead[], status = "Offer them in order: if they say no, try the next."): OffersRead => ({ status, offers, failed: false });
+    // A ladder that keeps every rule, the Analyzer's too.
+    expect(offersProblems(read([offer("Open with", "50", "15%"), offer("Then", "45", "20%"), offer("The suggested trade", "39", "30%"), offer("Last offer", "36", "40%")]), want)).toEqual([]);
+    expect(offersProblems(read([offer("The trade you built", "39", "30%"), offer("Last offer", "36", "35%")]), want)).toEqual([]);
+    // The suggested trade alone: no list, and the line says to offer it as it is.
+    expect(offersProblems(read([], "Offer this trade as it is: no version of it with Team 8 makes a better first offer."), want)).toEqual([]);
+    // Each rule broken, in words.
+    expect(offersProblems(read([offer("Open with", "50", "10%"), offer("The suggested trade", "52", "12%", false)]), want)).toEqual([
+      "offer 1 (“Open with”) prints 10%, under 15%",
+      "offer 2 (“The suggested trade”) prints 12%, not 5 points above offer 1's 10%",
+      "offer 2 (“The suggested trade”)'s Helps you 52 is above offer 1's 50",
+      "offer 2 (“The suggested trade”) has no Copy button for its message",
+    ]);
+    expect(offersProblems(read([offer("Then", "40", "20%"), offer("Open with", "0", "<5%")]), want)).toEqual([
+      "its offers read “Then”, “Open with”, not Open with, Then, the suggested trade and Last offer in that order",
+      "offer 2 (“Open with”) reads Helps you 0, not above 0",
+      "offer 2 (“Open with”) prints <5%, not 5 points above offer 1's 20%",
+    ]);
+    expect(offersProblems({ status: "", offers: [], failed: true }, want)).toEqual(["“How to offer it” says the offers couldn't be worked out"]);
+    expect(offersProblems(read([], "Working out the offers…"), want)).toEqual(["“How to offer it” shows no offers and says “Working out the offers…”"]);
+    expect([printedChancePoints("15%"), printedChancePoints("<5%"), printedChancePoints("—"), printedChancePoints(null)]).toEqual([15, 0, null, null]);
+    expect(OFFERS_ALONE.test("Offer this trade as it is: no version of it with Gravel Gophers makes a better first offer.")).toBe(true);
+    // The review of wave D (UI-D-3): the chances compared are the ones the ladder's rules read, the chance it goes through when
+    // an offer's veto note prints one. A veto-cut offer whose chance they accept reads higher than the next offer's passes, and
+    // one whose chance it goes through is too close to the one before fails, though its chance they accept would pass.
+    expect([throughOf("Counting a league veto vote, about 20% it goes through."), throughOf("Counting the commissioner's review, under 5% it goes through."), throughOf("Saved."), throughOf(null)]).toEqual(["20%", "<5%", null, null]);
+    expect(offersProblems(read([{ ...offer("Open with", "50", "40%"), through: "20%" }, offer("The suggested trade", "45", "30%")]), want)).toEqual([]);
+    expect(offersProblems(read([offer("Open with", "50", "20%"), { ...offer("The suggested trade", "45", "40%"), through: "20%" }]), want)).toEqual(["offer 2 (“The suggested trade”) prints 20%, not 5 points above offer 1's 20%"]);
+    // The reader (inPage.ts offersData) reads what TradeCard renders: each offer a direct <li> of the list, its first paragraph
+    // its label in bold, its second its numbers, its message behind a "Message to send them" summary with a Copy button.
+    const snapshot = tradeSnapshot();
+    const base = evaluation({ b: 3, pAccept: 0.3, pComplete: 0.3 });
+    const ladder = buildLadderView(
+      { cardKey: base.key, steps: [{ kind: "open", evaluation: evaluation({ get: ["202", "204"], b: 4.2, pAccept: 0.15, pComplete: 0.15 }), message: "Hey!" }, { kind: "suggested", evaluation: base, message: "Thanks!" }] },
+      buildTradeCard(base, { snapshot }),
+      { snapshot },
+    );
+    const panel = renderToStaticMarkup(createElement(OffersPanel, { state: { kind: "done", ladder }, name: "trade idea 1" }));
+    expect(panel).toMatch(/<ol class="[^"]*"><li class="break-words" data-offer-key="[^"]+"><p><span class="font-semibold">Open with:<\/span> [^<]*<\/p><p class="font-semibold"><span class="whitespace-nowrap">Helps you 50<\/span>/);
+    expect(panel).toContain('<span class="whitespace-nowrap">Chance they accept 15%</span>');
+    expect(panel.match(/<summary class="[^"]*"><span>Message to send them<span class="sr-only">/g)).toHaveLength(2);
+    expect(panel.match(/>Copy message<\/button>/g)).toHaveLength(2);
+    // The lead's call for wave D: an offer that is another card shown says so right under its players, before its numbers, so
+    // the reader takes the numbers from the paragraph that starts with "Helps you", and the line and the item's key apart.
+    const opened = ladder.steps[0]?.key as string;
+    const labeled = renderToStaticMarkup(createElement(OffersPanel, { state: { kind: "done", ladder }, name: "trade idea 1", places: new Map([[opened, 2]]) }));
+    expect(labeled).toContain(`<li class="break-words" data-offer-key="${opened}"><p><span class="font-semibold">Open with:</span>`);
+    expect(labeled).toMatch(/<\/p><p class="text-muted">Also shown as trade idea 2\.<\/p><p class="font-semibold"><span class="whitespace-nowrap">Helps you 50<\/span>/);
+    for (const piece of [
+      "function offersDetails(a)",
+      'startsWith("How to offer it")',
+      "function offersData(a)",
+      'ps.map(txt).find((t) => t.startsWith("Helps you ")',
+      "/Helps you (\\S+)/",
+      "/Chance they accept (\\S+)/",
+      "/(?:about (\\d{1,3})%|under 5%) it goes through/",
+      'visibleText(b) === "Copy message"',
+      'd.querySelector("[role=alert]")',
+      'key: li.getAttribute("data-offer-key")',
+      "const OFFER_ALSO = /^Also shown as trade idea \\d+\\.$/;",
+      "function cardPlaces(a)",
+      'a.closest("li[data-trade-key]")',
+    ]) {
+      expect(CARD_HELPERS, piece).toContain(piece);
+    }
+  });
+
+  it("Checkpoint 7e: an offer that is another idea shown says so with that idea's place, and no other offer does (offersAlsoProblems; the lead's call, wave D)", () => {
+    const suggested = [OFFER_STEP_LABEL.suggested, ANALYZER_SUGGESTED_LABEL];
+    const offer = (label: string, key: string | null, also: string | null = null): OfferRead => ({ label, helps: "40", chance: "30%", copy: true, key, also });
+    const places = { a: 1, b: 2, c: 3 };
+    // Card 1's ladder: its Open is card 2's trade, its Last offer no card's; the suggested trade (card 1 itself) says nothing.
+    expect(offersAlsoProblems({ offers: [offer("Open with", "b", "Also shown as trade idea 2."), offer("The suggested trade", "a"), offer("Last offer", "x")] }, places, suggested)).toEqual([]);
+    expect(offersAlsoProblems({ offers: [offer("The trade you built", "a")] }, {}, suggested)).toEqual([]);
+    expect(
+      offersAlsoProblems(
+        { offers: [offer("Open with", "b"), offer("Then", "c", "Also shown as trade idea 2."), offer("The suggested trade", "a", "Also shown as trade idea 1."), offer("Last offer", "x", "Also shown as trade idea 4."), offer("Last offer", null)] },
+        places,
+        suggested,
+      ),
+    ).toEqual([
+      "offer 1 (“Open with”) is trade idea 2 but reads no “Also shown as trade idea …”",
+      "offer 2 (“Then”) is trade idea 3 but reads “Also shown as trade idea 2.”",
+      "offer 3 (“The suggested trade”) reads “Also shown as trade idea 1.”, though it's the idea itself",
+      "offer 4 (“Last offer”) reads “Also shown as trade idea 4.”, though no idea shown is its trade",
+      "offer 5 (“Last offer”) carries no key to compare with the ideas shown",
+    ]);
   });
 
   it("FINDER_DONE reads every status line the Finder's done state can show, in every sort, and none of a search under way", () => {

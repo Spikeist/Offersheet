@@ -19,7 +19,9 @@
  * FantasyCalc numbers anywhere in it"): the "Helps both" sort, its helper line, the tag and the partner's line on the Finder's
  * cards and the Analyzer's, a dynasty card's "Their long-term value" in words, and How to read's paragraph on them in every
  * league type (review of the "Helps both" UI, helps-both-ui-1). Checkpoint 7d (planner reply to Checkpoint 7c, answer 1): the
- * feedback export, a file users open, which holds what the cards printed. Every name is made up.
+ * feedback export, a file users open, which holds what the cards printed. Checkpoint 7e (planner reply to Checkpoint 7d, item
+ * 4.1): "How to offer it", each offer with its players, numbers, roster moves and message, and as a version the feedback asks
+ * about. Every name is made up.
  */
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -32,7 +34,7 @@ import { SettingsForm } from "@/components/settings/SettingsForm";
 import { buildSettingsView } from "@/components/settings/settingsView";
 import { AnalysisResult } from "@/components/trades/AnalyzerPage";
 import { HowToRead } from "@/components/trades/HowToRead";
-import { TradeCard } from "@/components/trades/TradeCard";
+import { OffersPanel, TradeCard } from "@/components/trades/TradeCard";
 import { FinderControls, FinderFrame } from "@/components/trades/TradeFinderPage";
 import { GLOOP_PREMIUM, evaluation, searchResult, steppedFull, tradeSnapshot } from "@/components/trades/testFixtures";
 import { helpsBoth, type HelpsScale } from "@/engine/benefit";
@@ -48,7 +50,7 @@ import { applyFeedback, feedbackExportText, type FeedbackRecord } from "./feedba
 import { buildImportReport } from "./importReport";
 import { buildLeagueView } from "./leagueView";
 import type { CardFeedback } from "./tradeView";
-import { buildAnalysisView, buildFinderView, buildTradeCard, cardPress, fantasyCalcLookup } from "./tradeView";
+import { buildAnalysisView, buildFinderView, buildLadderView, buildTradeCard, cardPress, cardVersions, fantasyCalcLookup, planBPitch } from "./tradeView";
 
 /**
  * Every sum and difference of up to four values on either side (|a × 7,777 + b × 8,888| for |a|, |b| ≤ 4, but the two
@@ -256,6 +258,37 @@ describe("no trade value shows on the trade pages (planner reply to Checkpoint 7
       const card = buildTradeCard(e, { snapshot: dynasty, fantasyCalc: FC, helpsScale: MIX });
       expectHidden(`card ${e.key}`, renderToStaticMarkup(createElement(TradeCard, { card, rank: 1, feedback: NONE, onFeedback: saved })));
       for (const s of stringsOf(card)) expectHidden(`card ${e.key}'s view`, s);
+    }
+  });
+
+  it("shows none in “How to offer it” (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1): each offer's players, its Helps you and chance, its roster moves and its own message, and as a version the feedback asks about", () => {
+    for (const [trades, snap] of [
+      [redraft, snapshot],
+      [dynastyTrades, dynasty],
+    ] as const) {
+      for (const e of trades) {
+        const card = buildTradeCard(e, { snapshot: snap, fantasyCalc: FC, baseline: { pPlayoffs: 0.62, pTitle: 0.09 } });
+        // The other trades as its offers (their own words: the first offer's pitch, then the follow-ups), the card among them,
+        // one with roster moves of its own.
+        const others = trades.filter((x) => x.key !== e.key).slice(0, 2);
+        const steps = [
+          ...others.map((o, i) => ({
+            kind: i === 0 ? ("open" as const) : ("then" as const),
+            evaluation: i === 1 ? { ...o, required: { me: { drops: ["108"], adds: [] }, partner: { drops: ["205"], adds: [] } } } : o,
+            message: i === 0 ? o.pitch : planBPitch(o.proposal, snap),
+          })),
+          { kind: "suggested" as const, evaluation: e, message: planBPitch(e.proposal, snap) },
+        ];
+        const ladder = buildLadderView({ cardKey: e.key, steps }, card, { snapshot: snap, goal: "title" });
+        expect(ladder.steps.length).toBe(steps.length);
+        const html = renderToStaticMarkup(createElement(OffersPanel, { state: { kind: "done", ladder }, name: "trade idea 1, Trade with Gravel Gophers" }));
+        expectHidden(`the offers of ${e.key}`, html);
+        for (const s of stringsOf(ladder)) expectHidden(`the offers of ${e.key}'s view`, s);
+        for (const s of stringsOf(cardVersions(card, ladder).map((v) => v.label))) expectHidden(`the versions of ${e.key}`, s);
+        // The offers are there, with their own numbers.
+        expect(html).toContain("Open with:");
+        expect(html).toContain("Chance they accept");
+      }
     }
   });
 

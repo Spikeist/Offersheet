@@ -347,65 +347,45 @@
  * search says it once too; Phase 4c's polish: the cards said only that each trade's values were unknown), and ⚠️ passes κ =
  * 0 (the term is 0 either way; marketWeekly null says there is none).
  *
- * "Offer first / if they say no" (planner addendum to Checkpoint 3, §4; lead decision N4; tradeSteps). A throw-in is one of
- * my active-roster players with a model whose lineup cost in the exact mode (TeamPlayerValue.mvLoseScen with scenarios, else
- * mvLoseEv: MV_lose against my free-agent-optimized roster V*, so a backup who covers injuries and byes isn't free) is at
- * most config.search.throwInMaxCost (× Σω ÷ Σω₀ under the automatic playoff weight: league.ts step 5c, LineupThresholds), not
- * at a position the search leaves out unless includeKDefIdp, not untouchable, not must-include (throwIns). Every version below is evaluated as the search's exact trades are (legality re-checked, exact
- * evaluation, the screening simulation: tradeVersion), and the versions are compared on the screening block of seasons.
- * - Case 1, the ranked trade gives a throw-in and my side keeps a player without it: offer first = the trade without my
- *   lowest-value throw-in there (perception value; ties: the smaller id); if they say no, add it back (= the ranked trade).
- * - Case 2, otherwise: offer first = the ranked trade; if they say no, add the throw-in not in the trade (my side within the
- *   per-side maximum: the search's maxPerSide, the Analyzer's analyzerMaxPerSide; legal) with the highest P_complete among
- *   those keeping B at least minBShare × the offer's B (⚠️ both B at screeningSims on the screening block, a fair
- *   comparison); ties: the higher B, then the smaller id. ⚠️ For speed the candidates are pre-screened (preScreenOrder: the
- *   screening's quick P_accept, which moves with g, h and n, halved by the veto rule as P_complete is; then the screening's
- *   ΔROS) and only the best config.search.steps.preScreen get exact evaluation (the Checkpoint 4 report measures how often
- *   that misses the exact choice).
- * - Steps are kept only when P_complete(full) − P_complete(offer first) ≥ minAcceptGain (⚠️ on P_complete, the card's
- *   "Chance they accept") and the offer-first version prints at least its bar (offerFirstBar): minOfferFirst, and in case 1,
- *   whose offer-first version is a trade the card doesn't show, the user's minimum chance too: max(minOfferFirst,
- *   TradeSettings.minChance) (⚠️ ours, Phase 4c lead decision: a step must never advise offering first a version under the
- *   minimum the user set; case 2's offer-first version is the card itself, which the Trade Finder's minimum already holds,
- *   and in the Analyzer the user's own trade). "Prints": P_complete as the card prints it (acceptance.displayAcceptance,
- *   the nearest 5%; rank.meetsMinChance, the minimum chance's own rule), so a version printed at the bar meets it (Phase 4b
- *   compared the raw P_complete with minOfferFirst). The search's re-filtering (search.ts refilterSearch) recomputes the
- *   steps with each new minimum. Phase 4c (planner reply to Checkpoint 4b, change 2, and answer 6, with the lead's
- *   matched pairs; market.packageValues has the rule and its reading): a throw-in worth at most W is left out of both
- *   sides' totals with his roster-spot credit, or left in where a credit stood, before any g or the market term, so when
- *   every player moves with an active roster spot he moves no g, whichever side he's added to: through value such a
- *   throw-in can only lower the chance they accept (the complexity term: with n, h and hot held fixed P_accept never
- *   rises), so a step that adds one raises the chance only through the partner's lineup (n, h) or a hot streak (hot), and
- *   one that adds a throw-in worth more than W through value too. (⚠️ Review of NT, finding 2: this said flatly that such
- *   a throw-in "can only lower" the chance; on Parker's league, the 00:51Z dump, the steps that add Rico Dowdle, worth [value]
- *   ≤ W [value], raise it 7.6 to 8.2 points through n and h, he fills a hole in Team 2's lineup, the partner's g 0% in both
- *   versions.) (Under Phase 4b's value floor alone he added W to both sides of every package, so each g, a ratio, edged
- *   toward 0: up for a partner losing value, down for one gaining, and a trade just past the veto line could come back
- *   above it; the planner's step alone still did when the partner gave d more players, at least d of them worth at most
- *   W: review of track EF, finding 1.) ⚠️ A version that moves an IR player can be the exception market.ts's header
- *   states precisely; on Parker's league (the 2026-10-04 00:51Z dump on the weekly reset order) no shown card, step or
- *   Plan B is. The search also evaluates the lean version of every shortlisted trade with such a throw-in (search.ts,
- *   "Lean companions"), so a card offering him has been weighed against the same trade without him.
- * - ⚠️ The offer-first version must help me (B > 0 on the screening block; review of the addendum, engine findings 1 and
- *   10): case 1's lean version, case 2's ranked trade (so minBShare only ever compares positive B: with an offer at B −5,
- *   "B ≥ 0.8 × the offer's B" would ask for B ≥ −4, a better B rather than at most a fifth less, and coach a trade that
- *   hurts me), and case 2's full version too. No step ever advises offering a trade that doesn't help.
- * - ⚠️ Checkpoint 7c (ours: review of the "Helps both" engine track, finding HB-1; planner reply to Checkpoint 7b, §7): on a
- *   trade that helps both teams (StepOptions.helpsBoth: its "Helps both" tag, benefit.helpsBoth on its final numbers, the
- *   ranking block's on the search's cards, ⚠️ made before the shown pass, the shown block's in the Analyzer: Checkpoint 7e; the
- *   search's cards on either list and the Analyzer's evaluation alike), case 1's lean version must help both too, on its
- *   screening-block numbers, else no steps, as when it doesn't help me (the card then gets a Plan B, which helps both too:
- *   planB.ts). The tag shows in every sort and the pitch names the offer-first version, so a card tagged "Helps both" never
- *   advises offering first a trade that doesn't help them (on Parker's league under his prizes the card Garrett Wilson + Bo
- *   Nix → Nico Collins, Helps them 14, said "Offer first: Garrett Wilson for Nico Collins", Helps them 0). Judged by the tag,
- *   not by the list a card is on: a card's steps are one per card, both lists fold on them, and a card on both lists is one
- *   evaluation. Case 2's offer first is the trade itself; its full version, one more player of mine for them, isn't checked.
- * The search gives the shown trades steps (after ranking: the ranking stays on the ranked trade's numbers; versions its exact
- * stage evaluated are reused); the Analyzer gives the analyzed trade steps too, ⚠️ only when the Trade Finder could show it
- * (B > 0 and not hidden by the market guard: never "how to offer it" on a card that says the trade doesn't help), and none
- * when a context note stops the search. TradeStep.detail is each version's explanation facts: the pitch names the
- * offer-first version (explain.ts); TradeStep.features its acceptance features (Phase 4c, planner reply to Checkpoint 4b,
- * change 7: feedback stores the version actually sent).
+ * Versions and throw-ins (planner addendum to Checkpoint 3, §4; lead decision N4; since Checkpoint 7e, planner reply to
+ * Checkpoint 7d, item 4.1, for "How to offer it": src/engine/offers.ts, which replaced "Offer first / if they say no"). A
+ * throw-in is one of my active-roster players with a model whose lineup cost in the exact mode (TeamPlayerValue.mvLoseScen
+ * with scenarios, else mvLoseEv: MV_lose against my free-agent-optimized roster V*, so a backup who covers injuries and byes
+ * isn't free) is at most config.search.throwInMaxCost (× Σω ÷ Σω₀ under the automatic playoff weight: league.ts step 5c,
+ * LineupThresholds), not at a position the search leaves out unless includeKDefIdp, not untouchable, not must-include
+ * (throwIns). Every version of a trade is evaluated as the search's exact trades are (legality re-checked, exact
+ * evaluation, the screening simulation: tradeVersion, in the key's order whoever asks first), and offers.ts compares the
+ * versions on the screening block of seasons before it simulates the ones it shows on the shown block.
+ * - The lean version (until Checkpoint 7e case 1's offer first; offers.ts): the trade without my lowest-value throw-in in it
+ *   (perception value; ties: the smaller id), when my side keeps a player without him.
+ * - The Last offer (until Checkpoint 7e case 2's "if they say no"; lastOfferVersions): the trade plus the throw-in it doesn't
+ *   give (my side within the per-side maximum: the search's maxPerSide, the Analyzer's analyzerMaxPerSide; legal) with the
+ *   highest P_complete among those keeping B at least minBShare × the trade's B (⚠️ both B at screeningSims on the screening
+ *   block, a fair comparison) and above 0; ties: the higher B, then the smaller id. ⚠️ For speed the candidates are
+ *   pre-screened (preScreenOrder: the screening's quick P_accept, which moves with g, h and n, halved by the veto rule as
+ *   P_complete is; then the screening's ΔROS) and only the best config.search.steps.preScreen get exact evaluation (the
+ *   Checkpoint 4 report measures how often that misses the exact choice). offers.ts holds it to the ladder's rules on the
+ *   numbers it prints (at least minAcceptGain likelier than the trade, B at least minBShare of the trade's, both as printed).
+ * - Phase 4c (planner reply to Checkpoint 4b, change 2, and answer 6, with the lead's matched pairs; market.packageValues has
+ *   the rule and its reading): a throw-in worth at most W is left out of both sides' totals with his roster-spot credit, or
+ *   left in where a credit stood, before any g or the market term, so when every player moves with an active roster spot he
+ *   moves no g, whichever side he's added to: through value such a throw-in can only lower the chance they accept (the
+ *   complexity term: with n, h and hot held fixed P_accept never rises), so a version that adds one raises the chance only
+ *   through the partner's lineup (n, h) or a hot streak (hot), and one that adds a throw-in worth more than W through value
+ *   too. (⚠️ Review of NT, finding 2: this said flatly that such a throw-in "can only lower" the chance; on Parker's league,
+ *   the 00:51Z dump, the steps that added Rico Dowdle, worth [value] ≤ W [value], raised it 7.6 to 8.2 points through n and h, he
+ *   fills a hole in Team 2's lineup, the partner's g 0% in both versions.) (Under Phase 4b's value floor alone he added W to
+ *   both sides of every package, so each g, a ratio, edged toward 0: up for a partner losing value, down for one gaining,
+ *   and a trade just past the veto line could come back above it; the planner's step alone still did when the partner gave
+ *   d more players, at least d of them worth at most W: review of track EF, finding 1.) ⚠️ A version that moves an IR player
+ *   can be the exception market.ts's header states precisely. The search also evaluates the lean version of every
+ *   shortlisted trade with such a throw-in (search.ts, "Lean companions"), so a card offering him has been weighed against
+ *   the same trade without him.
+ * Until Checkpoint 7e the search gave its shown trades two steps ("Offer first / if they say no": the lean version first and
+ * the card if they say no, or the card first and the Last offer's version if they say no, each shown only when the second
+ * was at least minAcceptGain likelier and the first printed at least minOfferFirst, a lean one at least the user's minimum
+ * chance too), and the Analyzer its trade's; a card's pitch named its offer-first version. TradeEvaluation.steps stays in the
+ * types so an evaluation made before reads.
  *
  * Phase 4b removed the before/after variant (TradeContextOptions.beforeAddendum, lead decision N5: the model before the
  * planner's addendum to Checkpoint 3, kept for the Checkpoint 4 report's comparison only); Checkpoint 4b compares against
@@ -427,12 +407,11 @@
  * judges an open IR slot of mine before the trade; a player received from an active roster never goes to IR; the review
  * period isn't modeled; draft picks are deferred.
  */
-import { acceptance, hotPlayers, hotTerm, hotWeeks, holeFeature, median, partnerLineupDelta, partnerProfile, quickAcceptance, tradeDeadlinePassed, transactionWeek, urgencyTerm, vetoApplies, type HoleSlot, type PartnerProfile, type ReceivedPlayer, type ReceivedStarter } from "./acceptance";
+import { acceptance, hotPlayers, hotTerm, hotWeeks, holeFeature, laterBeforeDeadline, median, partnerLineupDelta, partnerProfile, quickAcceptance, tradeDeadlinePassed, transactionWeek, urgencyTerm, vetoApplies, type HoleSlot, type PartnerProfile, type ReceivedPlayer, type ReceivedStarter } from "./acceptance";
 import {
   benefit,
   benefitNotes,
   futureValuesLoaded,
-  helpsBoth,
   helpsScale,
   helpsScaleNotes,
   helpsThemScore,
@@ -444,6 +423,7 @@ import {
   tradeFlags,
   tradeNumbers,
   tradePackage,
+  tradeScore,
   type HelpsScale,
   type PartnerScale,
 } from "./benefit";
@@ -458,7 +438,6 @@ import { instancePointsInto } from "./needs";
 import { POSITIONS, type InjuryStatus, type LeagueSnapshot, type PlayerInfo, type Pos, type Team } from "./model";
 import { FULL_POOL, applyStep, fillCount, poolRestriction, returnersOf, rosterKey, type FaStep, type OptimizedRoster, type PoolRestriction, type StreamSpec } from "./optimizer";
 import { leaguePremiums, perceivedPackage, premiumFacts } from "./premium";
-import { meetsMinChance } from "./rank";
 import { activeSpots, irAfterTrade, irEligibleStatuses, type Displacement, type FinalLineups } from "./returners";
 import { buildSimSetup, oddsSkippedWarning, pickupSeasonModel, seasonOdds, shownSimsOf, type SeasonModel, type SimSetupResult } from "./season";
 import { paysWeekly, prizeStillMovable, rewardOf, runPrizeDeltas, type PrizeOdds, type Reward } from "./reward";
@@ -487,7 +466,7 @@ import {
   type TableRow,
   type WeeklyScore,
 } from "./teamValue";
-import type { AssumedMove, OddsBefore, OpenSpot, PartnerNumbers, PickupOf, RosterChange, RosterMove, RosterMoves, SlotChange, TradeAsset, TradeDetail, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeStep, TradeSteps } from "./tradeModel";
+import type { AssumedMove, LaterNumbers, OddsBefore, OpenSpot, PartnerNumbers, PickupOf, RosterChange, RosterMove, RosterMoves, SlotChange, TradeAsset, TradeDetail, TradeEvaluation, TradeEvaluationCore, TradeProposal } from "./tradeModel";
 
 /** Gains closer than this are ties or zero (float noise, not a tunable). */
 const EPS = 1e-9;
@@ -3563,25 +3542,120 @@ export function simulateTrade(I: TradeInternals, x: ExactTrade, stage: SimStage,
 }
 
 // ---------------------------------------------------------------------------------------------
-// "Offer first / if they say no" (planner addendum to Checkpoint 3, §4; lead decision N4)
+// Now or after this week (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.2)
 
-/** One version of a trade for the steps: its exact evaluation and its numbers on the screening block of seasons (simulateTrade "screen"). */
+/**
+ * Weeks left before the trade deadline (Checkpoint 7e, item 4.2): acceptance.ts weeksToDeadline, re-exported here, where it
+ * was until the review of wave D (D-ENG-9: src/workers/freshness.ts reads the same reading, and can't load this file).
+ */
+export { weeksToDeadline } from "./acceptance";
+
+/**
+ * Whether a trade context gives "now or after this week" numbers (laterNumbers; Checkpoint 7e, item 4.2): with odds and my
+ * team; with no week under way (its games are held as rosters stand before and after every trade, the file header's week
+ * in progress, so "now" already starts next week: the lead's design); with a week after the current one that team numbers
+ * count (a regular-season or playoff week the season simulation plays); and while at least config.explain.nowOrLaterWeeks
+ * weeks remain before the trade deadline (acceptance.ts laterBeforeDeadline, weeksToDeadline; no known deadline: no limit),
+ * a reading src/workers/freshness.ts holds a cached context to (the review of wave D, D-ENG-9).
+ */
+export function laterApplies(I: Pick<TradeInternals, "sim" | "me" | "inProgress" | "from" | "regIdx" | "poIdx" | "snapshot" | "now">): boolean {
+  if (!I.sim || !I.me || I.inProgress) return false;
+  if (!I.regIdx.some((w) => w > I.from) && !I.poIdx.some((w) => w > I.from)) return false;
+  return laterBeforeDeadline(I.snapshot.settings.tradeDeadline, I.now, transactionWeek(I.snapshot));
+}
+
+/** A side's weekly score with its first `held` counted weeks (from `from`) as `before`'s: the trade made after those weeks' games (laterNumbers). */
+function heldScore(after: WeeklyScore, before: WeeklyScore, from: number, held: number): WeeklyScore {
+  if (held <= 0) return after;
+  const mean = Float64Array.from(after.mean);
+  const sd = Float64Array.from(after.sd);
+  for (let w = from; w < Math.min(from + held, mean.length); w++) {
+    mean[w] = before.mean[w] as number;
+    sd[w] = before.sd[w] as number;
+  }
+  return { mean, sd };
+}
+
+/** laterNumbers' memo: per exact trade (a search's re-filters share its exact trades), by the settings and weeks held it was made for. */
+const laterMemo = new WeakMap<ExactTrade, Map<string, LaterNumbers | null>>();
+
+/**
+ * "Now or after this week" (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.2: "run the simulation once more with the
+ * trade starting next week. Show it as 'Helps you 37 now · 41 if done after this week's games.' … Ranking stays on 'now'";
+ * TradeEvaluation.later): the trade's B and Helps you if it's done after this week's games. One more run on the shown block
+ * (the card's own seasons, common random numbers) with my row and the partner's spliced: this week as in the trade's "before"
+ * (mine: ExactTrade.before, its own "before" with its either-way moves, else my baseline V*(T); the partner's: its
+ * baseline), every later week as after the trade; measured from that same "before"'s run on the shown block, as the card's
+ * numbers are, so the two differ by this week's games alone. B from those changes as simulateTrade makes it on the shown
+ * stage (benefit under the same reward, λ, κ and g_mkt(me): the same market term and ΔDyn, since the trade value doesn't
+ * wait), on the shown block's B₃, the card's own scale. ⚠️ The lead's design (decisions-d-addendum, 4.2): nothing else
+ * changes, so the rosters, the roster moves the card names (legality's, a pickup the trade makes worthwhile, a release at an
+ * IR player's return) and the chance they accept are today's, though a week on the free agents, the injuries and the other
+ * manager's answer can differ (the card's tooltip says so). Null when the context gives none (laterApplies). `held` (tests
+ * only): the counted weeks played as before, 1 (this week) by default; 0 holds none, which is the trade's own run on the
+ * shown block, its B bit for bit (evaluate.later.test.ts). Memoized per exact trade and settings, so a re-filter of a search
+ * reuses its cards' numbers (the engine worker's `later`).
+ */
+export function laterNumbers(I: TradeInternals, x: ExactTrade, s: Pick<TradeSettings, "lambda" | "protectValue" | "goal" | "prizes">, held = 1): LaterNumbers | null {
+  if (!laterApplies(I)) return null;
+  const key = JSON.stringify([s.lambda, s.protectValue, s.goal, PRIZE_KEYS.map((k) => s.prizes[k]), held]);
+  let memo = laterMemo.get(x);
+  if (!memo) {
+    memo = new Map();
+    laterMemo.set(x, memo);
+  }
+  const known = memo.get(key);
+  if (known !== undefined) return known;
+  const sim = I.sim as SimState;
+  const me = I.me as TeamState;
+  const rw = rewardOn(I, rewardFor(I, s));
+  const mine: SideEval = { ...x.mine, score: heldScore(x.mine.score, (x.before ?? me.base).score, I.from, held) };
+  const theirs: SideEval = { ...x.theirs, score: heldScore(x.theirs.score, x.partner.base.score, I.from, held) };
+  const base = x.before ? beforeOddsOf(I, x.before, "shown") : sim.base.shown;
+  const after = runSim(I, mine, { partner: x.partner, side: theirs }, "shown");
+  const dPO = after.pPlayoffs - base.pPlayoffs;
+  const dCH = after.pTitle !== null && base.pTitle !== null ? after.pTitle - base.pTitle : null;
+  const dPrizes = runPrizeDeltas(base.prizes, after.prizes, sim.highScores);
+  // κ and B₃ as simulateTrade chooses them on the shown stage (the card's numbers): κ 0 with estimated or missing values.
+  const kappa = valuesEstimated(I) || valuesMissing(I) ? 0 : protectValueWeight(s.protectValue ?? I.settings.protectValue);
+  const b3 = helpsScaleOf(I, s.lambda, rw, "shown")?.b3 ?? null;
+  const b = benefit({ leagueType: I.snapshot.settings.leagueType, dPO, dCH, dPrizes, gMine: x.evaluation.gMine, dynasty: x.dynasty, myPPlayoffs: sim.base.shown.pPlayoffs, lambda: s.lambda, kappa, b3, reward: rw });
+  const out: LaterNumbers = { b: b.b, tradeScore: tradeScore(b.b, b3) };
+  memo.set(key, out);
+  return out;
+}
+
+/** An evaluation with its "now or after this week" numbers (laterNumbers) when the context gives them, for settings `s` (null: none asked for). */
+function withLater<T extends TradeEvaluationCore>(I: TradeInternals, x: ExactTrade, core: T, s: Pick<TradeSettings, "lambda" | "protectValue" | "goal" | "prizes"> | null): T {
+  const later = s ? laterNumbers(I, x, s) : null;
+  return later ? { ...core, later } : core;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Versions of a trade and the throw-in (planner addendum to Checkpoint 3, §4; lead decision N4). Since Checkpoint 7e
+// (planner reply to Checkpoint 7d, item 4.1) for "How to offer it" (src/engine/offers.ts): its versions, and the Last offer's
+// throw-in by the rule that was case 2 of "Offer first / if they say no" (lastOfferVersions).
+
+/**
+ * One version of a trade (offers.ts's candidates, the Last offer's): its exact evaluation and its numbers on the screening block
+ * of seasons (simulateTrade "screen").
+ */
 export interface TradeVersion {
   x: ExactTrade;
   screen: TradeEvaluationCore;
 }
 
-/** The config keys the steps read (config.search.throwInMaxCost and config.search.steps), widened so tests can pass others. */
+/** The config keys the throw-in rules read (config.search.throwInMaxCost and config.search.steps), widened so tests can pass others. */
 export interface StepConfig {
   /** A throw-in's lineup cost is at most this (ROS lineup points, the exact mode's lineups). */
   readonly throwInMaxCost: number;
-  /** Steps are shown when the full version's P_complete is at least this above the offer-first's, … */
+  /** "How to offer it" (offers.ts): each offer prints a chance at least this above the one before it (the Last offer above the suggested trade's), … */
   readonly minAcceptGain: number;
-  /** … and the offer-first version's, as the card prints it, is at least this (in case 1, at least the user's minimum chance too: offerFirstBar). */
+  /** Until Checkpoint 7e the offer-first version's least chance as printed; "How to offer it" reads config.offers.openMinChance instead. */
   readonly minOfferFirst: number;
-  /** Case 2: the throw-in added must keep B at least this share of the offer's B (both on the screening block). */
+  /** The Last offer's throw-in must keep B at least this share of the suggested trade's B (lastOfferVersions: both on the screening block). */
   readonly minBShare: number;
-  /** Case 2's pre-screen (performance, not a model number): only the best this many candidates get exact evaluation; Infinity: all. */
+  /** The Last offer's pre-screen (performance, not a model number): only the best this many candidates get exact evaluation; Infinity: all. */
   readonly preScreen: number;
 }
 
@@ -3592,7 +3666,8 @@ export function stepConfig(): StepConfig {
 }
 
 /**
- * My throw-ins (the file header, "Offer first"): my active-roster players with a model whose lineup cost in the exact mode
+ * My throw-ins (the file header, "Offer first"; since Checkpoint 7e "How to offer it": the lean version leaves the cheapest one
+ * the trade gives out, the Last offer adds one, offers.ts): my active-roster players with a model whose lineup cost in the exact mode
  * (TeamPlayerValue.mvLoseScen with scenarios, else mvLoseEv: MV_lose against my free-agent-optimized roster V*) is at most
  * throwInMaxCost × the build's threshold scale (league.ts step 5c, LeagueContext.thresholds.scale = Σω ÷ Σω₀: the cost is in
  * ROS lineup points under ω, the threshold was calibrated at ω₀; review of the engine track, Phase 7b), not at a position
@@ -3620,12 +3695,12 @@ export function throwIns(I: TradeInternals, settings: Pick<TradeSettings, "inclu
     .sort((a, b) => value(a) - value(b) || byId(a, b));
 }
 
-/** The settings the steps read: the search's (or the Analyzer's) per-call settings (the goal and prizes: their reward, rewardFor). */
+/** The settings a version reads: the search's (or the Analyzer's) per-call settings (the goal and prizes: their reward, rewardFor). */
 export type StepSettings = Pick<TradeSettings, "lambda" | "protectValue" | "goal" | "prizes" | "minChance" | "includeKDefIdp" | "untouchables" | "mustInclude">;
 
 export interface StepOptions {
   settings: StepSettings;
-  /** My side's most players in a version: the search's maxPerSide, the Analyzer's analyzerMaxPerSide. */
+  /** Each side's most players in a version (legality's per-side limit; the Last offer's): the search's maxPerSide, the Analyzer's analyzerMaxPerSide. */
   maxPerSide: number;
   /**
    * Versions already evaluated (the search's exact trades with their screening-block numbers), by key: a version found here
@@ -3635,12 +3710,6 @@ export interface StepOptions {
   versions?: Map<string, TradeVersion>;
   /** Default stepConfig(). */
   cfg?: StepConfig;
-  /**
-   * ⚠️ Checkpoint 7c (the file header, "Offer first"): the trade as ranked helps both teams (its "Helps both" tag:
-   * benefit.helpsBoth on its final numbers, the search's finalist or the Analyzer's evaluation), so case 1's lean offer-first
-   * version must help both too. Absent or false: no such rule.
-   */
-  helpsBoth?: boolean;
 }
 
 /**
@@ -3680,34 +3749,34 @@ function inProposalOrder(v: TradeVersion, proposal: TradeProposal): TradeVersion
 }
 
 /**
- * A version's step (TradeStep): its proposal, its screening-block numbers and the B₃ they're scored on (Checkpoint 7e: the
- * ranking block's, scaleBlockOf, not the shown block's its card prints on; the review's SHOWN-4), its forced moves, its
- * explanation facts and its acceptance features (planner reply to Checkpoint 4b, change 7: feedback stores the sent
- * version's).
+ * A version's numbers on the screening's fast method (screenTrade): the quick estimate of P_complete (quick P_accept, halved by
+ * the veto rule on the raw g_mkt(P) as P_complete is) and my EV ΔROS; null when the screening's legality turns it down. The
+ * Last offer's pre-screen reads it (preScreenOrder), and since the review of wave D (D-ENG-1) so does "How to offer it"'s
+ * (offers.ts preScreened).
  */
-function stepOf(v: TradeVersion): TradeStep {
-  const c = v.screen;
-  return { proposal: c.proposal, key: c.key, b: c.b, b3: c.b3, tradeScore: c.tradeScore, pAccept: c.pAccept, pComplete: c.pComplete, acceptLabel: c.acceptLabel, gMine: c.gMine, gPartner: c.gPartner, required: c.required, detail: c.detail, features: c.features };
+export function quickScreen(I: TradeInternals, partner: TeamState, give: readonly string[], get: readonly string[]): { pComplete: number; myDelta: number } | null {
+  const s = screenTrade(I, partner, give, get);
+  if (!s) return null;
+  return { pComplete: vetoApplies(I.snapshot.settings.tradeReview, s.gPartner) ? s.pQuick * config.acceptance.veto.factor : s.pQuick, myDelta: s.myDelta };
 }
 
 /**
- * Case 2's candidates in pre-screen order (the file header): the screening's quick estimate of P_complete (quick P_accept,
+ * The Last offer's candidates in pre-screen order (the file header; until Checkpoint 7e case 2 of "Offer first / if they say
+ * no"): the screening's quick estimate of P_complete (quickScreen: quick P_accept,
  * halved by the veto rule on the raw g_mkt(P) as P_complete is), then the screening's ΔROS, then the smaller id; those the
  * screening's legality rejects last.
  */
 export function preScreenOrder(I: TradeInternals, partner: TeamState, give: readonly string[], get: readonly string[], candidates: readonly string[]): string[] {
-  const review = I.snapshot.settings.tradeReview;
   const scored = candidates.map((id) => {
-    const s = screenTrade(I, partner, [...give, id], get);
-    const p = s ? (vetoApplies(review, s.gPartner) ? s.pQuick * config.acceptance.veto.factor : s.pQuick) : Number.NEGATIVE_INFINITY;
-    return { id, p, delta: s ? s.myDelta : Number.NEGATIVE_INFINITY };
+    const s = quickScreen(I, partner, [...give, id], get);
+    return { id, p: s ? s.pComplete : Number.NEGATIVE_INFINITY, delta: s ? s.myDelta : Number.NEGATIVE_INFINITY };
   });
   const ahead = (x: number, y: number) => (x === y || Math.abs(x - y) <= EPS ? 0 : y - x);
   scored.sort((a, b) => ahead(a.p, b.p) || ahead(a.delta, b.delta) || byId(a.id, b.id));
   return scored.map((x) => x.id);
 }
 
-/** Case 2's candidates (the file header): my throw-ins not in the trade, pre-screened to the best cfg.preScreen when there are more. */
+/** The Last offer's candidates (the file header): my throw-ins not in the trade, pre-screened to the best cfg.preScreen when there are more. */
 export function addCandidates(I: TradeInternals, proposal: TradeProposal, throwInIds: readonly string[], cfg: Pick<StepConfig, "preScreen">): string[] {
   const give = playerIds(proposal.give);
   const get = playerIds(proposal.get);
@@ -3718,74 +3787,36 @@ export function addCandidates(I: TradeInternals, proposal: TradeProposal, throwI
 }
 
 /**
- * The chance the offer-first version must print (the file header, "Offer first"; rank.meetsMinChance judges it):
- * minOfferFirst, and in case 1 (`ranked` "full": the offer first is the lean version, not the card) at least the user's
- * minimum chance (TradeSettings.minChance) too.
+ * The Last offer's throw-in (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1: "Last offer: the suggested trade plus the
+ * throw-in, using the existing rule (at least 5 points likelier, and Helps you at least 80% of the suggested trade's)";
+ * offers.ts, which judges the rest on the numbers a step prints): the rule that was case 2 of "Offer first / if they say no"
+ * (planner addendum to Checkpoint 3, §4; lead decision N4). The candidates are my throw-ins the trade doesn't give, while my
+ * side stays within opts.maxPerSide (the search's, the Analyzer's analyzerMaxPerSide), pre-screened to the best
+ * cfg.preScreen by the screening's quick estimate (addCandidates); each one's version (the trade plus him) is evaluated
+ * exactly with the screening simulation, and kept when it helps me (B > 0 on the screening block) and keeps B at least
+ * cfg.minBShare of the trade's (⚠️ ours, as in the lead's addendum: "Helps you at least 80%" read as today's rule on B). In the
+ * order the rule picks: the highest P_complete first ("raises the chance they accept most"), ties: the higher B, then the
+ * smaller id. Empty when the trade doesn't help me on the screening block (so minBShare compares positive B), holds a pick,
+ * or my side is already at the limit, or without my team.
  */
-export function offerFirstBar(ranked: TradeSteps["ranked"], minChance: number, cfg: Pick<StepConfig, "minOfferFirst"> = stepConfig()): number {
-  const own = Number.isFinite(cfg.minOfferFirst) ? cfg.minOfferFirst : 0;
-  return ranked === "full" && Number.isFinite(minChance) ? Math.max(own, minChance) : own;
-}
-
-/** Whether a version helps me: its B (screening block) is known and above 0 (the file header: the offer first must help). */
-const helps = (v: TradeVersion): boolean => {
-  const b = v.screen.b;
-  return b !== null && Number.isFinite(b) && b > 0;
-};
-
-/**
- * "Offer first / if they say no" for a trade (the file header): its two steps, or null when none qualify (the offer-first
- * version must help me: B > 0 on the screening block), or without my team. `ranked` is the trade as ranked, with its
- * screening-block numbers.
- */
-export function tradeSteps(I: TradeInternals, ranked: TradeVersion, opts: StepOptions): TradeSteps | null {
-  if (!I.me) return null;
+export function lastOfferVersions(I: TradeInternals, card: TradeVersion, opts: StepOptions): { add: string; version: TradeVersion }[] {
+  if (!I.me) return [];
   const cfg = opts.cfg ?? stepConfig();
-  const proposal = ranked.screen.proposal;
-  if ([...proposal.give, ...proposal.get].some((a) => a.kind !== "player")) return null;
+  const proposal = card.screen.proposal;
+  if ([...proposal.give, ...proposal.get].some((a) => a.kind !== "player")) return [];
   const give = playerIds(proposal.give);
   const get = playerIds(proposal.get);
-  const all = throwIns(I, opts.settings, cfg);
-  const mine = all.filter((id) => give.includes(id));
-  const version = (ids: readonly string[]) => tradeVersion(I, { partnerId: proposal.partnerId, give: players(ids), get: players(get) }, opts);
-  let offer: TradeVersion;
-  let full: TradeVersion;
-  let add: string;
-  let rankedAs: TradeSteps["ranked"];
-  if (mine.length > 0 && give.length >= 2) {
-    // Case 1: offer first without my lowest-value throw-in in the trade; if they say no, add it back (the ranked trade).
-    // The lean version must help me too: never advise offering a trade that doesn't. ⚠️ And on a trade that helps both teams
-    // it must help both (on its screening-block numbers, as the bars read them): never advise offering first, under a card
-    // tagged "Helps both", a trade that doesn't help them (Checkpoint 7c).
-    add = mine[0] as string;
-    const lean = version(give.filter((id) => id !== add));
-    if (!lean || !helps(lean) || (opts.helpsBoth && !helpsBoth(lean.screen))) return null;
-    offer = lean;
-    full = ranked;
-    rankedAs = "full";
-  } else {
-    // Case 2: offer the ranked trade first (it must help me, so minBShare compares positive B); if they say no, add the
-    // throw-in that raises P_complete most while B stays at least minBShare of the offer's (both on the screening block)
-    // and above 0; ties: the higher B, then the smaller id.
-    const bOffer = ranked.screen.b;
-    if (bOffer === null || !helps(ranked) || give.length + 1 > opts.maxPerSide) return null;
-    let best: { id: string; v: TradeVersion; p: number; b: number } | null = null;
-    for (const id of addCandidates(I, proposal, all, cfg)) {
-      const v = version([...give, id]);
-      const b = v?.screen.b;
-      if (!v || b === null || b === undefined || !helps(v) || b < cfg.minBShare * bOffer - EPS) continue;
-      const p = v.screen.pComplete;
-      if (!best || p > best.p + EPS || (Math.abs(p - best.p) <= EPS && (b > best.b + EPS || (Math.abs(b - best.b) <= EPS && id < best.id)))) best = { id, v, p, b };
-    }
-    if (!best) return null;
-    offer = ranked;
-    full = best.v;
-    add = best.id;
-    rankedAs = "offerFirst";
+  const bCard = card.screen.b;
+  if (bCard === null || !Number.isFinite(bCard) || !(bCard > 0) || give.length + 1 > opts.maxPerSide) return [];
+  const out: { add: string; version: TradeVersion; p: number; b: number }[] = [];
+  for (const id of addCandidates(I, proposal, throwIns(I, opts.settings, cfg), cfg)) {
+    const v = tradeVersion(I, { partnerId: proposal.partnerId, give: players([...give, id]), get: players(get) }, opts);
+    const b = v?.screen.b;
+    if (!v || b === null || b === undefined || !Number.isFinite(b) || !(b > 0) || b < cfg.minBShare * bCard - EPS) continue;
+    out.push({ add: id, version: v, p: v.screen.pComplete, b });
   }
-  const first = offer.screen.pComplete;
-  if (!(full.screen.pComplete - first >= cfg.minAcceptGain - EPS) || !meetsMinChance(first, offerFirstBar(rankedAs, opts.settings.minChance, cfg))) return null;
-  return { offerFirst: stepOf(offer), ifNo: { add, full: stepOf(full) }, ranked: rankedAs };
+  out.sort((x, y) => (Math.abs(y.p - x.p) > EPS ? y.p - x.p : Math.abs(y.b - x.b) > EPS ? y.b - x.b : byId(x.add, y.add)));
+  return out.map(({ add, version }) => ({ add, version }));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -3838,6 +3869,12 @@ export interface AnalyzeOptions {
   /** The settings the evaluation reads per call (lambda, protectValue, goal and prizes; the rest is the context's). Default: defaultTradeSettings(). */
   settings?: TradeSettings;
   clock?: () => number;
+  /**
+   * Checkpoint 7e (planner reply to Checkpoint 7d, item 4.2): the evaluation's "now or after this week" numbers
+   * (TradeEvaluation.later, laterNumbers: one more run on the shown block), on by default ("in the Analyzer with each
+   * evaluation"); false skips that run (scripts and tests that don't read it).
+   */
+  later?: boolean;
 }
 
 export interface TradeAnalysis {
@@ -3876,16 +3913,10 @@ export function analyzeTrade(ctx: TradeContext, proposal: TradeProposal, opts: A
   // The scale the evaluation is scored on (simulateTrade's B₃ for the same reward and λ, the shown block's), for the tooltip.
   const reward = rewardFor(I, settings);
   const helpsScale = helpsScaleOf(I, settings.lambda, reward);
-  const core = simulateTrade(I, exact, "shown", settings.lambda, settings.protectValue, reward);
+  // With its "now or after this week" numbers (Checkpoint 7e, item 4.2; AnalyzeOptions.later).
+  const core = withLater(I, exact, simulateTrade(I, exact, "shown", settings.lambda, settings.protectValue, reward), opts.later === false ? null : settings);
   for (const n of core.detail.notes) if (!notes.includes(n)) notes.push(n);
-  // "Offer first / if they say no" for the analyzed trade too (N4: useful for counteroffers), from its numbers on the
-  // screening block, its versions within the Analyzer's per-side maximum. ⚠️ Only for a trade the Trade Finder could show
-  // (B > 0, not hidden by the market guard: review of the addendum, engine findings 1 and 10), so a card that says the
-  // trade doesn't help never says how to land it; and none when a context note stops the search (the deadline passed,
-  // the season's over, no odds, …): the Analyzer still evaluates, but there's nothing to offer.
-  const shown = core.b !== null && core.b > 0 && !core.flags.hiddenByMarket; // B > 0: not hidden by benefit either
-  // ⚠️ A trade that helps both teams (its "Helps both" tag, on these final numbers) is offered first only in a version that
-  // helps both too (Checkpoint 7c; the file header, "Offer first"), as on the Trade Finder's cards.
-  const steps = I.blocked || !shown ? null : tradeSteps(I, { x: exact, screen: simulateTrade(I, exact, "screen", settings.lambda, settings.protectValue, reward) }, { settings, maxPerSide, helpsBoth: helpsBoth(core) });
-  return { evaluation: withWords(I, steps ? { ...core, steps } : core), illegal: null, notes, helpsScale, reward };
+  // Since Checkpoint 7e (planner reply to Checkpoint 7d, item 4.1) no "Offer first / if they say no" steps: the card's "How to
+  // offer it" is worked out when it's opened (src/engine/offers.ts offerLadderOfProposal, the engine worker's `offers`).
+  return { evaluation: withWords(I, core), illegal: null, notes, helpsScale, reward };
 }

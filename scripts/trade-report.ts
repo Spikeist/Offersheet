@@ -37,13 +37,14 @@
  *    words (flags.tagged, tradeView.injuryTagText), the three numbers as printed (Helps you / Chance they accept, its
  *    chance of going through when the veto cuts it / Overall; a chance under 5% reads "<5%": chancePrinted), title and
  *    playoff odds before → after (the search's baseline, plus the trade's ΔCH and ΔPO on the same final block), the weekly
- *    lines (TradeDetail.winChance: weeklyLines), and its next step: the offer-first steps with their players' tags (the
- *    search's own rule, taggerOf), or Plan B in its box's own words (tradeView.planBView: its players' tags as the card
- *    shows them, and since Phase 4c's polish its odds lines: planBOddsText), each with its numbers (review of track R,
- *    R-2), and its trade value (tradeValueText: g_mkt(me) and B's market term in points a week on the card's scale,
- *    TradeEvaluation.marketWeekly; planner reply to Checkpoint 7a, §2 question 5); the counts over the top 10 and every card, the Plan B
- *    boxes receiving an injury-tagged player among them (cardCounts); the pattern note (TradeSearchResult.pattern) when it
- *    shows.
+ *    lines (TradeDetail.winChance: weeklyLines), and its Plan B in its box's own words (tradeView.planBView: its players'
+ *    tags as the card shows them, and since Phase 4c's polish its odds lines: planBOddsText) with its numbers (review of
+ *    track R, R-2; until Checkpoint 7e a card with "Offer first / if they say no" steps showed them instead, its players
+ *    tagged by the search's own rule, taggerOf), and its trade value (tradeValueText: g_mkt(me) and B's market term in
+ *    points a week on the card's scale, TradeEvaluation.marketWeekly; planner reply to Checkpoint 7a, §2 question 5); the
+ *    counts over the top 10 and every card, the Plan B boxes receiving an injury-tagged player among them (cardCounts;
+ *    Checkpoint 7e: no card has steps, its "How to offer it" is section 11's); the pattern note (TradeSearchResult.pattern)
+ *    when it shows.
  * 2. "What does your league reward?" (planner change 8; Checkpoint 7c, planner reply to Checkpoint 7b, §6: "how his top 5
  *    changed from 'Only the champion'"): the search the app runs under "Several prizes" on the league's split (--prizes;
  *    ⚠️ the prefilled split, config.benefit.prizesDefault, without it: prizesSettingsOf), on the trade context the app builds
@@ -139,8 +140,8 @@
  *    (TradeSearchOptions.helpsBothLane false: under section 1's setting the last of section 4's runs paired with one, under
  *    the split section 2's search against the same search on a context of its own, built the same way, so its partners'
  *    calibration runs aren't free), how many Overall cards the search without it doesn't show, what
- *    else it changes on the Finder (laneShown; review of the lane, LANE-1 and LANE-2: the Plan B boxes and offer-first steps
- *    of the cards both show, the "Helps both" list's cards each way, the final runs without it, Helps them known, that it
+ *    else it changes on the Finder (laneShown; review of the lane, LANE-1 and LANE-2: the Plan B boxes of the cards both
+ *    show, until Checkpoint 7e their offer-first steps too, the "Helps both" list's cards each way, the final runs without it, Helps them known, that it
  *    doesn't make (none since the lead's fix: search.ts finalistsOf widens the extras' room by one for each of the extras'
  *    candidates the lane brought, a lane trade or its lean companion that helps both on the screening run and isn't hidden,
  *    and keeps the final runs of the finalists the lane's trades displace: the final review, ENG-7D-1), and the
@@ -152,6 +153,23 @@
  *    second list) is those stages with the
  *    lane less without, warm only; under the split, section 2's one search's parts and its total against the search
  *    without the lane (one run each).
+ * 11. How to offer it (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1, and its "Checkpoint 7e must include":
+ *    "Offers in order: the list for Parker's top 3 cards, with Helps you and the chance at each step, and the time to build
+ *    it"; LadderSection, laddersOf, ladderRuns): under each setting (section 1's search, and section 2's under "Several prizes" on the split), the
+ *    first LADDER_CARDS cards' offers in order, as the engine worker builds them when the card's "How to offer it" is opened
+ *    (offers.ts, on the search's own state: its get pool for the partner, the versions it evaluated, the card's Plan B
+ *    barred): each offer's place, players, Helps you and the chance as printed (with its label; "goes through" when the veto
+ *    cuts it), "also trade idea N" when it is another card of the list, by its place there (the lead's call, wave D: the
+ *    card's "Also shown as trade idea N."; "also “Helps both” idea N" for a card of that list alone), and the ladder's build
+ *    time: each card's first open, right after each run's own search (laddersOf, the cards opened in order as in the
+ *    worker: under section 1's setting after each of section 4's
+ *    timed runs, under the split after each of ladderRuns' runs), the median over the runs (the review of wave D, D-ENG-10:
+ *    this said "the median of LADDER_RUNS builds each on a fresh ladder store", which nothing measured); the candidates
+ *    there were and how many the pre-screen let through to be played out (offers.ts preScreened; the review of wave D,
+ *    D-ENG-1); and on the first TOP_DETAIL cards every candidate played out (ladderBetter, offers.ts ladderChoice's
+ *    `every`): whether the pre-screen picks the same offers, and (⚠️ the lead's question, "how often a variant prints a
+ *    higher Helps you and a higher chance than its card") the candidates that print both higher (those with a higher printed
+ *    chance, the same on every block, simulated on the card's block), which the ladder's chance rules keep out.
  *
  * Phase 7b (planner reply to Checkpoint 7a, §6.1): the settings line names the playoff weeks' weight ω every ROS(T) of the
  * search reads, set automatically from my odds under my goal (league.ts step 5c; league-report's playoffWeightSummary: the
@@ -173,7 +191,7 @@ import { performance } from "node:perf_hooks";
 import { importEspnLeagueForModel } from "@/adapters/espn";
 import type { ImportDeps } from "@/adapters/types";
 import { loadPlayerIdResolver } from "@/data";
-import { acceptance, betaNeed, type AcceptanceLeague, type PartnerProfile, type TradeAcceptanceInput } from "@/engine/acceptance";
+import { acceptance, betaNeed, displayAcceptance, type AcceptanceLeague, type PartnerProfile, type TradeAcceptanceInput } from "@/engine/acceptance";
 import { HELPS_AT_GAIN, goalWeights, helpsBoth, helpsScaleNotes, marketSanity, marketWeekly, protectValueWeight, tradePackage, type HelpsScale, type LeagueType, type PartnerScale } from "@/engine/benefit";
 import { blendRecords, type BlendRecord } from "@/engine/blend";
 import { config } from "@/engine/config";
@@ -184,13 +202,14 @@ import { buildLeagueModel, firstKickoff } from "@/engine/league";
 import type { BaseRateSource, FaMove, HelpsCalibration, LeagueModel, SeasonOdds, TeamOdds } from "@/engine/leagueModel";
 import { neutralThrowIns } from "@/engine/market";
 import type { InjuryStatus, LeagueSnapshot } from "@/engine/model";
+import { ladderChoice, ladderJobOfSearch, offerLadderOfSearch, printedOf, type LadderCandidate, type LadderChoice } from "@/engine/offers";
 import { eliteIds, perceivedPackage, teamPremiums } from "@/engine/premium";
 import { atMostWaiverCredit, buildPools, helpsBothLaneOf, helpsBothPoolOf, leanCompanions, partnerCandidates, runRefilter, runTradeSearch, searchStateOf, shortlistOf, type SearchState } from "@/engine/search";
 import { prizePeriods, type Reward } from "@/engine/reward";
 import { buildSimSetup, pickupSeasonModel, shownSimsOf } from "@/engine/season";
 import { GOALS, PROTECT_VALUE_LEVELS, defaultTradeSettings, normalizeTradeSettings, type Goal, type PrizeAmounts, type TradeSettings } from "@/engine/settings";
 import { simNormals } from "@/engine/sim";
-import type { HelpsBothList, InjuryTag, OpenSpot, TradeAsset, TradeDetail, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeSearchResult, TradeSearchStage } from "@/engine/tradeModel";
+import type { HelpsBothList, InjuryTag, OfferLadder, OfferStep, OfferStepKind, OpenSpot, TradeAsset, TradeDetail, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeSearchResult, TradeSearchStage } from "@/engine/tradeModel";
 import { waiverOrderText } from "@/lib/importReport";
 import { acceptText, injuryTagText, knownTagsOf, planBView, seasonEndOf, topChance, topPlacesOf, weeklyLine, type PlanBView } from "@/lib/tradeView";
 import { FileCache } from "@/server/cache";
@@ -424,7 +443,7 @@ export interface Tick {
  * simulation (search.ts: one per partner of the exact trades), and each final run by a "simFinal" yield, in
  * SearchState.finals' order, so an extra's final run (SearchState.helpsBothExtras) is the time up to its yield. ⚠️ The first
  * final run's time also holds the choice of the finalists (finalistsOf), so an extra there counts the median of the other
- * final runs. The second list's own work (its ranking, steps, Plan B and words) is interleaved with the Overall list's in one
+ * final runs. The second list's own work (its ranking, Plan B and words; its steps too until Checkpoint 7e) is interleaved with the Overall list's in one
  * stage, so it's measured against a search without "Helps them" instead (helpsBothCost).
  */
 export interface HelpsBothParts {
@@ -603,16 +622,20 @@ export interface PairedRuns {
  * as a set afterwards, they came out faster on stages Helps them doesn't touch, screening and exact evaluation, as the JIT
  * kept warming up: 388 ms against 496 ms on the test league's screening); its runs come back as `without`. `pairedNoLane`
  * (section 10, Checkpoint 7d): after that, the same search without the helps-both lane on its own context (its runs:
- * `noLane`).
+ * `noLane`). `ladders` (section 11, Checkpoint 7e): then the first that many cards' "How to offer it" on each timed run's
+ * own search, as the worker builds them when first opened (laddersOf, after the paired runs, so their timings are as
+ * before): the last run's ladders with every timed run's first opens (`ladders`; null without the option).
  */
 export function timedSearches(
   snapshot: LeagueSnapshot,
   inputs: ModelInputs,
-  opts: SearchRunOptions & { exhaustive?: boolean; helpsThem?: boolean; pairedWithout?: boolean; pairedNoLane?: boolean },
-): { ctx: TradeContext; result: TradeSearchResult; runtime: Runtime; without: PairedRuns | null; noLane: PairedRuns | null } {
+  opts: SearchRunOptions & { exhaustive?: boolean; helpsThem?: boolean; pairedWithout?: boolean; pairedNoLane?: boolean; ladders?: number },
+): { ctx: TradeContext; result: TradeSearchResult; runtime: Runtime; without: PairedRuns | null; noLane: PairedRuns | null; ladders: LadderRow[] | null } {
   const all: RuntimeRun[] = [];
   const paired: RuntimeRun[] = [];
   const pairedNoLane: RuntimeRun[] = [];
+  const ladderTimes: number[][] = [];
+  let ladders: LadderRow[] | null = null;
   let last: { ctx: TradeContext; result: TradeSearchResult } | null = null;
   let lastWithout: { ctx: TradeContext; result: TradeSearchResult } | null = null;
   let lastNoLane: { ctx: TradeContext; result: TradeSearchResult } | null = null;
@@ -633,6 +656,10 @@ export function timedSearches(
       pairedNoLane.push(w.run);
       lastNoLane = { ctx: w.ctx, result: w.result };
     }
+    if (opts.ladders) {
+      ladders = laddersOf(r.result, opts.ladders, opts.clock);
+      ladders.forEach((row, k) => (ladderTimes[k] ??= []).push(...row.ms));
+    }
   }
   const done = last as { ctx: TradeContext; result: TradeSearchResult };
   return {
@@ -640,6 +667,7 @@ export function timedSearches(
     runtime: runtimeOf(all, warmups),
     without: lastWithout ? { ...lastWithout, runtime: runtimeOf(paired, 0) } : null,
     noLane: lastNoLane ? { ...lastNoLane, runtime: runtimeOf(pairedNoLane, 0) } : null,
+    ladders: ladders ? ladders.map((row, k) => ({ ...row, ms: ladderTimes[k] ?? row.ms })) : null,
   };
 }
 
@@ -660,15 +688,14 @@ export function leagueBuilds(snapshot: LeagueSnapshot, inputs: ModelInputs, opts
 // Section 1: the cards
 
 /**
- * The counts the planner asks for: cards, with Plan B, with offer-first steps, receiving an injury-tagged player (the
- * card's own tags), and the Plan B boxes receiving one (`tagsOf`, the search's rule: review of track R, R-2, the injured
- * targets a Plan B asks for were uncounted). An offer-first step receives the card's own players, so the card's count
- * covers it.
+ * The counts the planner asks for: cards, with Plan B, receiving an injury-tagged player (the card's own tags), and the Plan
+ * B boxes receiving one (`tagsOf`, the search's rule: review of track R, R-2, the injured targets a Plan B asks for were
+ * uncounted). Until Checkpoint 7e also the cards with "Offer first / if they say no" steps (planner reply to Checkpoint 7d,
+ * item 4.1: no card has them now; its offers are section 11's, worked out when it's opened).
  */
 export interface CardCounts {
   shown: number;
   planB: number;
-  steps: number;
   injuredGet: number;
   planBInjuredGet: number;
 }
@@ -677,7 +704,6 @@ export function cardCounts(trades: readonly TradeEvaluation[], tagsOf: Tagger): 
   return {
     shown: trades.length,
     planB: trades.filter((t) => t.planB).length,
-    steps: trades.filter((t) => t.steps).length,
     injuredGet: trades.filter((t) => (t.flags.tagged ?? []).some((g) => g.side === "get")).length,
     planBInjuredGet: trades.filter((t) => t.planB && tagsOf(t.planB.proposal).some((g) => g.side === "get")).length,
   };
@@ -1706,7 +1732,7 @@ export interface HelpsBothCost {
   /** The partner calibration runs and the extras' final runs, each read off its run's progress (helpsBothParts): section 4's cold run and the median of its timed runs. */
   calibrations: { count: number; cold: number | null; warm: number | null };
   extras: { count: number; cold: number | null; warm: number | null };
-  /** The second list's own work (its ranking, steps, Plan B and words), warm only: the ranking stage (rank + steps) with Helps them less without, medians (⚠️ a difference of medians). */
+  /** The second list's own work (its ranking, Plan B and words; its steps too until Checkpoint 7e), warm only: the ranking stage (rank + steps) with Helps them less without, medians (⚠️ a difference of medians). */
   secondList: number | null;
   /** What Helps both adds to a search: the three parts (cold: the cold run's own calibration and extra runs and the warm second list, ⚠️). */
   extra: { cold: number | null; warm: number | null };
@@ -1871,7 +1897,8 @@ export interface LeftOut {
 /**
  * What else the lane changes on the Finder (section 10; review of the lane, LANE-1: cardsNotIn reads card keys only), with
  * the lane (`on`) against the same search without it (`off`): the Overall cards both show, and of them those whose Plan B box
- * and those whose offer-first step differ (by key); the "Helps both" list's cards with the lane that the list without it
+ * differs (by key; until Checkpoint 7e also those whose offer-first step did: planner reply to Checkpoint 7d, item 4.1, no card
+ * has steps now); the "Helps both" list's cards with the lane that the list without it
  * doesn't show (`added`), the other way (`dropped`), and its cards with the lane; the final runs of the search without the
  * lane (its finalists and its "Helps both" extras) whose Helps them is known, the "Helps both" list's candidates, that the
  * search with it doesn't make, and of them those on that list without it (`finalsLost`; review of the lane, LANE-2: as first
@@ -1882,7 +1909,7 @@ export interface LeftOut {
  * ranking); and the Finder's "checked N closely" (counts.exact) and "Left out on purpose" counts, without and with.
  */
 export interface LaneShown {
-  shared: { cards: number; box: number; step: number };
+  shared: { cards: number; box: number };
   list: { added: number; dropped: number; cards: number };
   finalsLost: { count: number; listed: number };
   exact: { without: number; with: number };
@@ -1891,13 +1918,12 @@ export interface LaneShown {
 
 export function laneShown(on: TradeSearchResult, off: TradeSearchResult): LaneShown {
   const offBy = new Map(off.trades.map((t) => [t.key, t]));
-  const shared = { cards: 0, box: 0, step: 0 };
+  const shared = { cards: 0, box: 0 };
   for (const t of on.trades) {
     const o = offBy.get(t.key);
     if (!o) continue;
     shared.cards++;
     if ((t.planB?.key ?? null) !== (o.planB?.key ?? null)) shared.box++;
-    if ((t.steps?.offerFirst.key ?? null) !== (o.steps?.offerFirst.key ?? null)) shared.step++;
   }
   const listOn = on.helpsBoth?.trades ?? [];
   const listOff = off.helpsBoth?.trades ?? [];
@@ -2047,6 +2073,147 @@ export function helpsBothSection(main: { result: TradeSearchResult; runtime: Run
 }
 
 // ---------------------------------------------------------------------------------------------
+// Section 11: How to offer it (planner reply to Checkpoint 7d, item 4.1)
+
+/** Section 11: the cards whose offers in order are listed (the planner: "the list for Parker's top 3 cards"). */
+export const LADDER_CARDS = 3;
+
+/** An offer's place in the card's own words (the lead's addendum for wave D: "Open with", "Then", "The suggested trade", "Last offer"). */
+export const OFFER_WORDS: Readonly<Record<OfferStepKind, string>> = { open: "Open with", then: "Then", suggested: "The suggested trade", last: "Last offer" };
+
+/**
+ * One card's offers in order (section 11; the file header): the card, its ladder (offers.ts, as the engine worker builds it),
+ * the candidates there were (`candidates`) and the legal ones the pre-screen let through to be played out (`screened`), and
+ * its first opens' build times, one per run (laddersOf).
+ */
+export interface LadderRow {
+  card: TradeEvaluation;
+  ladder: OfferLadder;
+  candidates: number;
+  screened: number;
+  ms: number[];
+}
+
+/** A candidate of a card's ladder that prints a higher Helps you and a higher chance than the card (ladderBetter). */
+export interface BetterVariant {
+  kind: LadderCandidate["kind"];
+  proposal: TradeProposal;
+  tradeScore: number | null;
+  pComplete: number;
+}
+
+/**
+ * For one card (ladderBetter): its legal candidates, every one played out, those that print a higher chance, and of them those
+ * that also print a higher Helps you; and whether the pre-screen picks the same offers as every candidate does (`same`).
+ */
+export interface LadderBetter {
+  card: TradeEvaluation;
+  screened: number;
+  likelier: number;
+  better: BetterVariant[];
+  same: boolean;
+}
+
+/** Section 11 under one setting: the first LADDER_CARDS cards' ladders, and the first TOP_DETAIL cards' better variants. */
+export interface LadderSetting {
+  rows: LadderRow[];
+  better: LadderBetter[];
+}
+
+/** Section 11 under section 1's setting (`title`) and section 2's split (`other`). */
+export interface LadderSection {
+  title: LadderSetting;
+  other: LadderSetting;
+}
+
+/**
+ * The first `cards` cards' offers in order on a search's own state (the file header, section 11), as the engine worker builds
+ * them when each card's "How to offer it" is first opened: offers.ts offerLadderOfSearch on the search's own ladder store,
+ * the cards in order (⚠️ so a card can reuse what an earlier one built on the same context, as in the worker), each timed
+ * with the clock; and the candidates there were and the legal ones the pre-screen let through (offers.ts ladderChoice on the
+ * same store and job, the card's Plan B barred: nothing built again but the candidates legality turns down). None for a
+ * search that stopped before ranking.
+ */
+export function laddersOf(result: TradeSearchResult, cards: number, clock: () => number): LadderRow[] {
+  const state = searchStateOf(result);
+  if (!state) return [];
+  return result.trades.slice(0, Math.max(0, Math.floor(cards))).flatMap((card) => {
+    const t0 = clock();
+    const ladder = offerLadderOfSearch(result, card.key);
+    const took = clock() - t0;
+    if (!ladder) return [];
+    const choice = ladderChoice(ladderJobOfSearch(state, card));
+    return [{ card, ladder, candidates: choice?.candidates ?? 0, screened: choice?.screened.length ?? 0, ms: [took] }];
+  });
+}
+
+/** A ladder choice's offers by key (Open, Thens, Last offer), for comparing two choices (ladderBetter's `same`). */
+function choiceKeys(c: LadderChoice | null): string {
+  if (!c) return "";
+  return [c.open?.candidate.key ?? "-", ...c.thens.map((t) => t.candidate.key), c.last ? c.last.printed.key : "-"].join(" > ");
+}
+
+/**
+ * Each card's first opens over `opts.runs` runs, each on a trade context and search of its own (buildTradeContext and
+ * runTradeSearch under `opts.settings`, as the worker holds them; the searches untimed): laddersOf after each, and the last
+ * run's search and ladders with every run's times (the ladders are the same in every run: deterministic).
+ */
+export function ladderRuns(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: SearchRunOptions, cards: number): { result: TradeSearchResult; rows: LadderRow[] } {
+  const times: number[][] = [];
+  let last: { result: TradeSearchResult; rows: LadderRow[] } | null = null;
+  for (let i = 0; i < Math.max(1, Math.floor(opts.runs)); i++) {
+    const ctx = buildTradeContext(snapshot, inputs, { now: opts.now, settings: opts.settings, ...(opts.scenarios !== undefined ? { scenarios: opts.scenarios } : {}) });
+    const result = runTradeSearch(ctx, { settings: opts.settings });
+    const rows = laddersOf(result, cards, opts.clock);
+    rows.forEach((row, k) => (times[k] ??= []).push(...row.ms));
+    last = { result, rows };
+  }
+  const done = last as { result: TradeSearchResult; rows: LadderRow[] };
+  return { result: done.result, rows: done.rows.map((row, k) => ({ ...row, ms: times[k] ?? row.ms })) };
+}
+
+/**
+ * ⚠️ The lead's question (the addendum for wave D, "a variant that prints a higher Helps you and a higher chance than the card
+ * isn't in the ladder (it would be a better card, not a first offer); report how often one exists on Parker's top 10"): for
+ * each of the first `cards` cards, its ladder's legal candidates, every one played out (offers.ts ladderChoice with `every`:
+ * the variants and the lean version, on the search's own store, the card's Plan B barred), those that print a
+ * higher chance than the card (the chance is the same on every block, so the screening block's numbers say it exactly), each
+ * simulated on the card's block (offers.ts printedOf), and of them those that print a higher Helps you too; and whether the
+ * ladder's pre-screen picks the same offers as every candidate does (the review of wave D, D-ENG-1: the pre-screen's check).
+ */
+export function ladderBetter(result: TradeSearchResult, cards: number): LadderBetter[] {
+  const state = searchStateOf(result);
+  if (!state) return [];
+  return result.trades.slice(0, Math.max(0, Math.floor(cards))).map((card) => {
+    const job = ladderJobOfSearch(state, card);
+    const pre = ladderChoice(job);
+    const choice = ladderChoice(job, { every: true });
+    const chance = displayAcceptance(card.pComplete);
+    let likelier = 0;
+    const better: BetterVariant[] = [];
+    for (const s of choice?.screened ?? []) {
+      if (!(displayAcceptance(s.screen.pComplete) > chance + EPS)) continue;
+      const v = job.store.versions.get(s.candidate.key);
+      if (!v) continue;
+      likelier++;
+      const p = printedOf(job, v);
+      if (p.tradeScore !== null && card.tradeScore !== null && p.tradeScore > card.tradeScore && displayAcceptance(p.pComplete) > chance + EPS) better.push({ kind: s.candidate.kind, proposal: s.candidate.proposal, tradeScore: p.tradeScore, pComplete: p.pComplete });
+    }
+    return { card, screened: choice?.screened.length ?? 0, likelier, better, same: choiceKeys(pre) === choiceKeys(choice) };
+  });
+}
+
+/** The console's word on section 11 (ladderSummary): the split's top cards, their offers and how long the first opens took. */
+export function ladderSummary(s: LadderSection, other: string): string {
+  const rows = s.other.rows;
+  if (!rows.length) return `How to offer it: no cards under ${other}`;
+  const offers = rows.map((r) => r.ladder.steps.length);
+  const better = s.other.better.filter((b) => b.better.length > 0).length;
+  const same = s.other.better.filter((b) => b.same).length;
+  return `How to offer it (${other}): the top ${rows.length} cards hold ${offers.join(" / ")} offers, built in ${rows.map((r) => ms(median(r.ms))).join(" / ")} (first opens, medians); ${better} of the top ${s.other.better.length} ${better === 1 ? "has" : "have"} a candidate printing a higher Helps you and a higher chance; the pre-screen picks every candidate's offers on ${same} of ${s.other.better.length}`;
+}
+
+// ---------------------------------------------------------------------------------------------
 // The report
 
 export interface TradeReportOptions {
@@ -2100,6 +2267,8 @@ export interface TradeReport {
   pickupWeeks: PickupWeek[];
   openSpots: OpenSpotSection;
   helpsBoth: HelpsBothSection;
+  /** Section 11 (Checkpoint 7e): "How to offer it" under each setting. */
+  ladders: LadderSection;
   /** This report's own stages, ms ("total": everything buildTradeReport did). */
   timing: Record<string, number>;
 }
@@ -2126,8 +2295,9 @@ export function buildTradeReport(input: LeagueSnapshot, inputs: ModelInputs, opt
   const league = leagueBuilds(snapshot, inputs, runOpts);
   lap("league");
   // Section 4's runs, each timed one followed by the same search without "Helps them" (section 10; withoutHelpsThem) and,
-  // since Checkpoint 7d, without the helps-both lane.
-  const { ctx, result, runtime, without: paired, noLane: pairedNoLane } = timedSearches(snapshot, inputs, { ...runOpts, pairedWithout: true, pairedNoLane: true });
+  // since Checkpoint 7d, without the helps-both lane; since Checkpoint 7e (section 11) then its top cards' "How to offer it",
+  // each first opened on that run's own search.
+  const { ctx, result, runtime, without: paired, noLane: pairedNoLane, ladders: mainLadders } = timedSearches(snapshot, inputs, { ...runOpts, pairedWithout: true, pairedNoLane: true, ladders: LADDER_CARDS });
   const without = paired as NonNullable<typeof paired>;
   lap("searches");
   const beams = timedSearches(snapshot, inputs, { ...runOpts, warmups: 0, exhaustive: false });
@@ -2171,8 +2341,17 @@ export function buildTradeReport(input: LeagueSnapshot, inputs: ModelInputs, opt
     split: { result: splitNoLane, total: finite(splitNoLane.timings.total) ? (splitNoLane.timings.total as number) : null },
   });
   lap("helps both");
+  // Section 11 (Checkpoint 7e): "How to offer it" under each setting: the top cards' ladders with their first opens (section
+  // 1's setting from section 4's timed runs; the split's from runs of its own, each on a context and search of its own), and
+  // on the top cards the candidates that print a higher Helps you and a higher chance than their card.
+  const splitLadders = ladderRuns(snapshot, inputs, { ...runOpts, settings: prizesSettings }, LADDER_CARDS);
+  const ladders: LadderSection = {
+    title: { rows: mainLadders ?? [], better: ladderBetter(result, TOP_DETAIL) },
+    other: { rows: splitLadders.rows, better: ladderBetter(splitLadders.result, TOP_DETAIL) },
+  };
+  lap("ladders");
   timing.total = clock() - start;
-  const report: Omit<TradeReport, "doc"> = { snapshot, pre4c, settings, prizes: opts.prizes ?? null, ctx, result, model: league.model, league: { cold: league.cold, warm: league.warm }, runtime, beams: { result: beams.result, runtime: beams.runtime }, goals, scale, gap, filter, blend, odds, anchors, premiumAnchors, neutral, kickoff, pickupWeeks: weeks, openSpots, helpsBoth, timing };
+  const report: Omit<TradeReport, "doc"> = { snapshot, pre4c, settings, prizes: opts.prizes ?? null, ctx, result, model: league.model, league: { cold: league.cold, warm: league.warm }, runtime, beams: { result: beams.result, runtime: beams.runtime }, goals, scale, gap, filter, blend, odds, anchors, premiumAnchors, neutral, kickoff, pickupWeeks: weeks, openSpots, helpsBoth, ladders, timing };
   return { ...report, doc: render(snapshot, inputs, opts, report) };
 }
 
@@ -2200,6 +2379,7 @@ function render(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: TradeReport
   renderOther(L, snapshot, r, teamName);
   renderOpenSpots(L, snapshot, r, teamName);
   renderHelpsBoth(L, snapshot, inputs, r, teamName);
+  renderLadders(L, snapshot, inputs, r, teamName);
   return L.join("\n");
 }
 
@@ -2212,7 +2392,7 @@ function renderHeader(L: string[], snapshot: LeagueSnapshot, inputs: ModelInputs
   const s = r.settings;
   const model = r.model;
   const me = r.result.myTeamId;
-  L.push("# Trade search: Parker's ESPN league (Checkpoint 7d)", "");
+  L.push("# Trade search: Parker's ESPN league (Checkpoint 7e)", "");
   L.push(
     `Generated by \`${opts.command ?? commandText("trade:report", [opts.mode === "live" ? "--live" : null])}\` on ${(opts.generatedAt ?? opts.now).toISOString().slice(0, 10)} through the real engine, as the app's Web Workers run it. Team, owner and league names are placeholders (you are Team ${me ?? "–"}); NFL player names are public.`,
     "",
@@ -2266,8 +2446,8 @@ export function taggerOf(I: Pick<TradeInternals, "snapshot" | "model">): Tagger 
 }
 
 /**
- * What the next-step lines read besides the card: the tagger, the search's tags for its other ideas, and my odds before
- * any trade (the search's baseline: a Plan B box's odds start from it, as the card's do).
+ * What the Plan B lines read besides the card: the tagger, the search's tags for its other ideas, and my odds before any
+ * trade (the search's baseline: a Plan B box's odds start from it, as the card's do).
  */
 interface StepContext {
   tagsOf: Tagger;
@@ -2282,19 +2462,13 @@ export function planBOddsText(box: Pick<PlanBView, "odds" | "weekly">): string {
 }
 
 /**
- * The card's next step in words (the file header, section 1): the offer-first steps with their players' tags (tagsOf), or
- * Plan B in its box's own words (tradeView.planBView, as the card shows it: each tagged player's tag in parentheses; review
- * of track R, R-2: an untagged Plan B read as healthy), each with its numbers, and a Plan B with its box's odds lines
- * (Phase 4c, change 9: its title and playoff odds before → after and its weekly line, from its own final-block
- * simulation); or none.
+ * The card's Plan B in words (the file header, section 1), in its box's own words (tradeView.planBView, as the card shows it:
+ * each tagged player's tag in parentheses; review of track R, R-2: an untagged Plan B read as healthy), with its numbers and
+ * its box's odds lines (Phase 4c, change 9: its title and playoff odds before → after and its weekly line, from its own
+ * simulation); or none. Until Checkpoint 7e a card with "Offer first / if they say no" steps had them here instead (planner
+ * reply to Checkpoint 7d, item 4.1: its offers in order are section 11's, worked out when it's opened).
  */
 function nextStep(snapshot: LeagueSnapshot, inputs: ModelInputs, t: TradeEvaluation, sc: StepContext): string | null {
-  if (t.steps) {
-    const o = t.steps.offerFirst;
-    const full = t.steps.ifNo.full;
-    const oTags = sc.tagsOf(o.proposal);
-    return `offer first ${taggedNames(snapshot, inputs, playerIds(o.proposal.give), oTags, "give")} → ${taggedNames(snapshot, inputs, playerIds(o.proposal.get), oTags, "get")} (${boxNumbers(o)}); if they say no, add ${taggedNames(snapshot, inputs, [t.steps.ifNo.add], sc.tagsOf(full.proposal), "give")} (${boxNumbers(full)})`;
-  }
   if (t.planB) {
     const p = t.planB;
     const box = planBView(p, snapshot, { cardTags: t.flags.tagged, knownTags: sc.knownTags, seasonEnd: seasonEndOf(snapshot.settings, inputs.nfl.lastWeek), baseline: sc.baseline });
@@ -2315,7 +2489,7 @@ function renderTop(L: string[], snapshot: LeagueSnapshot, inputs: ModelInputs, r
   }
   const b3 = top[0]?.b3 ?? null;
   L.push(
-    `The Trade Finder's first ${top.length} of ${trades.length} cards with the default settings, Overall order, Helps you and Overall on B₃ ${b3 === null ? "–" : fmt(b3, 2)} (section 3: ${HELPS_AT_GAIN} ≈ +${config.benefit.helpsGain} pts a week). The three numbers as the card prints them: Helps you / Chance they accept (with its label; "goes through" when the league vote's veto rule cuts it; under ${Math.round(100 * config.acceptance.displayStep)}% reads "<${Math.round(100 * config.acceptance.displayStep)}%") / Overall. Odds before → after: the search's baseline and the trade's change on the same ${thousands(shownSimsOf())} seasons (the shown block, Checkpoint 7e: the search ranks on the first ${thousands(config.simulation.finalSims)} of them). Win chance by week: the weeks whose chance moves at least ${Math.round(100 * config.explain.weeklyLineMin)} points, at most ${config.explain.weeklyLineMax} (the largest), in week order. Injury tags in brackets are the card's words; the offer-first steps' players carry the same tags (the search's own rule), and a Plan B is quoted in its box's own words (tags in parentheses). Trade value: g_mkt(me), the model's own figure counting roster spots, and what "Protect my trade value" charges or credits for it in Helps you, in points a week on the card's scale (planner reply to Checkpoint 7a, §2 question 5: κ × clamp(g_mkt(me)), the Analyzer's "Trade value: … pts/week equivalent").`,
+    `The Trade Finder's first ${top.length} of ${trades.length} cards with the default settings, Overall order, Helps you and Overall on B₃ ${b3 === null ? "–" : fmt(b3, 2)} (section 3: ${HELPS_AT_GAIN} ≈ +${config.benefit.helpsGain} pts a week). The three numbers as the card prints them: Helps you / Chance they accept (with its label; "goes through" when the league vote's veto rule cuts it; under ${Math.round(100 * config.acceptance.displayStep)}% reads "<${Math.round(100 * config.acceptance.displayStep)}%") / Overall. Odds before → after: the search's baseline and the trade's change on the same ${thousands(shownSimsOf())} seasons (the shown block, Checkpoint 7e: the search ranks on the first ${thousands(config.simulation.finalSims)} of them). Win chance by week: the weeks whose chance moves at least ${Math.round(100 * config.explain.weeklyLineMin)} points, at most ${config.explain.weeklyLineMax} (the largest), in week order. Injury tags in brackets are the card's words, and a Plan B ("If they won't move: try …", the card's box since Checkpoint 7e, looked for on every card) is quoted in its box's own words (tags in parentheses); each card's "How to offer it" is section 11's. Trade value: g_mkt(me), the model's own figure counting roster spots, and what "Protect my trade value" charges or credits for it in Helps you, in points a week on the card's scale (planner reply to Checkpoint 7a, §2 question 5: κ × clamp(g_mkt(me)), the Analyzer's "Trade value: … pts/week equivalent").`,
     "",
   );
   L.push("| # | Partner | You give → you get | Helps / Chance / Overall | Title odds | Playoff odds | Win chance by week | Trade value |", "|---|---|---|---|---|---|---|---|");
@@ -2328,11 +2502,11 @@ function renderTop(L: string[], snapshot: LeagueSnapshot, inputs: ModelInputs, r
     const s = nextStep(snapshot, inputs, t, sc);
     return s ? [`- #${i + 1}: ${s}`] : [];
   });
-  if (steps.length) L.push("Next steps on those cards:", "", ...steps, "");
+  if (steps.length) L.push("Plan B on those cards:", "", ...steps, "");
   const c10 = cardCounts(top, sc.tagsOf);
   const all = cardCounts(trades, sc.tagsOf);
   L.push(
-    `**Counts** (top ${c10.shown} / all ${all.shown} cards): with Plan B ${c10.planB} / ${all.planB}; with offer-first steps ${c10.steps} / ${all.steps}; receiving an injury-tagged player ${c10.injuredGet} / ${all.injuredGet}; Plan B boxes receiving one ${c10.planBInjuredGet} / ${all.planBInjuredGet}. Hidden: ${r.result.hidden.byBenefit} for B ≤ 0, ${r.result.hidden.byMarket} by the market guard, ${r.result.hidden.byChance ?? 0} under the minimum chance; dropped by the variety rules: ${r.result.dropped ? `${r.result.dropped.givenPlayer} by the given-player cap, ${r.result.dropped.partnerCap} by the partner cap, ${r.result.dropped.core} by the core rule, ${r.result.dropped.filler} as filler` : "–"}.`,
+    `**Counts** (top ${c10.shown} / all ${all.shown} cards): with Plan B ${c10.planB} / ${all.planB}; receiving an injury-tagged player ${c10.injuredGet} / ${all.injuredGet}; Plan B boxes receiving one ${c10.planBInjuredGet} / ${all.planBInjuredGet}. Hidden: ${r.result.hidden.byBenefit} for B ≤ 0, ${r.result.hidden.byMarket} by the market guard, ${r.result.hidden.byChance ?? 0} under the minimum chance; dropped by the variety rules: ${r.result.dropped ? `${r.result.dropped.givenPlayer} by the given-player cap, ${r.result.dropped.partnerCap} by the partner cap, ${r.result.dropped.core} by the core rule, ${r.result.dropped.filler} as filler` : "–"}.`,
     "",
   );
   const p = r.result.pattern;
@@ -2596,7 +2770,7 @@ function renderOther(L: string[], snapshot: LeagueSnapshot, r: Report, teamName:
       `- **Week ${w.week} against ${teamName(w.opponentId)}**: your win chance ${pctPlain(w.asStands, 0)} as rosters stand, ${pctPlain(w.withPickups, 0)} with every team's pickups. Projected that week, as rosters stand → with pickups: you ${fmt(w.mine.stand)} → ${fmt(w.mine.pickups)} (your pickups: ${moves(w.myMoves)}), ${teamName(w.opponentId)} ${fmt(w.theirs.stand)} → ${fmt(w.theirs.pickups)} (its pickups: ${moves(w.theirMoves)}).`,
     );
   }
-  L.push("", `This report took ${ms(r.timing.total)} (the searches ${ms(r.timing.searches)}, section 10's runs without "Helps them" and without the helps-both lane among them, the beams alone ${ms(r.timing.beams)}, the "${GOAL_WORDS[r.goals.goal]}" search ${ms(r.timing.goals)} and again without the lane ${ms(r.timing.lane)}, the search gap's re-screening ${ms(r.timing.gap)}, section 9's Checkpoint 7b search and evaluations ${ms(r.timing["open spots"])}, section 10's scales ${ms(r.timing["helps both"])}).`, "");
+  L.push("", `This report took ${ms(r.timing.total)} (the searches ${ms(r.timing.searches)}, section 10's runs without "Helps them" and without the helps-both lane and section 11's first opens under "${GOAL_WORDS[r.settings.goal]}" among them, the beams alone ${ms(r.timing.beams)}, the "${GOAL_WORDS[r.goals.goal]}" search ${ms(r.timing.goals)} and again without the lane ${ms(r.timing.lane)}, the search gap's re-screening ${ms(r.timing.gap)}, section 9's Checkpoint 7b search and evaluations ${ms(r.timing["open spots"])}, section 10's scales ${ms(r.timing["helps both"])}, section 11's runs under "${GOAL_WORDS[r.goals.goal]}" and its candidates played out ${ms(r.timing.ladders)}).`, "");
 }
 
 /** A trade's card number under each rule ("#12 → #12", "– → #3"), and "(a finalist)" when it's a finalist but not a card now. */
@@ -2756,7 +2930,7 @@ function renderHelpsBoth(L: string[], snapshot: LeagueSnapshot, inputs: ModelInp
   const d = h.differs;
   const same = d.length
     ? `without it ${d.length} Overall card${d.length === 1 ? " differs" : "s differ"}${d.every((x) => x.helpsBoth) ? " (each helps both: such a card offers first, and gets a box, only versions that help both too)" : " ❌"}`
-    : `without it the Overall list is the same ${r.result.trades.length} cards with the same numbers, steps, boxes and words ✅`;
+    : `without it the Overall list is the same ${r.result.trades.length} cards with the same numbers, boxes and words ✅`;
   const measured = measuredRunsText(c);
   const sp = r.goals.parts;
   const many = (n: number, one: string, more: string): string => `${n} ${n === 1 ? one : more}`;
@@ -2768,7 +2942,7 @@ function renderHelpsBoth(L: string[], snapshot: LeagueSnapshot, inputs: ModelInp
   L.push(`| | Cold | Warm (median of ${r.runtime.runs.length}) |`, "|---|---|---|");
   L.push(`| The partner calibration runs (${c.calibrations.count}, one per partner of the exact trades) | ${ms(c.calibrations.cold)} | ${ms(c.calibrations.warm)} |`);
   L.push(`| The extras' final runs (${c.extras.count}) | ${ms(c.extras.cold)} | ${ms(c.extras.warm)} |`);
-  L.push(`| The second list: its ranking, steps, Plan B and words | – | ${msSigned(c.secondList)} |`);
+  L.push(`| The second list: its ranking, Plan B and words | – | ${msSigned(c.secondList)} |`);
   L.push(`| **The extra: the three parts** | ${c.extra.cold === null ? "–" : `≈ ${msChange(c.extra.cold)} ⚠️`} | ${c.extra.warm === null ? "–" : `${msChange(c.extra.warm)}${finite(c.without.warm) && c.without.warm > 0 ? ` (${signed((100 * c.extra.warm) / c.without.warm, 1)}%)` : ""}`} |`);
   L.push(`| Search total with "Helps them" (the app: section 4's) | ${ms(c.with.cold)} | ${ms(c.with.warm)} |`);
   L.push(`| Search total without (with, less the extra: ⚠️ derived) | ${ms(c.without.cold)} | ${ms(c.without.warm)} |`, "");
@@ -2807,7 +2981,7 @@ function renderLane(L: string[], r: Report, main: string, other: string): void {
   // What else it changes on the Finder (laneShown; review of the lane, LANE-1 and LANE-2).
   const shown = (label: string, f: (x: LaneShown) => string) => L.push(`| ${label} | ${f(s.shown.title)} | ${f(s.shown.other)} |`);
   const leftOutText = (x: LeftOut) => `${x.benefit} · ${x.market} · ${x.chance}`;
-  shown("Overall cards both show with a different Plan B box · a different offer-first step", (x) => `${x.shared.box} · ${x.shared.step} of ${x.shared.cards}`);
+  shown("Overall cards both show with a different Plan B box", (x) => `${x.shared.box} of ${x.shared.cards}`);
   shown(`"Helps both" cards the search without the lane doesn't show · its cards this list doesn't show`, (x) => `${x.list.added} · ${x.list.dropped} of ${x.list.cards}`);
   shown(`Final runs without the lane, Helps them known (the "Helps both" list's candidates), that the search with it doesn't make · of them on its list`, (x) => `${x.finalsLost.count} · ${x.finalsLost.listed}`);
   shown(`The Finder's "checked N closely", without → with`, (x) => `${x.exact.without} → ${x.exact.with}`);
@@ -2834,6 +3008,71 @@ function renderLane(L: string[], r: Report, main: string, other: string): void {
   L.push(`| **The lane's extra: the three parts** | ${c.extra.cold === null ? "–" : `≈ ${msChange(c.extra.cold)} ⚠️`} | ${c.extra.warm === null ? "–" : `${msChange(c.extra.warm)}${finite(c.with.warm) && finite(c.extra.warm) && c.with.warm - c.extra.warm > 0 ? ` (${signed((100 * c.extra.warm) / (c.with.warm - c.extra.warm), 1)}%)` : ""}`} |`);
   L.push(`| Search total with the lane (the app: section 4's) | ${ms(c.with.cold)} | ${ms(c.with.warm)} |`);
   L.push(`| Search total without the lane (measured) | – | ${ms(c.measured.without)} |`, "");
+}
+
+/**
+ * Whether an offer is another card of the search's lists (section 11; the lead's call, wave D: the card says "Also shown as
+ * trade idea N."): "also trade idea N" by its place on the Overall list, else "also “Helps both” idea N" for a card of that
+ * list alone; null for none, and for the suggested trade (the card itself).
+ */
+export function alsoCardText(result: Pick<TradeSearchResult, "trades" | "helpsBoth">, step: Pick<OfferStep, "kind" | "evaluation">): string | null {
+  if (step.kind === "suggested") return null;
+  const key = step.evaluation.key;
+  const at = result.trades.findIndex((t) => t.key === key);
+  if (at >= 0) return `also trade idea ${at + 1}`;
+  const both = result.helpsBoth?.trades.findIndex((t) => t.key === key) ?? -1;
+  return both >= 0 ? `also “Helps both” idea ${both + 1}` : null;
+}
+
+/**
+ * One offer in the report's words: its place, its players with their tags (and "also trade idea N" when it's another card:
+ * alsoCardText), Helps you and the chance as printed, and Helps them under a card tagged "Helps both".
+ */
+function offerLine(snapshot: LeagueSnapshot, inputs: ModelInputs, step: OfferStep, tagged: boolean, also: string | null): string {
+  const e = step.evaluation;
+  const veto = e.detail.vetoRisk ? ` (goes through ${chancePrinted(e.pComplete)})` : "";
+  return `${OFFER_WORDS[step.kind]}: ${sideText(snapshot, inputs, e, "give")} → ${sideText(snapshot, inputs, e, "get")}${also ? ` (${also})` : ""}: Helps you ${e.tradeScore ?? "–"} · ${chancePrinted(e.pAccept)} ${e.acceptLabel}${veto}${tagged ? ` · Helps them ${e.them?.helps ?? "–"}` : ""}`;
+}
+
+/** Section 11 (the file header): each setting's top cards' offers in order, their build times, and the candidates that print better than their card. */
+function renderLadders(L: string[], snapshot: LeagueSnapshot, inputs: ModelInputs, r: Report, teamName: (id: string) => string): void {
+  const main = GOAL_WORDS[r.settings.goal];
+  const other = GOAL_WORDS[r.goals.goal];
+  const o = config.offers;
+  const st = config.search.steps;
+  const gain = Math.round(100 * st.minAcceptGain);
+  L.push("## 11. How to offer it: offers in order", "");
+  L.push(
+    `Planner reply to Checkpoint 7d, item 4.1: a card's "How to offer it" is up to ${o.maxSteps} offers to the same team, in order, worked out by the engine worker when it's opened (offers.ts, on the search's own state). **Open with**: the version best for you (the highest Helps you, at least the card's) that prints a chance of at least ${pctPlain(o.openMinChance, 0)} (or the minimum chance, when higher) and at least ${gain} points under the card's; **Then**: versions a little less good for you, each at least ${gain} points likelier than the one before and still ${gain} under the card; **The suggested trade**: the card; **Last offer**: the card plus a throw-in, at least ${gain} points likelier, keeping at least ${pctPlain(st.minBShare, 0)} of its B and never printing a higher Helps you than the card. Every offer helps you and passes the market guard, and under a card tagged "Helps both" helps both. The candidates: the card's own side with any 1 to ${r.settings.maxPerSide} players of that team's get pool H (the search's), and the lean version (the card without your cheapest throw-in in it); never the card's Plan B, which stays below the list ("If they won't move: try …"). ⚠️ Another card of the list can be an offer (the lead's call, wave D, in place of the review's barring, D-ENG-2 and UI-D-2), marked "also trade idea N" by its place on the list, as the card says it ("Also shown as trade idea N."). ⚠️ Pre-screened (the review of wave D, D-ENG-1): only the candidates whose quick estimate of the chance (the screening's fast method) lies within ${pctPlain(o.preScreenMargin, 0)} of the Open's and Then's window are played out, the most your lineup gains on the fast method first, at most ${o.preScreenMax}; on the first cards every candidate is played out too, to check it picks the same offers. Chosen on the screening block, each rule held on the numbers the offer prints (the shown block's ${thousands(shownSimsOf())} seasons, the card's). The chance as the card prints it, with its label ("goes through" when the veto cuts it). Built in: each card's first open right after a search, in Node, the median over the runs (under "${main}" section 4's ${r.runtime.runs.length} timed runs; under "${other}" as many of its own), each run on a trade context and search of its own; ⚠️ the cards opened in order, so a card can reuse what an earlier one built on the same context (the same partner's versions), as in the worker; the browser takes about ×1.24 (Checkpoint 7d's check:browser).`,
+    "",
+  );
+  const setting = (label: string, s: LadderSetting, result: TradeSearchResult): void => {
+    L.push(`**${label}**:`, "");
+    if (!s.rows.length) {
+      L.push("No cards.", "");
+      return;
+    }
+    s.rows.forEach((row, i) => {
+      const c = row.card;
+      const tagged = helpsBoth(c);
+      L.push(`${i + 1}. ${teamName(c.proposal.partnerId)}: ${sideText(snapshot, inputs, c, "give")} → ${sideText(snapshot, inputs, c, "get")} (${threeNumbers(c)}${tagged ? `; Helps both, Helps them ${c.them?.helps ?? "–"}` : ""}): ${row.ladder.steps.length} offer${row.ladder.steps.length === 1 ? "" : "s"} from ${row.candidates} candidates, ${row.screened} legal ${row.screened === 1 ? "one" : "ones"} played out after the pre-screen, built in ${ms(median(row.ms))} (${row.ms.map(ms).join(" / ")})`);
+      row.ladder.steps.forEach((step, k) => L.push(`   ${k + 1}. ${offerLine(snapshot, inputs, step, tagged, alsoCardText(result, step))}`));
+      if (c.planB) L.push(`   If they won't move: try ${names(snapshot, playerIds(c.planB.proposal.give))} → ${names(snapshot, playerIds(c.planB.proposal.get))} (${boxNumbers(c.planB)})`);
+    });
+    const offers = s.rows.flatMap((row) => row.ladder.steps.filter((step) => step.kind !== "suggested"));
+    const cards = offers.filter((step) => alsoCardText(result, step) !== null).length;
+    L.push("", `Of these ${offers.length} offer${offers.length === 1 ? "" : "s"} besides the cards themselves, ${cards} ${cards === 1 ? "is" : "are"} another card of the list.`);
+    const withBetter = s.better.filter((b) => b.better.length > 0);
+    const likelier = s.better.reduce((n, b) => n + b.likelier, 0);
+    const list = withBetter.flatMap((b) => b.better.map((v) => `${names(snapshot, playerIds(b.card.proposal.give))} → ${names(snapshot, playerIds(b.card.proposal.get))} (${b.card.tradeScore ?? "–"}, ${chancePrinted(b.card.pComplete)}): ${v.kind === "lean" ? "its lean version" : "the variant"} ${names(snapshot, playerIds(v.proposal.give))} → ${names(snapshot, playerIds(v.proposal.get))} (${v.tradeScore ?? "–"}, ${chancePrinted(v.pComplete)})`));
+    L.push(
+      "",
+      `⚠️ Candidates that print a higher Helps you and a higher chance than their card (the lead's question; the ladder's chance rules keep them out: "a better card, not a first offer"), on the first ${s.better.length} cards: ${list.length ? `${list.length} on ${withBetter.length} card${withBetter.length === 1 ? "" : "s"}: ${list.join("; ")}` : "none"} (of ${s.better.reduce((n, b) => n + b.screened, 0)} legal candidates, every one played out, ${likelier} print a higher chance, each played out on the card's seasons). The pre-screen picks the offers every candidate gives on ${s.better.filter((b) => b.same).length} of these ${s.better.length} cards.`,
+      "",
+    );
+  };
+  setting(main, r.ladders.title, r.result);
+  setting(`${other}${r.goals.reward ? ` (${prizesWords(r.goals.reward)})` : ""}`, r.ladders.other, r.goals.result);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2915,7 +3154,7 @@ async function main(): Promise<void> {
   const anchors = [...report.anchors, ...report.premiumAnchors];
   console.log(
     scrubEverything(
-      `trade report written (${args.dump ? "offline" : "live"}) in ${ms(report.timing.total)}: ${c.shown} cards (Plan B ${c.planB}, steps ${c.steps}, injury-tagged received ${c.injuredGet}, Plan B boxes with one ${c.planBInjuredGet}); playoff weeks × ${report.model.playoffWeight} (${report.model.playoffWeightAuto?.basis ?? "?"}); search ${ms(report.runtime.search.total)} warm, ${thousands(report.result.counts.screened)} screened; top card Helps you ${top?.tradeScore ?? "–"}, Overall ${top?.overall ?? "–"}; ${GAP_TRADE.get.join(" + ")} card ${report.gap.card ?? "–"}; anchors ${anchors.filter((a) => a.pass).length}/${anchors.length}; baseline = LeagueModel.odds ${report.odds.baselineEqual ? "yes" : "NO"}${report.pre4c ? "; a dump from before the 4c adapter, put on the weekly reset order" : ""}; ${GOAL_WORDS[report.goals.goal]} (${report.goals.reward ? prizesWords(report.goals.reward) : "–"}): ω ${report.goals.omega.other}×, B₃ ${fmt(report.scale.b3[report.goals.goal]?.b3, 2)}, ${report.goals.commonTop} of the top ${GOAL_TOP} kept, ${helpsBothSummary(report.helpsBoth, report.settings.goal)}`,
+      `trade report written (${args.dump ? "offline" : "live"}) in ${ms(report.timing.total)}: ${c.shown} cards (Plan B ${c.planB}, injury-tagged received ${c.injuredGet}, Plan B boxes with one ${c.planBInjuredGet}); playoff weeks × ${report.model.playoffWeight} (${report.model.playoffWeightAuto?.basis ?? "?"}); search ${ms(report.runtime.search.total)} warm, ${thousands(report.result.counts.screened)} screened; top card Helps you ${top?.tradeScore ?? "–"}, Overall ${top?.overall ?? "–"}; ${GAP_TRADE.get.join(" + ")} card ${report.gap.card ?? "–"}; anchors ${anchors.filter((a) => a.pass).length}/${anchors.length}; baseline = LeagueModel.odds ${report.odds.baselineEqual ? "yes" : "NO"}${report.pre4c ? "; a dump from before the 4c adapter, put on the weekly reset order" : ""}; ${GOAL_WORDS[report.goals.goal]} (${report.goals.reward ? prizesWords(report.goals.reward) : "–"}): ω ${report.goals.omega.other}×, B₃ ${fmt(report.scale.b3[report.goals.goal]?.b3, 2)}, ${report.goals.commonTop} of the top ${GOAL_TOP} kept, ${helpsBothSummary(report.helpsBoth, report.settings.goal)}; ${ladderSummary(report.ladders, GOAL_WORDS[report.goals.goal])}`,
     ),
   );
 }

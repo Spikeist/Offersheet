@@ -31,7 +31,7 @@
  * (helpsBothStatusOk), and the partner's line's odds in the format of mine (oddsLabelProblems with `whose` "theirs").
  *
  * Planner reply to Checkpoint 7c (Checkpoint 7d): "Helps both" needs Helps you of at least the bar too (answer 5:
- * cardHelpsBoth); a Trade Finder card shows the partner's line exactly when it's tagged, never on an "If they say no, try:" box
+ * cardHelpsBoth); a Trade Finder card shows the partner's line exactly when it's tagged, never on a Plan B box ("If they won't move: try …")
  * (answer 3: finderPartnerLineProblems), and the Analyzer's card shows it whatever it is, tagged as its own scores call for
  * (analyzerPartnerLineProblems: the one card that prints both scores of an untagged idea); every
  * app page's footer links "DynastyProcess" to its data repository (dynastyProcessLinksInHtml, dynastyProcessLinkIssues, on the
@@ -559,7 +559,7 @@ export interface HelpsBothCardRead {
   helpsThem: string | null;
   /** The "Helps both" tag shows with the card's heading. */
   helpsBothTag: boolean;
-  /** Checkpoint 7d: the card's "If they say no, try:" box shows a partner's line of its own (it never may); absent: no box read. */
+  /** Checkpoint 7d: the card's Plan B box ("If they won't move: try …" since Checkpoint 7e) shows a partner's line of its own (it never may); absent: no box read. */
   planBHelpsThem?: boolean;
 }
 
@@ -584,7 +584,7 @@ export function cardHelpsBoth(card: Pick<HelpsBothCardRead, "helps" | "helpsThem
 /**
  * The partner's line on the Trade Finder's cards (pure; Checkpoint 7d, planner reply to Checkpoint 7c, answer 3: "show “Helps
  * them” and their odds only on cards that help both"; tradeView.ts CardContext.partnerLine): a card shows it exactly when it
- * carries the "Helps both" tag, and an "If they say no, try:" box never shows one (Checkpoint 7c's rule: a box carries no
+ * carries the "Helps both" tag, and a Plan B box ("If they won't move: try …") never shows one (Checkpoint 7c's rule: a box carries no
  * partner's numbers). Each card that reads otherwise, in words (`where` names it).
  */
 export function finderPartnerLineProblems(cards: ReadonlyArray<HelpsBothCardRead>, where: (i: number) => string = (i) => `idea ${i + 1}`): string[] {
@@ -592,7 +592,7 @@ export function finderPartnerLineProblems(cards: ReadonlyArray<HelpsBothCardRead
     const out: string[] = [];
     if (c.helpsThem !== null && !c.helpsBothTag) out.push(`${where(i)} shows “Helps them ${c.helpsThem}” without the “Helps both” tag`);
     if (c.helpsThem === null && c.helpsBothTag) out.push(`${where(i)} is tagged “Helps both” without the partner's line`);
-    if (c.planBHelpsThem) out.push(`${where(i)}'s “If they say no, try:” shows a partner's line`);
+    if (c.planBHelpsThem) out.push(`${where(i)}'s “If they won't move: try …” shows a partner's line`);
     return out;
   });
 }
@@ -647,6 +647,159 @@ export function helpsBothListProblems(cards: ReadonlyArray<HelpsBothCardRead>, m
 export function helpsBothStatusOk(status: string, cards: number): boolean {
   if (cards === 0) return status === "No trades help both teams right now.";
   return status === `Found ${cards} ${cards === 1 ? "trade idea that helps" : "trade ideas that help"} both teams.`;
+}
+
+/**
+ * Checkpoint 7e (planner reply to Checkpoint 7d, item 4.2): a card's "now or after this week" line as the page shows it
+ * (inPage.ts nowOrLaterOf): its Helps you tile, the line's words as seen and its tooltip (null: no line), and the words of the
+ * card's fact for it (null: none).
+ */
+export interface NowOrLaterRead {
+  helps: string | null;
+  line: { text: string; title: string | null } | null;
+  fact: string | null;
+}
+
+/** The line's words: "Helps you 37 now · 41 if done after this week's games." */
+export const NOW_OR_LATER_LINE = /^Helps you (\d+) now · (\d+) if done after this week's games\.$/;
+
+/**
+ * What's wrong with the cards' "now or after this week" lines (Checkpoint 7e, item 4.2): a line reads as NOW_OR_LATER_LINE,
+ * starts from its card's own Helps you, shows only when the two differ by more than `min` (config.explain.nowOrLaterMin), with
+ * `title` (the planner's words) as its tooltip and the same words as the card's fact, which a phone shows; no such fact without
+ * a line. Empty when every card is right.
+ */
+export function nowOrLaterProblems(cards: readonly NowOrLaterRead[], want: { min: number; title: string }, where: (i: number) => string = (i) => `idea ${i + 1}`): string[] {
+  const out: string[] = [];
+  cards.forEach((c, i) => {
+    if (!c.line) {
+      if (c.fact !== null) out.push(`${where(i)} explains a later line it doesn't show`);
+      return;
+    }
+    const m = NOW_OR_LATER_LINE.exec(c.line.text);
+    if (!m) {
+      out.push(`${where(i)}'s line reads “${c.line.text}”`);
+      return;
+    }
+    const now = Number(m[1]);
+    const later = Number(m[2]);
+    if (String(now) !== c.helps) out.push(`${where(i)}'s line starts from ${now}, its Helps you is ${c.helps ?? "missing"}`);
+    if (!(Math.abs(now - later) > want.min)) out.push(`${where(i)}'s line shows ${now} and ${later}, within ${want.min} of each other`);
+    if (c.line.title !== want.title) out.push(`${where(i)}'s line has the tooltip “${c.line.title ?? "(none)"}”`);
+    if (c.fact !== want.title) out.push(`${where(i)}'s facts say “${c.fact ?? "(nothing)"}” for the later line`);
+  });
+  return out;
+}
+
+/** One offer of a card's "How to offer it" as the page prints it (Checkpoint 7e; inPage.ts offersData). */
+export interface OfferRead {
+  /** Its label: "Open with", "Then", "The suggested trade" ("The trade you built" in the Analyzer), "Last offer". */
+  label: string;
+  /** Helps you as printed ("50", "0", "—"), null when the line can't be read. */
+  helps: string | null;
+  /** The chance they accept as printed ("15%", "<5%"), null when the line can't be read. */
+  chance: string | null;
+  /**
+   * The chance it goes through as its veto note prints it ("Counting a league veto vote, about 20% it goes through." → "20%",
+   * "under 5%" → "<5%"), null without a note: the chance the ladder's rules read when it's there (offers.ts: P_complete).
+   */
+  through?: string | null;
+  /** Its own "Message to send them" has a Copy button. */
+  copy: boolean;
+  /** Its trade key (the item's data-offer-key: TradeCard.tsx), null when the item carries none. */
+  key?: string | null;
+  /** Its "Also shown as trade idea N." line (the lead's call for Checkpoint 7e's wave D: an offer that is another card shown), else null. */
+  also?: string | null;
+}
+
+/** An offer's veto note read into a printed chance (pure): "…, about 20% it goes through." → "20%", "…, under 5% it goes through." → "<5%"; else null. */
+export function throughOf(note: string | null | undefined): string | null {
+  const m = /(?:about (\d{1,3})%|under 5%) it goes through/.exec(note ?? "");
+  if (!m) return null;
+  return m[1] ? `${m[1]}%` : "<5%";
+}
+
+/** The opened "How to offer it" (inPage.ts offersData): its status line, its offers in order, and whether it shows a failure. */
+export interface OffersRead {
+  status: string;
+  offers: OfferRead[];
+  failed: boolean;
+}
+
+/** A chance as printed, in whole percents (pure): "15%" → 15, "<5%" → 0 (under the display's step); anything else → null. */
+export function printedChancePoints(v: string | null): number | null {
+  if (v === null) return null;
+  const m = /^(<)?(\d{1,3})%$/.exec(v.trim());
+  if (!m) return null;
+  return m[1] ? 0 : Number(m[2]);
+}
+
+/** The words "How to offer it" says when nothing makes a better first offer (tradeView.ts offersAloneText). */
+export const OFFERS_ALONE = /^Offer this trade as it is: no version of it with .+ makes a better first offer\.$/;
+
+/**
+ * "How to offer it" on the numbers it prints (pure; Checkpoint 7e, planner reply to Checkpoint 7d, item 4.1, the lead's
+ * check:browser bullet: "Open at least 15%, each step at least 5 points likelier, Helps you above 0 and not rising, every
+ * step's Copy button"): it answered (no failure, not still working); with offers, they read "Open with" (at most one, first),
+ * "Then" (any), the suggested trade (exactly one: `suggested`, its label on this page) and "Last offer" (at most one, last), in
+ * that order; the opening offer prints at least `openMin` percent; each offer prints a chance at least `gain` points above the
+ * one before; every Helps you is a number above 0 and none above the one before; every offer has its own Copy button. With
+ * none, its line says to offer the trade as it is (OFFERS_ALONE). The chances compared are the ones the ladder's rules read
+ * (the review of wave D, UI-D-3): the chance it goes through when its veto note prints one (`through`), else the chance they
+ * accept. `openMin` and `gain` are whole percents (config.offers.
+ * openMinChance, or the minimum chance when that's higher; config.search.steps.minAcceptGain), which the step passes: this
+ * file imports nothing. Each rule broken, in words.
+ */
+export function offersProblems(read: OffersRead, want: { openMin: number; gain: number; suggested: readonly string[] }): string[] {
+  if (read.failed) return ["“How to offer it” says the offers couldn't be worked out"];
+  if (!read.offers.length) return OFFERS_ALONE.test(read.status) ? [] : [`“How to offer it” shows no offers and says “${read.status}”`];
+  const out: string[] = [];
+  const kind = (label: string) => (label === "Open with" ? "o" : label === "Then" ? "t" : want.suggested.includes(label) ? "s" : label === "Last offer" ? "l" : "?");
+  const order = read.offers.map((o) => kind(o.label)).join("");
+  if (!/^o?t*sl?$/.test(order)) out.push(`its offers read ${read.offers.map((o) => `“${o.label}”`).join(", ")}, not Open with, Then, the suggested trade and Last offer in that order`);
+  read.offers.forEach((o, i) => {
+    const name = `offer ${i + 1} (“${o.label}”)`;
+    const helps = o.helps !== null && /^\d+$/.test(o.helps) ? Number(o.helps) : null;
+    // The chance the rules read: the one it goes through when its veto note prints it, else the chance they accept.
+    const shown = o.through ?? o.chance;
+    const chance = printedChancePoints(shown);
+    if (helps === null || helps <= 0) out.push(`${name} reads Helps you ${o.helps ?? "none"}, not above 0`);
+    if (chance === null) out.push(`${name}'s chance they accept reads “${o.chance ?? "none"}”`);
+    if (i === 0 && o.label === "Open with" && chance !== null && chance < want.openMin) out.push(`${name} prints ${shown}, under ${want.openMin}%`);
+    const prev = read.offers[i - 1];
+    if (prev) {
+      const prevShown = prev.through ?? prev.chance;
+      const before = printedChancePoints(prevShown);
+      const helpsBefore = prev.helps !== null && /^\d+$/.test(prev.helps) ? Number(prev.helps) : null;
+      if (chance !== null && before !== null && chance < before + want.gain) out.push(`${name} prints ${shown}, not ${want.gain} points above offer ${i}'s ${prevShown}`);
+      if (helps !== null && helpsBefore !== null && helps > helpsBefore) out.push(`${name}'s Helps you ${o.helps} is above offer ${i}'s ${prev.helps}`);
+    }
+    if (!o.copy) out.push(`${name} has no Copy button for its message`);
+  });
+  return out;
+}
+
+/**
+ * "How to offer it"'s offers that are other cards (pure; the lead's call for Checkpoint 7e's wave D: an offer can be another
+ * card of its list, and then says so, Plan B's words, TradeCard.tsx): each offer whose key is one of `places` (the list's
+ * cards by key, each its place, 1 = first: inPage.ts cardPlaces) reads "Also shown as trade idea N." with that card's place;
+ * the suggested trade (its label one of `suggested`: the card itself) and every other offer read none. An offer with no key
+ * can't be checked: said so. Each that doesn't, in words.
+ */
+export function offersAlsoProblems(read: Pick<OffersRead, "offers">, places: Readonly<Record<string, number>>, suggested: readonly string[]): string[] {
+  const out: string[] = [];
+  read.offers.forEach((o, i) => {
+    const name = `offer ${i + 1} (“${o.label}”)`;
+    if (!o.key) {
+      out.push(`${name} carries no key to compare with the ideas shown`);
+      return;
+    }
+    const place = suggested.includes(o.label) ? undefined : places[o.key];
+    const want = place === undefined ? null : `Also shown as trade idea ${place}.`;
+    const got = o.also ?? null;
+    if (want !== got) out.push(want === null ? `${name} reads “${got}”, though ${suggested.includes(o.label) ? "it's the idea itself" : "no idea shown is its trade"}` : `${name} is trade idea ${place} but reads ${got === null ? "no “Also shown as trade idea …”" : `“${got}”`}`);
+  });
+  return out;
 }
 
 /**

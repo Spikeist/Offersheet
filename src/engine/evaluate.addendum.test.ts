@@ -15,6 +15,7 @@ import { gFeature } from "./acceptance";
 import { lineupEquivalent, protectValueWeight, tradePackage } from "./benefit";
 import { config } from "./config";
 import { ESTIMATED_VALUES_NOTE, NO_VALUES_NOTE, analyzeTrade, buildTradeContext, evaluateExact, harderToGetFor, perceivedG, premiumOf, screenTrade, tradeInternals, valuesEstimated, valuesMissing, type ExactTrade, type TeamState, type TradeContextOptions } from "./evaluate";
+import { offerLadderOfSearch } from "./offers";
 import { leaguePremiums, perceivedPackage, premiumFacts } from "./premium";
 import { runTradeSearch, searchStateOf, type SearchState } from "./search";
 import { defaultTradeSettings, PROTECT_VALUE_LEVELS, type ProtectValue } from "./settings";
@@ -252,15 +253,18 @@ describe("κ, \"Protect my trade value\" (N3)", () => {
       expect(ev.flags.marketCheck).toBe(true);
     });
 
-    it("the search (its trades, steps and Plan Bs): B = B_win everywhere, and the note once", () => {
+    it("the search (its trades, the offers of their “How to offer it” and Plan Bs): B = B_win everywhere, and the note once", () => {
       const r = runTradeSearch(est, { settings: { ...defaultTradeSettings(), minChance: 0 } });
       expect(r.trades.length).toBeGreaterThan(0);
       expect(r.notes.filter((n) => n === ESTIMATED_VALUES_NOTE)).toHaveLength(1);
       for (const t of r.trades) {
         expect(t.b, t.key).toBe(t.bWin);
-        for (const step of t.steps ? [t.steps.offerFirst, t.steps.ifNo.full] : []) expect(step.detail.notes).toContain(ESTIMATED_VALUES_NOTE);
+        for (const s of offerLadderOfSearch(r, t.key)?.steps ?? []) {
+          expect(s.evaluation.b, s.evaluation.key).toBe(s.evaluation.bWin);
+          expect(s.evaluation.detail.notes).toContain(ESTIMATED_VALUES_NOTE);
+        }
       }
-      // Every exact trade (Plan B's pool, a finalist's final numbers) and every version the steps evaluated: the one κ.
+      // Every exact trade (Plan B's pool, a finalist's final numbers) and every version the offers evaluated: the one κ.
       const st = searchStateOf(r) as SearchState;
       expect(st.planBPool.length).toBeGreaterThan(r.trades.length);
       for (const c of st.planBPool) expect(c.b, c.key).toBe(c.bWin);
@@ -310,11 +314,11 @@ describe("Phase 4c's polish: no FantasyCalc values at all (MarketInputs null): t
     expect(NO_VALUES_NOTE).toBe("While FantasyCalc's trade values aren't available, the chance they accept treats every trade as even on trade value.");
   });
 
-  it("the search says it once (its steps' versions carry it too); with values, FantasyCalc's own or the curve's estimates, there's no such note", () => {
+  it("the search says it once (the offers of its cards' “How to offer it” carry it too); with values, FantasyCalc's own or the curve's estimates, there's no such note", () => {
     const r = runTradeSearch(none, { settings: { ...defaultTradeSettings(), minChance: 0 } });
     expect(r.trades.length).toBeGreaterThan(0);
     expect(r.notes.filter((n) => n === NO_VALUES_NOTE)).toHaveLength(1);
-    for (const t of r.trades) for (const step of t.steps ? [t.steps.offerFirst, t.steps.ifNo.full] : []) expect(step.detail.notes).toContain(NO_VALUES_NOTE);
+    for (const t of r.trades) for (const s of offerLadderOfSearch(r, t.key)?.steps ?? []) expect(s.evaluation.detail.notes).toContain(NO_VALUES_NOTE);
     const fresh = context(() => undefined, {}, { scenarios: 8 });
     expect(analyzeTrade(fresh, proposals[0] as TradeProposal).notes).not.toContain(NO_VALUES_NOTE);
     expect(runTradeSearch(fresh, { settings: { ...defaultTradeSettings(), minChance: 0 } }).notes).not.toContain(NO_VALUES_NOTE);

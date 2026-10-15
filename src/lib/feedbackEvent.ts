@@ -133,7 +133,7 @@ export interface FeedbackEvent {
   trade: FeedbackEventTrade;
   numbers: FeedbackEventNumbers;
   features: FeedbackEventFeatures;
-  /** The sent version's players when they aren't the card's (review FB-R7: a first offer, a throw-in added, a Plan B). */
+  /** The sent version's players when they aren't the card's (review FB-R7: another offer of "How to offer it", a Plan B; an older card's first offer or throw-in added). */
   versionTrade?: FeedbackEventTrade;
   /** The sent version's estimate as its line on the card showed it (feedbackStore.ts FeedbackRecord.versionAccept). */
   versionAccept?: { pAccept: number | null; pComplete: number | null };

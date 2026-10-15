@@ -64,8 +64,21 @@
  * settings but the minimum chance, and partner) and still hold (no kickoff since, the same deadline readings:
  * src/workers/freshness.ts) shows them again at once instead of searching, in the sort the page was left in; the
  * Analyzer's "Back to the Trade Finder" returns to this page's address, partner included; and when the user left through
- * an idea's "Open in Analyzer" (its own, or its "If they say no, try:" one), that link comes back into view with focus on
+ * an idea's "Open in Analyzer" (its own, or its Plan B's), that link comes back into view with focus on
  * it.
+ *
+ * "How to offer it" (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1): a card's offers in order are worked out in
+ * the engine worker when its disclosure opens (onOffers: engineClient.ts offers, the card by the id of the request whose
+ * result holds it and its key, at the moment that search was for; the worker keeps each ladder, so a second open is
+ * instant), and worded for the card (tradeView.ts buildLadderView; TradeCard.tsx shows them). An offer that is another card
+ * of the list says so with that card's place in the sort shown, "Also shown as trade idea 2." (the lead's call, wave D: the
+ * list's places, Results' `places`).
+ *
+ * "Now or after this week" (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.2): once the search answers, the engine worker
+ * works out what each card's Helps you would be if done after this week's games, and each card shows "Helps you 37 now · 41 if
+ * done after this week's games." as its numbers arrive (engineClient.ts laterLinesOf, read with useSyncExternalStore), when the
+ * two differ by more than config.explain.nowOrLaterMin; ideas shown again (coming back from the Analyzer, or remembered) keep
+ * the numbers that came. The ranking stays on "now". The list says in a data attribute whether every card's are in.
  *
  * Accessibility: one status line (role="status") stays mounted through every state, so each change is announced
  * (the stage while searching, then what was found); the progress bar's numbers are read on demand. A button that
@@ -78,11 +91,11 @@
  * so React StrictMode's first run is cancelled before it starts and the worker searches once.
  */
 import Link from "next/link";
-import { memo, useCallback, useEffect, useEffectEvent, useId, useMemo, useRef, useState, type ReactNode, type Ref } from "react";
+import { memo, useCallback, useEffect, useEffectEvent, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type Ref } from "react";
 import type { LeagueSettings, LeagueSnapshot } from "@/engine/model";
 import { defaultTradeSettings, type Goal, type TradeSettings } from "@/engine/settings";
 import type { TradeEvaluation, TradeSearchProgress, TradeSearchResult, TradeSort } from "@/engine/tradeModel";
-import { EngineError, type TradeSearchHandle } from "@/lib/engineClient";
+import { EngineError, laterLinesOf, searchResultIdOf, watchLaterLines, type TradeSearchHandle } from "@/lib/engineClient";
 import { feedbackShareContext, shownRewardOf, type FeedbackSaveResult } from "@/lib/feedbackShare";
 import type { FeedbackChange, FeedbackRecord } from "@/lib/feedbackStore";
 import type { CurrentLeagueRead } from "@/lib/leagueStore";
@@ -93,12 +106,14 @@ import {
   MIN_CHANCE_OPTIONS,
   SORT_OPTIONS,
   buildFinderView,
+  buildLadderView,
   cardFeedback,
   fantasyCalcLookup,
   finderHref,
   finderTimingLines,
   isTradeSort,
   minChanceNote,
+  offersBarredOf,
   partnerOrNull,
   progressView,
   readFinderPartner,
@@ -108,8 +123,10 @@ import {
   valueFactsOf,
   type FinderTimingView,
   type FinderView,
+  type LadderView,
   type ProgressView,
   type SnapshotPart,
+  type TradeCardView,
   type ValueFacts,
 } from "@/lib/tradeView";
 import { contextStillValid } from "@/workers/freshness";
@@ -211,7 +228,8 @@ export function runShown(progress: RunProgress | null, runTag: string | null, re
 type FocusTo = "status" | "stop" | "again";
 
 /** Ideas found: the search's tag and key, the result, its partner, the moment it was for and the goal B was weighted by. */
-type Done = { tag: string; key: string; kind: "done"; result: TradeSearchResult; partnerId: string | null; nowIso: string; goal: Goal };
+/** A search or re-filter that answered, with the settings and time it ran with (`settings`: what "How to offer it" asks with, Checkpoint 7e). */
+type Done = { tag: string; key: string; kind: "done"; result: TradeSearchResult; partnerId: string | null; nowIso: string; goal: Goal; settings: TradeSettings };
 type Outcome = Done | { tag: string; kind: "error"; message: string } | { tag: string; kind: "stopped" };
 
 /** The page's state for its status line and body (pure: FinderBody renders it; tests render each). */
@@ -348,7 +366,7 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
       const known = recall ? recallSearchEntry(key, (iso) => contextStillValid(Date.parse(iso), nowMs, job.model, job.snapshot)) : null;
       if (known) {
         returnRef.current = back ? { tag, ...back } : null;
-        const done: Done = { tag, key, kind: "done", result: known.result, partnerId: job.partnerId, nowIso: known.nowIso, goal: job.settings.goal };
+        const done: Done = { tag, key, kind: "done", result: known.result, partnerId: job.partnerId, nowIso: known.nowIso, goal: job.settings.goal, settings: job.settings };
         setOutcome(done);
         setLastDone(done);
         return;
@@ -364,7 +382,7 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
           // Remembered even when a newer search took over meanwhile: these ideas are this search's.
           rememberSearch(key, nowIso, result);
           if (!live) return;
-          const done: Done = { tag, key, kind: "done", result, partnerId: job.partnerId, nowIso, goal: job.settings.goal };
+          const done: Done = { tag, key, kind: "done", result, partnerId: job.partnerId, nowIso, goal: job.settings.goal, settings: job.settings };
           setOutcome(done);
           setLastDone(done);
         },
@@ -416,7 +434,7 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
           // The same search's ideas at the new minimum, under the same key (finderMemory.ts).
           rememberSearch(done.key, nowIso, result);
           if (!live) return;
-          const next: Done = { ...done, result, nowIso };
+          const next: Done = { ...done, result, nowIso, settings: job.settings };
           setOutcome(next);
           setLastDone(next);
         },
@@ -495,12 +513,22 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
   const leagueType = (pair?.snapshot ?? snapshot).settings.leagueType;
   const facts = useMemo(() => (pair ? valueFactsOf(market, leagueType) : null), [pair, market, leagueType]);
   const blendOn = facts?.blendOn;
+  // The ideas' "now or after this week" numbers (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.2): the engine worker
+  // works them out once the search has answered, and each card shows its line as they arrive (engineClient.ts laterLinesOf,
+  // filed with the result the client handed out, so ideas shown again keep theirs).
+  const shownResult = shownOutcome?.result ?? null;
+  const watchLater = useCallback((onChange: () => void) => (shownResult ? watchLaterLines(shownResult, onChange) : () => undefined), [shownResult]);
+  const later = useSyncExternalStore(
+    watchLater,
+    () => (shownResult ? laterLinesOf(shownResult) : null),
+    () => null,
+  );
   const view = useMemo(
     () =>
       shownOutcome && league
-        ? buildFinderView({ result: shownOutcome.result, sort, snapshot: league, partnerId: shownOutcome.partnerId, lastNflWeek, fantasyCalc, goal: shownOutcome.goal, blendOn })
+        ? buildFinderView({ result: shownOutcome.result, sort, snapshot: league, partnerId: shownOutcome.partnerId, lastNflWeek, fantasyCalc, goal: shownOutcome.goal, blendOn, later })
         : null,
-    [shownOutcome, sort, league, lastNflWeek, fantasyCalc, blendOn],
+    [shownOutcome, sort, league, lastNflWeek, fantasyCalc, blendOn, later],
   );
 
   // A press shows at once (the league store applies it); the card says what it did once the browser has kept it. Phase 7a
@@ -517,6 +545,31 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
       if (shownKey) rememberReturn(shownKey, cardKey, href);
     },
     [shownKey],
+  );
+  // "How to offer it" (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1): a card's offers, asked of this league's engine
+  // worker when its disclosure opens (engineClient.ts offers: the card by the id of the request whose result holds it,
+  // searchResultIdOf, and its key; at the moment and with the settings that search ran with, so a dimmed idea, shown while a
+  // newer search runs, gets offers on its own numbers even where the worker no longer keeps its result), then worded for the
+  // card (tradeView.ts buildLadderView).
+  const onOffers = useCallback(
+    (card: TradeCardView): Promise<LadderView> => {
+      if (!pair || !myTeamId || !shownOutcome || !league) return Promise.reject(new Error("The trade ideas aren't loaded."));
+      const client = tradeEngine(leagueId);
+      // With its trade in its own order and the keys none of its offers may be (its Plan B: another card of its list can be
+      // one, which the card labels), which the worker reads when it no longer keeps the result (the review of wave D, D-ENG-3
+      // and UI-D-4: tradeView.ts offersBarredOf).
+      const source = {
+        kind: "search" as const,
+        resultId: searchResultIdOf(client, shownOutcome.result),
+        key: card.key,
+        proposal: card.evaluation.proposal,
+        barred: offersBarredOf(card.evaluation),
+      };
+      return client
+        .offers({ snapshot: pair.snapshot, model: pair.inputs, myTeamId, nowIso: shownOutcome.nowIso, settings: shownOutcome.settings, source })
+        .then((ladder) => buildLadderView(ladder, card, { snapshot: league, lastNflWeek, goal: shownOutcome.goal }));
+    },
+    [pair, myTeamId, shownOutcome, league, leagueId, lastNflWeek],
   );
 
   let state: FinderState;
@@ -575,13 +628,14 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
       snapshot={league}
       onFeedback={onFeedback}
       onOpenAnalyzer={onOpenAnalyzer}
+      onOffers={onOffers}
     />
   );
 }
 
 /**
  * Brings back into view the idea (its TradeEvaluation.key) whose "Open in Analyzer" was used, with focus on that link
- * (the one with `href`: the card's own or its "If they say no, try:" one; else the idea's first), the way the user left
+ * (the one with `href`: the card's own or its Plan B's; else the idea's first), the way the user left
  * it; false when that idea isn't shown.
  */
 function revealIdea(cardKey: string, href: string | null): boolean {
@@ -740,6 +794,8 @@ interface FrameProps {
   onFeedback: (evaluation: TradeSearchResult["trades"][number], change: FeedbackChange) => FeedbackSaveResult | Promise<FeedbackSaveResult>;
   /** A card's "Open in Analyzer" was used (its TradeEvaluation.key, and the link's address): the page remembers it, to come back to it. */
   onOpenAnalyzer?: ((cardKey: string, href?: string) => void) | undefined;
+  /** "How to offer it" (Checkpoint 7e, item 4.1): works a card's offers out when its disclosure opens (TradeCard's `onOffers`); absent: no card shows it. */
+  onOffers?: ((card: TradeCardView) => Promise<LadderView>) | undefined;
 }
 
 /**
@@ -747,7 +803,7 @@ interface FrameProps {
  * keeps the element and each new text is announced. It shows with a spinner while the page waits, and is read to
  * screen readers only otherwise.
  */
-export function FinderFrame({ state, teamName, leagueType = "redraft", facts, timing, controls, statusRef, resultsRef, againRef, stopRef, records, leagueKey, snapshot, onFeedback, onOpenAnalyzer }: FrameProps) {
+export function FinderFrame({ state, teamName, leagueType = "redraft", facts, timing, controls, statusRef, resultsRef, againRef, stopRef, records, leagueKey, snapshot, onFeedback, onOpenAnalyzer, onOffers }: FrameProps) {
   const text = finderStatus(state);
   const waiting = state.kind === "fetching" || state.kind === "settings";
   // The ideas on screen (dimmed ones included): a card whose long-term values are missing says Helps you counts this season only.
@@ -797,17 +853,18 @@ export function FinderFrame({ state, teamName, leagueType = "redraft", facts, ti
         snapshot={snapshot}
         onFeedback={onFeedback}
         onOpenAnalyzer={onOpenAnalyzer}
+        onOffers={onOffers}
       />
       <HowToRead leagueType={leagueType} valuesOn={facts?.valuesOn ?? true} longTermOn={longTermOn} blendOn={facts?.blendOn ?? true} helpsScale={shown?.helpsScale ?? null} reward={shown?.reward ?? null} />
     </div>
   );
 }
 
-function FinderBody({ state, resultsRef, againRef, stopRef, records, leagueKey, snapshot, onFeedback, onOpenAnalyzer }: Omit<FrameProps, "teamName" | "leagueType" | "facts" | "timing" | "controls" | "statusRef">) {
+function FinderBody({ state, resultsRef, againRef, stopRef, records, leagueKey, snapshot, onFeedback, onOpenAnalyzer, onOffers }: Omit<FrameProps, "teamName" | "leagueType" | "facts" | "timing" | "controls" | "statusRef">) {
   const previous =
     (state.kind === "searching" || state.kind === "stopped" || state.kind === "error") && state.previous ? (
       <div className="opacity-60 transition-opacity">
-        <Results view={state.previous} records={records} leagueKey={leagueKey} snapshot={snapshot} onFeedback={onFeedback} onOpenAnalyzer={onOpenAnalyzer} headingText="The last trade ideas found" />
+        <Results view={state.previous} records={records} leagueKey={leagueKey} snapshot={snapshot} onFeedback={onFeedback} onOpenAnalyzer={onOpenAnalyzer} onOffers={onOffers} headingText="The last trade ideas found" />
       </div>
     ) : null;
   switch (state.kind) {
@@ -876,7 +933,7 @@ function FinderBody({ state, resultsRef, againRef, stopRef, records, leagueKey, 
       );
     case "done":
       return (
-        <Results view={state.view} records={records} leagueKey={leagueKey} snapshot={snapshot} onFeedback={onFeedback} onOpenAnalyzer={onOpenAnalyzer} headingRef={resultsRef} headingText="Trade ideas" />
+        <Results view={state.view} records={records} leagueKey={leagueKey} snapshot={snapshot} onFeedback={onFeedback} onOpenAnalyzer={onOpenAnalyzer} onOffers={onOffers} headingRef={resultsRef} headingText="Trade ideas" />
       );
   }
 }
@@ -894,6 +951,7 @@ const Results = memo(function Results({
   snapshot,
   onFeedback,
   onOpenAnalyzer,
+  onOffers,
   headingRef,
   headingText,
 }: {
@@ -903,9 +961,13 @@ const Results = memo(function Results({
   snapshot?: FrameProps["snapshot"];
   onFeedback: FrameProps["onFeedback"];
   onOpenAnalyzer?: FrameProps["onOpenAnalyzer"];
+  onOffers?: FrameProps["onOffers"];
   headingRef?: Ref<HTMLHeadingElement> | undefined;
   headingText: string;
 }) {
+  // Each card's place in the list shown (1 = first), for the offers of "How to offer it" that are other cards (the lead's
+  // call, wave D: "Also shown as trade idea 2.", TradeCard's `places`); this sort's, so it follows a re-sort.
+  const places = useMemo(() => new Map(view.cards.map((c, i) => [c.key, i + 1] as const)), [view.cards]);
   return (
     <section aria-labelledby="results-title" className="space-y-4">
       <div>
@@ -946,7 +1008,8 @@ const Results = memo(function Results({
           </p>
         </Card>
       ) : (
-        <ol className="space-y-4">
+        // Whether every card's "now or after this week" numbers are in (FinderView.nowOrLater; `npm run check:browser` waits on it).
+        <ol className="space-y-4" data-now-or-later={view.nowOrLater}>
           {view.cards.map((card, i) => (
             <li key={card.key} data-trade-key={card.key}>
               <TradeCard
@@ -955,6 +1018,8 @@ const Results = memo(function Results({
                 feedback={cardFeedback(records, leagueKey, card.key, snapshot ?? undefined)}
                 onFeedback={(change) => onFeedback(card.evaluation, change)}
                 onOpenAnalyzer={onOpenAnalyzer ? (href: string) => onOpenAnalyzer(card.key, href) : undefined}
+                onOffers={onOffers}
+                places={places}
               />
             </li>
           ))}

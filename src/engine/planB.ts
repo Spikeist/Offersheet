@@ -1,9 +1,11 @@
 /**
- * Plan B, "If they say no, try:" (CLAUDE.md §13; planner reply to Checkpoint 4, change 6; Phase 4b design, track F
+ * Plan B, "If they won't move: try …" ("If they say no, try:" until Checkpoint 7e) (CLAUDE.md §13; planner reply to Checkpoint 4, change 6; Phase 4b design, track F
  * rule 2, and the review of track F). Pure and deterministic: no I/O, no clock; its numbers come from config.search.
  * planB, config.search.steps.minAcceptGain and config.ranking.perGivenPlayerInTop20. The trade search (search.ts) asks
- * for one for each trade it shows without "Offer first / if they say no" steps (a card with a qualifying throw-in step
- * already has its "try again"); the Trade Analyzer gives none (⚠️ ours: a trade built by hand has no list of evaluated
+ * for one for every card it shows (since Checkpoint 7e, planner reply to Checkpoint 7d, item 4.1: "Plan B stays below the
+ * list: 'If they won't move: try …', a different target", below "How to offer it", offers.ts, which never offers the box's
+ * trade; until then only for a card without "Offer first / if they say no" steps, whose throw-in step was its "try again");
+ * the Trade Analyzer gives none (⚠️ ours: a trade built by hand has no list of evaluated
  * alternatives behind it).
  *
  * Candidates (planBCandidates): the search's exactly evaluated trades, each with its best numbers (the final
@@ -37,9 +39,14 @@
  *   prizes both Team 8 cards of the "Helps both" list offered Garrett Wilson → Christian Watson + Carnell Tate, Helps them 0,
  *   and on 42 synthetic leagues 21 of the 27 boxes on that list's cards didn't help both. A card that doesn't help both
  *   reads the rules as before.
- * Order: a different package for the same players of theirs first ("samePlayers": the very same set of players I'd
- * get), then a different target ("otherTarget"); within each, the highest Overall (EG = B × P_complete: the planner's
- * "best"), then the key. A key counts once (its first entry in the pool).
+ * Which: since Checkpoint 7e only a different target ("otherTarget": another set of the players I'd get; planner reply to
+ * Checkpoint 7d, item 4.1: "Plan B stays below the list: 'If they won't move: try …', a different target"; the review of
+ * wave D, findings D-ENG-5 and UI-D-5: a box for the card's own players of theirs, most often the card plus one player of
+ * mine, is the card's "How to offer it" ladder's job, whose Last offer it is, and on Parker's leagues 6 of 17 boxes were),
+ * the highest Overall (EG = B × P_complete: the planner's "best") first, then the key. Until then (PlanBConfig.
+ * otherTargetOnly false, a report switch) a different package for the same players of theirs first ("samePlayers": the very
+ * same set of players I'd get), then a different target, each tier in that order. A key counts once (its first entry in
+ * the pool).
  *
  * The choice (choosePlanB): the first candidate, in that order, that isn't passed over (`skip`, below) and whose numbers
  * on the final block of seasons (the card's basis) still pass the rules: a finalist's are its own (stage "final"); any
@@ -99,12 +106,17 @@ export interface PlanBConfig {
    * report switch). The search applies it (choosePlanB's `skip`); planBCandidates doesn't read it.
    */
   readonly givenPlayerCap: number | null;
+  /**
+   * Checkpoint 7e (the file header, "Which"): only a different target (absent or true); false, the rule before, the same
+   * players of theirs first (a report switch, TradeSearchOptions.planB).
+   */
+  readonly otherTargetOnly?: boolean;
 }
 
 /** Plan B's rules from config (§15; the file header). */
 export function planBConfig(): PlanBConfig {
   const p = config.search.planB;
-  return { minHelpsShare: p.minHelpsShare, tries: p.tries, minAcceptGain: config.search.steps.minAcceptGain, givenPlayerCap: config.ranking.perGivenPlayerInTop20 };
+  return { minHelpsShare: p.minHelpsShare, tries: p.tries, minAcceptGain: config.search.steps.minAcceptGain, givenPlayerCap: config.ranking.perGivenPlayerInTop20, otherTargetOnly: true };
 }
 
 /** Float noise in comparisons (not a tunable). */
@@ -183,7 +195,10 @@ export function planBCandidates(card: TradeEvaluationCore, pool: readonly TradeE
     if (seen.has(core.key)) continue;
     seen.add(core.key);
     if (core.proposal.partnerId !== card.proposal.partnerId || !planBPasses(core, card, cfg)) continue;
-    found.push({ core, kind: sideKey(core.proposal.get) === target ? "samePlayers" : "otherTarget", eg: expectedGain(core.b, core.pComplete) ?? Number.NEGATIVE_INFINITY });
+    const kind: PlanB["kind"] = sideKey(core.proposal.get) === target ? "samePlayers" : "otherTarget";
+    // Since Checkpoint 7e a different target only (the file header, "Which").
+    if (kind === "samePlayers" && cfg.otherTargetOnly !== false) continue;
+    found.push({ core, kind, eg: expectedGain(core.b, core.pComplete) ?? Number.NEGATIVE_INFINITY });
   }
   const tier = (c: PlanBCandidate) => (c.kind === "samePlayers" ? 0 : 1);
   found.sort((a, b) => tier(a) - tier(b) || (Math.abs(b.eg - a.eg) > EPS ? b.eg - a.eg : 0) || (a.core.key < b.core.key ? -1 : a.core.key > b.core.key ? 1 : 0));

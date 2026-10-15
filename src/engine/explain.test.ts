@@ -69,6 +69,10 @@ describe("explain config (§15)", () => {
       patternDriverShare: 0.5,
       patternDriversMax: 3,
       patternDepthCoverMin: 0.5,
+      // Checkpoint 7e (planner reply to Checkpoint 7d, item 4.2, "Now or after this week"): the line shows when the two
+      // printed Helps you differ by more than nowOrLaterMin, while at least nowOrLaterWeeks weeks remain before the deadline.
+      nowOrLaterMin: 3,
+      nowOrLaterWeeks: 2,
     });
   });
 });

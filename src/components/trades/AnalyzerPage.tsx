@@ -40,11 +40,15 @@
  * get" and "How to offer it" mean, and why the message can propose less than the trade built (review of the planner
  * addendum to Checkpoint 3).
  *
- * A trade opened from a Trade Finder card's "If they say no, try:" carries `from=planB` in its address (review of Phase
- * 4b): while the trade built is that one, it's evaluated as one offer, without "How to offer it" (the worker's `steps:
- * false`), so its first offer can't be smaller than the trade the other manager just turned down, and its message proposes
- * the trade itself; a note under the card says so. Change the trade and it's evaluated as usual (the address drops the
- * mark on Evaluate).
+ * A trade opened from a Trade Finder card's Plan B ("If they won't move: try …") carries `from=planB` in its address (review
+ * of Phase 4b): while the trade built is that one, it's shown as one offer, without "How to offer it" (tradeView.ts
+ * CardContext.offers "none"; the worker's `steps: false` as before), so its first offer can't ask for more than the trade the
+ * other manager just turned down, and its message proposes the trade itself; a note under the card says so. Change the trade
+ * and it's evaluated as usual (the address drops the mark on Evaluate).
+ *
+ * "How to offer it" (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1): the card's offers in order, the trade built
+ * among them ("The trade you built"), worked out in the engine worker when its disclosure opens (onOffers: engineClient.ts
+ * offers, by the card's proposal, for the moment and settings it was evaluated for), not on a result gone stale.
  *
  * Getting there and back (review of Phase 4): on a phone the result sits a few screens below the form. Evaluate brings
  * it into view (its section's top at the top of the screen when it's taller than the screen) and moves focus to its
@@ -81,6 +85,7 @@ import {
   analyzerChoices,
   analyzerHref,
   buildAnalysisView,
+  buildLadderView,
   cardFeedback,
   draftKey,
   draftProposal,
@@ -93,8 +98,10 @@ import {
   type AnalyzerChoices,
   type AnalyzerDraft,
   type AnalyzerFrom,
+  type LadderView,
   type PlayerChoice,
   type SnapshotPart,
+  type TradeCardView,
   type ValueFacts,
 } from "@/lib/tradeView";
 import type { AnalyzerResult } from "@/workers/engine.worker";
@@ -143,10 +150,13 @@ interface Evaluated {
   context: string;
   /** The evaluation, with my odds before any trade. */
   analysis: AnalyzerResult;
-  /** "planB": opened from "If they say no, try:" and evaluated without "How to offer it" (the header). */
+  /** "planB": opened from a card's Plan B ("If they won't move: try …") and shown without "How to offer it" (the header). */
   from: AnalyzerFrom | null;
   /** What the league rewards (TradeSettings.goal) as the evaluation weighted B (the feedback's version inputs). */
   goal: Goal;
+  /** The moment and the settings it was evaluated for: "How to offer it" works its offers out for the same (Checkpoint 7e). */
+  nowIso: string;
+  settings: TradeSettings;
 }
 
 /**
@@ -187,7 +197,7 @@ function LoadedAnalyzer({ current, query }: { current: Extract<CurrentLeagueRead
   // An edit holds while the address is the one it was made under, or names the same trade (Evaluate's own write).
   const editHolds = edited !== null && (edited.query === query || draftKey(edited.draft) === draftKey(prefill));
   const draft = edited && editHolds ? edited.draft : prefill;
-  // The address's trade opened from "If they say no, try:" (`?from=planB`): evaluated as one offer while it's the trade built (the header).
+  // The address's trade opened from a card's Plan B (`?from=planB`): shown as one offer while it's the trade built (the header).
   const planBKey = league && readAnalyzerFrom(query) === "planB" && draftProposal(prefill) ? draftKey(prefill) : null;
   const fromOf = (d: AnalyzerDraft): AnalyzerFrom | null => (planBKey !== null && draftKey(d) === planBKey ? "planB" : null);
   const evalKey = (d: AnalyzerDraft): string => `${draftKey(d)}${fromOf(d) ? "|planB" : ""}`;
@@ -204,6 +214,19 @@ function LoadedAnalyzer({ current, query }: { current: Extract<CurrentLeagueRead
   const shownReward = shownRewardOf(evaluated?.analysis, evaluated?.goal);
   const share = useMemo(() => (league ? feedbackShareContext(league, shownReward) : null), [league, shownReward]);
   const onFeedback = useCallback((evaluation: TradeEvaluation, change: FeedbackChange) => saveFeedbackPress({ leagueKey, evaluation, change, share }), [leagueKey, share]);
+  // "How to offer it" (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1): the card's offers, asked of this league's
+  // engine worker when its disclosure opens (engineClient.ts offers: the card by its proposal, for the moment and settings it
+  // was evaluated for), then worded for the card (tradeView.ts buildLadderView).
+  const lastWeek = pair?.inputs.nfl?.lastWeek;
+  const onOffers = useCallback(
+    (card: TradeCardView): Promise<LadderView> => {
+      if (!pair || !myTeamId || !evaluated || !league) return Promise.reject(new Error("The trade isn't evaluated."));
+      return tradeEngine(leagueId)
+        .offers({ snapshot: pair.snapshot, model: pair.inputs, myTeamId, nowIso: evaluated.nowIso, settings: evaluated.settings, source: { kind: "analysis", proposal: card.evaluation.proposal } })
+        .then((ladder) => buildLadderView(ladder, card, { snapshot: league, lastNflWeek: lastWeek, goal: evaluated.goal }));
+    },
+    [pair, myTeamId, evaluated, league, leagueId, lastWeek],
+  );
   const [working, setWorking] = useState<string | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const sectionRef = useRef<HTMLElement>(null);
@@ -229,6 +252,8 @@ function LoadedAnalyzer({ current, query }: { current: Extract<CurrentLeagueRead
     const key = evalKey(d);
     const context = contextTag;
     const goal = settings.goal;
+    const asked = settings;
+    const nowIso = new Date().toISOString();
     const show = (to: "result" | "failure") => {
       if (!auto || focusIdle()) setReveal((r) => ({ n: (r?.n ?? 0) + 1, to }));
     };
@@ -240,12 +265,12 @@ function LoadedAnalyzer({ current, query }: { current: Extract<CurrentLeagueRead
       // the address just doesn't keep the trade
     }
     tradeEngine(leagueId)
-      .analyzeTrade({ snapshot: pair.snapshot, model: pair.inputs, myTeamId, nowIso: new Date().toISOString(), settings, proposal, ...(from === "planB" ? { steps: false } : {}) })
+      .analyzeTrade({ snapshot: pair.snapshot, model: pair.inputs, myTeamId, nowIso, settings, proposal, ...(from === "planB" ? { steps: false } : {}) })
       .then(
         (analysis) => {
           if (n !== latest.current) return;
           setWorking(null);
-          setEvaluated({ draft: key, context, analysis, from, goal });
+          setEvaluated({ draft: key, context, analysis, from, goal, nowIso, settings: asked });
           show("result");
         },
         (err: unknown) => {
@@ -364,6 +389,7 @@ function LoadedAnalyzer({ current, query }: { current: Extract<CurrentLeagueRead
           leagueType={league?.settings.leagueType}
           facts={facts}
           onFeedback={onFeedback}
+          onOffers={stale ? undefined : onOffers}
         />
       ) : null}
     </div>
@@ -506,6 +532,7 @@ export function AnalysisResult({
   leagueType = "redraft",
   facts,
   onFeedback,
+  onOffers,
 }: {
   view: AnalysisView;
   stale: boolean;
@@ -525,6 +552,11 @@ export function AnalysisResult({
   facts?: ValueFacts | null | undefined;
   /** Saves a feedback press; its promise says whether the browser kept it (the card says so). */
   onFeedback: (evaluation: NonNullable<AnalysisView["card"]>["evaluation"], change: FeedbackChange) => FeedbackSaveResult | Promise<FeedbackSaveResult>;
+  /**
+   * "How to offer it" (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1): works the card's offers out when its disclosure
+   * is opened (the page's engine worker; TradeCard's `onOffers`). Absent: the card shows no "How to offer it".
+   */
+  onOffers?: ((card: TradeCardView) => Promise<LadderView>) | undefined;
 }) {
   const card = view.card;
   return (
@@ -552,6 +584,7 @@ export function AnalysisResult({
             showAnalyzerLink={false}
             feedback={cardFeedback(records, leagueKey, card.key, snapshot ?? undefined)}
             onFeedback={(change) => onFeedback(card.evaluation, change)}
+            onOffers={onOffers}
           />
         ) : null}
         {view.notes.length ? (

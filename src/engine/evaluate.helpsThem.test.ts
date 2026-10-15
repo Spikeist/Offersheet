@@ -244,12 +244,12 @@ describe("the partner's numbers come from the trade's own runs (TradeEvaluation.
     expect(helpsBoth(lopsided)).toBe(false);
   });
 
-  it("the Analyzer's evaluation carries the shown block's, a step's version the screening block's; a TradeStep none", () => {
+  it("the Analyzer's evaluation carries the shown block's, a version the screening block's (a TradeStep none: the steps' type, no step made since Checkpoint 7e)", () => {
     const a = analyzeTrade(ctx, trade("2", ["rc1"], ["wc2"])).evaluation;
     expect(a?.them).toEqual(simulateTrade(I, x, "shown", null).them);
     const v = tradeVersion(I, trade("2", ["rc1"], ["wc2"]), { settings: defaultTradeSettings(), maxPerSide: 2 });
     expect(v?.screen.them).toEqual(simulateTrade(I, x, "screen", null).them);
-    for (const step of a?.steps ? [a.steps.offerFirst, a.steps.ifNo.full] : []) expect("them" in step).toBe(false);
+    expect(a?.steps).toBeUndefined();
     // Before the simulation (the exact stage alone): none.
     expect(x.evaluation.them).toBeUndefined();
   });

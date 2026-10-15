@@ -16,6 +16,7 @@ import type { ModelInputs } from "./inputs";
 import { buildLeagueModel, helpsCalibrationOf, type BuildLeagueModelOptions } from "./league";
 import type { HelpsCalibration, LeagueModel, SeasonOdds } from "./leagueModel";
 import type { LeagueSnapshot } from "./model";
+import { offerLadderOfSearch } from "./offers";
 import { prizeDeltas, prizeOddsOf, rewardOf, titleDeltas, type Reward } from "./reward";
 import { runTradeSearch, searchStateOf, type SearchState } from "./search";
 import { pickupSeasonModel, seasonOdds, type SeasonModel } from "./season";
@@ -336,33 +337,37 @@ describe("dynasty, the scale follows the Win now ↔ Future slider (planner repl
   });
 });
 
-describe("the search: one B₃ for every card, its steps and its Plan B", { timeout: 60_000 }, () => {
-  it("cards and Plan B boxes are scored on the search's B₃ (the shown block's), offer-first steps on the ranking block's, under each goal, and their B priced on it", () => {
+describe("the search: one B₃ for every card, its offers and its Plan B", { timeout: 60_000 }, () => {
+  it("cards, the offers of their “How to offer it” and Plan B boxes are scored on the search's B₃ (the shown block's), the offers chosen on the ranking block's, under each goal, and their B priced on it", () => {
     const ctx = smallContext();
     const I = tradeInternals(ctx);
-    let steps = 0;
+    let offers = 0;
     let planBs = 0;
     for (const goal of GOALS) {
       const b3 = helpsScaleOf(I, null, rewardIn(I, goal))?.b3 as number;
-      // Checkpoint 7e: the steps' versions are on the screening block, scored on the ranking block's B₃ (as the search ranks).
+      // Checkpoint 7e: the offers' versions are chosen on the screening block, scored on the ranking block's B₃ (as the search
+      // ranks), and print on the shown block's (offers.ts).
       const rankB3 = helpsScaleOf(I, null, rewardIn(I, goal), "final")?.b3 as number;
       const result = runTradeSearch(ctx, { settings: { ...defaultTradeSettings(), goal, minChance: 0 } });
       expect(result.trades.length, goal).toBeGreaterThan(0);
       expect(result.helpsScale?.b3, goal).toBe(b3);
-      // Every version behind a step and every Plan B candidate: its own numbers on the same B₃, its B's market term too.
+      // Every offer and every Plan B candidate: its own numbers on the same B₃, its B's market term too.
       const state = searchStateOf(result) as SearchState;
       for (const t of result.trades) {
         expect(t.b3, goal).toBe(b3);
         expect(t.tradeScore, goal).toBe(tradeScore(t.b, b3));
         expect(t.overall, goal).toBe(overallScore(t.b, t.pComplete, b3));
         expect(t.b as number, `${goal} ${t.key}`).toBeCloseTo((t.bWin as number) + termOf(t), 12);
-        for (const step of t.steps ? [t.steps.offerFirst, t.steps.ifNo.full] : []) {
-          steps++;
-          expect(step.tradeScore, goal).toBe(tradeScore(step.b, rankB3));
-          const v = state.versions.get(step.key);
-          expect(v?.screen.b3, `${goal} ${step.key}`).toBe(rankB3);
-          expect(step.b, `${goal} ${step.key}`).toBe(v?.screen.b);
-          expect(step.b as number, `${goal} ${step.key}`).toBeCloseTo((v?.screen.bWin as number) + termOf({ b3: rankB3, gMine: step.gMine }), 12);
+        expect(t.steps, goal).toBeUndefined();
+        for (const step of (offerLadderOfSearch(result, t.key)?.steps ?? []).filter((s) => s.kind !== "suggested")) {
+          offers++;
+          const e = step.evaluation;
+          expect(e.b3, `${goal} ${e.key}`).toBe(b3);
+          expect(e.tradeScore, goal).toBe(tradeScore(e.b, b3));
+          expect(e.b as number, `${goal} ${e.key}`).toBeCloseTo((e.bWin as number) + termOf(e as { b3: number; gMine: number }), 12);
+          const v = state.versions.get(e.key);
+          expect(v?.screen.b3, `${goal} ${e.key}`).toBe(rankB3);
+          expect(v?.screen.b as number, `${goal} ${e.key}`).toBeCloseTo((v?.screen.bWin as number) + termOf({ b3: rankB3, gMine: v?.screen.gMine as number }), 12);
         }
         if (t.planB) {
           planBs++;
@@ -377,7 +382,8 @@ describe("the search: one B₃ for every card, its steps and its Plan B", { time
         }
       }
     }
-    // Some card shows a step or a Plan B (else this test would check neither).
-    expect(steps + planBs).toBeGreaterThan(0);
+    // Some card offers a version or shows a Plan B (else this test would check neither).
+    expect(offers).toBeGreaterThan(0);
+    expect(planBs).toBeGreaterThan(0);
   });
 });

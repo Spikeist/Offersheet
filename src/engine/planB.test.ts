@@ -1,8 +1,9 @@
 /**
  * Plan B, "If they say no, try:" (src/engine/planB.ts; planner reply to Checkpoint 4, change 6; Phase 4b design, track F
  * rule 2, and the review of track F): the rules (B > 0, Helps you at least minHelpsShare of the card's, not hidden by the
- * market guard, and likelier to go through than the card by the steps' own minAcceptGain), the two tiers (the same
- * players of theirs first, then another target), the order within a tier (Overall, then the key), the final simulation
+ * market guard, and likelier to go through than the card by the steps' own minAcceptGain), a different target only since
+ * Checkpoint 7e (planner reply to Checkpoint 7d, item 4.1; the two tiers before it, the same players of theirs first, under
+ * the report switch otherTargetOnly false), the order (Overall, then the key), the final simulation
  * of a chosen trade that wasn't a finalist, the retry and its limit, the given-player cap on the boxes, and the search's
  * own Plan Bs and injury tags on synthetic leagues (their numbers on the card's basis: the Trade Analyzer's, which runs
  * the same final block). Players are public NFL names with made-up numbers; teams are placeholders.
@@ -28,6 +29,8 @@ const core = (o: EvaluationFixture): TradeEvaluation => tradeEvaluation({ stage:
 /** The card: Bo Nix for Travis Kelce, B 5 (Helps you 57), P_complete 0.5, final. */
 const CARD = tradeEvaluation({ give: ["nix"], get: ["kelce"], b: 5, pComplete: 0.5 });
 const cfg = planBConfig();
+/** The rule before Checkpoint 7e (the report switch): a different package for the same players of theirs first, then another target. */
+const sameFirst = { ...cfg, otherTargetOnly: false };
 const player = (id: string): TradeAsset => ({ kind: "player", id });
 
 /** Runs choosePlanB to the end, counting its yields and the simulations it asks for. */
@@ -100,7 +103,8 @@ describe("config (§15)", () => {
     expect(config.search.planB).toEqual({ minHelpsShare: 0.5, tries: 3 });
     expect(GAIN).toBe(0.05);
     expect(config.ranking.perGivenPlayerInTop20).toBe(3);
-    expect(planBConfig()).toEqual({ minHelpsShare: 0.5, tries: 3, minAcceptGain: 0.05, givenPlayerCap: 3 });
+    // Checkpoint 7e (planner reply to Checkpoint 7d, item 4.1): a different target only.
+    expect(planBConfig()).toEqual({ minHelpsShare: 0.5, tries: 3, minAcceptGain: 0.05, givenPlayerCap: 3, otherTargetOnly: true });
   });
 });
 
@@ -189,8 +193,9 @@ describe("⚠️ a card that helps both teams gets a box that helps both too (Ch
     const second = withThem(core({ give: ["nix", "y"], get: ["kelce"], b: 3.5, pComplete: 0.65 }), 12); // the same players of theirs
     const other = core({ give: ["nix"], get: ["mcbride"], b: 4.5, pComplete: 0.62 }); // another target, EG 2.79, no Helps them
     const pool = [first, second, other];
-    expect(planBCandidates(CARD, pool).map((c) => c.core.key)).toEqual([second.key, other.key, first.key]);
-    const candidates = planBCandidates(BOTH, pool);
+    // (The rule before Checkpoint 7e, the report switch, so the same-players one is a candidate: the test is about the tag.)
+    expect(planBCandidates(CARD, pool, sameFirst).map((c) => c.core.key)).toEqual([second.key, other.key, first.key]);
+    const candidates = planBCandidates(BOTH, pool, sameFirst);
     expect(candidates.map((c) => c.core.key)).toEqual([second.key, first.key]);
     // On the final block the same-players one reads Helps them 5: passed over; the next one helps both there too.
     const finals: Record<string, TradeEvaluationCore> = { [second.key]: { ...withThem(second, 5), stage: "final", sims: 5000 } };
@@ -208,8 +213,25 @@ describe("⚠️ a card that helps both teams gets a box that helps both too (Ch
   });
 });
 
-describe("planBCandidates: same partner, the same players of theirs first, then Overall", () => {
-  it("keeps other trades with the card's partner that pass, the same players of theirs first, each tier by Overall then key", () => {
+describe("planBCandidates: same partner, a different target, by Overall", () => {
+  it("keeps other trades with the card's partner that pass and ask for other players of theirs, by Overall then key (Checkpoint 7e: \"a different target\")", () => {
+    const pool = [
+      CARD,
+      core({ key: "t-low", give: ["kyren"], get: ["jsn"], b: 4, pComplete: 0.6 }), // EG 2.4
+      core({ key: "t-high", give: ["nacua"], get: ["jsn"], b: 6, pComplete: 0.6 }), // EG 3.6
+      core({ key: "s-high", give: ["wilson"], get: ["kelce"], b: 4, pComplete: 0.7 }), // the card's own players of theirs, EG 2.8
+      core({ key: "s-plus", give: ["nix", "kyren"], get: ["kelce"], b: 4, pComplete: 0.7 }), // the card plus one player of mine
+    ];
+    expect(cfg.otherTargetOnly).toBe(true);
+    expect(planBCandidates(CARD, pool).map((c) => [c.core.key, c.kind])).toEqual([
+      ["t-high", "otherTarget"],
+      ["t-low", "otherTarget"],
+    ]);
+    // A box for the card's own players of theirs is the card's "How to offer it": none, though one passes every other rule.
+    expect(planBFor(CARD, [CARD, pool[3] as TradeEvaluation, pool[4] as TradeEvaluation], (c) => ({ ...c, stage: "final", sims: 5000 }))).toBeNull();
+  });
+
+  it("the rule before Checkpoint 7e (the report switch otherTargetOnly false): the same players of theirs first, each tier by Overall then key", () => {
     const pool = [
       CARD,
       core({ key: "other-partner", partnerId: "8", give: ["nix"], get: ["jsn"], b: 9, pComplete: 0.9 }),
@@ -222,7 +244,7 @@ describe("planBCandidates: same partner, the same players of theirs first, then 
       core({ key: "hurts-me", give: ["allen"], get: ["kelce"], b: -1, pComplete: 0.9 }),
       core({ key: "lopsided", give: ["bijan"], get: ["jsn"], b: 8, pComplete: 0.9, gMine: -0.5 }),
     ];
-    const got = planBCandidates(CARD, pool);
+    const got = planBCandidates(CARD, pool, sameFirst);
     expect(got.map((c) => [c.core.key, c.kind])).toEqual([
       ["s-high", "samePlayers"],
       ["s-low", "samePlayers"],
@@ -231,34 +253,38 @@ describe("planBCandidates: same partner, the same players of theirs first, then 
       ["t-low", "otherTarget"],
     ]);
     // The order of the pool never matters, and a key counts once.
-    expect(planBCandidates(CARD, [...pool].reverse()).map((c) => c.core.key)).toEqual(got.map((c) => c.core.key));
-    expect(planBCandidates(CARD, [...pool, core({ key: "s-high", give: ["wilson"], get: ["kelce"], b: -5 })]).map((c) => c.core.key)).toEqual(got.map((c) => c.core.key));
+    expect(planBCandidates(CARD, [...pool].reverse(), sameFirst).map((c) => c.core.key)).toEqual(got.map((c) => c.core.key));
+    expect(planBCandidates(CARD, [...pool, core({ key: "s-high", give: ["wilson"], get: ["kelce"], b: -5 })], sameFirst).map((c) => c.core.key)).toEqual(got.map((c) => c.core.key));
     // Without the acceptance rule (the report switch) the harder one leads its tier, by Overall.
-    expect(planBCandidates(CARD, pool, { ...cfg, minAcceptGain: null })[0]?.core.key).toBe("s-harder");
+    expect(planBCandidates(CARD, pool, { ...sameFirst, minAcceptGain: null })[0]?.core.key).toBe("s-harder");
+    // Since Checkpoint 7e (the default) the other target's tier alone, the same order within it.
+    expect(planBCandidates(CARD, pool).map((c) => c.core.key)).toEqual(["t-high", "t-low"]);
   });
 
   it("never a trade the list shows as a card, above or below this one (final review of Phase 4b: a box naming another card was circular)", () => {
     const pool = [
       CARD,
-      core({ key: "s-high", give: ["wilson"], get: ["kelce"], b: 4, pComplete: 0.7 }),
-      core({ key: "s-low", give: ["nix", "kyren"], get: ["kelce"], b: 3, pComplete: 0.6 }),
       core({ key: "t-high", give: ["nacua"], get: ["jsn"], b: 6, pComplete: 0.6 }),
+      core({ key: "t-mid", give: ["wilson"], get: ["mcbride"], b: 4, pComplete: 0.7 }),
+      core({ key: "t-low", give: ["nix", "kyren"], get: ["jsn"], b: 3, pComplete: 0.6 }),
     ];
-    expect(planBCandidates(CARD, pool).map((c) => c.core.key)).toEqual(["s-high", "s-low", "t-high"]);
-    // "s-high" and "t-high" are cards too: the box falls through to the next candidate.
-    expect(planBCandidates(CARD, pool, cfg, ["s-high", "t-high", CARD.key]).map((c) => c.core.key)).toEqual(["s-low"]);
-    expect(planBFor(CARD, pool, (c) => c, cfg, undefined, ["s-high"])).toMatchObject({ key: "s-low", kind: "samePlayers" });
-    expect(planBFor(CARD, pool, (c) => c, cfg, undefined, ["s-high", "s-low", "t-high"])).toBeNull();
+    expect(planBCandidates(CARD, pool).map((c) => c.core.key)).toEqual(["t-high", "t-mid", "t-low"]);
+    // "t-high" and "t-mid" are cards too: the box falls through to the next candidate.
+    expect(planBCandidates(CARD, pool, cfg, ["t-high", "t-mid", CARD.key]).map((c) => c.core.key)).toEqual(["t-low"]);
+    expect(planBFor(CARD, pool, (c) => c, cfg, undefined, ["t-high"])).toMatchObject({ key: "t-mid", kind: "otherTarget" });
+    expect(planBFor(CARD, pool, (c) => c, cfg, undefined, ["t-high", "t-mid", "t-low"])).toBeNull();
   });
 
   it("the same players of theirs means the same set I'd get, in any order; more or fewer is another target", () => {
     const card = tradeEvaluation({ give: ["nix"], get: ["kelce", "jsn"], b: 5, pComplete: 0.5 });
-    const kinds = planBCandidates(card, [core({ key: "a", give: ["kyren"], get: ["jsn", "kelce"], b: 4 }), core({ key: "b", give: ["nix"], get: ["kelce"], b: 4 }), core({ key: "c", give: ["nix"], get: ["kelce", "jsn", "nacua"], b: 4 })]);
-    expect(kinds.map((k) => [k.core.key, k.kind])).toEqual([
+    const pool = [core({ key: "a", give: ["kyren"], get: ["jsn", "kelce"], b: 4 }), core({ key: "b", give: ["nix"], get: ["kelce"], b: 4 }), core({ key: "c", give: ["nix"], get: ["kelce", "jsn", "nacua"], b: 4 })];
+    expect(planBCandidates(card, pool, sameFirst).map((k) => [k.core.key, k.kind])).toEqual([
       ["a", "samePlayers"],
       ["b", "otherTarget"],
       ["c", "otherTarget"],
     ]);
+    // Since Checkpoint 7e only the other targets: fewer or more of their players count as another target.
+    expect(planBCandidates(card, pool).map((k) => k.core.key)).toEqual(["b", "c"]);
   });
 });
 
@@ -304,7 +330,7 @@ describe("choosePlanB: the final simulation and the retry", () => {
     // A points-only league's empty list stays empty (no weekly line).
     expect(choose([screened], { scr: { ...final, detail: { ...final.detail, winChance: [] } } }).planB?.winChance).toEqual([]);
     // Numbers that aren't the final block's (a test's finalOf handing back the screening numbers): no odds at all.
-    const notFinal = planBFor(CARD, [CARD, { ...core({ key: "x", give: ["nacua"], get: ["kelce"], b: 4, dPO: 0.05, dCH: 0.02 }), dPrizes: { first: 0.02, second: 0.01, third: 0, weeklyHigh: null, pointsLeader: 0 } }], (c) => c);
+    const notFinal = planBFor(CARD, [CARD, { ...core({ key: "x", give: ["nacua"], get: ["mcbride"], b: 4, dPO: 0.05, dCH: 0.02 }), dPrizes: { first: 0.02, second: 0.01, third: 0, weeklyHigh: null, pointsLeader: 0 } }], (c) => c);
     expect(notFinal).toMatchObject({ key: "x" });
     expect(notFinal && ["dPO", "dCH", "dPrizes", "winChance"].filter((k) => k in notFinal)).toEqual([]);
   });
@@ -350,8 +376,8 @@ describe("choosePlanB: the final simulation and the retry", () => {
   });
 
   it("planBFor runs the whole choice for one card", () => {
-    const pool = [CARD, core({ key: "x", give: ["nacua"], get: ["kelce"], b: 4, stage: "final", sims: 5000 })];
-    expect(planBFor(CARD, pool, (c) => c)).toMatchObject({ key: "x", kind: "samePlayers" });
+    const pool = [CARD, core({ key: "x", give: ["nacua"], get: ["mcbride"], b: 4, stage: "final", sims: 5000 })];
+    expect(planBFor(CARD, pool, (c) => c)).toMatchObject({ key: "x", kind: "otherTarget" });
     expect(planBFor(CARD, [CARD], (c) => c)).toBeNull();
     expect(planBFor(CARD, pool, (c) => c, cfg, () => true)).toBeNull();
   });
@@ -389,19 +415,20 @@ describe("the search's Plan Bs (search.ts; synthetic leagues)", { timeout: 60_00
   const withPlanB = result.trades.filter((t) => t.planB);
   const planBOf = (t: TradeEvaluation) => t.planB as NonNullable<TradeEvaluation["planB"]>;
 
-  it("gives Plan B only to cards without steps, with the card's partner, another trade, and the rules on its final numbers", () => {
+  it("looks for a Plan B on every card (no card has steps since Checkpoint 7e), with the card's partner, another trade, and the rules on its final numbers", () => {
     expect(withPlanB.length).toBeGreaterThan(0); // a fact of the synthetic data, deterministic
     for (const t of withPlanB) {
       const p = planBOf(t);
-      expect(t.steps).toBeUndefined();
       expect(p.proposal.partnerId).toBe(t.proposal.partnerId);
       expect(p.key).not.toBe(t.key);
       expect(p.b).toBeGreaterThan(0);
       expect(p.tradeScore).toBeGreaterThanOrEqual(config.search.planB.minHelpsShare * (t.tradeScore as number) - 1e-9);
       const ids = (xs: readonly { kind: string; id?: string }[]) => xs.map((a) => a.id).sort().join(",");
-      expect(p.kind === "samePlayers").toBe(ids(p.proposal.get) === ids(t.proposal.get));
+      // Since Checkpoint 7e a different target (planner reply to Checkpoint 7d, item 4.1).
+      expect(p.kind).toBe("otherTarget");
+      expect(ids(p.proposal.get)).not.toBe(ids(t.proposal.get));
     }
-    for (const t of result.trades.filter((x) => x.steps)) expect(t.planB).toBeUndefined();
+    for (const t of result.trades) expect(t.steps).toBeUndefined();
     // Never another card of the list (final review of Phase 4b).
     const cards = new Set(result.trades.map((t) => t.key));
     for (const t of withPlanB) expect(cards.has(planBOf(t).key), t.key).toBe(false);

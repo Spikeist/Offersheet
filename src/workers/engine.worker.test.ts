@@ -48,6 +48,7 @@ vi.mock("@/engine/search", () => ({
   },
 }));
 
+import { config } from "@/engine/config";
 import type { TradeAnalysis, TradeContext } from "@/engine/evaluate";
 import type { ModelInputs } from "@/engine/inputs";
 import type { LeagueModelBuild } from "@/engine/league";
@@ -782,6 +783,19 @@ describe("contextStillValid and contextKey", () => {
     expect(contextStillValid(weekBefore - 3600_000, weekBefore + 60_000, quiet, snapshot)).toBe(false);
     expect(contextStillValid(weekBefore + 60_000, ms(DEADLINE) - 60_000, quiet, snapshot)).toBe(true);
     expect(contextStillValid(ms(DEADLINE) - 60_000, ms(DEADLINE) + 60_000, quiet, snapshot)).toBe(false);
+  });
+
+  it("and when fewer than config.explain.nowOrLaterWeeks weeks are left for \"Now or after this week\" (the review of wave D, D-ENG-9)", () => {
+    const quiet = { nfl: { byeWeek: {}, kickoffs: {} } };
+    // The deadline's date: whole days left ÷ 7 (acceptance.ts weeksToDeadline), so the mark is 14 whole days before it.
+    const mark = ms(DEADLINE) - config.explain.nowOrLaterWeeks * 7 * 24 * 3600 * 1000;
+    expect(contextStillValid(mark - 3 * 3600_000, mark - 60_000, quiet, snapshot)).toBe(true);
+    // Parker's case (the review): built Monday night, 2.1 weeks before; still in use Thursday night, 1.7 weeks before.
+    expect(contextStillValid(mark - 41 * 3600_000, mark + 32 * 3600_000, quiet, snapshot)).toBe(false);
+    expect(contextStillValid(mark + 60_000, mark + 3 * 3600_000, quiet, snapshot)).toBe(true);
+    // Without a deadline: no reading to cross.
+    const none = { ...snapshot, settings: { ...snapshot.settings, tradeDeadline: null } } as typeof snapshot;
+    expect(contextStillValid(mark - 41 * 3600_000, mark + 32 * 3600_000, quiet, none)).toBe(true);
   });
 
   it("keys on the league, its data, the inputs, my team and only the settings the context reads", () => {

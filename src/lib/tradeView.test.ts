@@ -23,12 +23,22 @@ import { TEST_NOW } from "@/engine/testLeague";
 import { explainTrade } from "@/engine/explain";
 import { randomLeague } from "@/engine/testLeague";
 import { FIXTURE_B3, planBFixture } from "@/engine/tradeTestFixtures";
-import type { InjuryTag, PartnerNumbers, TradeEvaluation, TradeStep } from "@/engine/tradeModel";
+import type { InjuryTag, OfferLadder, PartnerNumbers, TradeEvaluation } from "@/engine/tradeModel";
 import { MODEL_SOURCES } from "@/server/modelInputs";
-import { GLOOP_PREMIUM, SNOOT_PREMIUM, evaluation, searchResult, step, steppedFull, steppedOffer, tradeSnapshot } from "@/components/trades/testFixtures";
+import { GLOOP_PREMIUM, SNOOT_PREMIUM, evaluation, searchResult, steppedFull, tradeSnapshot } from "@/components/trades/testFixtures";
 import { applyFeedback, parseFeedbackShown } from "./feedbackStore";
 import {
   ANALYZER_MAX_PER_SIDE,
+  ANALYZER_SUGGESTED_LABEL,
+  OFFERS_HEADING,
+  OFFERS_INTRO_TEXT,
+  OFFERS_NONE_TEXT,
+  OFFER_STEP_LABEL,
+  buildLadderView,
+  cardVersions,
+  moveLinesOf,
+  offersAloneText,
+  offersView,
   cardPress,
   HARDER_TO_GET_TAG,
   HELPS_BOTH_EMPTY_TITLE,
@@ -836,60 +846,152 @@ describe("'Harder to get' on the players I'd get (planner addendum to Checkpoint
   });
 });
 
-describe("'How to offer it' (planner addendum to Checkpoint 3, §4: offer first, then what to add if they say no)", () => {
-  it("offers the trade without my throw-in first when the ranked trade includes him, then adds him back", () => {
-    const c = buildTradeCard(steppedFull(), { snapshot });
-    expect(c.give.map((a) => a.name)).toEqual(["Wiggleton Spoons", "Tobias Thimble"]);
-    expect(c.steps).toEqual({
-      heading: "How to offer it",
-      items: [
-        { lead: "Offer first:", what: "Wiggleton Spoons for Cornelius Snoot", est: "Est. 35%", through: null, acceptSr: "an estimated 35% chance they accept", text: "Offer first: Wiggleton Spoons for Cornelius Snoot · Est. 35%" },
-        { lead: "If they say no, add", what: "Tobias Thimble", est: "Est. 55%", through: null, acceptSr: "an estimated 55% chance they accept", text: "If they say no, add Tobias Thimble · Est. 55%" },
-      ],
+describe("“How to offer it”: offers in order (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1)", () => {
+  // The card gives Wiggleton Spoons (106) to Gravel Gophers for Cornelius Snoot (204), 30%. Its ladder: open with Spoons for
+  // Mortimer Gloop and Snoot (better for me, 15%), then Spoons for Ignatius Fumblewick (20%), then the card, then the card
+  // with my Tobias Thimble added (40%), whose numbers assume Gravel Gophers drops Percival Plunk.
+  const base = evaluation({ b: 3, pAccept: 0.3, pComplete: 0.3 });
+  const open = evaluation({ get: ["202", "204"], b: 4.2, pAccept: 0.15, pComplete: 0.15 });
+  const then = evaluation({ get: ["203"], b: 3.6, pAccept: 0.2, pComplete: 0.2 });
+  const last = evaluation({ give: ["106", "108"], b: 2.7, pAccept: 0.4, pComplete: 0.4, required: { me: { drops: [], adds: [] }, partner: { drops: ["205"], adds: [] } } });
+  const OPEN_MESSAGE = "Hey! Would you trade Mortimer Gloop and Cornelius Snoot for Wiggleton Spoons?";
+  const ladderOf = (steps: OfferLadder["steps"]): OfferLadder => ({ cardKey: base.key, steps, ms: 420 });
+  const full = ladderOf([
+    { kind: "open", evaluation: open, message: OPEN_MESSAGE },
+    { kind: "then", evaluation: then, message: "Thanks for considering it! Would you trade Ignatius Fumblewick for Wiggleton Spoons instead? Let me know what you think!" },
+    { kind: "suggested", evaluation: base, message: "Thanks for considering it! Would you trade Cornelius Snoot for Wiggleton Spoons instead? Let me know what you think!" },
+    { kind: "last", evaluation: last, message: "Thanks for considering it! Would you trade Cornelius Snoot for Wiggleton Spoons and Tobias Thimble instead? Let me know what you think!" },
+  ]);
+  const cardOf = (e: TradeEvaluation = base, ctx: Partial<Parameters<typeof buildTradeCard>[1]> = {}) => buildTradeCard(e, { snapshot, goal: "title", ...ctx });
+  const SCALE = { b3: FIXTURE_B3, helpsReason: null };
+  const inputsOf = (x: TradeEvaluation) => ({ features: { ...x.features }, gPartner: x.gPartner, b: x.b, goal: "title", ...SCALE });
+
+  it("puts “How to offer it” on every card that helps me; never on one that doesn't, one not scored, one the market guard hides, or a Plan B opened in the Analyzer", () => {
+    expect(cardOf().offers).toEqual({ heading: OFFERS_HEADING, suggested: "The suggested trade" });
+    expect(OFFERS_HEADING).toBe("How to offer it");
+    expect(cardOf(base, { offers: "analyzer" }).offers).toEqual({ heading: "How to offer it", suggested: ANALYZER_SUGGESTED_LABEL });
+    expect(cardOf(base, { offers: "none" }).offers).toBeNull();
+    // Phase 4's rule for its steps, kept (⚠️ ours): a trade the Trade Finder couldn't show has no offers to work out.
+    expect(cardOf(evaluation({ b: -1 })).offers).toBeNull();
+    expect(cardOf(evaluation({ b: null })).offers).toBeNull();
+    expect(cardOf(evaluation({ gMine: -0.5 })).offers).toBeNull();
+    // An older evaluation's steps aren't read any more: the card offers the ladder instead, its one version its own.
+    expect(cardOf(steppedFull()).offers).not.toBeNull();
+    expect(cardOf(steppedFull()).versions.map((v) => v.version)).toEqual(["suggested"]);
+    // The Analyzer's card: the trade built, unless it was opened from a card's Plan B (one offer).
+    expect(buildAnalysisView({ evaluation: base, illegal: null, notes: [] }, snapshot).card?.offers?.suggested).toBe("The trade you built");
+    expect(buildAnalysisView({ evaluation: base, illegal: null, notes: [] }, snapshot, undefined, { from: "planB" }).card?.offers).toBeNull();
+    expect(offersView(base)).toEqual({ heading: "How to offer it", suggested: "The suggested trade" });
+  });
+
+  it("words each offer in order: its label and players, Helps you and the chance they accept as the card prints them, and its own message", () => {
+    const view = buildLadderView(full, cardOf(), { snapshot, goal: "title" });
+    expect(view.cardKey).toBe(base.key);
+    expect(view.alone).toBe(false);
+    expect(view.intro).toBe(OFFERS_INTRO_TEXT);
+    expect(OFFERS_INTRO_TEXT).toBe("Offer them in order: if they say no, try the next.");
+    expect(view.steps.map((s) => s.text)).toEqual([
+      "Open with: Wiggleton Spoons for Mortimer Gloop and Cornelius Snoot · Helps you 50 · Chance they accept 15% (Est. · Possible)",
+      "Then: Wiggleton Spoons for Ignatius Fumblewick · Helps you 45 · Chance they accept 20% (Est. · Possible)",
+      "The suggested trade: Wiggleton Spoons for Cornelius Snoot · Helps you 39 · Chance they accept 30% (Est. · Possible)",
+      "Last offer: Wiggleton Spoons and Tobias Thimble for Cornelius Snoot · Helps you 36 · Chance they accept 40% (Est. · Decent)",
+    ]);
+    expect(view.steps[0]).toEqual({
+      kind: "open",
+      label: "Open with",
+      trade: "Wiggleton Spoons for Mortimer Gloop and Cornelius Snoot",
+      numberParts: [{ text: "Helps you 50" }, { text: "Chance they accept 15%", label: "(Est. · Possible)" }],
+      acceptNote: null,
+      moves: [],
+      message: OPEN_MESSAGE,
+      key: open.key,
+      text: "Open with: Wiggleton Spoons for Mortimer Gloop and Cornelius Snoot · Helps you 50 · Chance they accept 15% (Est. · Possible)",
     });
-    // The card's numbers stay the ranked (full) trade's.
-    expect(c.numbers.accept.value).toBe("55%");
+    expect(OFFER_STEP_LABEL).toEqual({ open: "Open with", then: "Then", suggested: "The suggested trade", last: "Last offer" });
+    // The Analyzer's names the trade built.
+    expect(buildLadderView(full, cardOf(base, { offers: "analyzer" }), { snapshot }).steps[2]?.label).toBe("The trade you built");
   });
 
-  it("offers the ranked trade first when it has no throw-in, then the one that raises the chance they accept", () => {
-    const c = buildTradeCard(steppedOffer(), { snapshot });
-    expect(c.steps?.items.map((s) => s.text)).toEqual(["Offer first: Wiggleton Spoons for Cornelius Snoot · Est. 35%", "If they say no, add Tobias Thimble · Est. 55%"]);
-    expect(c.numbers.accept.value).toBe("35%");
+  it("lists an offer's roster moves only when they aren't the card's, in the card's own words", () => {
+    const view = buildLadderView(full, cardOf(), { snapshot });
+    expect(view.steps.map((s) => s.moves)).toEqual([[], [], [], ["Gravel Gophers would drop Percival Plunk (WR, LAR) to stay within their roster limits."]]);
+    // Moves the card assumes too aren't repeated: here every offer's are the card's.
+    const moving = { required: { me: { drops: ["105"], adds: [] }, partner: { drops: [], adds: [] } } };
+    const same = ladderOf([
+      { kind: "open", evaluation: { ...open, ...moving }, message: OPEN_MESSAGE },
+      { kind: "suggested", evaluation: { ...base, ...moving }, message: "" },
+    ]);
+    const c = cardOf({ ...base, ...moving });
+    expect(c.required).toEqual(["You'd drop Glimmer Oddfellow (WR, SEA) to stay within your roster limits."]);
+    expect(buildLadderView(same, c, { snapshot }).steps.map((s) => s.moves)).toEqual([[], []]);
+    // moveLinesOf is the card's own list.
+    expect(moveLinesOf({ ...base, ...moving }, snapshot, "Gravel Gophers")).toEqual(c.required);
   });
 
-  it("adds the chance it goes through when the league's review could veto a version, as the card does for its own", () => {
-    const e = steppedOffer();
-    const vetoed = { ...e, steps: e.steps && { ...e.steps, offerFirst: step({ give: ["106"], get: ["204"], pAccept: 0.4, pComplete: 0.2, vetoRisk: true }) } };
-    const first = buildTradeCard(vetoed, { snapshot: tradeSnapshot({ tradeReview: "league_vote" }) }).steps?.items[0];
-    expect(first).toMatchObject({ est: "Est. 40%", through: "about 20% it goes through", acceptSr: "an estimated 40% chance they accept, about 20% that it goes through" });
-    expect(first?.text).toBe("Offer first: Wiggleton Spoons for Cornelius Snoot · Est. 40%, about 20% it goes through");
-    // Vetoed, but both print the same above the display's floor: nothing more to say (the card's own note says a veto
-    // vote could stop the trade).
-    const same = { ...e, steps: e.steps && { ...e.steps, offerFirst: step({ give: ["106"], get: ["204"], pAccept: 0.11, pComplete: 0.09, vetoRisk: true }) } };
-    expect(buildTradeCard(same, { snapshot: tradeSnapshot({ tradeReview: "league_vote" }) }).steps?.items[0]).toMatchObject({ est: "Est. 10%", through: null, text: "Offer first: Wiggleton Spoons for Cornelius Snoot · Est. 10%" });
-    // Both print as the floor while the veto cut it below: "under 5%" (review of Phase 4b: "5% … about 5%" said nothing,
-    // and "5%" alone hid the cut the reasons talk about).
-    const floor = { ...e, steps: e.steps && { ...e.steps, offerFirst: step({ give: ["106"], get: ["204"], pAccept: 0.05, pComplete: 0.025, vetoRisk: true }) } };
-    expect(buildTradeCard(floor, { snapshot: tradeSnapshot({ tradeReview: "league_vote" }) }).steps?.items[0]).toMatchObject({
-      est: "Est. 5%",
-      through: "under 5% it goes through",
-      acceptSr: "an estimated 5% chance they accept, under 5% that it goes through",
-      text: "Offer first: Wiggleton Spoons for Cornelius Snoot · Est. 5%, under 5% it goes through",
-    });
+  it("tags a hurt player in an offer, and says when the league's review could cut the chance it goes through, as the card does", () => {
+    const hurt = evaluation({ get: ["206"], b: 3.6, pAccept: 0.4, pComplete: 0.2, detail: { vetoRisk: true } });
+    const view = buildLadderView(ladderOf([{ kind: "open", evaluation: hurt, message: "x" }, { kind: "suggested", evaluation: base, message: "y" }]), cardOf(), { snapshot: tradeSnapshot({ tradeReview: "league_vote" }) });
+    expect(view.steps[0]?.trade).toBe("Wiggleton Spoons for Rupert Wimbleton (Doubtful)");
+    expect(view.steps[0]?.acceptNote).toBe("Counting a league veto vote, about 20% it goes through.");
+    expect(view.steps[0]?.text).toBe("Open with: Wiggleton Spoons for Rupert Wimbleton (Doubtful) · Helps you 45 · Chance they accept 40% (Est. · Decent) · Counting a league veto vote, about 20% it goes through.");
   });
 
-  it("has no steps when the engine sets none, and names what it can't find plainly", () => {
-    expect(card().steps).toBeNull();
-    const e = steppedOffer();
-    const gone = { ...e, steps: e.steps && { ...e.steps, ifNo: { ...e.steps.ifNo, add: "999" } } };
-    expect(buildTradeCard(gone, { snapshot }).steps?.items[1]?.what).toBe("A player who's no longer in this league's data");
+  it("says to offer the trade as it is when the ladder holds the suggested trade alone (the lead's words)", () => {
+    const view = buildLadderView(ladderOf([{ kind: "suggested", evaluation: base, message: "x" }]), cardOf(), { snapshot });
+    expect(view.alone).toBe(true);
+    expect(view.intro).toBe("Offer this trade as it is: no version of it with Gravel Gophers makes a better first offer.");
+    expect(offersAloneText("Team 8")).toBe("Offer this trade as it is: no version of it with Team 8 makes a better first offer.");
+    // An empty answer (the engine couldn't evaluate the trade) isn't "as it is" (the review of wave D, UI-D-8): it says so.
+    const none = buildLadderView(ladderOf([]), cardOf(), { snapshot });
+    expect([none.alone, none.none, none.steps, none.intro, none.versions]).toEqual([false, true, [], OFFERS_NONE_TEXT, []]);
+    expect(OFFERS_NONE_TEXT).toBe("This trade can't be worked out with the league as it stands now.");
+    expect(view.opensElsewhere).toBe(false);
+  });
+
+  it("gives each offer as a version the feedback can record, in order, the card's own trade among them, then Plan B (Checkpoint 7e: “Feedback records which step was sent”)", () => {
+    const planB = planBFixture({ partnerId: "2", give: ["105"], get: ["203"] });
+    const c = cardOf(evaluation({ b: 3, pAccept: 0.3, pComplete: 0.3, planB }));
+    expect(c.versions.map((v) => [v.version, v.label])).toEqual([
+      ["suggested", "The suggested trade"],
+      ["planB", "If they won't move: Glimmer Oddfellow for Ignatius Fumblewick"],
+    ]);
+    const view = buildLadderView(full, c, { snapshot, goal: "title" });
+    expect(view.versions).toEqual([
+      { version: "open", key: open.key, pAccept: 0.15, pComplete: 0.15, inputs: inputsOf(open), label: "Open with: Wiggleton Spoons for Mortimer Gloop and Cornelius Snoot" },
+      { version: "then", key: then.key, pAccept: 0.2, pComplete: 0.2, inputs: inputsOf(then), label: "Then: Wiggleton Spoons for Ignatius Fumblewick" },
+      { ...c.versions[0], label: "The suggested trade" },
+      { version: "last", key: last.key, pAccept: 0.4, pComplete: 0.4, inputs: inputsOf(last), label: "Last offer: Wiggleton Spoons and Tobias Thimble for Cornelius Snoot" },
+    ]);
+    // With Plan B's after them once the offers are in (cardVersions); the card's own two until then.
+    expect(cardVersions(c, view).map((v) => v.version)).toEqual(["open", "then", "suggested", "last", "planB"]);
+    expect(cardVersions(c, null)).toBe(c.versions);
+    // An offer's own scale (its evaluation's B₃) goes with its inputs.
+    const scaled = buildLadderView(ladderOf([{ kind: "open", evaluation: { ...open, b3: 4.4 }, message: "x" }, { kind: "suggested", evaluation: base, message: "y" }]), c, { snapshot, goal: "title" });
+    expect(scaled.versions[0]?.inputs).toMatchObject({ b3: 4.4, goal: "title" });
+  });
+
+  it("names a recorded offer by its place and players when the card doesn't show it right now (⚠️ ours: never “an earlier one”)", () => {
+    const c = cardOf();
+    const view = buildLadderView(full, c, { snapshot });
+    const fb = (version: "open" | "then" | "last" | "suggested" | "planB", versionKey: string, versionWords: string | null) => ({ outcome: "sent" as const, version, versionKey, versionWords });
+    // Open: its label, with the offers shown.
+    expect(versionLine(fb("open", open.key, null), cardVersions(c, view))).toBe("Open with: Wiggleton Spoons for Mortimer Gloop and Cornelius Snoot");
+    expect(versionLine(fb("suggested", base.key, null), cardVersions(c, view))).toBe("The suggested trade");
+    // Closed (a reload): by its place and the players its key names.
+    expect(versionLine(fb("open", open.key, "Wiggleton Spoons for Mortimer Gloop and Cornelius Snoot"), c.versions)).toBe("Open with: Wiggleton Spoons for Mortimer Gloop and Cornelius Snoot");
+    expect(versionLine(fb("last", last.key, "Wiggleton Spoons and Tobias Thimble for Cornelius Snoot"), c.versions)).toBe("Last offer: Wiggleton Spoons and Tobias Thimble for Cornelius Snoot");
+    expect(versionLine(fb("then", then.key, null), c.versions)).toBe("an earlier one");
+    // The card's own trade on a plain card goes without saying.
+    expect(versionLine(fb("suggested", base.key, null), c.versions)).toBeNull();
+  });
+
+  it("names what it can't find plainly, and uses no jargon", () => {
     expect(tradeWords({ give: [], get: [{ kind: "player", id: "204" }] }, snapshot)).toBe("nothing for Cornelius Snoot");
     expect(tradeWords({ give: [{ kind: "player", id: "104" }, { kind: "player", id: "105" }], get: [{ kind: "player", id: "203" }] }, snapshot)).toBe("Noodle McSprocket and Glimmer Oddfellow for Ignatius Fumblewick");
-  });
-
-  it("uses no jargon in the steps", () => {
-    const words = JSON.stringify(buildTradeCard(steppedFull(), { snapshot }).steps);
-    for (const jargon of ["EV", "σ", "V*", "g_mkt", "throw-in", "NaN", "undefined"]) expect(words).not.toContain(jargon);
+    const gone = buildLadderView(ladderOf([{ kind: "open", evaluation: evaluation({ get: ["999"] }), message: "x" }, { kind: "suggested", evaluation: base, message: "y" }]), cardOf(), { snapshot });
+    expect(gone.steps[0]?.trade).toBe("Wiggleton Spoons for A player who's no longer in this league's data");
+    const words = JSON.stringify(buildLadderView(full, cardOf(), { snapshot }));
+    for (const jargon of ["EV", "σ", "V*", "g_mkt", "throw-in", "NaN", "undefined", "ladder"]) expect(words).not.toContain(jargon);
   });
 });
 
@@ -1078,7 +1180,7 @@ describe("links between the pages (a team id and player ids only)", () => {
     expect(ANALYZER_MAX_PER_SIDE).toBe(config.search.analyzerMaxPerSide);
   });
 
-  it("marks a trade opened from 'If they say no, try:' in the Analyzer's address, and reads the mark back (review of Phase 4b)", () => {
+  it("marks a trade opened from 'If they won't move: try …' in the Analyzer's address, and reads the mark back (review of Phase 4b)", () => {
     const e = evaluation({ give: ["104", "105"], get: ["203"] });
     const href = analyzerHref(e.proposal, { from: "planB" });
     expect(href).toBe("/analyzer?partner=2&give=104&give=105&get=203&from=planB");
@@ -1360,7 +1462,7 @@ describe("injury tags on the card (planner reply to Checkpoint 4, change 6)", ()
   });
 });
 
-describe("Plan B on the card: \"If they say no, try:\" (planner reply to Checkpoint 4, change 6)", () => {
+describe("Plan B on the card: \"If they won't move: try …\" (planner reply to Checkpoint 4, change 6; its heading since Checkpoint 7e)", () => {
   const planB = { proposal: { partnerId: "2", give: [{ kind: "player" as const, id: "106" }, { kind: "player" as const, id: "108" }], get: [{ kind: "player" as const, id: "202" }] }, key: "2|give:106,108|get:202", b: 3.5, tradeScore: 44, pAccept: 0.42, pComplete: 0.42, acceptLabel: "Decent", overall: 22, kind: "otherTarget" as const };
 
   it("words the other trade, its kind, its three numbers as the card prints its own, and links it to the Analyzer", () => {
@@ -1386,7 +1488,8 @@ describe("Plan B on the card: \"If they say no, try:\" (planner reply to Checkpo
       key: planB.key,
       text: "Wiggleton Spoons and Tobias Thimble for Mortimer Gloop · Helps you 44 · Chance they accept 40% (Est. · Decent) · Overall 22",
     });
-    expect(PLAN_B_HEADING).toBe("If they say no, try:");
+    // The planner's words (planner reply to Checkpoint 7d, item 4.1: "Plan B stays below the list: “If they won't move: try …”").
+    expect(PLAN_B_HEADING).toBe("If they won't move: try …");
     expect(planBView({ ...planB, kind: "samePlayers" }, snapshot)?.kindText).toBe("The same players of theirs, a different package");
     // Review of track F: "Different players of theirs" read wrong for a Plan B that keeps one of the card's players.
     expect(planBView(planB, snapshot)?.kindText).not.toContain("Different players");
@@ -1504,51 +1607,48 @@ describe("feedback versions (which version was sent; planner reply to Checkpoint
     ...SCALE,
   });
 
-  it("a plain card: this trade alone, as the full version, with its model inputs", () => {
+  it("a plain card: its own trade alone, as the suggested trade (Checkpoint 7e; “full” before), with its model inputs", () => {
     const e = evaluation();
-    expect(versionChoices(e, snapshot)).toEqual([{ version: "full", key: e.key, pAccept: 0.4, pComplete: 0.4, inputs: inputsOf(e), label: "This trade" }]);
-    // With the goal the numbers were weighted by.
+    expect(versionChoices(e, snapshot)).toEqual([{ version: "suggested", key: e.key, pAccept: 0.4, pComplete: 0.4, inputs: inputsOf(e), label: "The suggested trade" }]);
+    // With the goal the numbers were weighted by; in the Analyzer, named as the trade built.
     expect(versionChoices(e, snapshot, "title")[0]?.inputs).toEqual(inputsOf(e, "title"));
+    expect(buildTradeCard(e, { snapshot, offers: "analyzer" }).versions[0]?.label).toBe("The trade you built");
+    expect(buildAnalysisView({ evaluation: e, illegal: null, notes: [] }, snapshot).card?.versions[0]?.label).toBe("The trade you built");
   });
 
-  it("with steps: the first offer, then the full version with the throw-in added; the card's own inputs for the card's trade, the step's for the other", () => {
+  it("an older evaluation's steps (which the search no longer makes) aren't versions: the card's own trade is", () => {
     const e = steppedFull();
-    const offer = e.steps?.offerFirst as TradeStep;
-    const withFeatures = { ...e, steps: e.steps && { ...e.steps, offerFirst: { ...offer, features: { ...e.features, g: 0.07, z: -0.4 } } } };
-    expect(versionChoices(withFeatures, snapshot, "prizes")).toEqual([
-      { version: "offerFirst", key: offer.key, pAccept: 0.35, pComplete: 0.35, inputs: { features: { ...e.features, g: 0.07, z: -0.4 }, gPartner: offer.gPartner, b: offer.b, goal: "prizes", ...SCALE }, label: "The first offer" },
-      // The full version is the card's trade (TradeSteps.ranked "full"): its final numbers.
-      { version: "full", key: e.steps?.ifNo.full.key, pAccept: 0.55, pComplete: 0.55, inputs: inputsOf(e, "prizes"), label: "With Tobias Thimble added" },
-    ]);
-    // A step without features (older engines): none, the rest kept.
-    expect(versionChoices(e, snapshot)[0]?.inputs).toEqual({ features: null, gPartner: offer.gPartner, b: offer.b, goal: null, ...SCALE });
+    expect(versionChoices(e, snapshot, "prizes")).toEqual([{ version: "suggested", key: e.key, pAccept: 0.55, pComplete: 0.55, inputs: inputsOf(e, "prizes"), label: "The suggested trade" }]);
   });
 
-  it("with a Plan B: this trade, then the one to try if they say no, each with its inputs", () => {
+  it("with a Plan B: this trade, then “If they won't move” named by its players, each with its inputs", () => {
     const planB = { proposal: { partnerId: "2", give: [{ kind: "player" as const, id: "106" }], get: [{ kind: "player" as const, id: "203" }] }, key: "2|give:106|get:203", b: 2, tradeScore: 28, pAccept: 0.5, pComplete: 0.45, acceptLabel: "Decent", overall: 14, kind: "otherTarget" as const };
     const e = evaluation({ planB: { ...planB, features: { g: 0.1, n: 0.2, h: 0, c: 0, a: 1, hist: null, ctx: 0, hot: 0, urg: 0, z: 0.1 }, gPartner: 0.08 } });
     expect(versionChoices(e, snapshot, "title")).toEqual([
-      { version: "full", key: e.key, pAccept: 0.4, pComplete: 0.4, inputs: inputsOf(e, "title"), label: "This trade" },
-      { version: "planB", key: "2|give:106|get:203", pAccept: 0.5, pComplete: 0.45, inputs: { features: { g: 0.1, n: 0.2, h: 0, c: 0, a: 1, hist: null, ctx: 0, hot: 0, urg: 0, z: 0.1 }, gPartner: 0.08, b: 2, goal: "title", ...SCALE }, label: "The “If they say no” trade" },
+      { version: "suggested", key: e.key, pAccept: 0.4, pComplete: 0.4, inputs: inputsOf(e, "title"), label: "The suggested trade" },
+      { version: "planB", key: "2|give:106|get:203", pAccept: 0.5, pComplete: 0.45, inputs: { features: { g: 0.1, n: 0.2, h: 0, c: 0, a: 1, hist: null, ctx: 0, hot: 0, urg: 0, z: 0.1 }, gPartner: 0.08, b: 2, goal: "title", ...SCALE }, label: "If they won't move: Wiggleton Spoons for Ignatius Fumblewick" },
     ]);
     expect(buildTradeCard(e, { snapshot }).versions).toHaveLength(2);
     // A Plan B without its features (an older engine): none.
     expect(versionChoices(evaluation({ planB }), snapshot)[1]?.inputs).toEqual({ features: null, gPartner: null, b: 2, goal: null, ...SCALE });
   });
 
-  it("names the recorded version by its key: the card's label when it shows that version, else 'an earlier one' with its players (review of Phase 4b)", () => {
+  it("names the recorded version by its key: the card's label when it shows that version, else 'an earlier one' with its players (review of Phase 4b); an older card's kinds still read", () => {
     const planB = { proposal: { partnerId: "2", give: [{ kind: "player" as const, id: "106" }], get: [{ kind: "player" as const, id: "203" }] }, key: "2|give:106|get:203", b: 2, tradeScore: 28, pAccept: 0.5, pComplete: 0.45, acceptLabel: "Decent", overall: 14, kind: "otherTarget" as const };
     const versions = buildTradeCard(evaluation({ planB }), { snapshot }).versions;
-    const fb = (version: "planB" | "full" | "offerFirst" | null, versionKey: string | null, versionWords: string | null = null, outcome: "sent" | null = "sent") => ({ outcome, version, versionKey, versionWords });
-    expect(versionLine(fb("planB", planB.key), versions)).toBe("The “If they say no” trade");
+    const fb = (version: "planB" | "suggested" | "full" | "offerFirst" | null, versionKey: string | null, versionWords: string | null = null, outcome: "sent" | null = "sent") => ({ outcome, version, versionKey, versionWords });
+    expect(versionLine(fb("planB", planB.key), versions)).toBe("If they won't move: Wiggleton Spoons for Ignatius Fumblewick");
     // A refresh changed the Plan B since: the one sent is named, never the box shown now.
     expect(versionLine(fb("planB", "2|give:106|get:204", "Wiggleton Spoons for Cornelius Snoot"), versions)).toBe("an earlier one (Wiggleton Spoons for Cornelius Snoot)");
     expect(versionLine(fb("planB", "2|give:106|get:204"), versions)).toBe("an earlier one");
     // A record made before keys were saved: by its kind, on a card with two.
-    expect(versionLine(fb("planB", null), versions)).toBe("The “If they say no” trade");
+    expect(versionLine(fb("planB", null), versions)).toBe("If they won't move: Wiggleton Spoons for Ignatius Fumblewick");
+    // An older card's "full" for the card's own trade: found by its key.
+    expect(versionLine(fb("full", evaluation().key), versions)).toBe("The suggested trade");
+    expect(versionLine(fb("offerFirst", "2|give:106|get:205", "Wiggleton Spoons for Percival Plunk"), versions)).toBe("an earlier one (Wiggleton Spoons for Percival Plunk)");
     // A card with one version (the Analyzer's): nothing when it's that one, the earlier one otherwise.
     const one = versionChoices(evaluation(), snapshot);
-    expect(versionLine(fb("full", evaluation().key), one)).toBeNull();
+    expect(versionLine(fb("suggested", evaluation().key), one)).toBeNull();
     expect(versionLine(fb("full", null), one)).toBeNull();
     expect(versionLine(fb("planB", planB.key, "Wiggleton Spoons for Ignatius Fumblewick"), one)).toBe("an earlier one (Wiggleton Spoons for Ignatius Fumblewick)");
     // Nothing without an outcome or a version.
@@ -1858,56 +1958,43 @@ describe("the Helps you scale in the feedback's version inputs (Phase 7a, track 
     expect(helpsReasonOf([])).toBeNull();
   });
 
-  it("every version of a card carries the card's B₃ and its scale's reason (steps and Plan B are scored on the card's B₃)", () => {
+  it("every version of a card carries the card's B₃ and its scale's reason (its own trade and Plan B are scored on the card's B₃)", () => {
     const planB = { proposal: { partnerId: "2", give: [{ kind: "player" as const, id: "106" }], get: [{ kind: "player" as const, id: "203" }] }, key: "2|give:106|get:203", b: 2, tradeScore: 98, pAccept: 0.5, pComplete: 0.45, acceptLabel: "Decent", overall: 86, kind: "otherTarget" as const };
     const floored = evaluation({ b3: 0.5, planB, detail: { notes: [HELPS_FLOOR_NOTE] } });
     expect(versionChoices(floored, snapshot, "title").map((v) => [v.version, v.inputs?.b3, v.inputs?.helpsReason])).toEqual([
-      ["full", 0.5, "odds"],
+      ["suggested", 0.5, "odds"],
       ["planB", 0.5, "odds"],
     ]);
+    // An older evaluation's steps aren't read: the card's own trade, on its scale.
     const stepped = steppedFull({ detail: { notes: helpsScaleNotes({ reason: "odds", oddsNamed: "playoff" }) } });
-    expect(versionChoices(stepped, snapshot).map((v) => [v.version, v.inputs?.b3, v.inputs?.helpsReason])).toEqual([
-      ["offerFirst", FIXTURE_B3, "odds"],
-      ["full", FIXTURE_B3, "odds"],
-    ]);
+    expect(versionChoices(stepped, snapshot).map((v) => [v.version, v.inputs?.b3, v.inputs?.helpsReason])).toEqual([["suggested", FIXTURE_B3, "odds"]]);
     // An evaluation without B₃ (made before Phase 7a): unknown.
     expect(versionChoices({ ...evaluation(), b3: null }, snapshot)[0]?.inputs).toMatchObject({ b3: null, helpsReason: null });
   });
 
-  it("Checkpoint 7e: a step's version carries its own B₃ and reason (TradeStep.b3: the ranking block's), the card's trade and its Plan B the card's (the review's SHOWN-4)", () => {
-    // The card prints on the shown block's B₃ (3.7), a step's B on the ranking block's (3.5), whose scale is floored here.
-    const card = steppedFull({ b3: 3.7, detail: { notes: [] } });
-    const steps = card.steps as NonNullable<TradeEvaluation["steps"]>;
-    const offerFirst: TradeStep = { ...steps.offerFirst, b3: 3.5, detail: { ...steps.offerFirst.detail, notes: [HELPS_FLOOR_NOTE] } };
-    expect(versionChoices({ ...card, steps: { ...steps, offerFirst } }, snapshot, "title").map((v) => [v.version, v.inputs?.b, v.inputs?.b3, v.inputs?.helpsReason])).toEqual([
-      ["offerFirst", offerFirst.b, 3.5, "odds"],
-      ["full", card.b, 3.7, null],
-    ]);
-    // Case 2 (the card is the first offer): the full version with the throw-in is a step, with its own scale.
-    const offer = steppedOffer({ b3: 3.7, detail: { notes: [] } });
-    const offerSteps = offer.steps as NonNullable<TradeEvaluation["steps"]>;
-    const full: TradeStep = { ...offerSteps.ifNo.full, b3: 3.5 };
-    expect(versionChoices({ ...offer, steps: { ...offerSteps, ifNo: { ...offerSteps.ifNo, full } } }, snapshot).map((v) => [v.version, v.inputs?.b3])).toEqual([
-      ["offerFirst", 3.7],
-      ["full", 3.5],
+  it("Checkpoint 7e (item 4.1): an offer of “How to offer it” carries its own B₃ and reason, the card's own trade and its Plan B the card's", () => {
+    // The card prints on its B₃ (3.7); an offer's own evaluation says its own (3.5, floored here: the floor's note).
+    const base = evaluation({ b3: 3.7, detail: { notes: [] } });
+    const opening = evaluation({ get: ["202"], b3: 3.5, b: 4, pAccept: 0.15, pComplete: 0.15, detail: { notes: [HELPS_FLOOR_NOTE] } });
+    const c = buildTradeCard(base, { snapshot, goal: "title" });
+    const view = buildLadderView({ cardKey: base.key, steps: [{ kind: "open", evaluation: opening, message: "x" }, { kind: "suggested", evaluation: base, message: "y" }] }, c, { snapshot, goal: "title" });
+    expect(view.versions.map((v) => [v.version, v.inputs?.b, v.inputs?.b3, v.inputs?.helpsReason])).toEqual([
+      ["open", 4, 3.5, "odds"],
+      ["suggested", base.b, 3.7, null],
     ]);
   });
 
-  it("Checkpoint 7e, on the engine's own search: a step's B₃ is the ranking block's, its card's the shown block's, and each version's inputs read its own (the review's SHOWN-4)", { timeout: 60_000 }, () => {
+  it("on the engine's own search: every card that helps me offers “How to offer it”, and its versions are its own trade and Plan B's until it's opened (Checkpoint 7e, item 4.1)", { timeout: 60_000 }, () => {
     const { snapshot: league, inputs } = smallLeague(23);
     const ctx = buildTradeContext(league, inputs, { now: TEST_NOW, scenarios: 8 });
     const r = runTradeSearch(ctx, { settings: { ...defaultTradeSettings(), minChance: 0.1 } });
-    const card = r.trades.find((t) => t.steps) as TradeEvaluation;
-    expect(card).toBeDefined(); // a fact of the synthetic data
-    const s = card.steps as NonNullable<TradeEvaluation["steps"]>;
-    const stepped = [s.offerFirst, s.ifNo.full].filter((x) => x.key !== card.key);
-    expect(stepped.length).toBe(1);
-    const step = stepped[0] as TradeStep;
-    expect(card.b3).toBe(r.helpsScale?.b3);
-    expect(typeof step.b3).toBe("number");
-    expect(step.b3).not.toBe(card.b3);
-    const inputs2 = versionChoices(card, league).find((v) => v.key === step.key)?.inputs;
-    expect([inputs2?.b, inputs2?.b3]).toEqual([step.b, step.b3]);
+    expect(r.trades.length).toBeGreaterThan(0); // a fact of the synthetic data
+    for (const e of r.trades) {
+      const c = buildTradeCard(e, { snapshot: league, goal: "title" });
+      expect(c.offers, e.key).toEqual({ heading: OFFERS_HEADING, suggested: OFFER_STEP_LABEL.suggested });
+      expect(c.versions.map((v) => v.version), e.key).toEqual(e.planB ? ["suggested", "planB"] : ["suggested"]);
+      expect(c.versions[0]?.inputs).toMatchObject({ b: e.b, b3: e.b3 });
+    }
   });
 
   it("on the engine's own evaluation: a floored scale (my odds barely move) reads 'odds' with the floor's B₃", { timeout: 60_000 }, () => {
@@ -2487,17 +2574,23 @@ describe("Checkpoint 7d: the partner's line on a Trade Finder card only when it 
     expect(fact(byKey("u") as ReturnType<typeof card>, "Their lineup")).toBeDefined();
   });
 
-  it("never on a Plan B box or a step, in either page", () => {
+  it("never on a Plan B box or an offer of “How to offer it”, in either page", () => {
     const planB = planBFixture({ partnerId: "2", give: ["105"], get: ["203"] });
     const withBox = withThem(evaluation({ key: "p", planB }), 30);
     const view = buildFinderView({ result: searchResult([withBox]), sort: "overall", snapshot, partnerId: null });
     const box = view.cards[0]?.planB;
     expect(box).not.toBeNull();
     expect(JSON.stringify(box)).not.toContain("Helps them");
-    const stepped = { ...steppedFull(), them: them(30) };
-    const steps = buildAnalysisView({ evaluation: stepped, illegal: null, notes: [] }, snapshot).card?.steps;
-    expect(steps).not.toBeNull();
-    expect(JSON.stringify(steps)).not.toContain("Helps them");
+    // An offer of "How to offer it" (Checkpoint 7e) carries the partner's numbers in its evaluation, and says none of them.
+    const analyzed = buildAnalysisView({ evaluation: { ...evaluation(), them: them(30) }, illegal: null, notes: [] }, snapshot).card;
+    if (!analyzed) throw new Error("the Analyzer shows the card");
+    const offered = buildLadderView(
+      { cardKey: analyzed.key, steps: [{ kind: "open", evaluation: { ...evaluation({ get: ["202"], b: 4 }), them: them(30) }, message: "x" }, { kind: "suggested", evaluation: analyzed.evaluation, message: "y" }] },
+      analyzed,
+      { snapshot },
+    );
+    expect(offered.steps).toHaveLength(2);
+    expect(JSON.stringify(offered)).not.toContain("Helps them");
   });
 });
 

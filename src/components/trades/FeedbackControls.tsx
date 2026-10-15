@@ -10,12 +10,18 @@
  * said once the browser has kept it ("Saved: Sent."), or, if it refused, in an alert on the card (the store puts the
  * card back).
  *
- * Which version was sent (planner reply to Checkpoint 4, change 6 and answer 8): a card can show two versions of the
- * trade (the first offer and the full one of "How to offer it"; the trade and its "If they say no, try:"). While none is
+ * Which version was sent (planner reply to Checkpoint 4, change 6 and answer 8): a card can show more than one version of
+ * the trade (since Checkpoint 7e the offers of "How to offer it" once it's opened, planner reply to Checkpoint 7d, item 4.1:
+ * "Feedback records which step was sent"; the trade and its "If they won't move: try …"). While none is
  * recorded, the first outcome pressed on such a card asks which one ("Which version did you send?", worded for the
- * outcome: "did they accept?" …), one 44 px button per version and Cancel; the choice is saved with the outcome
+ * outcome: "did they accept?" …), one 44 px button per version (two offers can share a place: each keyed by its trade) and
+ * Cancel; the choice is saved with the outcome
  * (feedbackStore.ts: the version, its key, its estimate and, since Phase 4c, its model inputs: VersionChoice.inputs,
- * planner reply to Checkpoint 4b, change 7). A plain card's one version is saved without asking. Once
+ * planner reply to Checkpoint 4b, change 7). A plain card's one version is saved without asking. ⚠️ A card whose "How to
+ * offer it" hasn't loaded yet (`loadVersions`; the review of wave D, UI-D-1: such a card saved "the suggested trade" without
+ * a word, or asked among its own trade and its Plan B only, though its offers said to open with another) has its offers
+ * worked out first ("Working out the offers…" in the status line), then the press goes on with them: asked among its offers
+ * and its Plan B, or saved when there's only the one (pressedOutcome). Once
  * recorded, later outcomes keep it, and a line under the buttons says which version it was (src/lib/tradeView.ts
  * versionLine: by its key, so after a refresh changed the card's Plan B or throw-in, or on the Analyzer's card for the
  * same trade, it reads "an earlier one" with that trade's players, never the version shown now); clearing the outcome
@@ -38,7 +44,7 @@ import Link from "next/link";
 import { useEffect, useId, useRef, useState, type Ref } from "react";
 import { shareNoteDue, SHARE_NOTE_LEAD, type FeedbackSaveResult } from "@/lib/feedbackShare";
 import { FEEDBACK_NOTE_MAX, FEEDBACK_OUTCOMES, FEEDBACK_REASONS, FEEDBACK_SAVE_FAILED, OUTCOME_LABEL, REASON_LABEL, type FeedbackChange, type FeedbackOutcome, type FeedbackReason, type FeedbackSent } from "@/lib/feedbackStore";
-import { versionLine, type CardFeedback, type VersionChoice } from "@/lib/tradeView";
+import { OFFERS_LOADING_TEXT, versionLine, type CardFeedback, type VersionChoice } from "@/lib/tradeView";
 import { revealResult } from "../reveal";
 import { Callout, FOCUS_TARGET, buttonClass, cx, inputClass } from "../ui";
 
@@ -57,6 +63,11 @@ export interface FeedbackControlsProps {
    * was sent; one → it's saved with the outcome; none (absent) → no version is saved.
    */
   versions?: readonly VersionChoice[] | undefined;
+  /**
+   * The card's versions once its "How to offer it" has loaded (TradeCard.tsx useOffers: its offers in order and its Plan B),
+   * given while they haven't (the file header, UI-D-1): the first outcome pressed waits for them before it asks or saves.
+   */
+  loadVersions?: (() => Promise<readonly VersionChoice[]>) | undefined;
 }
 
 /** Where focus goes after a press that took the control away. */
@@ -92,6 +103,28 @@ export function outcomeAction(
   return { action: "save", change: only ? { outcome: kind, sent: sentOf(only) } : { outcome: kind } };
 }
 
+/**
+ * What pressing an outcome button does once the card's versions are known (the file header, UI-D-1): outcomeAction on the
+ * versions `load` gives when it's given, no version is recorded and the press doesn't clear (`versions` when it fails), and
+ * the versions it decided on (the version choice lists them).
+ */
+export async function pressedOutcome(
+  feedback: Pick<CardFeedback, "outcome" | "version">,
+  versions: readonly VersionChoice[],
+  kind: FeedbackOutcome,
+  load?: (() => Promise<readonly VersionChoice[]>) | undefined,
+): Promise<{ versions: readonly VersionChoice[]; next: ReturnType<typeof outcomeAction> }> {
+  const first = outcomeAction(feedback, versions, kind);
+  if (first.action === "clear" || feedback.version !== null || !load) return { versions, next: first };
+  let known: readonly VersionChoice[] = versions;
+  try {
+    known = await load();
+  } catch {
+    known = versions;
+  }
+  return { versions: known, next: outcomeAction(feedback, known, kind) };
+}
+
 /** The press saved once a version is chosen (the version choice's buttons). */
 export function chosenVersionChange(kind: FeedbackOutcome, v: VersionChoice): FeedbackChange {
   return { outcome: kind, sent: sentOf(v) };
@@ -124,7 +157,7 @@ export function VersionChooser({
       </legend>
       <div className="mt-1 grid gap-2 sm:flex sm:flex-wrap">
         {versions.map((v) => (
-          <button key={v.version} type="button" onClick={() => onChoose(v)} className={cx(buttonClass("secondary", "sm"), "h-auto min-h-11 justify-start py-2 text-left break-words")}>
+          <button key={`${v.version}|${v.key}`} type="button" onClick={() => onChoose(v)} className={cx(buttonClass("secondary", "sm"), "h-auto min-h-11 justify-start py-2 text-left break-words")}>
             {v.label}
           </button>
         ))}
@@ -136,14 +169,16 @@ export function VersionChooser({
   );
 }
 
-export function FeedbackControls({ feedback, onChange, tradeName, versions = [] }: FeedbackControlsProps) {
+export function FeedbackControls({ feedback, onChange, tradeName, versions = [], loadVersions }: FeedbackControlsProps) {
   const groupId = useId();
   const noteId = useId();
   const [reporting, setReporting] = useState(false);
   const [reason, setReason] = useState<FeedbackReason | null>(null);
   const [note, setNote] = useState("");
-  // An outcome waiting for its version (the choice is open).
-  const [choosing, setChoosing] = useState<FeedbackOutcome | null>(null);
+  // An outcome waiting for its version (the choice is open), with the versions it asks among.
+  const [choosing, setChoosing] = useState<{ kind: FeedbackOutcome; versions: readonly VersionChoice[] } | null>(null);
+  // The latest outcome press, so one that waited for the card's versions gives way to a newer press (pressOutcome).
+  const pressCount = useRef(0);
   const [status, setStatus] = useState("");
   // The one-time note on the first anonymous copy (the header), shown with the status it came with.
   const [shareNote, setShareNote] = useState(false);
@@ -187,14 +222,24 @@ export function FeedbackControls({ feedback, onChange, tradeName, versions = [] 
     return true;
   }
 
-  function pressOutcome(kind: FeedbackOutcome) {
-    const next = outcomeAction(feedback, versions, kind);
+  async function pressOutcome(kind: FeedbackOutcome) {
+    const n = ++pressCount.current;
+    // A card whose offers haven't loaded: worked out first (the header, UI-D-1), said in the status line meanwhile.
+    const waits = feedback.outcome !== kind && feedback.version === null && !!loadVersions;
+    if (waits) {
+      setChoosing(null);
+      setError(null);
+      setShareNote(false);
+      setStatus(OFFERS_LOADING_TEXT);
+    }
+    const { versions: known, next } = waits ? await pressedOutcome(feedback, versions, kind, loadVersions) : { versions, next: outcomeAction(feedback, versions, kind) };
+    if (n !== pressCount.current) return; // a newer press took over
     if (next.action === "clear") {
       setChoosing(null);
       void save(next.change, `Cleared: ${OUTCOME_LABEL[kind]}.`);
     } else if (next.action === "ask") {
       // Which version was sent: asked once, while none is recorded, when the card shows two.
-      setChoosing(kind);
+      setChoosing({ kind, versions: known });
       setStatus("");
       moveFocus("chooser");
     } else {
@@ -204,7 +249,7 @@ export function FeedbackControls({ feedback, onChange, tradeName, versions = [] 
 
   async function chooseVersion(v: VersionChoice) {
     if (!choosing) return;
-    const kind = choosing;
+    const kind = choosing.kind;
     if (await save(chosenVersionChange(kind, v), `Saved: ${OUTCOME_LABEL[kind]} (${v.label}).`)) {
       setChoosing(null);
       moveFocus(kind);
@@ -239,7 +284,7 @@ export function FeedbackControls({ feedback, onChange, tradeName, versions = [] 
               }}
               type="button"
               aria-pressed={pressed}
-              onClick={() => pressOutcome(kind)}
+              onClick={() => void pressOutcome(kind)}
               className={cx(buttonClass("secondary", "sm"), TOGGLE, pressed && PRESSED)}
             >
               {pressed ? <span aria-hidden>✓</span> : null}
@@ -257,13 +302,13 @@ export function FeedbackControls({ feedback, onChange, tradeName, versions = [] 
 
       {choosing ? (
         <VersionChooser
-          kind={choosing}
-          versions={versions}
+          kind={choosing.kind}
+          versions={choosing.versions}
           tradeName={tradeName}
           legendRef={chooserRef}
           onChoose={(v) => void chooseVersion(v)}
           onCancel={() => {
-            const kind = choosing;
+            const kind = choosing.kind;
             setChoosing(null);
             moveFocus(kind);
           }}

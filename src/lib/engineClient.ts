@@ -34,10 +34,27 @@
  * Waivers section, which holds only the model, asks for its rating with waiverRatingFor(model) when it first shows: the
  * same worker, which still holds that build, answers in about a second. One request per model (the promise is kept; a failed
  * one is asked again next time); a model no client built (a test, a page that builds none) has none.
+ *
+ * Checkpoint 7e (planner reply to Checkpoint 7d, item 4.2, "Now or after this week"; engine.worker.ts `later`): after a search
+ * or re-filter answers with cards, the worker posts each card's "Helps you … if done after this week's games" numbers under
+ * that request's id as it makes them. The client files them by the result object it handed out for that request (a WeakMap),
+ * and laterLinesOf(result) reads them: a new LaterLines each time more arrive (never changed in place), `done` once every
+ * card has its own; null for a result without cards, or one no client handed out. watchLaterLines(result, onChange) hears
+ * each change (the Trade Finder reads them through useSyncExternalStore). A result's lines are kept while the result lives,
+ * so ideas the Finder shows again (coming back from the Analyzer) show their lines at once; a result whose lines the worker
+ * dropped (a newer search's took over and the result was forgotten) keeps the ones that came.
+ *
+ * Checkpoint 7e (planner reply to Checkpoint 7d, item 4.1, "How to offer it"; engine.worker.ts `offers`): offers(job) asks
+ * for a card's offers in order (OfferLadder), worked out in the worker when the card's "How to offer it" is opened. A Trade
+ * Finder card goes by the id of the request whose result holds it and its key: searchResultIdOf(client, result) gives that
+ * id for a result this client handed out (-1 for any other: the worker then works the card out from its trade, the
+ * Analyzer's way, with the keys the page bars, its Plan B: tradeView.ts offersBarredOf; another card of its list can be an
+ * offer either way, the lead's call, wave D); the Analyzer's card by its proposal. The worker keeps each ladder, so a second
+ * open answers at once.
  */
 import type { LeagueModel, WaiverUpgrades } from "@/engine/leagueModel";
-import type { TradeSearchProgress, TradeSearchResult } from "@/engine/tradeModel";
-import type { AnalyzeRequest, AnalyzerResult, EngineRequest, EngineResponse, LeagueRequest, RefilterRequest, TradesRequest, WaiversRequest } from "@/workers/engine.worker";
+import type { LaterNumbers, OfferLadder, TradeSearchProgress, TradeSearchResult } from "@/engine/tradeModel";
+import type { AnalyzeRequest, AnalyzerResult, EngineRequest, EngineResponse, LeagueRequest, OffersRequest, RefilterRequest, TradesRequest, WaiversRequest } from "@/workers/engine.worker";
 
 /** The parts of a Worker this client uses (a real Worker, or a fake in tests). */
 export interface WorkerLike {
@@ -55,6 +72,8 @@ export type TradesJob = Omit<TradesRequest, "type" | "id">;
 export type AnalyzeJob = Omit<AnalyzeRequest, "type" | "id">;
 /** A re-filter request without the protocol fields: a search's job (its settings carry the new minimum chance) and the result to rank again. */
 export type RefilterJob = TradesJob & { result: TradeSearchResult };
+/** A "How to offer it" request without the protocol fields: a League job and the card (OffersRequest.source; the header). */
+export type OffersJob = Omit<OffersRequest, "type" | "id">;
 
 /** A search under way: its result, and Stop. */
 export interface TradeSearchHandle {
@@ -81,6 +100,11 @@ export interface EngineClient {
    * without my team); rejects with an EngineError. waiverRatingFor asks it for a model this client built.
    */
   rateWaivers(job: LeagueJob): Promise<WaiverUpgrades | null>;
+  /**
+   * A card's "How to offer it", offers in order (the header; engine.worker.ts `offers`): a Trade Finder card by its result's
+   * request id (searchResultIdOf) and key, or the Trade Analyzer's by its proposal; rejects with an EngineError.
+   */
+  offers(job: OffersJob): Promise<OfferLadder>;
   /** Stops the worker. Pending requests reject, and later replies are ignored. */
   dispose(): void;
 }
@@ -127,7 +151,63 @@ async function defaultMainThread(post: (response: EngineResponse) => void): Prom
   return createEngineHandler(post, { clock: () => performance.now() });
 }
 
-const RESPONSE_TYPES: ReadonlySet<unknown> = new Set(["league", "progress", "trades", "analysis", "waivers", "cancelled", "error"]);
+const RESPONSE_TYPES: ReadonlySet<unknown> = new Set(["league", "progress", "trades", "analysis", "waivers", "later", "offers", "cancelled", "error"]);
+
+/** Each search result a client handed out, with that client and the id of the request it answered (searchResultIdOf). */
+const resultOwners = new WeakMap<TradeSearchResult, { client: EngineClient; id: number }>();
+
+/**
+ * The id `client`'s worker knows a search result by (OffersRequest's source.resultId: the header), the id of the search or
+ * re-filter request that brought it; -1 for a result `client` didn't hand out (another league's, or one from a client since
+ * stopped), whose card the worker then works out from its trade (the source's proposal, else its key) and barred keys.
+ */
+export function searchResultIdOf(client: EngineClient, result: TradeSearchResult): number {
+  const owner = resultOwners.get(result);
+  return owner && owner.client === client ? owner.id : -1;
+}
+
+/**
+ * A result's "now or after this week" numbers as they've come so far (the header; engine.worker.ts `later`): by card key
+ * (TradeEvaluation.key), null for a card whose context gives none; `done` once every card has its own.
+ */
+export interface LaterLines {
+  lines: ReadonlyMap<string, LaterNumbers | null>;
+  done: boolean;
+}
+
+/** Each result's lines (the header), by the result object a client handed out: replaced, never changed in place. */
+const laterOfResult = new WeakMap<TradeSearchResult, LaterLines>();
+/** Who hears each result's lines change (watchLaterLines). */
+const laterWatchers = new WeakMap<TradeSearchResult, Set<() => void>>();
+/** A client's results whose lines are still coming, kept by request id: the newest this many (older ones keep what came). */
+const LATER_TRACKED = 8;
+
+/** The "now or after this week" numbers of a result a client handed out (the header), as they've come so far; null for one without cards or that no client handed out. */
+export function laterLinesOf(result: TradeSearchResult): LaterLines | null {
+  return laterOfResult.get(result) ?? null;
+}
+
+/** Calls `onChange` each time more of `result`'s lines arrive (laterLinesOf reads them); returns a function that stops it. */
+export function watchLaterLines(result: TradeSearchResult, onChange: () => void): () => void {
+  let set = laterWatchers.get(result);
+  if (!set) {
+    set = new Set();
+    laterWatchers.set(result, set);
+  }
+  set.add(onChange);
+  const mine = set;
+  return () => {
+    mine.delete(onChange);
+  };
+}
+
+/** Files lines for `result` (more of them, or `done`) and tells whoever listens. */
+function fileLater(result: TradeSearchResult, more: readonly { key: string; later: LaterNumbers | null }[], done: boolean): void {
+  const lines = new Map(laterOfResult.get(result)?.lines ?? []);
+  for (const l of more) if (l && typeof l.key === "string") lines.set(l.key, l.later ?? null);
+  laterOfResult.set(result, { lines, done });
+  for (const fn of [...(laterWatchers.get(result) ?? [])]) fn();
+}
 
 /** Each League model a client handed out, with the client and the job it was built for (the header; waiverRatingFor). */
 const builtBy = new WeakMap<LeagueModel, { client: EngineClient; job: LeagueJob }>();
@@ -182,8 +262,28 @@ export function createEngineClient(opts: EngineClientOptions = {}): EngineClient
   let searchId: number | null = null;
   /** The request id behind each result this client handed out (a re-filter names its result by it: the header). */
   const resultIds = new WeakMap<TradeSearchResult, number>();
+  /** The results whose "now or after this week" numbers are still coming (the header), by the request id they come under. */
+  const laterResults = new Map<number, TradeSearchResult>();
+
+  /** A result handed out with cards: its lines are filed as they come (the header), starting with none. */
+  function expectLater(id: number, result: TradeSearchResult): void {
+    const both = result.helpsBoth?.trades;
+    const cards = (Array.isArray(result.trades) ? result.trades.length : 0) + (Array.isArray(both) ? both.length : 0);
+    if (!cards) return;
+    laterResults.set(id, result);
+    while (laterResults.size > LATER_TRACKED) laterResults.delete(laterResults.keys().next().value as number);
+    if (!laterOfResult.has(result)) laterOfResult.set(result, { lines: new Map(), done: false });
+  }
 
   function settle(response: EngineResponse): void {
+    if (response.type === "later") {
+      // Lines for a result handed out earlier, not a reply anything waits on (the header).
+      const result = laterResults.get(response.id);
+      if (!result) return;
+      if (response.done) laterResults.delete(response.id);
+      fileLater(result, Array.isArray(response.result) ? response.result : [], response.done === true);
+      return;
+    }
     const job = pending.get(response.id);
     if (!job) return; // a reply to a request nobody waits for any more
     if (job.onReply(response)) {
@@ -292,7 +392,11 @@ export function createEngineClient(opts: EngineClientOptions = {}): EngineClient
             return false;
           }
           if (response.type === "trades") {
-            if (response.result && typeof response.result === "object") resultIds.set(response.result, request.id);
+            if (response.result && typeof response.result === "object") {
+              resultIds.set(response.result, request.id);
+              resultOwners.set(response.result, { client, id: request.id });
+              expectLater(request.id, response.result);
+            }
             resolve(response.result);
           } else if (response.type === "cancelled") reject(new EngineError(SEARCH_CANCELLED, undefined, true));
           else reject(unexpected(response));
@@ -370,6 +474,23 @@ export function createEngineClient(opts: EngineClientOptions = {}): EngineClient
       });
     },
 
+    offers(job) {
+      if (disposed) return Promise.reject(new EngineError(ENGINE_STOPPED, undefined, true));
+      const request: OffersRequest = { type: "offers", id: nextId++, ...job };
+      return new Promise<OfferLadder>((resolve, reject) => {
+        send({
+          request,
+          where: "worker",
+          reject,
+          onReply(response) {
+            if (response.type === "offers") resolve(response.result);
+            else reject(unexpected(response));
+            return true;
+          },
+        });
+      });
+    },
+
     dispose() {
       disposed = true;
       // A search on the main thread can't be terminated with a worker: told to stop, it does at its next slice.
@@ -377,6 +498,7 @@ export function createEngineClient(opts: EngineClientOptions = {}): EngineClient
       worker?.terminate();
       worker = null;
       searchId = null;
+      laterResults.clear(); // no more lines come: the results keep the ones that came
       const jobs = [...pending.values()];
       pending.clear();
       for (const job of jobs) job.reject(new EngineError(ENGINE_STOPPED, undefined, true));

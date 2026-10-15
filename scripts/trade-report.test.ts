@@ -9,19 +9,21 @@
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
+import { displayAcceptance } from "@/engine/acceptance";
 import { helpsBoth, overallScore, tradeScore } from "@/engine/benefit";
 import { config } from "@/engine/config";
-import { analyzeTrade, buildTradeContext, helpsScaleOf, partnerCalibrationOf, partnerScaleOf, tradeInternals } from "@/engine/evaluate";
+import { analyzeTrade, buildTradeContext, helpsScaleOf, partnerCalibrationOf, partnerScaleOf, proposalKey, tradeInternals } from "@/engine/evaluate";
 import type { ModelInputs } from "@/engine/inputs";
 import { buildLeagueModel } from "@/engine/league";
 import { neutralThrowIns } from "@/engine/market";
+import { ladderChoice, ladderJobOfSearch, offerLadderOfSearch } from "@/engine/offers";
 import type { LeagueSnapshot, Pos } from "@/engine/model";
 import { prizeOddsOf, prizePercents, prizePeriods, rewardWith } from "@/engine/reward";
 import { runTradeSearch, searchStateOf, type SearchState } from "@/engine/search";
 import { GOALS, defaultTradeSettings } from "@/engine/settings";
 import { TEST_NOW } from "@/engine/testLeague";
 import { smallLeague } from "@/engine/trade.testing";
-import type { TradeEvaluation, TradeEvaluationCore, TradeSearchResult } from "@/engine/tradeModel";
+import type { OfferStep, TradeEvaluation, TradeEvaluationCore, TradeSearchResult } from "@/engine/tradeModel";
 import { tradeEvaluation } from "@/engine/tradeTestFixtures";
 import { acceptText, injuryTagText, knownTagsOf, planBView, seasonEndOf, topChance, topPlacesOf } from "@/lib/tradeView";
 import { GOAL_WORDS, asWeeklyResetData, benefitWin, placeholders, pre4cText, prizesWords, resetWaiverOrder, scaleCheck, thresholdsLine, type Pre4cOrder } from "./league-report";
@@ -33,12 +35,15 @@ import {
   GAP_TRADE,
   GOAL_TOP,
   HELPS_BOTH_SHOWN,
+  LADDER_CARDS,
   LANE_REST_STAGES,
   NEAR_POINTS,
+  OFFER_WORDS,
   OPEN_SPOT_FINALISTS,
   PREMIUM_ANCHORS,
   TOP_DETAIL,
   UNTOUCHED_STAGES,
+  alsoCardText,
   anchorRows,
   blendReason,
   buildTradeReport,
@@ -62,6 +67,7 @@ import {
   laneCounts,
   laneParts,
   laneShown,
+  ladderSummary,
   measuredRunsText,
   oddsByOrder,
   parseArgs,
@@ -87,6 +93,7 @@ import {
   type HelpsBothCost,
   type HelpsBothCounts,
   type LaneCounts,
+  type LadderSection,
   type Runtime,
   type RuntimeRun,
   type Tagger,
@@ -221,18 +228,19 @@ describe("trade report: numbers in words", () => {
     expect(weeklyText(weeklyLines(six, { weeklyLineMin: 0.03, weeklyLineMax: 4 }))).toBe("Week 7: 47% → 42% · Week 8: 60% → 65% · Week 11: 63% → 75% · Week 14: 49% → 45%");
   });
 
-  it("counts the cards with Plan B, offer-first steps and an injury-tagged player received, and the Plan B boxes receiving one", () => {
+  it("counts the cards with Plan B and an injury-tagged player received, and the Plan B boxes receiving one (no card has steps since Checkpoint 7e)", () => {
     const tagged = (side: "give" | "get") => ({ marketCheck: false, hiddenByMarket: false, hiddenByBenefit: false, injured: [], tagged: [{ playerId: "x", side, status: "OUT" as const }] });
-    const step = tradeEvaluation({ give: ["a"], get: ["b"] });
+    const plain = tradeEvaluation({ give: ["a"], get: ["b"] });
     const list = [tradeEvaluation({ give: ["a"], get: ["b"], flags: tagged("get") }), tradeEvaluation({ give: ["a"], get: ["c"], flags: tagged("give") }), tradeEvaluation({ give: ["d"], get: ["e"] })];
     // A tagger that knows one hurt player ("hurt"), on whichever side he is.
     const tagger: Tagger = (p) => [...p.give.map((a) => [a, "give"] as const), ...p.get.map((a) => [a, "get"] as const)].flatMap(([a, side]) => (a.kind === "player" && a.id === "hurt" ? [{ playerId: a.id, side, status: "OUT" as const }] : []));
-    expect(cardCounts(list, tagger)).toEqual({ shown: 3, planB: 0, steps: 0, injuredGet: 1, planBInjuredGet: 0 });
-    expect(cardCounts([...list, { ...step, steps: trades.find((t) => t.steps)?.steps ?? { offerFirst: {} as never, ifNo: {} as never, ranked: "full" } }], tagger).steps).toBe(1);
+    expect(cardCounts(list, tagger)).toEqual({ shown: 3, planB: 0, injuredGet: 1, planBInjuredGet: 0 });
     // Plan B boxes: one asking for the hurt player counts, one giving him away doesn't (review of track R, R-2).
     const planB = (give: string, get: string): NonNullable<TradeEvaluation["planB"]> => ({ proposal: { partnerId: "2", give: [{ kind: "player", id: give }], get: [{ kind: "player", id: get }] }, key: `${give}>${get}`, b: 1, tradeScore: 15, pAccept: 0.5, pComplete: 0.5, acceptLabel: "Decent", overall: 8, kind: "otherTarget" });
-    const withB = [...list, { ...step, planB: planB("a", "hurt") }, { ...step, planB: planB("hurt", "e") }];
-    expect(cardCounts(withB, tagger)).toEqual({ shown: 5, planB: 2, steps: 0, injuredGet: 1, planBInjuredGet: 1 });
+    const withB = [...list, { ...plain, planB: planB("a", "hurt") }, { ...plain, planB: planB("hurt", "e") }];
+    expect(cardCounts(withB, tagger)).toEqual({ shown: 5, planB: 2, injuredGet: 1, planBInjuredGet: 1 });
+    // The search's own cards: none has steps.
+    for (const t of trades) expect(t.steps, t.key).toBeUndefined();
   });
 
   it("an expected gain is B × the chance it goes through (null when B is unknown)", () => {
@@ -412,26 +420,26 @@ describe("trade report: what Helps both costs a search (section 10)", () => {
     expect(laneCost(bare, bare)).toMatchObject({ exact: { count: 0, cold: null, warm: null }, simScreen: { count: 0, cold: null, warm: null }, rest: null, extra: { cold: null, warm: null }, measured: { without: 10, spread: null } });
   });
 
-  it("says what else the helps-both lane changes on the Finder (review of the lane, LANE-1): the boxes and offer-first steps of the cards both show, the \"Helps both\" list's cards each way, and the exact and left-out counts", () => {
-    type Card = { key: string; planB?: { key: string }; steps?: { offerFirst: { key: string } } };
+  it("says what else the helps-both lane changes on the Finder (review of the lane, LANE-1): the boxes of the cards both show (their offer-first steps too until Checkpoint 7e), the \"Helps both\" list's cards each way, and the exact and left-out counts", () => {
+    type Card = { key: string; planB?: { key: string } };
     const result = (trades: Card[], list: string[], exact: number, hidden: TradeSearchResult["hidden"]) =>
       ({ trades, helpsBoth: { trades: list.map((key) => ({ key })) }, counts: { screened: 0, exact, simScreen: 0, simFinal: 0 }, hidden }) as unknown as TradeSearchResult;
-    // "a": another box; "b": another offer-first step; "c" and "d": each run's own card; "e": the same box both ways; "f": a
-    // box with the lane only; "g": a step without it only.
+    // "a": another box; "b": no box either way; "c" and "d": each run's own card; "e": the same box both ways; "f": a box with
+    // the lane only; "g": a box without it only.
     const on = result(
-      [{ key: "a", planB: { key: "x" } }, { key: "b", steps: { offerFirst: { key: "s2" } } }, { key: "c" }, { key: "e", planB: { key: "z" } }, { key: "f", planB: { key: "w" } }, { key: "g" }],
+      [{ key: "a", planB: { key: "x" } }, { key: "b" }, { key: "c" }, { key: "e", planB: { key: "z" } }, { key: "f", planB: { key: "w" } }, { key: "g" }],
       ["a", "h"],
       245,
       { byBenefit: 39, byMarket: 1, byChance: 2 },
     );
     const off = result(
-      [{ key: "a", planB: { key: "y" } }, { key: "b", steps: { offerFirst: { key: "s1" } } }, { key: "d" }, { key: "e", planB: { key: "z" } }, { key: "f" }, { key: "g", steps: { offerFirst: { key: "s3" } } }],
+      [{ key: "a", planB: { key: "y" } }, { key: "b" }, { key: "d" }, { key: "e", planB: { key: "z" } }, { key: "f" }, { key: "g", planB: { key: "v" } }],
       ["a", "i", "j"],
       201,
       { byBenefit: 29, byMarket: 0 },
     );
     expect(laneShown(on, off)).toEqual({
-      shared: { cards: 5, box: 2, step: 2 },
+      shared: { cards: 5, box: 3 },
       list: { added: 1, dropped: 2, cards: 2 },
       // Made-up results carry no search state: no final runs to read.
       finalsLost: { count: 0, listed: 0 },
@@ -439,7 +447,7 @@ describe("trade report: what Helps both costs a search (section 10)", () => {
       leftOut: { without: { benefit: 29, market: 0, chance: 0 }, with: { benefit: 39, market: 1, chance: 2 } },
     });
     // The same search both ways: nothing differs.
-    expect(laneShown(off, off)).toMatchObject({ shared: { cards: 6, box: 0, step: 0 }, list: { added: 0, dropped: 0, cards: 3 }, exact: { without: 201, with: 201 } });
+    expect(laneShown(off, off)).toMatchObject({ shared: { cards: 6, box: 0 }, list: { added: 0, dropped: 0, cards: 3 }, exact: { without: 201, with: 201 } });
   });
 
   /** smallLeague(seed) at 10% with the helps-both lane (`on`) and without it (`off`), each on a context of its own. */
@@ -576,6 +584,17 @@ describe("trade report: what Helps both costs a search (section 10)", () => {
     );
   });
 
+  it("section 11's words (Checkpoint 7e): each offer's place as the card says it, and the console's line on the split's ladders", () => {
+    expect(OFFER_WORDS).toEqual({ open: "Open with", then: "Then", suggested: "The suggested trade", last: "Last offer" });
+    const row = (n: number, ms: number[]) => ({ card: tradeEvaluation({ give: ["a"], get: ["b"] }), ladder: { cardKey: "k", steps: Array.from({ length: n }, () => ({})) }, candidates: 54, screened: 12, ms }) as unknown as LadderSection["other"]["rows"][number];
+    const better = (n: number, same = true) => ({ card: tradeEvaluation({ give: ["a"], get: ["b"] }), screened: 40, likelier: 9, better: Array.from({ length: n }, () => ({})), same }) as unknown as LadderSection["other"]["better"][number];
+    const section = (rows: LadderSection["other"]["rows"], b: LadderSection["other"]["better"]): LadderSection => ({ title: { rows: [], better: [] }, other: { rows, better: b } });
+    expect(ladderSummary(section([row(2, [480, 504, 476]), row(1, [251]), row(3, [1200, 1250])], [better(0), better(1), better(0, false)]), "Several prizes")).toBe(
+      "How to offer it (Several prizes): the top 3 cards hold 2 / 1 / 3 offers, built in 480 ms / 251 ms / 1.23 s (first opens, medians); 1 of the top 3 has a candidate printing a higher Helps you and a higher chance; the pre-screen picks every candidate's offers on 2 of 3",
+    );
+    expect(ladderSummary(section([], []), "Several prizes")).toBe("How to offer it: no cards under Several prizes");
+  });
+
   it("the search without Helps them (withoutHelpsThem): every partner's calibration run is none, so no partner's scale is known", () => {
     const ctx = buildTradeContext(snapshot, inputs, { now: TEST_NOW, settings, scenarios: 0 });
     const I = tradeInternals(ctx);
@@ -602,8 +621,8 @@ describe("trade report: the whole offline report on a synthetic league", () => {
   it("runs the real search and renders every section in order, the header with the data, the settings and the baseline", () => {
     expect(trades.length).toBeGreaterThan(0);
     expect(report.result.myTeamId).toBe("1");
-    expect([...doc.matchAll(/^## (\d+)\./gm)].map((m) => Number(m[1]))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-    expect(doc).toContain("# Trade search: Parker's ESPN league (Checkpoint 7d)");
+    expect([...doc.matchAll(/^## (\d+)\./gm)].map((m) => Number(m[1]))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(doc).toContain("# Trade search: Parker's ESPN league (Checkpoint 7e)");
     expect(doc).toContain("Generated by `npm run trade:report -- --offline data-local/synthetic --team 1 --prizes 2000,1600,900,0` on ");
     expect(doc).toContain("- Synthetic test league.");
     expect(doc).toContain(
@@ -661,15 +680,15 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     const tagsOf = taggerOf(tradeInternals(report.ctx));
     const c10 = cardCounts(top, tagsOf);
     const all = cardCounts(trades, tagsOf);
-    expect(s).toContain(`**Counts** (top ${c10.shown} / all ${all.shown} cards): with Plan B ${c10.planB} / ${all.planB}; with offer-first steps ${c10.steps} / ${all.steps}; receiving an injury-tagged player ${c10.injuredGet} / ${all.injuredGet}; Plan B boxes receiving one ${c10.planBInjuredGet} / ${all.planBInjuredGet}.`);
-    // The next steps carry their players' tags (review of track R, R-2): a step's by the search's own rule, a Plan B in its box's words.
+    expect(s).toContain(`**Counts** (top ${c10.shown} / all ${all.shown} cards): with Plan B ${c10.planB} / ${all.planB}; receiving an injury-tagged player ${c10.injuredGet} / ${all.injuredGet}; Plan B boxes receiving one ${c10.planBInjuredGet} / ${all.planBInjuredGet}.`);
+    // The Plan B lines carry their players' tags (review of track R, R-2), in the box's words; no card has steps since
+    // Checkpoint 7e (its "How to offer it" is section 11's).
     const known = knownTagsOf(trades);
+    if (top.some((t) => t.planB)) expect(s).toContain("Plan B on those cards:");
     for (const [i, t] of top.entries()) {
       const line = s.split("\n").find((l) => l.startsWith(`- #${i + 1}: `));
-      if (t.steps) {
-        expect(line).toMatch(/^- #\d+: offer first /);
-        for (const g of tagsOf(t.steps.offerFirst.proposal)) expect(line).toContain(`${snapshot.players[g.playerId]?.name} [${injuryTagText(g, end)}]`);
-      } else if (t.planB) {
+      expect(t.steps).toBeUndefined();
+      if (t.planB) {
         const box = planBView(t.planB, report.snapshot, { cardTags: t.flags.tagged, knownTags: known, seasonEnd: end, baseline: b });
         expect(line).toContain(`in the box's words: ${box?.give} → ${box?.get}; ${t.planB.tradeScore} / `);
         // Phase 4c's polish (change 9): the box's own odds, from the search's baseline and Plan B's final-block simulation.
@@ -1205,9 +1224,9 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     expect(h.cost).toEqual(helpsBothCost(report.runtime, w.runtime));
     expect(h.cost.with).toEqual({ cold: report.runtime.cold.search.total, warm: report.runtime.search.total });
     const s = section(10);
-    expect(s).toContain(`without it the Overall list is the same ${trades.length} cards with the same numbers, steps, boxes and words ✅`);
+    expect(s).toContain(`without it the Overall list is the same ${trades.length} cards with the same numbers, boxes and words ✅`);
     expect(s).toContain(`| | Cold | Warm (median of ${report.runtime.runs.length}) |`);
-    for (const label of [`| The partner calibration runs (${partners}, one per partner of the exact trades) |`, `| The extras' final runs (${st.helpsBothExtras.length}) |`, "| The second list: its ranking, steps, Plan B and words | – |", "| **The extra: the three parts** |", `| Search total with "Helps them" (the app: section 4's) |`, "| Search total without (with, less the extra: ⚠️ derived) |"]) expect(s).toContain(label);
+    for (const label of [`| The partner calibration runs (${partners}, one per partner of the exact trades) |`, `| The extras' final runs (${st.helpsBothExtras.length}) |`, "| The second list: its ranking, Plan B and words | – |", "| **The extra: the three parts** |", `| Search total with "Helps them" (the app: section 4's) |`, "| Search total without (with, less the extra: ⚠️ derived) |"]) expect(s).toContain(label);
     // The runs without it as measured, against section 4's with their own sign (review HBR-1); the suite times one run a set,
     // so no spread from run to run is printed (it read "up to 0.0 ms") and no cause it doesn't compute.
     const m = h.cost.measured;
@@ -1312,7 +1331,7 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     expect(l.shown.other.finalsLost).toEqual({ count: 0, listed: 0 });
     const pair = (f: (x: typeof sh) => string) => `| ${f(sh)} | ${f(l.shown.other)} |`;
     const left = (x: typeof sh.leftOut.with) => `${x.benefit} · ${x.market} · ${x.chance}`;
-    expect(s).toContain(`| Overall cards both show with a different Plan B box · a different offer-first step ${pair((x) => `${x.shared.box} · ${x.shared.step} of ${x.shared.cards}`)}`);
+    expect(s).toContain(`| Overall cards both show with a different Plan B box ${pair((x) => `${x.shared.box} of ${x.shared.cards}`)}`);
     expect(s).toContain(`| "Helps both" cards the search without the lane doesn't show · its cards this list doesn't show ${pair((x) => `${x.list.added} · ${x.list.dropped} of ${x.list.cards}`)}`);
     expect(s).toContain(`| Final runs without the lane, Helps them known (the "Helps both" list's candidates), that the search with it doesn't make · of them on its list ${pair((x) => `${x.finalsLost.count} · ${x.finalsLost.listed}`)}`);
     expect(s).toContain(`| The Finder's "checked N closely", without → with ${pair((x) => `${x.exact.without} → ${x.exact.with}`)}`);
@@ -1320,6 +1339,88 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     expect(s).toContain(`**What the lane costs** (⚠️ ours: under "Only the champion", section 4's runs, each timed one followed by the same search without the lane on its own context`);
     for (const label of [`| The lane's exact evaluations (${l.cost.exact.count}: its trades and their lean companions) |`, `| Their screening simulations (${l.cost.simScreen.count}, the legal ones) |`, "| The rest: final simulation, ranking and steps, with the lane less without | – |", "| **The lane's extra: the three parts** |", "| Search total with the lane (the app: section 4's) |", "| Search total without the lane (measured) | – |"]) expect(s).toContain(label);
     expect(s).toMatch(/Under "Several prizes", section 2's one search \(warm, [^)]+\): the lane's exact evaluations [^;]+ and screening simulations [^;]+; the search without the lane, on a context of its own, /);
+  });
+
+  it("section 11 (Checkpoint 7e): each setting's top cards' offers in order as the worker builds them, their first opens, and the candidates that print better than their card", () => {
+    const l = report.ladders;
+    // Section 1's setting: built after each of section 4's timed runs on its own search; the last is the report's own, so its
+    // ladders are offers.ts's on it (the same store: nothing built again).
+    expect(l.title.rows.map((r) => r.card.key)).toEqual(trades.slice(0, LADDER_CARDS).map((t) => t.key));
+    const st = searchStateOf(report.result) as SearchState;
+    for (const row of l.title.rows) {
+      expect(row.ladder).toEqual(offerLadderOfSearch(report.result, row.card.key));
+      expect(row.ms).toHaveLength(report.runtime.runs.length);
+      for (const x of row.ms) expect(x).toBeGreaterThan(0);
+      // The card's Plan B barred (the lead's call, wave D: another card of its list can be an offer), the candidates
+      // pre-screened (the review of wave D, D-ENG-1).
+      const choice = ladderChoice(ladderJobOfSearch(st, row.card));
+      expect(row.screened).toBe(choice?.screened.length);
+      expect(row.candidates).toBe(choice?.candidates);
+      expect(row.candidates).toBeGreaterThanOrEqual(row.screened);
+      if (row.card.planB) for (const x of row.ladder.steps) expect(x.evaluation.key).not.toBe(row.card.planB.key);
+      expect(row.ladder.steps.filter((x) => x.kind === "suggested").map((x) => x.evaluation.key)).toEqual([row.card.key]);
+      expect(row.ladder.steps.length).toBeLessThanOrEqual(config.offers.maxSteps);
+    }
+    // The split's: runs of its own (one here), the same cards as section 2's search (deterministic).
+    expect(l.other.rows.map((r) => r.card.key)).toEqual(report.goals.result.trades.slice(0, LADDER_CARDS).map((t) => t.key));
+    for (const row of l.other.rows) expect(row.ms).toHaveLength(1);
+    // A fact of the synthetic data: some top card has offers besides itself.
+    expect([...l.title.rows, ...l.other.rows].some((r) => r.ladder.steps.length > 1)).toBe(true);
+    // The candidates that print better than their card, on the first TOP_DETAIL cards: each prints a higher Helps you and a
+    // higher chance than the card (so no Open or Then offer is one: their chance stays 5 points under the card's).
+    for (const [set, r] of [
+      [l.title, report.result],
+      [l.other, report.goals.result],
+    ] as const) {
+      expect(set.better.map((b) => b.card.key)).toEqual(r.trades.slice(0, TOP_DETAIL).map((t) => t.key));
+      for (const b of set.better) {
+        expect(b.likelier).toBeLessThanOrEqual(b.screened);
+        expect(b.better.length).toBeLessThanOrEqual(b.likelier);
+        for (const v of b.better) {
+          expect(v.tradeScore as number).toBeGreaterThan(b.card.tradeScore as number);
+          expect(displayAcceptance(v.pComplete)).toBeGreaterThan(displayAcceptance(b.card.pComplete));
+        }
+      }
+      for (const row of set.rows) {
+        const better = new Set(set.better.find((b) => b.card.key === row.card.key)?.better.map((v) => proposalKey(v.proposal)));
+        for (const x of row.ladder.steps) if (x.kind === "open" || x.kind === "then") expect(better.has(x.evaluation.key)).toBe(false);
+      }
+    }
+    // Rendered: each card with its offers in order in the card's words, its Plan B below, then the better candidates.
+    const s = section(11);
+    expect(s).toContain("## 11. How to offer it: offers in order");
+    expect(s).toContain("**Only the champion**:");
+    expect(s).toContain("**Several prizes (the league's split, 1st 44%, 2nd 36%, 3rd 20%)**:");
+    for (const [i, row] of l.title.rows.entries()) {
+      const c = row.card;
+      const n = row.ladder.steps.length;
+      expect(s).toContain(`${i + 1}. Team ${c.proposal.partnerId}: `);
+      expect(s).toContain(`(${threeNumbers(c)}`);
+      expect(s).toContain(`${n} offer${n === 1 ? "" : "s"} from ${row.candidates} candidates, ${row.screened} legal ${row.screened === 1 ? "one" : "ones"} played out after the pre-screen, built in `);
+      row.ladder.steps.forEach((x, k) => expect(s).toContain(`   ${k + 1}. ${OFFER_WORDS[x.kind]}: `));
+      for (const x of row.ladder.steps) expect(s).toContain(`Helps you ${x.evaluation.tradeScore ?? "–"} · ${chancePrinted(x.evaluation.pAccept)} ${x.evaluation.acceptLabel}`);
+      // An offer that is another card is marked by its place on the list (the lead's call, wave D); the card itself isn't.
+      for (const x of row.ladder.steps) {
+        const at = trades.findIndex((t) => t.key === x.evaluation.key);
+        if (x.kind === "suggested") expect(alsoCardText(report.result, x)).toBeNull();
+        else if (at >= 0) {
+          expect(alsoCardText(report.result, x)).toBe(`also trade idea ${at + 1}`);
+          expect(s).toContain(`(also trade idea ${at + 1}): Helps you ${x.evaluation.tradeScore ?? "–"}`);
+        }
+      }
+    }
+    const offered = l.title.rows.flatMap((row) => row.ladder.steps.filter((x) => x.kind !== "suggested"));
+    const marked = offered.filter((x) => alsoCardText(report.result, x) !== null).length;
+    expect(s).toContain(`Of these ${offered.length} offer${offered.length === 1 ? "" : "s"} besides the cards themselves, ${marked} ${marked === 1 ? "is" : "are"} another card of the list.`);
+    // alsoCardText on made-up keys: the Overall list's place, else the "Helps both" list's; none for the suggested trade.
+    const fake = { trades: [{ key: "p" }, { key: "q" }], helpsBoth: { trades: [{ key: "q" }, { key: "z" }] } } as unknown as Pick<TradeSearchResult, "trades" | "helpsBoth">;
+    const step = (kind: OfferStep["kind"], key: string) => ({ kind, evaluation: { key } }) as unknown as OfferStep;
+    expect([alsoCardText(fake, step("open", "q")), alsoCardText(fake, step("last", "z")), alsoCardText(fake, step("then", "x")), alsoCardText(fake, step("suggested", "p"))]).toEqual(["also trade idea 2", "also “Helps both” idea 2", null, null]);
+    expect(s.match(/⚠️ Candidates that print a higher Helps you and a higher chance than their card/g)).toHaveLength(2);
+    expect(s.match(/The pre-screen picks the offers every candidate gives on \d+ of these \d+ cards\./g)).toHaveLength(2);
+    // Its own runs are timed with the report's stages.
+    expect(report.timing.ladders).toBeGreaterThan(0);
+    expect(doc).toContain(`section 11's runs under "Several prizes" and its candidates played out `);
   });
 
   it("prints placeholders only: no team, owner or league name or league id from the league", () => {

@@ -17,10 +17,11 @@
  *   report, with a note.
  * - By outcome: each trade idea's latest outcome (Sent, Accepted, Rejected, Countered).
  * - By version sent (planner reply to Checkpoint 4, change 6 and answer 8): each latest outcome by the version of the trade
- *   idea that was sent (the first offer, the full trade, or "If they say no, try:"), and "Unknown" for records without one
- *   (made before Phase 4b); per version, how many sent the card's own trade (sentCardTrade: the version's players are the
- *   card's, or none were kept; review of track F: "full" is the card's own trade on a plain card, but the card plus its
- *   throw-in when the card is the first offer).
+ *   idea that was sent (since Checkpoint 7e a step's place in "How to offer it", open, then, the suggested trade, last,
+ *   planner reply to Checkpoint 7d, item 4.1; "If they won't move: try …"; an older card's first offer or full trade), and
+ *   "Unknown" for records without one (made before Phase 4b); per version, how many sent the card's own trade
+ *   (sentCardTrade: the version's players are the card's, or none were kept; review of track F: "full" is the card's own
+ *   trade on a plain card, but the card plus its throw-in when the card is the first offer).
  * - By reason: how many reports gave each Report reason, and the averages of the numbers their cards printed: Helps you,
  *   Helps them (where the card showed the partner's line), the chance they accept, Overall. The model's own numbers and its
  *   acceptance features aren't in a version-3 file (an older file read as version 3 leaves them out too); the anonymous
@@ -278,7 +279,7 @@ export function formatSummary(summary: FeedbackSummary, notes?: readonly { reaso
       s.byVersion.map((v) => [v.label, v.total, ...FEEDBACK_OUTCOMES.map((o) => v.outcomes[o]), v.cardOwn]),
     ),
     "",
-    "Each trade idea with an outcome, by the version of it that was sent (asked when its card showed more than one). Unknown: records made before versions were recorded. The card's own trade: how many sent the trade the card showed, whose numbers it printed; for the rest (a first offer without the throw-in, the throw-in added to a first offer, a Plan B) the calibration reads the chance that version's own line printed.",
+    "Each trade idea with an outcome, by the version of it that was sent (asked when its card showed more than one: the offers of “How to offer it” once opened, and “If they won't move”). Unknown: records made before versions were recorded. The card's own trade: how many sent the trade the card showed, whose numbers it printed; for the rest (another offer of “How to offer it”, a Plan B, or on an older card a first offer without the throw-in or the throw-in added to one) the calibration reads the chance that version's own line printed.",
     "",
   );
 

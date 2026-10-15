@@ -24,7 +24,9 @@
  *   kind           which buttons the press was ("outcome": Sent, Accepted, Rejected, Countered; "report": Report)
  *   outcome        the record's outcome now; absent when it has none (never pressed, or cleared)
  *   reason         the record's report reason now; absent when none. Never the note: notes stay in this browser.
- *   version        which version of the idea was sent (offerFirst, full, planB), with an outcome only
+ *   version        which version of the idea was sent, with an outcome only: since Checkpoint 7e a step's place in "How to
+ *                  offer it" (open, then, suggested, last) or planB; an older card's offerFirst or full (feedbackStore.ts
+ *                  FEEDBACK_VERSIONS, which the server's schema reads: an older browser's copies still pass)
  *   platform, season, week   ESPN or Sleeper; the season and NFL week the numbers were computed for (the record's basis,
  *                  review FB-R6: an outcome pressed a week later still says the week of the numbers it carries; a record
  *                  made before has none, and the league data on screen stands in)
@@ -48,15 +50,16 @@
  *                  printed it, a whole percent, 0 for "<5%"), overall, b, b3 (the scale they were scored on, Phase 7a A2),
  *                  pAccept, pComplete, dPO, dCH, dPPW, gMine, gPartner
  *   features       §11's acceptance features as the card's estimate used them (g, n, h, c, a, hist, ctx, hot, urg, z)
- *   versionTrade   the sent version's players, the same way, when they aren't the card's (review FB-R7: a first offer, a
- *                  throw-in added, a Plan B; read from its key, FeedbackRecord.versionKey), with a version only
+ *   versionTrade   the sent version's players, the same way, when they aren't the card's (review FB-R7: an offer of "How to
+ *                  offer it" other than the suggested trade, a Plan B; on an older card a first offer or a throw-in added;
+ *                  read from its key, FeedbackRecord.versionKey), with a version only
  *   versionAccept  the sent version's estimate as its line on the card showed it (pAccept, pComplete), with a version only
  *   versionInputs  the sent version's model inputs (feedbackStore.ts VersionInputs: B₃, the scale's reason and the week
  *                  of the league data they came from included; Checkpoint 7c, its goal with its prize split, as `goal` and
  *                  `prizes` above), with a version only
  *   As in the record: trade, numbers and features are the card's (the trade idea the record is for), and the version sent
- *   (the first offer, the full trade or "If they say no, try:") is told by version, versionTrade, versionAccept and
- *   versionInputs.
+ *   (an offer of "How to offer it", the suggested trade or "If they won't move: try …") is told by version, versionTrade,
+ *   versionAccept and versionInputs.
  * Never: league ids, team ids, team or owner names, usernames, SWIDs, cookies, the league's short hash (leagueKey), the
  * local record id (made from it), when a button was pressed (the server adds only the UTC day a copy arrived) or notes.
  * Numbers are rounded to 6 significant digits. A trade (the card's or the version sent) with a draft pick (not part of

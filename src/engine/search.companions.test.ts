@@ -302,26 +302,28 @@ describe("the lean companions (search.ts)", { timeout: 60_000 }, () => {
     });
 
     // In the searches (EV lineups; run once, on first use): no box is a card, nor a card plus players worth at most W under the bar.
-    type Searched = { seed: number; I: TradeInternals; r: TradeSearchResult };
+    // Under Plan B's rule before the review of wave D (the report switch otherTargetOnly false: the same players of theirs
+    // first), whose boxes these facts were measured on, so barredFromBoxes' bar on a card plus a player of mine is exercised;
+    // since that review a box is a different target only (planB.ts), the last test below (`now`: the app's own search).
+    type Searched = { seed: number; I: TradeInternals; r: TradeSearchResult; now: TradeSearchResult };
     let memo: Searched[] | null = null;
     const searched = (): Searched[] =>
       (memo ??= [6, 8, 12, 18, 59].map((seed) => {
-        if (seed === 6) return { seed, I: I6, r: withCompanions };
+        if (seed === 6) return { seed, I: I6, r: runTradeSearch(ctx6, { settings, planB: { otherTargetOnly: false } }), now: withCompanions };
         const lg = smallLeague(seed);
         const ctx = buildTradeContext(lg.snapshot, lg.inputs, { now: TEST_NOW, scenarios: 0, ...FIXED_OMEGA });
-        return { seed, I: tradeInternals(ctx), r: runTradeSearch(ctx, { settings }) };
+        return { seed, I: tradeInternals(ctx), r: runTradeSearch(ctx, { settings, planB: { otherTargetOnly: false } }), now: runTradeSearch(ctx, { settings }) };
       }));
     const seedRun = (seed: number): Searched => searched().find((x) => x.seed === seed) as Searched;
 
-    it("in the searches: every box is no card, no version a card's steps show, never matched or beaten on both numbers by a card with its partner, and, when it's a card plus more players, at least minAcceptGain likelier than that card", () => {
+    it("in the searches: every box is no card (no card has steps since Checkpoint 7e), never matched or beaten on both numbers by a card with its partner, and, when it's a card plus more players, at least minAcceptGain likelier than that card", () => {
       let likelierBoxes = 0;
       for (const { seed, r } of searched()) {
         const cards = new Map(r.trades.map((t) => [t.key, t]));
-        const stepped = new Set(r.trades.flatMap((t) => (t.steps ? [t.steps.offerFirst.key, t.steps.ifNo.full.key] : [])));
         for (const t of r.trades) {
+          expect(t.steps, `seed ${seed}`).toBeUndefined();
           if (!t.planB) continue;
           expect(cards.has(t.planB.key), `seed ${seed}`).toBe(false);
-          expect(stepped.has(t.planB.key), `seed ${seed}`).toBe(false);
           for (const c of r.trades) {
             if (c.proposal.partnerId !== t.planB.proposal.partnerId) continue;
             // dominatedByCard (planB.ts): no card with its partner as helpful (as printed) and at least as likely.
@@ -364,6 +366,22 @@ describe("the lean companions (search.ts)", { timeout: 60_000 }, () => {
       // The first bar's test: the box's lean version (1005 left out) is that very card.
       const lean = leanVersionOf(I, ["1005", "1011"], ["1066"]);
       expect(keyOf("6", lean?.give ?? [], lean?.get ?? [])).toBe(card?.key);
+    });
+
+    it("since the review of wave D (D-ENG-5; planner reply to Checkpoint 7d, item 4.1: \"a different target\"): no box asks for its card's own players of theirs, and smallLeague(18)'s card plus 1005 is no box", () => {
+      const sorted = (p: Pick<TradeProposal, "give" | "get">) => ids(p, "get").sort().join(",");
+      let boxes = 0;
+      for (const { seed, now } of searched()) {
+        for (const t of now.trades) {
+          if (!t.planB) continue;
+          boxes++;
+          expect(t.planB.kind, `seed ${seed} ${t.key}`).toBe("otherTarget");
+          expect(sorted(t.planB.proposal), `seed ${seed} ${t.key}`).not.toBe(sorted(t.proposal));
+        }
+      }
+      expect(boxes).toBeGreaterThan(0);
+      const card = seedRun(18).now.trades.find((t) => t.key === keyOf("6", ["1011"], ["1066"]));
+      expect(card?.planB?.key).not.toBe(keyOf("6", ["1005", "1011"], ["1066"]));
     });
   });
 

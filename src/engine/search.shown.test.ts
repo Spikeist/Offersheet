@@ -4,8 +4,8 @@
  * shownSims; evaluate.ts, the three blocks; search.ts, "The shown pass"). The shown block's baseline is LeagueModel.odds; the
  * ranking block is its first finalSims seasons (a finalist's numbers are a finalSims-season evaluation's); every number a card
  * or a Plan B box prints comes from the shown block; the rules the lists and the boxes are chosen by hold on those numbers
- * (the review of the track: SHOWN-1, a card's "Helps both" rules for its steps and box read its printed tag, so they and its
- * pitch are the Analyzer's; SHOWN-2, every box passes planB.ts's rules on its printed numbers; SHOWN-3, each list is rank.ts's
+ * (the review of the track: SHOWN-1, a card's "Helps both" rules for its box and, since item 4.1, its "How to offer it" read
+ * its printed tag, so they and its pitch are the Analyzer's; SHOWN-2, every box passes planB.ts's rules on its printed numbers; SHOWN-3, each list is rank.ts's
  * ranking of its own cards on their printed numbers, §13's caps in the printed top 20 included); re-filtering equals a fresh
  * search; the Analyzer reads the shown block; the search is deterministic, its progress only moves forward; and with the
  * shown block at the ranking block's seasons the pass takes the ranking numbers as they are.
@@ -17,6 +17,7 @@ import { helpsBoth } from "./benefit";
 import { config } from "./config";
 import { analyzeTrade, assetValue, buildTradeContext, helpsScaleOf, rewardFor, simCounts, simulateTrade, tradeInternals, type ExactTrade, type SimState, type TeamState, type TradeContext } from "./evaluate";
 import { buildLeagueModel } from "./league";
+import { offerLadderOfProposal, offerLadderOfSearch } from "./offers";
 import type { SeasonOdds } from "./leagueModel";
 import { dominatedByCard, planBPasses } from "./planB";
 import { prizeOddsOf } from "./reward";
@@ -26,7 +27,7 @@ import { seasonOdds, type SeasonModel } from "./season";
 import { defaultTradeSettings, type TradeSettings } from "./settings";
 import { TEST_NOW } from "./testLeague";
 import { smallLeague } from "./trade.testing";
-import type { PlanB, TradeEvaluation, TradeEvaluationCore, TradeSearchProgress, TradeSearchResult } from "./tradeModel";
+import type { OfferLadder, PlanB, TradeEvaluation, TradeEvaluationCore, TradeSearchProgress, TradeSearchResult } from "./tradeModel";
 
 const at = (minChance: number, x: Partial<TradeSettings> = {}): TradeSettings => ({ ...defaultTradeSettings(), ...x, minChance });
 
@@ -198,10 +199,12 @@ describe("the shown pass (search.ts): every number a card or a box prints comes 
     expect(boxes).toBeGreaterThan(0);
   });
 
-  it("⚠️ SHOWN-1: a card's “Helps both” rules for its steps and its box read its printed numbers, so its steps and pitch are the Analyzer's (smallLeague 127)", () => {
+  it("⚠️ SHOWN-1: a card's “Helps both” rules for its box and its “How to offer it” read its printed numbers, so its pitch and its offers are the Analyzer's (smallLeague 127)", () => {
     // A fact of the synthetic data: the card Helps them 10 on the ranking block (so it helped both there), 8 as printed. Before
     // the fix its steps were held to the rule its ranking numbers set: no lean offer first (that version doesn't help Team 6),
     // no box either, and a pitch for the whole trade, while the Analyzer, on the shown block, offered the lean version first.
+    // Since Checkpoint 7e (planner reply to Checkpoint 7d, item 4.1) no card has steps: its "How to offer it" (offers.ts)
+    // reads the printed tag too, and opens with the lean version, as the Analyzer's does.
     const key = "6|give:1008,1011|get:1062,1064";
     const r = search(127);
     const st = stateOf(r);
@@ -211,14 +214,16 @@ describe("the shown pass (search.ts): every number a card or a box prints comes 
     expect([card.them?.helps, helpsBoth(card)]).toEqual([8, false]);
     const a = analyzeTrade(contextOf(127), card.proposal, { settings: at(0.1) }).evaluation as TradeEvaluation;
     expect(helpsBoth(a)).toBe(false);
-    expect(card.steps?.offerFirst.key).toBe("6|give:1008|get:1062,1064");
-    // The same steps (a version the search had evaluated keeps the order of its explanation facts: compared on what they say).
-    const said = (s: TradeEvaluation["steps"]) => s && { ranked: s.ranked, add: s.ifNo.add, versions: [s.offerFirst, s.ifNo.full].map((v) => ({ key: v.key, proposal: v.proposal, b: v.b, b3: v.b3, tradeScore: v.tradeScore, pAccept: v.pAccept, pComplete: v.pComplete })) };
-    expect(said(card.steps)).toEqual(said(a.steps));
+    expect(card.steps).toBeUndefined();
     expect(card.pitch).toBe(a.pitch);
     expect(card.reasons).toEqual(a.reasons);
-    // Its steps' offer first doesn't help both: a rule only a card tagged "Helps both" reads.
-    expect(helpsBoth(st.versions.get(card.steps?.offerFirst.key as string)?.screen as TradeEvaluationCore)).toBe(false);
+    const said = (l: OfferLadder | null) => l?.steps.map((s) => ({ kind: s.kind, key: s.evaluation.key, tradeScore: s.evaluation.tradeScore, pComplete: s.evaluation.pComplete }));
+    const ladder = offerLadderOfSearch(r, key);
+    expect(said(ladder)).toEqual(said(offerLadderOfProposal(contextOf(127), card.proposal, { settings: at(0.1) })));
+    // It opens with the lean version, which doesn't help both: a rule only a card tagged "Helps both" reads.
+    const open = ladder?.steps[0];
+    expect([open?.kind, open?.evaluation.key]).toEqual(["open", "6|give:1008|get:1062,1064"]);
+    expect(helpsBoth(open?.evaluation as TradeEvaluation)).toBe(false);
   });
 });
 
@@ -246,11 +251,12 @@ describe("each list is rank.ts's ranking of its own cards on their printed numbe
       expect([...keys(listOf(on))].sort(), `seed ${seed}`).toEqual(keys(listOf(off)).filter((k) => helpsBoth(shownOf(k))).sort());
       expect(keys(rankTrades(listOf(on), value, caps, { minChance: 0.1, givenCapExempt: st.forcedGive, order: "helps", keep: helpsBoth }).trades), `seed ${seed}`).toEqual(keys(listOf(on)));
       leftBoth += listOf(off).length - listOf(on).length;
-      // Each card's steps are the same (its "Helps both" status is the same on both blocks here: a fact of the synthetic data).
+      // Each card's "Helps both" status is the same on both blocks here (a fact of the synthetic data), and no card has steps
+      // (Checkpoint 7e: "How to offer it" is worked out when it's opened, offers.ts).
       for (const t of cardsOf(on)) {
         const plain = cardsOf(off).find((c) => c.key === t.key) as TradeEvaluation;
         expect(helpsBoth(t), t.key).toBe(helpsBoth(plain));
-        expect(t.steps, t.key).toEqual(plain.steps);
+        expect([t.steps, plain.steps], t.key).toEqual([undefined, undefined]);
       }
       // The search's own counts and filter are the same; a card the "Helps both" list loses isn't hidden from the Overall
       // list; the pass's count is its own.

@@ -17,10 +17,11 @@
  * - `outcome` is the latest outcome pressed (Sent, then Accepted); `report` the latest report. Passing null
  *   clears either one (the card's buttons toggle), and a record left with neither is removed.
  * - Which version was sent (planner reply to Checkpoint 4, change 6 and answer 8: recorded now, analyzed in Phase 6):
- *   a card can show more than one version of a trade idea (the first offer and the full one of "How to offer it"; the
- *   trade and its "If they say no, try:"), so the first outcome pressed while none is recorded asks which one (a plain
- *   card's only version, "full", is recorded without asking). The record keeps `version` ("offerFirst", "full" or
- *   "planB"), that version's trade key (`versionKey`) and its estimate as its line on the card showed it
+ *   a card can show more than one version of a trade idea (since Checkpoint 7e the offers of "How to offer it" once it's
+ *   opened, and the trade "If they won't move: try …" names; planner reply to Checkpoint 7d, item 4.1), so the first outcome
+ *   pressed while none is recorded asks which one (a plain card's only version, "suggested", is recorded without asking).
+ *   The record keeps `version` (FEEDBACK_VERSIONS: "open", "then", "suggested", "last" or "planB"; "offerFirst" and "full"
+ *   from an older card), that version's trade key (`versionKey`) and its estimate as its line on the card showed it
  *   (`versionAccept`: the prediction the user acted on, which the summary's calibration reads). Later outcomes keep it;
  *   clearing the outcome clears it (it belongs to the sending). A record without one (made before Phase 4b, or a
  *   version not given) reads as unknown.
@@ -131,17 +132,26 @@ export const REASON_LABEL: Record<FeedbackReason, string> = {
 };
 
 /**
- * The versions of a trade idea a card can show (the header): the first offer of "How to offer it", the full trade (the
- * card's own, or the full version of its steps), and "If they say no, try:" (Plan B).
+ * The versions of a trade idea a card can show (the header). Since Checkpoint 7e (planner reply to Checkpoint 7d, item 4.1:
+ * "Feedback records which step was sent") a step's place in "How to offer it" (tradeModel.ts OfferStepKind): "open", "then",
+ * "suggested" (the card's own trade, sent from the card or from the list) and "last"; and "planB", "If they won't move: try …".
+ * The kinds an older card recorded stay readable and valid everywhere a version is read (this store, the export, the
+ * anonymous copy and its server schema, which reads this list: src/server/feedbackSink.ts; feedback:summary, feedback:report),
+ * so a copy from a browser still running the code before them passes: "offerFirst", the first offer of Phase 4's "How to
+ * offer it", and "full", the card's own trade or the full version of its steps.
  */
-export const FEEDBACK_VERSIONS = ["offerFirst", "full", "planB"] as const;
+export const FEEDBACK_VERSIONS = ["open", "then", "suggested", "last", "planB", "offerFirst", "full"] as const;
 export type FeedbackVersion = (typeof FEEDBACK_VERSIONS)[number];
 
 /** The versions in words, for the summary. */
 export const VERSION_LABEL: Record<FeedbackVersion, string> = {
-  offerFirst: "First offer",
-  full: "Full trade",
-  planB: "If they say no (Plan B)",
+  open: "Open with",
+  then: "Then",
+  suggested: "The suggested trade",
+  last: "Last offer",
+  planB: "If they won't move (Plan B)",
+  offerFirst: "First offer (older cards)",
+  full: "Full trade (older cards)",
 };
 
 /** The version sent, as a press passes it: which one, its trade key, and its estimate as its line on the card showed it. */
@@ -435,7 +445,7 @@ export interface FeedbackRecord {
   outcome?: { kind: FeedbackOutcome; at: string };
   /** Which version was sent (the header), with the outcome only; absent = unknown. */
   version?: FeedbackVersion;
-  /** The sent version's trade key (TradeEvaluation.key, a TradeStep's or a PlanB's). */
+  /** The sent version's trade key (TradeEvaluation.key: the card's, an offer's of "How to offer it", a PlanB's; a TradeStep's on an older card). */
   versionKey?: string;
   /** The sent version's estimate as its line on the card showed it (null where it wasn't finite). */
   versionAccept?: { pAccept: number | null; pComplete: number | null };

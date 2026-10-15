@@ -1,7 +1,8 @@
 /**
  * The minimum chance in the search and re-filtering (src/engine/search.ts; planner reply to Checkpoint 4b, change 10:
  * "Chance they accept: at least …", applied before the diversity caps on the chance as printed, re-filtered instantly
- * from the finalists, `few` on the cards shown; the offer-first steps held to it too, a Phase 4c lead decision), and the
+ * from the finalists, `few` on the cards shown; the offer-first steps held to it too, a Phase 4c lead decision, and since
+ * Checkpoint 7e the Open of "How to offer it", offers.ts), and the
  * pattern note's wiring (change 6), with my must-include players
  * outside the given-player cap and the note (review of track SR). Synthetic leagues (smallLeague: made-up players,
  * placeholder teams).
@@ -10,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import { displayAcceptance } from "./acceptance";
 import { config } from "./config";
 import { assetValue, buildTradeContext, tradeInternals, type TeamState } from "./evaluate";
+import { offerLadderOfSearch, openBar } from "./offers";
 import { patternNote } from "./pattern";
 import { rankTrades } from "./rank";
 import { patternInputsOf, rankCaps, refilterSearch, runRefilter, runTradeSearch, searchStateOf, type SearchState } from "./search";
@@ -136,45 +138,39 @@ describe("refilterSearch: the finalists ranked again with another minimum (no ne
     expect(boxes).toBeGreaterThan(0);
   });
 
-  it("a one-partner search too, and the Plan Bs and steps it shows are the fresh search's", () => {
+  it("a one-partner search too, and the Plan Bs it shows are the fresh search's", () => {
     const one = search(0.1, "4");
     expect(one.trades.length).toBeGreaterThan(0);
     const anyOne = runRefilter(ctx, stateOf(one), { minChance: 0 });
     expect(anyOne).toEqual(search(0, "4"));
     const all = search(0.1);
-    expect(all.trades.some((t) => t.planB) || all.trades.some((t) => t.steps)).toBe(true); // something to recompute
+    expect(all.trades.some((t) => t.planB)).toBe(true); // something to recompute
   });
 
-  it("⚠️ a step appears or disappears with the minimum (Phase 4c lead decision: case 1's offer first prints at least it), the same as a fresh search", () => {
-    // smallLeague(67): its searches show cards with case-1 steps (evaluate.steps.test.ts), some of whose offer-first
-    // versions print under a minimum their card meets. (smallLeague(58) from the final review of Phase 4c, when 67's cards
-    // that lost their steps got no Plan B, their old boxes being a card plus a player worth more than W, no likelier:
-    // search.ts barredFromBoxes; until Phase 7c, whose same-position fill of the roster spot a trade opens, planner reply to
-    // Checkpoint 7b, section 5, left 58's searches without a case-1 step and gave 67's cards that lose theirs Plan B boxes
-    // again: facts of the synthetic data.)
+  it("⚠️ a card's “How to offer it” follows the minimum (its Open prints at least the minimum when that's above 15%: offers.ts), the same from a re-filter as from a fresh search", () => {
+    // smallLeague(67): its cards' ladders open with versions under 30% at the lowest minimums (a fact of the synthetic data).
+    // Until Checkpoint 7e the steps' case 1 came and went with the minimum the same way (Phase 4c lead decision).
     const league67 = smallLeague(67);
     const c67 = buildTradeContext(league67.snapshot, league67.inputs, { now: TEST_NOW, scenarios: 8 });
     const any = runTradeSearch(c67, { settings: at(0) });
     const results = new Map(config.ranking.minChanceOptions.map((m) => [m, m === 0 ? any : runRefilter(c67, stateOf(any), { minChance: m })]));
-    let gone = 0;
-    let planB = 0;
-    for (const t of any.trades.filter((x) => x.steps?.ranked === "full")) {
-      const offer = displayAcceptance((t.steps as NonNullable<typeof t.steps>).offerFirst.pComplete);
+    let moved = 0;
+    for (const t of any.trades) {
+      const atAny = offerLadderOfSearch(any, t.key)?.steps.find((s) => s.kind === "open");
       for (const [m, r] of results) {
-        const card = r.trades.find((x) => x.key === t.key);
-        if (!card) continue; // the card itself is under the minimum
-        // Its steps show exactly while the offer first prints at least the minimum (and minOfferFirst).
-        expect(card.steps !== undefined, `${t.key} at ${m}`).toBe(offer >= Math.max(m, config.search.steps.minOfferFirst) - 1e-9);
-        if (!card.steps) {
-          gone++;
-          if (card.planB) planB++;
-        }
+        if (!r.trades.some((x) => x.key === t.key)) continue; // the card itself is under the minimum
+        const open = offerLadderOfSearch(r, t.key)?.steps.find((s) => s.kind === "open");
+        if (open) expect(displayAcceptance(open.evaluation.pComplete), `${t.key} at ${m}`).toBeGreaterThanOrEqual(openBar(m) - 1e-9);
+        if (atAny && open?.evaluation.key !== atAny.evaluation.key) moved++;
       }
     }
-    // Facts of the synthetic data: steps go while their card stays, and a card that loses its steps can get a Plan B.
-    expect(gone).toBeGreaterThan(0);
-    expect(planB).toBeGreaterThan(0);
-    for (const m of [0.3, 0.5]) expect(results.get(m), String(m)).toEqual(runTradeSearch(c67, { settings: at(m) }));
+    expect(moved).toBeGreaterThan(0);
+    for (const m of [0.3, 0.5]) {
+      const fresh = runTradeSearch(c67, { settings: at(m) });
+      const re = results.get(m) as TradeSearchResult;
+      expect(re, String(m)).toEqual(fresh);
+      for (const t of re.trades) expect(offerLadderOfSearch(re, t.key), `${t.key} at ${m}`).toEqual(offerLadderOfSearch(fresh, t.key));
+    }
   });
 
   it("progress under the rank stage only, ending at the shown pass's count; stoppable; the timings its own", () => {

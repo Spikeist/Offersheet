@@ -668,23 +668,28 @@ export const config = {
     /** Get pool H (planner addendum to Checkpoint 3, §2): the top getPool untagged players by MV_add(me, j), plus the top this many "Harder to get" ones. */
     getPoolTagged: 3,
     /**
-     * "Offer first / if they say no" (planner addendum to Checkpoint 3, §4). A throw-in is one of my players whose loss
-     * costs me at most throwInMaxCost ROS lineup points against my free-agent-optimized roster, in scenario lineups (at ω₀ =
-     * lineups.playoffWeight: × Σω ÷ Σω₀ under the automatic playoff weight, league.ts step 5c, LineupThresholds).
-     * A step is shown only when it raises the chance they accept by at least minAcceptGain and the offer-first version
-     * prints (acceptance.displayAcceptance, the nearest 5%) at least minOfferFirst, and in case 1 at least the user's minimum
-     * chance too (Phase 4c, evaluate.offerFirstBar); a throw-in added "if they say no" must keep B at least minBShare of the
-     * offer's.
-     * preScreen is a performance knob, not a model number (lead decision N4, ⚠️ ours): when the throw-in is added "if they
-     * say no", only the best this many candidates by the screening's quick estimate of the chance they accept get exact
-     * evaluation (evaluate.ts tradeSteps; the Checkpoint 4 report measures how often that misses the exact choice).
+     * Throw-ins and their rules (planner addendum to Checkpoint 3, §4; since Checkpoint 7e, planner reply to Checkpoint 7d,
+     * item 4.1, "How to offer it": offers in order, src/engine/offers.ts, and its `offers` block below). A throw-in is one of
+     * my players whose loss costs me at most throwInMaxCost ROS lineup points against my free-agent-optimized roster, in
+     * scenario lineups (at ω₀ = lineups.playoffWeight: × Σω ÷ Σω₀ under the automatic playoff weight, league.ts step 5c,
+     * LineupThresholds). Each offer prints a chance at least minAcceptGain above the one before (the Last offer above the
+     * suggested trade's), and the Last offer's throw-in keeps B at least minBShare of the suggested trade's. Until then the
+     * "Offer first / if they say no" steps: a step showed only when it raised the chance they accept by at least
+     * minAcceptGain and the offer-first version printed (acceptance.displayAcceptance, the nearest 5%) at least
+     * minOfferFirst (and in case 1 the user's minimum chance too); no rule reads minOfferFirst now (the test fixtures of an
+     * evaluation made before do).
+     * preScreen is a performance knob, not a model number (lead decision N4, ⚠️ ours): of the Last offer's throw-ins (the
+     * steps' "if they say no" before), only the best this many candidates by the screening's quick estimate of the chance they
+     * accept get exact evaluation (evaluate.ts lastOfferVersions; the Checkpoint 4 report measures how often that misses the
+     * exact choice).
      */
     throwInMaxCost: 5,
     steps: { minAcceptGain: 0.05, minOfferFirst: 0.1, minBShare: 0.8, preScreen: 2 },
     /**
-     * Plan B, "If they say no, try:" (planner reply to Checkpoint 4, change 6), for a card without a qualifying throw-in
-     * step: the best other evaluated trade with the same partner whose Helps you is at least minHelpsShare of the card's
-     * (B > 0, not hidden by the market guard); at most `tries` candidates get the final simulation.
+     * Plan B, "If they say no, try:" (planner reply to Checkpoint 4, change 6; since Checkpoint 7e "If they won't move: try …"
+     * on every card, planner reply to Checkpoint 7d, item 4.1; until then for a card without a qualifying throw-in step): the
+     * best other evaluated trade with the same partner whose Helps you is at least minHelpsShare of the card's (B > 0, not
+     * hidden by the market guard); at most `tries` candidates get the final simulation.
      */
     planB: { minHelpsShare: 0.5, tries: 3 },
     /** The Trade Analyzer lets the user build up to this many players a side (counteroffers included). */
@@ -696,6 +701,33 @@ export const config = {
      */
     yieldEveryScreens: 100,
     yieldEverySims: 5,
+  },
+
+  /**
+   * §13 "How to offer it": offers in order (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1: "one ordered list of up
+   * to 4 offers to the same team … Open: the version that's best for Parker (highest Helps you) that still has at least a 15%
+   * chance, so it isn't insulting"; src/engine/offers.ts). maxSteps: the most offers a card's ladder holds, the suggested trade
+   * and the Last offer counted. openMinChance: the chance the opening offer must print at least (on P_complete as the card
+   * prints it, the nearest 5%), or the user's minimum chance when that's higher. The 5-point and 80% rules are
+   * search.steps' (minAcceptGain, minBShare), as before. tries (⚠️ ours, a speed bound like Plan B's search.planB.tries):
+   * each offer is chosen on the screening block's numbers and must keep its rules on the numbers it prints (the shown
+   * block's), and at most this many candidates are simulated there for one offer before it's given up.
+   * preScreenMargin and preScreenMax (⚠️ ours, performance knobs like search.steps.preScreen, not model numbers; the review
+   * of wave D, D-ENG-1 and D-ENG-7: evaluating every candidate exactly kept about 33 MB a card in the engine worker's
+   * context and took 1.4–2.0 s in Node with 3 players a side): only candidates whose quick estimate of the chance
+   * (evaluate.ts quickScreen) lies within preScreenMargin of the Open's and Then's window (at least the Open's bar, at most
+   * the card's own quick estimate less minAcceptGain) are evaluated exactly, the most my EV lineup gains first, at most
+   * preScreenMax of them (offers.ts preScreened). Against every candidate played out: the same offers on all 42 of Parker's
+   * cards (his two leagues, week 6, 2 and 3 players a side), 230 of 231 on 24 synthetic 6-team leagues at 10% (962
+   * candidates played out instead of 5,973) and 187 of 187 on 8 12-team ones at Any; moving the floor by what the quick
+   * estimate misses the card itself by (offers.ts header) gave 40 of 42, 230 of 231 and 185 of 187.
+   */
+  offers: {
+    maxSteps: 4,
+    openMinChance: 0.15,
+    tries: 3,
+    preScreenMargin: 0.1,
+    preScreenMax: 24,
   },
 
   /** §13 Ranking and diversity. */
@@ -777,6 +809,20 @@ export const config = {
      * week. Display only.
      */
     patternDepthCoverMin: 0.5,
+    /**
+     * Checkpoint 7e (planner reply to Checkpoint 7d, item 4.2, "Now or after this week": "only when the two numbers differ by
+     * more than the noise found in 1.1 (3 points by default)"): a card shows "Helps you 37 now · 41 if done after this
+     * week's games." only when its two printed Helps you differ by more than this (item 1.1's spread across seeds at the
+     * shown block's 20,000 seasons was at most 3). Display only.
+     */
+    nowOrLaterMin: 3,
+    /**
+     * …and only while at least this many weeks remain before the trade deadline ("only when at least 2 weeks remain before
+     * the trade deadline"): with a deadline week D, D − the week the platform numbers it in (snapshot.leagueWeek ??
+     * currentWeek, as acceptance.ts tradeDeadlinePassed reads it); with a date, its whole days left ÷ 7. Below it the engine
+     * doesn't run the later simulation at all (evaluate.ts laterApplies). Display only: no number a card ranks on reads it.
+     */
+    nowOrLaterWeeks: 2,
   },
 } as const;
 

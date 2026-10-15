@@ -21,8 +21,8 @@
  *   sort stays its own (no message for it), and a card on both lists is one object, which the structured clone keeps one.
  * - `refilter` (Phase 4c; planner reply to Checkpoint 4b, change 10: "Re-filter instantly from the finalists, without
  *   re-running the search"): the ideas of a finished search (`of`: its request id, or an earlier re-filter's) ranked again
- *   with the request's minimum chance (TradeSettings.minChance; search.ts refilterSearch: the same finalists, their steps,
- *   Plan Bs, words and pattern note made again), run in slices like a search (its progress is the "rank" stage alone) and
+ *   with the request's minimum chance (TradeSettings.minChance; search.ts refilterSearch: the same finalists, their Plan
+ *   Bs, words and pattern note made again; until Checkpoint 7e their steps too), run in slices like a search (its progress is the "rank" stage alone) and
  *   answered like one (`progress`, then `trades`, or `error` or `cancelled`; one search or re-filter at a time). The
  *   worker keeps the results of its last KEPT_RESULTS searches and re-filters by id, as long as the evaluation context
  *   they ran on is the one it holds (a new context, after a kickoff for instance, forgets them). When it holds none under
@@ -38,7 +38,9 @@
  *   the Finder's "+9.1 percentage points (63% to 72%)" read "+9.1 percentage points" in the Analyzer). With `steps:
  *   false` (a trade opened from a card's "If they say no, try:"; review of Phase 4b) the evaluation comes without "Offer
  *   first / if they say no" and its words are made again without them (withoutSteps), so its message proposes the trade
- *   itself, never a smaller first offer than the trade the other manager just turned down.
+ *   itself, never a smaller first offer than the trade the other manager just turned down. Since Checkpoint 7e (planner
+ *   reply to Checkpoint 7d, item 4.1) analyzeTrade makes no steps (the card's "How to offer it" is `offers`, asked for when
+ *   it's opened, and the page asks none for such a trade), so withoutSteps leaves its evaluation as it is.
  * - `waivers` (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.4): "Waiver upgrades" with the "Rest of season" list
  *   rated by Helps you (league.ts rateWaiverUpgrades). Rating it takes about a second on Parker's league, over the lead's
  *   rule for the League model build, so `league` builds without it (BuildLeagueModelOptions.waiverRating false) and keeps
@@ -53,6 +55,36 @@
  *   doesn't hold them: RC-ENG-4). One reply: `waivers` with the rated lists (null without my team, or when the list can't
  *   be rated: no odds, or a move's season the simulator refuses), or `error`. ⚠️ One piece of work, not sliced: a
  *   `league` request sent meanwhile waits for it (about a second).
+ * - `later` replies (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.2, "Now or after this week"; no request of its
+ *   own): once a search or re-filter has answered with cards, the worker works out each card's "Helps you … if done after
+ *   this week's games" numbers (evaluate.ts laterNumbers: one more run on the shown block a card, about 45–65 ms on Parker's
+ *   leagues in Node) and posts them under that request's id as they're made (`{ type: "later", id, result: [{ key, later
+ *   }], done }`, a slice of about sliceMs at a time, `done` with the last), the Overall list's cards first in its order, then
+ *   the "Helps both" list's others (cardKeysOf). They run only while no search or re-filter is under way: a newer one
+ *   pauses them, and its own come first once it answers, then the older ones resume (each card's numbers are memoized, so a
+ *   re-filter's cards known from before go at once). Jobs of results the worker no longer keeps (KEPT_RESULTS, or a new
+ *   context) are dropped. A result without cards gets none. A line that fails ends its job: `done`, with `detail`.
+ * - `offers` (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1: "When to build it: when the user opens a card's
+ *   'How to offer it,' in the Web Worker"): a card's "How to offer it", offers in order (src/engine/offers.ts). `source`
+ *   names the card: a Trade Finder card by the id of the search or re-filter whose result holds it (engineClient.ts
+ *   searchResultIdOf) and its key, built from that result's search state (the search's own get pool for the partner, the
+ *   evaluations it made, the card's Plan B); a Trade Analyzer card by its proposal, built on the evaluation context for the
+ *   request (offers.ts offerLadderOfProposal). ⚠️ A Finder card whose result the worker no longer holds (KEPT_RESULTS, a new
+ *   context, a worker that restarted) is built the Analyzer's way from its trade (the source's `proposal`, in the card's own
+ *   order, else the trade its key names), with the request's settings and the keys the page sends as barred (its Plan B:
+ *   tradeView.ts offersBarredOf; the review of wave D, D-ENG-3 and UI-D-4: without it the ladder could offer the very trade
+ *   the card's "If they won't move: try …" box shows, and it named the players in id order; another card of its list can be
+ *   an offer, as from the result: the lead's call, wave D): the same offers as from the result. ⚠️ A result the worker keeps answers for its cards whatever the request's
+ *   settings or moment (no context is built for it): the offers are the card's as it was found, from the state that made it.
+ *   ⚠️ An `offers` request never replaces the context the worker keeps for its searches, nor forgets the results it keeps
+ *   (the review of wave D, D-ENG-8 and UI-D-4: opening a dimmed idea's offers while a newer search ran rebuilt the old
+ *   settings' context, so the newer search's next minimum chance searched again instead of re-filtering): when the kept
+ *   context isn't the request's, the request's own goes into a second slot (`aside`), dropped once a search or re-filter
+ *   answers or the kept one is built again. Each ladder is kept per result (or per context, settings, trade and barred
+ *   keys) and card key, so a second open is instant. One reply: `offers` with the ladder, or `error`. One piece of work, not
+ *   sliced: on Parker's leagues the first open of a top card takes a few tenths of a second in Node (⚠️ about ×1.24 in the
+ *   browser; its candidates pre-screened since the review of wave D: offers.ts), and a search or re-filter under way waits
+ *   for it.
  * - `cancel` { id }: stops that search or re-filter (a `cancelled` reply follows); anything else is ignored.
  *
  * The evaluation context (evaluate.ts buildTradeContext: projections, scenarios, every team's free-agent-
@@ -74,14 +106,15 @@
  * handler on its main thread when the browser has no Worker support (src/lib/engineClient.ts). The listener
  * is registered only when this module runs as a worker.
  */
-import { analyzeTrade, buildTradeContext, tradeInternals, withWords, type TradeAnalysis, type TradeContext, type TradeInternals } from "@/engine/evaluate";
+import { analyzeTrade, buildTradeContext, laterNumbers, tradeInternals, withWords, type TradeAnalysis, type TradeContext, type TradeInternals } from "@/engine/evaluate";
 import type { ModelInputs } from "@/engine/inputs";
 import { buildLeagueModel, buildLeagueModelWithContext, rateWaiverUpgrades, type BuildLeagueModelOptions, type LeagueModelBuild } from "@/engine/league";
 import type { LeagueModel, WaiverUpgrades } from "@/engine/leagueModel";
 import type { LeagueSnapshot } from "@/engine/model";
+import { offerLadderOfProposal, offerLadderOfSearch, proposalFromKey } from "@/engine/offers";
 import { refilterSearch, searchStateOf, tradeSearch } from "@/engine/search";
 import { normalizeTradeSettings, type TradeSettings } from "@/engine/settings";
-import type { TradeAsset, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeSearchProgress, TradeSearchResult } from "@/engine/tradeModel";
+import type { LaterNumbers, OfferLadder, TradeAsset, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeSearchProgress, TradeSearchResult } from "@/engine/tradeModel";
 import { waiverRatingPending } from "@/engine/waivers";
 import { LEAGUE_MODEL_SETTINGS, settingsFingerprint } from "@/lib/settingsStore";
 import { contextStillValid } from "./freshness";
@@ -143,13 +176,28 @@ export interface WaiversRequest extends LeagueJobFields {
   type: "waivers";
 }
 
+/**
+ * Which card "How to offer it" is for (the header, `offers`): a Trade Finder card, by the id of the search or re-filter whose
+ * result holds it (engineClient.ts searchResultIdOf; -1 when unknown) and its key (TradeEvaluation.key), with (the review of
+ * wave D, D-ENG-3) its trade in its own order (`proposal`) and the keys no offer of it may be (`barred`: its Plan B,
+ * tradeView.ts offersBarredOf), which the worker reads when it no longer keeps that result; or the Trade Analyzer's card, by
+ * its proposal.
+ */
+export type OffersSource = { kind: "search"; resultId: number; key: string; proposal?: TradeProposal; barred?: string[] } | { kind: "analysis"; proposal: TradeProposal };
+
+/** A card's "How to offer it", offers in order (the header: Checkpoint 7e, item 4.1; src/engine/offers.ts). */
+export interface OffersRequest extends LeagueJobFields {
+  type: "offers";
+  source: OffersSource;
+}
+
 /** Stop the search with this id. */
 export interface CancelRequest {
   type: "cancel";
   id: number;
 }
 
-export type EngineRequest = LeagueRequest | TradesRequest | RefilterRequest | AnalyzeRequest | WaiversRequest | CancelRequest;
+export type EngineRequest = LeagueRequest | TradesRequest | RefilterRequest | AnalyzeRequest | WaiversRequest | OffersRequest | CancelRequest;
 
 /** My odds before any trade, every team at its free-agent-optimized roster: the search's TradeSearchResult.baseline. */
 export type BaselineOdds = TradeSearchResult["baseline"];
@@ -169,6 +217,13 @@ export type EngineResponse =
   | { type: "analysis"; id: number; result: AnalyzerResult }
   /** The rated "Waiver upgrades" (null without my team). */
   | { type: "waivers"; id: number; result: WaiverUpgrades | null }
+  /** A card's "How to offer it" (the header, `offers`: Checkpoint 7e). */
+  | { type: "offers"; id: number; result: OfferLadder }
+  /**
+   * Checkpoint 7e (the header, `later`): some of the "now or after this week" numbers of the cards of search or re-filter `id`,
+   * in the order they were made; `done` with the last of them; `detail` when a line failed (the job ends there).
+   */
+  | { type: "later"; id: number; result: LaterLine[]; done: boolean; detail?: string }
   /** A search stopped by a `cancel` or superseded by a newer search: nothing more comes for it. */
   | { type: "cancelled"; id: number }
   /** `message` is for people; `detail` (the error itself) is for the console. */
@@ -181,6 +236,48 @@ export const SEARCH_SLICE_MS = 40;
 
 /** Results of finished searches and re-filters kept for a re-filter (the header): the last few, like the Trade Finder's memory. */
 export const KEPT_RESULTS = 4;
+
+/**
+ * One card's "now or after this week" numbers (Checkpoint 7e; the header, `later`): its key (TradeEvaluation.key) and its
+ * numbers (evaluate.ts laterNumbers), null when its context gives none (evaluate.ts laterApplies: a week under way, no week
+ * after this one, the trade deadline within config.explain.nowOrLaterWeeks weeks, no odds) or its exact trade isn't known.
+ */
+export interface LaterLine {
+  key: string;
+  later: LaterNumbers | null;
+}
+
+/** A finished search's or re-filter's cards, and how to make each one's numbers (the header, `later`; EngineHandlerDeps.laterSource). */
+export interface LaterSource {
+  /** The cards' keys (cardKeysOf). */
+  keys: string[];
+  line(key: string): LaterNumbers | null;
+}
+
+/** The keys of a result's cards, each once: the Overall list's in its order, then the "Helps both" list's others. */
+export function cardKeysOf(result: Pick<TradeSearchResult, "trades" | "helpsBoth">): string[] {
+  return [...new Set([...result.trades, ...(result.helpsBoth?.trades ?? [])].map((t) => t.key))];
+}
+
+/**
+ * The cards of a search's or re-filter's result and their "now or after this week" numbers (the header, `later`): each card's
+ * exact trade from the result's search state (search.ts searchStateOf: the engine's own result object, never a copy), on the
+ * context and with the settings the search ran with (evaluate.ts laterNumbers). Null for a result without cards; each line
+ * null for one no search ranked (no state).
+ */
+export function laterSourceOf(result: TradeSearchResult): LaterSource | null {
+  const keys = cardKeysOf(result);
+  if (!keys.length) return null;
+  const state = searchStateOf(result);
+  if (!state) return { keys, line: () => null };
+  return {
+    keys,
+    line: (key) => {
+      const x = state.exactByKey.get(key);
+      return x ? laterNumbers(state.I, x, state.settings) : null;
+    },
+  };
+}
 
 export interface EngineHandlerDeps {
   /** The League model builder (tests pass a fake): given, `league` uses it and keeps no build (the `waivers` request then builds). */
@@ -199,6 +296,14 @@ export interface EngineHandlerDeps {
   baseline?: (ctx: TradeContext) => BaselineOdds | null;
   /** An evaluation's words made again (default: evaluate.ts withWords in the context; tests with fake contexts pass their own). */
   reword?: (ctx: TradeContext, core: TradeEvaluationCore) => TradeEvaluation;
+  /** A finished result's cards and their "now or after this week" numbers (the header, `later`; default laterSourceOf; tests pass fakes). */
+  laterSource?: (result: TradeSearchResult) => LaterSource | null;
+  /**
+   * "How to offer it" (the header, `offers`; src/engine/offers.ts; tests pass fakes): a card's ladder from a finished search's
+   * result (null when the result can't give it: no state, no such card), and any proposal's on a context.
+   */
+  offersOfSearch?: typeof offerLadderOfSearch;
+  offersOfProposal?: typeof offerLadderOfProposal;
   /** Milliseconds for the engine's stage timings (performance.now in the browser); also times the search's slices. */
   clock?: () => number;
   /** Runs `fn` once the messages already waiting have been handled (default setTimeout 0). */
@@ -220,9 +325,26 @@ export function isProposal(x: unknown): x is TradeProposal {
   return isRecord(x) && typeof x.partnerId === "string" && Array.isArray(x.give) && Array.isArray(x.get) && x.give.every(isAsset) && x.get.every(isAsset);
 }
 
-function isJob(x: unknown): x is LeagueRequest | TradesRequest | RefilterRequest | AnalyzeRequest | WaiversRequest {
+/** Whether two proposals are the same trade: the same partner and the same assets on each side, in any order (the card's own order against its key's). */
+function sameTrade(a: TradeProposal, b: TradeProposal): boolean {
+  const side = (xs: readonly TradeAsset[]) => xs.map((x) => (x.kind === "player" ? x.id : `pick:${x.season}:${x.round}:${x.originalTeamId}`)).sort().join(",");
+  return a.partnerId === b.partnerId && side(a.give) === side(b.give) && side(a.get) === side(b.get);
+}
+
+/** A card's source that crossed the message boundary (OffersSource): a search's card by result id and key, or a proposal. */
+function isOffersSource(x: unknown): x is OffersSource {
   if (!isRecord(x)) return false;
-  const r = x as Partial<LeagueJobFields> & { type?: unknown; partnerId?: unknown; proposal?: unknown; of?: unknown };
+  if (x.kind === "search") {
+    const proposalOk = x.proposal === undefined || isProposal(x.proposal);
+    const barredOk = x.barred === undefined || (Array.isArray(x.barred) && x.barred.every((k) => typeof k === "string"));
+    return typeof x.resultId === "number" && typeof x.key === "string" && x.key.length > 0 && proposalOk && barredOk;
+  }
+  return x.kind === "analysis" && isProposal(x.proposal);
+}
+
+function isJob(x: unknown): x is LeagueRequest | TradesRequest | RefilterRequest | AnalyzeRequest | WaiversRequest | OffersRequest {
+  if (!isRecord(x)) return false;
+  const r = x as Partial<LeagueJobFields> & { type?: unknown; partnerId?: unknown; proposal?: unknown; of?: unknown; source?: unknown };
   const common =
     typeof r.id === "number" &&
     !!r.snapshot &&
@@ -237,6 +359,7 @@ function isJob(x: unknown): x is LeagueRequest | TradesRequest | RefilterRequest
   if (r.type === "trades") return partnerOk;
   if (r.type === "refilter") return partnerOk && typeof r.of === "number";
   if (r.type === "analyze") return isProposal(r.proposal);
+  if (r.type === "offers") return isOffersSource(r.source);
   return false;
 }
 
@@ -330,6 +453,9 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
   const refilter = deps.refilter ?? refilterSearch;
   const baselineOf = deps.baseline ?? contextBaseline;
   const reword = deps.reword ?? defaultReword;
+  const laterSource = deps.laterSource ?? laterSourceOf;
+  const offersOfSearch = deps.offersOfSearch ?? offerLadderOfSearch;
+  const offersOfProposal = deps.offersOfProposal ?? offerLadderOfProposal;
   const schedule = deps.schedule ?? defaultSchedule;
   const sliceClock = deps.clock ?? defaultClock;
   const sliceMs = deps.sliceMs ?? SEARCH_SLICE_MS;
@@ -337,6 +463,12 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
   const timing = deps.clock ? { clock: deps.clock } : {};
 
   let cached: { key: string; builtForMs: number; ctx: TradeContext } | null = null;
+  /**
+   * The context an `offers` request built because the kept one (`cached`) isn't the request's (the header, `offers`): never
+   * the searches' own, so an offer never costs a re-filter its search; dropped once a search or re-filter answers, or
+   * `cached` is built again.
+   */
+  let aside: { key: string; builtForMs: number; ctx: TradeContext } | null = null;
   /**
    * The last `league` request's build (the header, `waivers`): its key (contextKey), its moment, the build, the inputs and
    * options it was made with. Replaced by the next one; none with a fake builder (deps.build).
@@ -357,12 +489,69 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
 
   const fail = (id: number, err: unknown) => post({ type: "error", id, message: ENGINE_ERROR_MESSAGE, detail: errorDetail(err) });
 
+  /**
+   * The ladders built (the header, `offers`), by card key: a Finder card's under the result object it came from (gone with the
+   * result), any other under its context with the request's settings (gone with the context).
+   */
+  const ladders = new WeakMap<object, Map<string, OfferLadder>>();
+  const ladderIn = (owner: object, key: string, make: () => OfferLadder | null): OfferLadder | null => {
+    const known = ladders.get(owner)?.get(key);
+    if (known) return known;
+    const made = make();
+    if (!made) return null;
+    const map = ladders.get(owner) ?? new Map<string, OfferLadder>();
+    map.set(key, made);
+    ladders.set(owner, map);
+    return made;
+  };
+
+  /**
+   * A card's "How to offer it" (the header, `offers`): a Finder card from the result the worker keeps under its id, else (⚠️ a
+   * result no longer kept) its trade (the source's proposal when it's the trade the key names, else the key's), built the
+   * Analyzer's way on the context for the request, the source's barred keys barred; the Analyzer's card from its proposal.
+   * The context: the kept one when it's the request's, else the `aside` slot's (offersContext).
+   */
+  function offersFor(req: OffersRequest, now: Date, settings: TradeSettings): OfferLadder {
+    const src = req.source;
+    if (src.kind === "search") {
+      const kept = results.get(src.resultId)?.result;
+      const fromSearch = kept ? ladderIn(kept, src.key, () => offersOfSearch(kept, src.key, timing)) : null;
+      if (fromSearch) return fromSearch;
+    }
+    const fromKey = src.kind === "search" ? proposalFromKey(src.key) : null;
+    const proposal = src.kind === "analysis" ? src.proposal : src.proposal && fromKey && sameTrade(src.proposal, fromKey) ? src.proposal : fromKey;
+    if (!proposal) throw new Error("The card's trade can't be read from its key.");
+    const barred = src.kind === "search" ? [...new Set(src.barred ?? [])].sort() : [];
+    const ctx = offersContext(req, now, settings);
+    const scope = src.kind === "analysis" ? "analysis" : "finder";
+    const which = src.kind === "analysis" ? JSON.stringify(proposal) : `${JSON.stringify(proposal)}|${barred.join(",")}`;
+    const made = ladderIn(ctx, `${scope}|${settingsFingerprint(settings)}|${which}`, () => offersOfProposal(ctx, proposal, { settings, page: scope, ...(scope === "finder" ? { barred } : {}), ...timing }));
+    return made as OfferLadder;
+  }
+
+  /**
+   * The context an `offers` request is worked out on (the header, `offers`): the kept one when it's the request's (contextFor's
+   * rule), else the `aside` slot's, built for the request when it isn't the request's either: never `cached` replaced, nor
+   * the kept results forgotten.
+   */
+  function offersContext(req: OffersRequest, now: Date, settings: TradeSettings): TradeContext {
+    const key = contextKey(req, settings);
+    const nowMs = now.getTime();
+    if (cached && cached.key === key && contextStillValid(cached.builtForMs, nowMs, req.model, req.snapshot)) return cached.ctx;
+    if (aside && aside.key === key && contextStillValid(aside.builtForMs, nowMs, req.model, req.snapshot)) return aside.ctx;
+    aside = null; // a build that fails leaves nothing behind
+    const ctx = buildContext({ ...req.snapshot, myTeamId: req.myTeamId }, req.model, { now, settings, ...timing });
+    aside = { key, builtForMs: nowMs, ctx };
+    return ctx;
+  }
+
   function contextFor(req: TradesRequest | RefilterRequest | AnalyzeRequest, now: Date, settings: TradeSettings): TradeContext {
     const key = contextKey(req, settings);
     const nowMs = now.getTime();
     if (cached && cached.key === key && contextStillValid(cached.builtForMs, nowMs, req.model, req.snapshot)) return cached.ctx;
     cached = null; // a build that fails leaves nothing behind
     results.clear(); // their states belong to the context that goes
+    aside = null; // an `offers` request's own: the searches' context is built again (the header, `offers`)
     const ctx = buildContext({ ...req.snapshot, myTeamId: req.myTeamId }, req.model, { now, settings, ...timing });
     cached = { key, builtForMs: nowMs, ctx };
     return ctx;
@@ -373,6 +562,64 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
     const stopped = active;
     active = null;
     post({ type: "cancelled", id: stopped.id });
+  }
+
+  /**
+   * The "now or after this week" jobs (the header, `later`), the newest first: each answered search's or re-filter's request id,
+   * its cards' keys, the next one to make and how. They run while no search or re-filter is under way (`active`), one slice
+   * at a time (at least one card), the newest job first.
+   */
+  const laterJobs: { id: number; keys: string[]; next: number; line: LaterSource["line"] }[] = [];
+  let laterScheduled = false;
+
+  /** Schedules the next slice of line work, unless one is scheduled, a search or re-filter runs (it pumps again when it ends) or none is left. */
+  function pumpLater(): void {
+    if (laterScheduled || active || !laterJobs.length) return;
+    laterScheduled = true;
+    schedule(laterSlice);
+  }
+
+  /** One slice of line work: the newest job's next cards (about sliceMs, at least one), posted together, `done` with its last. */
+  function laterSlice(): void {
+    laterScheduled = false;
+    if (active) return;
+    // A result the worker no longer keeps (KEPT_RESULTS, or a new context) isn't one a re-filter or the page will come back to.
+    while (laterJobs.length && !results.has((laterJobs[0] as (typeof laterJobs)[number]).id)) laterJobs.shift();
+    const job = laterJobs[0];
+    if (!job) return;
+    const begin = sliceClock();
+    const lines: LaterLine[] = [];
+    let detail: string | undefined;
+    try {
+      while (job.next < job.keys.length) {
+        const key = job.keys[job.next] as string;
+        job.next++;
+        lines.push({ key, later: job.line(key) });
+        if (sliceClock() - begin >= sliceMs) break;
+      }
+    } catch (err) {
+      // A card's numbers that can't be made end the job: its cards just show no line.
+      detail = errorDetail(err);
+      job.next = job.keys.length;
+    }
+    const done = job.next >= job.keys.length;
+    if (done) laterJobs.shift();
+    post({ type: "later", id: job.id, result: lines, done, ...(detail !== undefined ? { detail } : {}) });
+    pumpLater();
+  }
+
+  /** A job for the cards of a result just answered (`result`: the engine's own object, with its search state), the first in line. */
+  function queueLater(id: number, result: TradeSearchResult): void {
+    let source: LaterSource | null;
+    try {
+      source = laterSource(result);
+    } catch (err) {
+      post({ type: "later", id, result: [], done: true, detail: errorDetail(err) });
+      return;
+    }
+    if (!source || !source.keys.length) return;
+    laterJobs.unshift({ id, keys: source.keys, next: 0, line: source.line });
+    pumpLater();
   }
 
   /**
@@ -400,7 +647,11 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
           const r = it.next();
           if (r.done) {
             active = null;
+            aside = null; // the ideas an `offers` request's own context was for are a search behind now (the header, `offers`)
             post({ type: "trades", id, result: finish(r.value) });
+            // Its cards' "now or after this week" numbers next (the header, `later`), then any older job's.
+            queueLater(id, r.value);
+            pumpLater();
             return;
           }
           last = r.value;
@@ -411,6 +662,7 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
       } catch (err) {
         if (active === run) active = null;
         fail(id, err);
+        pumpLater();
       }
     };
     schedule(step);
@@ -475,7 +727,10 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
 
   return (message: unknown) => {
     if (isCancel(message)) {
-      if (active?.id === message.id) stopActive();
+      if (active?.id === message.id) {
+        stopActive();
+        pumpLater(); // the older jobs resume (the header, `later`)
+      }
       return;
     }
     const rawId = isRecord(message) ? message.id : undefined;
@@ -541,6 +796,13 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
           // A Plan B opened in the Analyzer: one offer, without a smaller first offer (the header).
           const analysis = message.steps === false ? withoutSteps(ctx, analyzed, reword) : analyzed;
           post({ type: "analysis", id, result: { ...analysis, baseline: baselineOf(ctx) } });
+        } catch (err) {
+          fail(id, err);
+        }
+        return;
+      case "offers":
+        try {
+          post({ type: "offers", id, result: offersFor(message, now, settings) });
         } catch (err) {
           fail(id, err);
         }

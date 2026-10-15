@@ -13,13 +13,32 @@ import { titleDeltas } from "@/engine/reward";
 import { defaultTradeSettings } from "@/engine/settings";
 import type { PartnerNumbers, TradeEvaluation } from "@/engine/tradeModel";
 import type { CardFeedback, FinderView, TradeCardView } from "@/lib/tradeView";
-import { FROM_PLAN_B_NOTE, HELPS_THEM_TITLE, PROJECTIONS_SOURCE, analyzerChoices, buildAnalysisView, buildFinderView, buildTradeCard, finderTimingLines, minChanceNote, progressView, settingsSummary } from "@/lib/tradeView";
+import {
+  FROM_PLAN_B_NOTE,
+  HELPS_THEM_TITLE,
+  OFFERS_FAILED_TEXT,
+  OFFERS_LOADING_TEXT,
+  OFFERS_NONE_TEXT,
+  PLAN_B_HEADING,
+  PROJECTIONS_SOURCE,
+  analyzerChoices,
+  buildAnalysisView,
+  buildFinderView,
+  buildLadderView,
+  buildTradeCard,
+  cardVersions,
+  finderTimingLines,
+  minChanceNote,
+  progressView,
+  settingsSummary,
+  type LadderView,
+} from "@/lib/tradeView";
 import { AnalysisResult, AnalyzerForm, AnalyzerPage, analysisStatus } from "./AnalyzerPage";
 import { FeedbackControls, VERSION_QUESTION, VersionChooser, chosenVersionChange, outcomeAction } from "./FeedbackControls";
-import { HowToRead, acceptCapWords, helpsScaleWords, helpsThemValueWords, helpsThemWords, planBGainWords, planBShareWords, weeklyLineWords } from "./HowToRead";
-import { TradeCard } from "./TradeCard";
+import { HowToRead, acceptCapWords, helpsScaleWords, helpsThemValueWords, helpsThemWords, nowOrLaterWords, offersWords, planBGainWords, planBShareWords, rosterMovesWords, weeklyLineWords } from "./HowToRead";
+import { OffersPanel, TradeCard, type OffersState } from "./TradeCard";
 import { FinderControls, FinderFrame, TradeFinderPage, finderStatus, needsRefilter, refilterProgress, runShown, searchKeyFor, type FinderState } from "./TradeFinderPage";
-import { GLOOP_PREMIUM, SNOOT_PREMIUM, TRADE_MARKET, evaluation, searchResult, step, steppedFull, steppedOffer, tradeFantasyCalc, tradeSnapshot } from "./testFixtures";
+import { GLOOP_PREMIUM, SNOOT_PREMIUM, TRADE_MARKET, evaluation, searchResult, steppedFull, tradeFantasyCalc, tradeSnapshot } from "./testFixtures";
 
 const snapshot = tradeSnapshot();
 /** FantasyCalc's own values for the cards (Phase 4c: the card's one value number). */
@@ -50,6 +69,12 @@ const withThem = (e: TradeEvaluation, helps: number | null, over: Partial<Partne
     ...over,
   },
 });
+
+/** Plan B's heading as React writes it into HTML (its apostrophe escaped): "If they won&#x27;t move: try …" (Checkpoint 7e). */
+const PLAN_B_HTML = PLAN_B_HEADING.replace(/'/g, "&#x27;");
+
+/** A card's own "How to offer it" summary (How to read's paragraph names it too, in bold). */
+const OFFERS_SUMMARY = /<summary[^>]*><span>How to offer it<span class="sr-only">/;
 
 /** Visible text, tags and the entities React writes removed. */
 const textOf = (html: string) =>
@@ -518,7 +543,7 @@ describe("TradeCard (§13: each trade card shows)", () => {
     // A Plan B box shows neither, whatever its card.
     const planB = { proposal: { partnerId: "2", give: [{ kind: "player" as const, id: "105" }], get: [{ kind: "player" as const, id: "203" }] }, key: "2|give:105|get:203", b: 2, tradeScore: 28, pAccept: 0.4, pComplete: 0.4, acceptLabel: "Decent", overall: 13, kind: "otherTarget" as const, dPO: 0.02, dCH: 0.01 };
     const boxed = render(withThem(evaluation({ planB }), 24));
-    const box = boxed.slice(boxed.indexOf("If they say no, try:"));
+    const box = boxed.slice(boxed.indexOf(PLAN_B_HTML));
     expect(box).toContain("Title odds");
     expect(box).not.toContain("Helps them");
     expect(box).not.toContain("Helps both");
@@ -649,29 +674,30 @@ describe("TradeCard (§13: each trade card shows)", () => {
     expect(render()).not.toContain("full strength");
   });
 
-  it("shows 'If they say no, try:' after the card's own content: the other trade, its kind, its numbers, its own message and its own 44 px Open in Analyzer (planner reply to Checkpoint 4, change 6)", () => {
+  it("shows 'If they won't move: try …' after the card's own content: the other trade, its kind, its numbers, its own message and its own 44 px Open in Analyzer (planner reply to Checkpoint 4, change 6; its heading since Checkpoint 7e)", () => {
     const planB = { proposal: { partnerId: "2", give: [{ kind: "player" as const, id: "105" }], get: [{ kind: "player" as const, id: "203" }] }, key: "2|give:105|get:203", b: 2, tradeScore: 28, pAccept: 0.4, pComplete: 0.4, acceptLabel: "Decent", overall: 13, kind: "otherTarget" as const };
     const html = render(evaluation({ planB, flags: { marketCheck: false, hiddenByMarket: false, hiddenByBenefit: false, injured: ["204"] } }));
     const text = textOf(html);
-    const which = "(if they say no, try: Glimmer Oddfellow for Ignatius Fumblewick; trade idea 1, Trade with Gravel Gophers)";
+    const which = "(if they won't move: Glimmer Oddfellow for Ignatius Fumblewick; trade idea 1, Trade with Gravel Gophers)";
     expect(text).toContain(
-      `If they say no, try: A different set of their players You give: Glimmer Oddfellow You get: Ignatius Fumblewick Helps you 28 · Chance they accept 40% (Est. · Decent) · Overall 13 Message to send them ${which} ▾ Thanks for considering it! Would you trade Ignatius Fumblewick for Glimmer Oddfellow instead? Let me know what you think! Copy message Open in Analyzer ${which}`,
+      `If they won't move: try … A different set of their players You give: Glimmer Oddfellow You get: Ignatius Fumblewick Helps you 28 · Chance they accept 40% (Est. · Decent) · Overall 13 Message to send them ${which} ▾ Thanks for considering it! Would you trade Ignatius Fumblewick for Glimmer Oddfellow instead? Let me know what you think! Copy message Open in Analyzer ${which}`,
     );
     // Review of Phase 4b: after the card's flags, facts, reasons, message and Open in Analyzer (a flag about the card's
     // player sat right under a Plan B that didn't include him), and before the feedback buttons.
-    const at = html.indexOf("If they say no, try:");
+    const at = html.indexOf(PLAN_B_HTML);
     for (const before of ['aria-label="Risks"', "You get 120 ROS pts", ">Why<", "Hey! Want Wiggleton Spoons for Cornelius Snoot?", 'href="/analyzer?partner=2&amp;give=106&amp;get=204"']) expect(html.indexOf(before), before).toBeLessThan(at);
     expect(at).toBeLessThan(html.indexOf("What happened with it?"));
     // Each number on one line; the estimate's label can wrap apart from its number (a 320 px phone).
     expect(html).toContain(
       '<p class="mt-1 font-semibold"><span class="whitespace-nowrap">Helps you 28</span>' + NBSP + '· <span class="whitespace-nowrap">Chance they accept 40%</span> <span class="whitespace-nowrap">(Est. · Decent)</span>' + NBSP + '· <span class="whitespace-nowrap">Overall 13</span></p>',
     );
-    // Its link says it comes from "If they say no, try:" (the Analyzer then shows it as one offer).
+    // Its link says it comes from Plan B (the Analyzer then shows it as one offer).
     expect(html).toMatch(/<a class="[^"]*min-h-11[^"]*" href="\/analyzer\?partner=2&amp;give=105&amp;get=203&amp;from=planB">Open in Analyzer<span class="sr-only">/);
     // Its message's summary and Copy are 44 px targets.
-    expect(html).toMatch(/<summary class="flex min-h-11[^"]*"><span>Message to send them<span class="sr-only"> \(if they say no, try:/);
+    expect(html).toMatch(/<summary class="flex min-h-11[^"]*"><span>Message to send them<span class="sr-only"> \(if they won&#x27;t move:/);
     // Not on a card without one, and the Analyzer's card shows no link.
-    expect(render()).not.toContain("If they say no, try:");
+    expect(render()).not.toContain(PLAN_B_HTML);
+    expect(html).not.toContain("If they say no");
     expect(render(evaluation({ planB }), NONE, { analyzer: false })).not.toContain("Open in Analyzer");
     // Review of track F: its injured players carry their tags in words, and a Plan B that is a card of its own says so.
     const hurt = render(evaluation({ planB: { ...planB, proposal: { ...planB.proposal, get: [{ kind: "player", id: "206" }] }, key: "2|give:105|get:206" } }));
@@ -685,12 +711,12 @@ describe("TradeCard (§13: each trade card shows)", () => {
     const boxed = renderToStaticMarkup(
       createElement(TradeCard, { card: buildTradeCard(evaluation({ planB: odds }), { snapshot, baseline: { pPlayoffs: 0.65, pTitle: 0.121 } }), rank: 1, feedback: NONE, onFeedback: saved }),
     );
-    const box = boxed.slice(boxed.indexOf("If they say no, try:"));
+    const box = boxed.slice(boxed.indexOf(PLAN_B_HTML));
     expect(textOf(box)).toContain(
       "Helps you 28 · Chance they accept 40% (Est. · Decent) · Overall 13 Title odds 12.1% → 13.4% from 12.1% to 13.4% · , Playoff odds 65% → 69% from 65% to 69% Win chance by week: Week 9: 68% → 64% week 9 from 68% to 64% · , Week 13: 42% → 55% week 13 from 42% to 55% Message to send them",
     );
     expect(box).toContain('<span class="font-semibold">Title odds</span> <span aria-hidden="true" class="tabular-nums">12.1% → 13.4%</span><span class="sr-only">from 12.1% to 13.4%</span>');
-    expect(textOf(html.slice(html.indexOf("If they say no, try:")))).not.toContain("Title odds");
+    expect(textOf(html.slice(html.indexOf(PLAN_B_HTML)))).not.toContain("Title odds");
     // Final review of Phase 4c, finding PAGES-7: every separator keeps its dot with the item before it (a no-break space
     // before the dot), so a wrapped line never starts with "· Week 13"; the weekly line's included.
     expect(box).toContain(`<span aria-hidden="true" class="whitespace-nowrap tabular-nums">Week 9: 68% → 64%</span><span class="sr-only">week 9 from 68% to 64%</span><span aria-hidden="true">${NBSP}· </span>`);
@@ -705,7 +731,7 @@ describe("TradeCard (§13: each trade card shows)", () => {
         onFeedback: saved,
       }),
     );
-    expect(textOf(moved.slice(moved.indexOf("If they say no, try:")))).toContain("week 13 from 42% to 55% Roster moves these numbers assume Make room for Ignatius Fumblewick: drop Tobias Thimble (TE). Message to send them");
+    expect(textOf(moved.slice(moved.indexOf(PLAN_B_HTML)))).toContain("week 13 from 42% to 55% Roster moves these numbers assume Make room for Ignatius Fumblewick: drop Tobias Thimble (TE). Message to send them");
     // Review of wave B (findings B-4, either-way-before-unexplained): odds that start from the trade's own "before" (its
     // either-way moves) say so right under them, on the card and on a Plan B box.
     const before = { pPlayoffs: 0.66, pTitle: 0.125, prizes: { first: 0.125, second: null, third: null, weeklyHigh: 0, pointsLeader: 0 } };
@@ -719,25 +745,78 @@ describe("TradeCard (§13: each trade card shows)", () => {
     );
     const ownText = textOf(own);
     expect(ownText).toContain("from 66% to 70% This idea's odds start from your odds with the moves it assumes with or without this trade.");
-    expect(textOf(own.slice(own.indexOf("If they say no, try:")))).toContain("week 13 from 42% to 55% This idea's odds start from your odds with the moves it assumes with or without this trade. Message to send them");
+    expect(textOf(own.slice(own.indexOf(PLAN_B_HTML)))).toContain("week 13 from 42% to 55% This idea's odds start from your odds with the moves it assumes with or without this trade. Message to send them");
     expect(textOf(boxed)).not.toContain("This idea's odds start from");
   });
 
-  it("shows 'How to offer it' right under the three numbers: an ordered list, each estimate said in full to screen readers (§4)", () => {
-    const html = render(steppedFull());
-    expect(html).toContain(
-      '<div class="mt-3 rounded-xl border border-line px-3 py-2"><p class="text-sm font-bold">How to offer it</p><ol class="mt-1 list-decimal space-y-1 pl-5 text-sm leading-relaxed"><li class="break-words"><span class="font-semibold">Offer first:</span> Wiggleton Spoons for Cornelius Snoot<span aria-hidden="true">' + NBSP + '· </span><span class="sr-only">, </span><span aria-hidden="true" class="font-semibold"><span class="whitespace-nowrap tabular-nums">Est. 35%</span></span><span class="sr-only">an estimated 35% chance they accept</span></li><li class="break-words"><span class="font-semibold">If they say no, add</span> Tobias Thimble<span aria-hidden="true">' + NBSP + '· </span><span class="sr-only">, </span><span aria-hidden="true" class="font-semibold"><span class="whitespace-nowrap tabular-nums">Est. 55%</span></span><span class="sr-only">an estimated 55% chance they accept</span></li></ol></div>',
+  it("Checkpoint 7e (planner reply to Checkpoint 7d, item 4.1): “How to offer it”, a closed 44 px disclosure right under the odds, on a card that helps me when the page can work its offers out", () => {
+    const offered = (e = evaluation(), onOffers: (() => Promise<LadderView>) | undefined = () => new Promise<LadderView>(() => {})) =>
+      renderToStaticMarkup(createElement(TradeCard, { card: buildTradeCard(e, { snapshot, fantasyCalc: FC }), rank: 1, feedback: NONE, onFeedback: saved, onOffers }));
+    const html = offered();
+    expect(html).toMatch(
+      /<details class="mt-3 rounded-xl border border-line"><summary class="flex min-h-11 items-center justify-between gap-2 px-3 text-sm font-bold"><span>How to offer it<span class="sr-only"> \(trade idea 1, Trade with Gravel Gophers\)<\/span><\/span><span aria-hidden="true" class="text-muted">▾<\/span><\/summary>/,
     );
-    // Under the numbers, before the risk flags and the reasons.
+    expect(html).not.toMatch(/<details[^>]* open/);
+    // Under the numbers and the odds, before the risk flags and the reasons (where Phase 4's steps were).
     expect(html.indexOf("How to offer it")).toBeGreaterThan(html.indexOf(">Overall</dt>"));
     expect(html.indexOf("How to offer it")).toBeLessThan(html.indexOf("You get 120 ROS pts"));
+    // Closed and never opened: nothing asked yet, so nothing but its status line inside.
+    expect(textOf(html.slice(html.indexOf("How to offer it"), html.indexOf("You get 120 ROS pts")))).toBe("How to offer it (trade idea 1, Trade with Gravel Gophers) ▾");
+    // Without the page's engine (a test, a page that gives none), on a trade that doesn't help me, or the old steps: none.
     expect(render()).not.toContain("How to offer it");
-    // A version a veto vote could stop: only "Est. 40%" stays on one line; the rest wraps (no overflow on a 320 px phone).
-    const e = steppedOffer();
-    const vetoed = { ...e, steps: e.steps && { ...e.steps, offerFirst: step({ give: ["106"], get: ["204"], pAccept: 0.4, pComplete: 0.2, vetoRisk: true }) } };
-    expect(render(vetoed)).toContain(
-      '<span aria-hidden="true" class="font-semibold"><span class="whitespace-nowrap tabular-nums">Est. 40%</span>, about 20% it goes through</span><span class="sr-only">an estimated 40% chance they accept, about 20% that it goes through</span>',
+    expect(offered(evaluation({ b: -0.5 }))).not.toContain("How to offer it");
+    expect(offered(steppedFull())).not.toContain("Offer first:");
+  });
+
+  it("Checkpoint 7e: the opened “How to offer it” in each state: working them out, the offers in order with their own messages, the trade alone, a failure with Try again", () => {
+    const base = evaluation({ b: 3, pAccept: 0.3, pComplete: 0.3 });
+    const open = evaluation({ get: ["202", "204"], b: 4.2, pAccept: 0.15, pComplete: 0.15 });
+    const last = evaluation({ give: ["106", "108"], b: 2.7, pAccept: 0.4, pComplete: 0.4, required: { me: { drops: [], adds: [] }, partner: { drops: ["205"], adds: [] } } });
+    const c = buildTradeCard(base, { snapshot });
+    const ladder = buildLadderView(
+      {
+        cardKey: base.key,
+        steps: [
+          { kind: "open", evaluation: open, message: "Hey! Would you trade Mortimer Gloop and Cornelius Snoot for Wiggleton Spoons?" },
+          { kind: "suggested", evaluation: base, message: "Thanks for considering it! Would you trade Cornelius Snoot for Wiggleton Spoons instead? Let me know what you think!" },
+          { kind: "last", evaluation: last, message: "Thanks for considering it! Would you trade Cornelius Snoot for Wiggleton Spoons and Tobias Thimble instead? Let me know what you think!" },
+        ],
+      },
+      c,
+      { snapshot },
     );
+    const panel = (state: OffersState) => renderToStaticMarkup(createElement(OffersPanel, { state, name: "trade idea 1, Trade with Gravel Gophers", onRetry: noop }));
+    // One status line, always there, so each change is announced: empty until asked, then working them out with a spinner.
+    expect(panel({ kind: "idle" })).toBe('<p role="status" tabindex="-1" class="sr-only scroll-my-4"></p>');
+    expect(panel({ kind: "loading" })).toBe(`<p role="status" tabindex="-1" class="flex items-center gap-2 font-semibold text-muted scroll-my-4"><span aria-hidden="true" class="inline-block size-4 animate-spin rounded-full border-2 border-current border-r-transparent"></span> ${OFFERS_LOADING_TEXT}</p>`);
+    expect(OFFERS_LOADING_TEXT).toBe("Working out the offers…");
+    // The offers, in order: label and players, Helps you and the chance with its label (each kept on one line), the roster
+    // moves that aren't the card's, and each offer's own message behind its own 44 px summary with a 44 px Copy.
+    const done = panel({ kind: "done", ladder });
+    const text = textOf(done);
+    expect(text).toContain(
+      "Offer them in order: if they say no, try the next. Open with: Wiggleton Spoons for Mortimer Gloop and Cornelius Snoot Helps you 50 · Chance they accept 15% (Est. · Possible) Message to send them (Open with: Wiggleton Spoons for Mortimer Gloop and Cornelius Snoot; trade idea 1, Trade with Gravel Gophers) ▾ Hey! Would you trade Mortimer Gloop and Cornelius Snoot for Wiggleton Spoons? Copy message",
+    );
+    expect(text).toContain("Last offer: Wiggleton Spoons and Tobias Thimble for Cornelius Snoot Helps you 36 · Chance they accept 40% (Est. · Decent) Roster moves these numbers assume Gravel Gophers would drop Percival Plunk (WR, LAR) to stay within their roster limits. Message to send them");
+    expect(done).toMatch(/^<p role="status" tabindex="-1" class="font-semibold scroll-my-4">Offer them in order: if they say no, try the next\.<\/p><ol class="mt-2 list-decimal space-y-3 pl-5"><li class="break-words" data-offer-key="[^"]+">/);
+    expect(done.match(/<li class="break-words" data-offer-key="[^"]+"><p><span class="font-semibold">/g)).toHaveLength(3);
+    expect(done).toContain('<p class="font-semibold"><span class="whitespace-nowrap">Helps you 50</span>' + NBSP + '· <span class="whitespace-nowrap">Chance they accept 15%</span> <span class="whitespace-nowrap">(Est. · Possible)</span></p>');
+    expect(done.match(/<summary class="flex min-h-11[^"]*"><span>Message to send them/g)).toHaveLength(3);
+    expect(done.match(/>Copy message<\/button>/g)).toHaveLength(3);
+    // The suggested trade alone: the status line says to offer it as it is, and no list.
+    const alone = buildLadderView({ cardKey: base.key, steps: [{ kind: "suggested", evaluation: base, message: "x" }] }, c, { snapshot });
+    expect(panel({ kind: "done", ladder: alone })).toBe('<p role="status" tabindex="-1" class="font-semibold scroll-my-4">Offer this trade as it is: no version of it with Gravel Gophers makes a better first offer.</p>');
+    // No offer at all (the review of wave D, UI-D-8): the trade can't be worked out, no list, no Try again (asking again gives the same).
+    const none = buildLadderView({ cardKey: base.key, steps: [] }, c, { snapshot });
+    expect(panel({ kind: "done", ladder: none })).toBe(`<p role="status" tabindex="-1" class="font-semibold scroll-my-4">${OFFERS_NONE_TEXT.replace(/'/g, "&#x27;")}</p>`);
+    // A failure: an alert, and a 44 px Try again named for screen readers.
+    const failed = panel({ kind: "failed" });
+    expect(failed).toContain(`<div role="alert" class="rounded-xl border px-4 py-3 text-sm leading-relaxed border-danger-line bg-danger-bg text-danger-fg"><div>${OFFERS_FAILED_TEXT.replace(/'/g, "&#x27;")}</div></div>`);
+    expect(failed).toMatch(/<button type="button" class="[^"]*min-h-11[^"]*">Try again<span class="sr-only"> \(how to offer trade idea 1, Trade with Gravel Gophers\)<\/span><\/button>/);
+    // Every button and link in it is a 44 px target.
+    for (const t of targets(done)) expect(t.cls, t.text).toContain("min-h-11");
+    // Once the offers are in, they're the versions the feedback asks about, with Plan B's after them.
+    expect(cardVersions(c, ladder).map((v) => v.version)).toEqual(["open", "suggested", "last"]);
   });
 });
 
@@ -946,9 +1025,33 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
     expect(helpsThemValueWords()).toBe(redraft);
   });
 
-  it("explains Harder to get and How to offer it", () => {
+  it("explains Harder to get and How to offer it: its offers in order, by their rules from config (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1)", () => {
     expect(how()).toContain(HARDER);
-    expect(how()).toContain("How to offer it shows on some ideas: offer the first version, and if they say no, add the player named, one you can spare (losing him costs your lineup little), which raises the chance they accept. The message to send them proposes the first version.");
+    expect(how()).toContain(
+      "How to offer it works out, when you open it on an idea that helps you, up to 4 offers to the same team, in order: “Open with” the version that helps you most while it still has at least a 15% chance they accept (or your minimum chance, when that's higher); “Then”, versions that help you a little less, each at least 5 percentage points likelier than the one before; “The suggested trade”, the idea itself; and “Last offer”, the suggested trade plus a player you can spare (losing him costs your lineup little), when that makes it at least 5 percentage points likelier while it still does at least 80% as much for you. Each offer shows Helps you, the chance they accept, the roster moves its numbers assume when they aren't the idea's, and its own message to send them. An offer that is also another idea on the list says so, with that idea's place (“Also shown as trade idea 2.”); the idea's own “If they won't move: try …” trade is never one of its offers. When no other version makes a better first offer, it says to offer the trade as it is.",
+    );
+    expect(offersWords("finder")).toContain(`up to ${config.offers.maxSteps} offers`);
+    expect(offersWords("finder")).toContain(`at least a ${Math.round(config.offers.openMinChance * 100)}% chance`);
+    expect(how()).not.toContain("Offer first");
+  });
+
+  it("explains the roster moves box on both pages (Checkpoint 7e; planner reply to Checkpoint 7d, item 2.2)", () => {
+    const box =
+      "Roster moves these numbers assume lists, in order, each move to your roster that the card's numbers count on, with its reason and its week: a player you'd drop to stay within your league's limits or to make room, a free agent for a roster spot the trade opens, a waiver move the trade makes worthwhile, and who you'd release when a player comes back from IR. Moves you'd make with or without the trade, like the pickups the League page suggests, are named on one line at the end and aren't counted for the trade;";
+    expect(how()).toContain(`${box} when one isn't on the League page's list, the idea's odds start from your odds with it, and the card says so. The other team's moves follow yours.`);
+    expect(how(undefined, "analyzer")).toContain(`${box} when one isn't on the League page's list, your odds before this trade count it too. The other team's moves follow yours.`);
+    expect(rosterMovesWords("finder")).not.toMatch(/either-way|V\*|baseline/);
+  });
+
+  it("explains “Now or after this week” on both pages, its numbers from config (the review of wave D, UI-D-9; planner reply to Checkpoint 7d, item 4.2)", () => {
+    const line =
+      "Now or after this week shows on a card when making the same trade after this week's games would change Helps you by more than 3 (“Helps you 37 now · 41 if done after this week's games.”), while at least 2 weeks remain before your trade deadline. It assumes the same deal is still there next week: injuries, big games or another trade can change that, and their answer may change too.";
+    expect(how()).toContain(line);
+    expect(how(undefined, "analyzer")).toContain(line);
+    expect(nowOrLaterWords()).toContain(`by more than ${config.explain.nowOrLaterMin} `);
+    expect(nowOrLaterWords()).toContain(`at least ${config.explain.nowOrLaterWeeks} weeks remain`);
+    // The planner's tooltip, word for word but for its first letter.
+    expect(nowOrLaterWords()).toContain("assumes the same deal is still there next week: injuries, big games or another trade can change that, and their answer may change too.");
   });
 
   it("keeps the Trade Finder's words: ideas sorted by Overall, and what's left out", () => {
@@ -966,13 +1069,15 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
   it("explains Plan B on the Trade Finder only, and the injury tags on both pages (planner reply to Checkpoint 4, change 6)", () => {
     // Review of track F: a Plan B is a trade they're likelier to accept (it read "a good fallback", for trades that were
     // often harder to land than their card).
+    // Checkpoint 7e: its heading is the planner's, "If they won't move: try …", below an idea (the offers above it).
     const planB =
-      "If they say no, try shows on other ideas when the same team has a trade they're likelier to accept: at least 5 percentage points likelier to go through, while still helping you at least half as much. It's the best such trade, a different package for the same players of theirs when there is one, else a different set of their players, with its own three numbers and odds, its own message to send them, and a link to open it in the Trade Analyzer, where it's shown as one offer.";
+      "If they won't move: try … shows below an idea when the same team has a trade they're likelier to accept: at least 5 percentage points likelier to go through, while still helping you at least half as much. It's the best such trade for a different set of their players (other versions of the idea's own trade are in How to offer it), with its own three numbers and odds, its own message to send them, and a link to open it in the Trade Analyzer, where it's shown as one offer.";
     expect(how()).toContain(planB);
     expect(how()).not.toContain("good fallback");
+    expect(how()).not.toContain("If they say no");
     // The Analyzer shows no Plan B; it only says how a trade opened from one is shown (review of Phase 4b).
-    expect(how(undefined, "analyzer")).not.toContain("If they say no, try shows");
-    expect(how(undefined, "analyzer")).toContain("A trade opened from a trade idea's “If they say no, try” is shown as one offer instead");
+    expect(how(undefined, "analyzer")).not.toContain("If they won't move: try … shows");
+    expect(how(undefined, "analyzer")).toContain("A trade opened from a trade idea's “If they won't move: try …” is shown as one offer instead");
     const tags =
       "Injury tags show under any player in the trade who isn't healthy, on either side: for example “Questionable” or “Out — expected back week 8”. The week shows when his projection counts on it, so a questionable player whose league site doesn't expect him back for weeks shows that week too. A player you'd get who is hurt is projected to return at full strength, blended with the trade market, which prices his injury in.";
     expect(how()).toContain(tags);
@@ -984,7 +1089,7 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
     expect([planBGainWords(0.05), planBGainWords(0.01)]).toEqual(["5 percentage points", "1 percentage point"]);
   });
 
-  it("has the Trade Analyzer's own version: nothing ranked or left out there, and why the first offer can leave out a player of the trade built (review of the addendum)", () => {
+  it("has the Trade Analyzer's own version: nothing ranked or left out there, and its offers built around the trade built (Checkpoint 7e)", () => {
     const text = how(undefined, "analyzer");
     expect(text.startsWith("How to read the evaluation Helps you (0–100)")).toBe(true);
     expect(text).toContain("It also counts trade value, so you keep some for later deals");
@@ -994,7 +1099,7 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
     expect(text).toContain("Overall combines the two: how much it helps, discounted by the chance it happens. The Trade Finder ranks its trade ideas by it.");
     expect(text).toContain(HARDER);
     expect(text).toContain(
-      "How to offer it shows when the trade is worth offering in two steps: offer the first version, and if they say no, add the player named, one you can spare (losing him costs your lineup little), which raises the chance they accept. If the trade you built gives a player you can spare along with someone else, the first version leaves him out, and adding him back gives the trade you built. The message to send them proposes the first version; the three numbers are for the trade you built. A trade opened from a trade idea's “If they say no, try” is shown as one offer instead: they've just turned down a trade with the same team.",
+      "How to offer it works out, when you open it, up to 4 offers of this trade to the same team, in order: “Open with” the version that helps you most while it still has at least a 15% chance they accept (or the minimum chance you set on the Trade Finder, when that's higher); “Then”, versions that help you a little less, each at least 5 percentage points likelier than the one before; “The trade you built”; and “Last offer”, the trade you built plus a player you can spare (losing him costs your lineup little), when that makes it at least 5 percentage points likelier while it still does at least 80% as much for you. Each offer shows Helps you, the chance they accept, the roster moves its numbers assume when they aren't this card's, and its own message to send them. When no other version makes a better first offer, it says to offer the trade as it is. A trade opened from a trade idea's “If they won't move: try …” is shown as one offer instead: they've just turned down a trade with the same team.",
     );
     expect(text).toContain(
       "“Details” shows what Helps you is worth in points a week. The Trade Finder leaves out trades that wouldn't help you, or where, counting roster spots, you'd give up much more trade value than you get; here they still show, with a warning.",
@@ -1020,59 +1125,98 @@ describe("FeedbackControls", () => {
     expect(html).toMatch(/<p role="status" class="sr-only"><\/p>/);
   });
 
-  describe("which version was sent (planner reply to Checkpoint 4, change 6), with its model inputs (planner reply to Checkpoint 4b, change 7)", () => {
+  describe("which version was sent (planner reply to Checkpoint 4, change 6), with its model inputs (planner reply to Checkpoint 4b, change 7); since Checkpoint 7e the offers of “How to offer it” (planner reply to Checkpoint 7d, item 4.1)", () => {
     const plain = buildTradeCard(evaluation(), { snapshot, goal: "title" }).versions;
-    const stepped = buildTradeCard(steppedFull(), { snapshot, goal: "title" }).versions;
+    // A card with a Plan B (Oddfellow for Fumblewick) whose "How to offer it" has loaded: open with Spoons for Gloop and Snoot,
+    // then the card, then the card with Thimble added.
+    const planB = { proposal: { partnerId: "2", give: [{ kind: "player" as const, id: "105" }], get: [{ kind: "player" as const, id: "203" }] }, key: "2|give:105|get:203", b: 2, tradeScore: 28, pAccept: 0.5, pComplete: 0.5, acceptLabel: "Decent", overall: 14, kind: "otherTarget" as const };
+    const base = evaluation({ planB });
+    const card = buildTradeCard(base, { snapshot, goal: "title" });
+    const opening = evaluation({ get: ["202", "204"], b: 4.2, pAccept: 0.15, pComplete: 0.15 });
+    const ladder = buildLadderView(
+      {
+        cardKey: base.key,
+        steps: [
+          { kind: "open", evaluation: opening, message: "x" },
+          { kind: "suggested", evaluation: base, message: "y" },
+          { kind: "last", evaluation: evaluation({ give: ["106", "108"], b: 2.7, pAccept: 0.55, pComplete: 0.55 }), message: "z" },
+        ],
+      },
+      card,
+      { snapshot, goal: "title" },
+    );
+    const offered = cardVersions(card, ladder);
 
-    it("a plain card saves its one version with the outcome, without asking, its model inputs and the goal included", () => {
+    it("a plain card saves its one version, the suggested trade, with the outcome, without asking, its model inputs and the goal included", () => {
       const e = evaluation();
       // Phase 7a: with the card's B₃ and its scale's reason (none here: the fixture's notes are empty).
       const inputs = { features: { ...e.features }, gPartner: e.gPartner, b: e.b, goal: "title", b3: e.b3, helpsReason: null };
-      expect(outcomeAction(NONE, plain, "sent")).toEqual({ action: "save", change: { outcome: "sent", sent: { version: "full", key: plain[0]?.key, pAccept: 0.4, pComplete: 0.4, inputs } } });
+      expect(outcomeAction(NONE, plain, "sent")).toEqual({ action: "save", change: { outcome: "sent", sent: { version: "suggested", key: plain[0]?.key, pAccept: 0.4, pComplete: 0.4, inputs } } });
     });
 
-    it("a card with two versions asks on the first outcome; a version recorded stays; pressing the outcome on clears it", () => {
-      expect(outcomeAction(NONE, stepped, "sent")).toEqual({ action: "ask" });
-      expect(outcomeAction(NONE, stepped, "accepted")).toEqual({ action: "ask" });
-      expect(outcomeAction({ outcome: "sent", version: "offerFirst" }, stepped, "accepted")).toEqual({ action: "save", change: { outcome: "accepted" } });
-      expect(outcomeAction({ outcome: "sent", version: "offerFirst" }, stepped, "sent")).toEqual({ action: "clear", change: { outcome: null } });
+    it("a card with two or more versions asks on the first outcome; a version recorded stays; pressing the outcome on clears it", () => {
+      for (const versions of [card.versions, offered]) {
+        expect(outcomeAction(NONE, versions, "sent")).toEqual({ action: "ask" });
+        expect(outcomeAction(NONE, versions, "accepted")).toEqual({ action: "ask" });
+      }
+      expect(outcomeAction({ outcome: "sent", version: "open" }, offered, "accepted")).toEqual({ action: "save", change: { outcome: "accepted" } });
+      expect(outcomeAction({ outcome: "sent", version: "open" }, offered, "sent")).toEqual({ action: "clear", change: { outcome: null } });
+      // An older card's kind recorded stays too.
+      expect(outcomeAction({ outcome: "sent", version: "offerFirst" }, offered, "rejected")).toEqual({ action: "save", change: { outcome: "rejected" } });
       // No versions (absent): the outcome alone.
       expect(outcomeAction(NONE, [], "rejected")).toEqual({ action: "save", change: { outcome: "rejected" } });
-      expect(chosenVersionChange("sent", stepped[0] as (typeof stepped)[number])).toEqual({ outcome: "sent", sent: { version: "offerFirst", key: stepped[0]?.key, pAccept: 0.35, pComplete: 0.35, inputs: stepped[0]?.inputs } });
-      expect(stepped[0]?.inputs).toMatchObject({ b: 3.4, goal: "title" });
+      expect(chosenVersionChange("sent", offered[0] as (typeof offered)[number])).toEqual({ outcome: "sent", sent: { version: "open", key: opening.key, pAccept: 0.15, pComplete: 0.15, inputs: offered[0]?.inputs } });
+      expect(offered[0]?.inputs).toMatchObject({ b: 4.2, goal: "title" });
     });
 
-    it("asks in words, worded for the outcome, one 44 px button per version and Cancel", () => {
-      const html = renderToStaticMarkup(createElement(VersionChooser, { kind: "sent", versions: stepped, tradeName: "Trade with Gravel Gophers", onChoose: noop, onCancel: noop }));
+    it("asks in words, worded for the outcome, one 44 px button per version and Cancel: the offers in order once opened, then Plan B", () => {
+      const ask = (versions: typeof offered) => renderToStaticMarkup(createElement(VersionChooser, { kind: "sent", versions, tradeName: "Trade with Gravel Gophers", onChoose: noop, onCancel: noop }));
+      const html = ask(offered);
       expect(html).toMatch(/^<fieldset[^>]*><legend tabindex="-1" class="[^"]*">Which version did you send\?<span class="sr-only"> \(Trade with Gravel Gophers\)<\/span><\/legend>/);
       const buttons = targets(html).filter((t) => t.tag === "button");
-      expect(buttons.map((b) => b.text)).toEqual(["The first offer", "With Tobias Thimble added", "Cancel"]);
+      expect(buttons.map((b) => b.text)).toEqual([
+        "Open with: Wiggleton Spoons for Mortimer Gloop and Cornelius Snoot",
+        "The suggested trade",
+        "Last offer: Wiggleton Spoons and Tobias Thimble for Cornelius Snoot",
+        "If they won't move: Glimmer Oddfellow for Ignatius Fumblewick",
+        "Cancel",
+      ]);
       for (const b of buttons) expect(b.cls, b.text).toContain("min-h-11");
+      // Before "How to offer it" is opened: the card's own trade and its Plan B.
+      expect(targets(ask(card.versions)).map((b) => b.text)).toEqual(["The suggested trade", "If they won't move: Glimmer Oddfellow for Ignatius Fumblewick", "Cancel"]);
+      // Two offers at the same place ("Then") are two buttons (each keyed by its trade).
+      const thens = [
+        { ...(offered[0] as (typeof offered)[number]), version: "then" as const, key: "2|give:106|get:202", label: "Then: Wiggleton Spoons for Mortimer Gloop" },
+        { ...(offered[0] as (typeof offered)[number]), version: "then" as const, key: "2|give:106|get:203", label: "Then: Wiggleton Spoons for Ignatius Fumblewick" },
+      ];
+      expect(targets(ask(thens)).map((b) => b.text)).toEqual(["Then: Wiggleton Spoons for Mortimer Gloop", "Then: Wiggleton Spoons for Ignatius Fumblewick", "Cancel"]);
       expect(VERSION_QUESTION).toEqual({ sent: "Which version did you send?", accepted: "Which version did they accept?", rejected: "Which version did they turn down?", countered: "Which version did they counter?" });
     });
 
-    it("says which version was recorded under the buttons, on a card with two", () => {
-      const sentFull = { ...NONE, outcome: "sent" as const, version: "full" as const, versionKey: stepped[1]?.key ?? null };
-      const html = renderToStaticMarkup(createElement(FeedbackControls, { feedback: sentFull, onChange: saved, tradeName: "Trade with Gravel Gophers", versions: stepped }));
-      expect(textOf(html)).toContain("Version: With Tobias Thimble added");
+    it("says which version was recorded under the buttons: by its label, an offer by its place and players even with “How to offer it” closed", () => {
+      const sentLast = { ...NONE, outcome: "sent" as const, version: "last" as const, versionKey: offered[2]?.key ?? null, versionWords: "Wiggleton Spoons and Tobias Thimble for Cornelius Snoot" };
+      const line = (feedback: CardFeedback, versions: typeof offered) => textOf(renderToStaticMarkup(createElement(FeedbackControls, { feedback, onChange: saved, tradeName: "x", versions })));
+      expect(line(sentLast, offered)).toContain("Version: Last offer: Wiggleton Spoons and Tobias Thimble for Cornelius Snoot");
+      // After a reload "How to offer it" is closed: the same words, never "an earlier one".
+      expect(line(sentLast, card.versions)).toContain("Version: Last offer: Wiggleton Spoons and Tobias Thimble for Cornelius Snoot");
       // A record made before keys were saved: by its kind.
-      expect(textOf(renderToStaticMarkup(createElement(FeedbackControls, { feedback: { ...sentFull, versionKey: null }, onChange: saved, tradeName: "x", versions: stepped })))).toContain("Version: With Tobias Thimble added");
+      expect(line({ ...NONE, outcome: "sent", version: "planB", versionKey: null, versionWords: null }, offered)).toContain("Version: If they won't move: Glimmer Oddfellow for Ignatius Fumblewick");
       // A plain card's one version goes without saying.
-      expect(textOf(renderToStaticMarkup(createElement(FeedbackControls, { feedback: { ...sentFull, versionKey: plain[0]?.key ?? null }, onChange: saved, tradeName: "x", versions: plain })))).not.toContain("Version:");
+      expect(line({ ...sentLast, version: "suggested", versionKey: plain[0]?.key ?? null }, plain)).not.toContain("Version:");
     });
 
-    it("says 'an earlier one', with its players, when the recorded version isn't one the card shows (review of Phase 4b)", () => {
-      // Sent the "If they say no" trade, then a refresh changed the card's Plan B: the line names the one sent, not the box shown now.
-      const earlier = { ...NONE, outcome: "sent" as const, version: "planB" as const, versionKey: "2|give:105|get:203", versionWords: "Glimmer Oddfellow for Ignatius Fumblewick" };
-      const html = renderToStaticMarkup(createElement(FeedbackControls, { feedback: earlier, onChange: saved, tradeName: "x", versions: stepped }));
-      expect(textOf(html)).toContain("Version: an earlier one (Glimmer Oddfellow for Ignatius Fumblewick)");
-      expect(textOf(html)).not.toContain("The first offer");
+    it("says 'an earlier one', with its players, when the recorded Plan B isn't the one the card shows (review of Phase 4b)", () => {
+      // Sent the Plan B, then a refresh changed the card's Plan B: the line names the one sent, not the box shown now.
+      const earlier = { ...NONE, outcome: "sent" as const, version: "planB" as const, versionKey: "2|give:105|get:205", versionWords: "Glimmer Oddfellow for Percival Plunk" };
+      const html = renderToStaticMarkup(createElement(FeedbackControls, { feedback: earlier, onChange: saved, tradeName: "x", versions: offered }));
+      expect(textOf(html)).toContain("Version: an earlier one (Glimmer Oddfellow for Percival Plunk)");
+      expect(textOf(html)).not.toContain("Ignatius Fumblewick");
       // The Analyzer's card for the same trade (one version) says it too, rather than nothing.
-      expect(textOf(renderToStaticMarkup(createElement(FeedbackControls, { feedback: earlier, onChange: saved, tradeName: "x", versions: plain })))).toContain("Version: an earlier one (Glimmer Oddfellow for Ignatius Fumblewick)");
+      expect(textOf(renderToStaticMarkup(createElement(FeedbackControls, { feedback: earlier, onChange: saved, tradeName: "x", versions: plain })))).toContain("Version: an earlier one (Glimmer Oddfellow for Percival Plunk)");
       // Without the league's names, still never the version shown now.
-      expect(textOf(renderToStaticMarkup(createElement(FeedbackControls, { feedback: { ...earlier, versionWords: null }, onChange: saved, tradeName: "x", versions: stepped })))).toContain("Version: an earlier one");
+      expect(textOf(renderToStaticMarkup(createElement(FeedbackControls, { feedback: { ...earlier, versionWords: null }, onChange: saved, tradeName: "x", versions: offered })))).toContain("Version: an earlier one");
       // A later outcome keeps the recorded version without asking.
-      expect(outcomeAction(earlier, stepped, "rejected")).toEqual({ action: "save", change: { outcome: "rejected" } });
+      expect(outcomeAction(earlier, offered, "rejected")).toEqual({ action: "save", change: { outcome: "rejected" } });
     });
   });
 });
@@ -1127,14 +1271,15 @@ describe("the Trade Analyzer", () => {
     expect(plain).not.toContain("Your odds before");
   });
 
-  it("says a trade opened from 'If they say no, try:' is shown as one offer, first among the notes under its card (review of Phase 4b)", () => {
-    const props = { stale: false, records: [], leagueKey: "espn:0000abcd", onFeedback: saved };
+  it("says a trade opened from 'If they won't move: try …' is shown as one offer, first among the notes under its card, without “How to offer it” (review of Phase 4b; Checkpoint 7e)", () => {
+    const props = { stale: false, records: [], leagueKey: "espn:0000abcd", onFeedback: saved, onOffers: () => new Promise<LadderView>(() => {}) };
     const view = buildAnalysisView({ evaluation: evaluation(), illegal: null, notes: ["Long-term values didn't load."] }, snapshot, undefined, { from: "planB" });
     expect(view.notes).toEqual([FROM_PLAN_B_NOTE, "Long-term values didn't load."]);
     const html = renderToStaticMarkup(createElement(AnalysisResult, { view, ...props }));
     expect(textOf(html)).toContain(
-      "You opened this from “If they say no, try:” on a trade idea, so it's shown as one offer, without a smaller first offer to try before it: they've just turned down a trade with the same team. Long-term values didn't load.",
+      "You opened this from “If they won't move: try …” on a trade idea, so it's shown as one offer, without offers to try before it: they've just turned down a trade with the same team. Long-term values didn't load.",
     );
+    expect(html).not.toMatch(OFFERS_SUMMARY);
     expect(html.indexOf("You opened this from")).toBeGreaterThan(html.indexOf("What happened with it?"));
     // Not otherwise, and not without a card.
     expect(buildAnalysisView({ evaluation: evaluation(), illegal: null, notes: [] }, snapshot).notes).toEqual([]);
@@ -1177,21 +1322,34 @@ describe("the Trade Analyzer", () => {
     }
   });
 
-  it("shows the analyzed trade's steps on its card too (useful for counteroffers)", () => {
-    const html = renderToStaticMarkup(createElement(AnalysisResult, { view: buildAnalysisView({ evaluation: steppedOffer(), illegal: null, notes: [] }, snapshot), stale: false, records: [], leagueKey: "espn:0000abcd", onFeedback: saved }));
-    expect(textOf(html)).toContain("How to offer it Offer first: Wiggleton Spoons for Cornelius Snoot · , Est. 35% an estimated 35% chance they accept If they say no, add Tobias Thimble · , Est. 55%");
+  it("shows “How to offer it” on the analyzed trade's card too (useful for counteroffers; Checkpoint 7e), its offers built around the trade built", () => {
+    const html = renderToStaticMarkup(
+      createElement(AnalysisResult, {
+        view: buildAnalysisView({ evaluation: evaluation(), illegal: null, notes: [] }, snapshot),
+        stale: false,
+        records: [],
+        leagueKey: "espn:0000abcd",
+        onFeedback: saved,
+        onOffers: () => new Promise<LadderView>(() => {}),
+      }),
+    );
+    expect(html).toMatch(/<summary class="flex min-h-11[^"]*"><span>How to offer it<span class="sr-only"> \(Trade with Gravel Gophers\)<\/span><\/span>/);
+    // Without the page's engine: none.
+    expect(renderToStaticMarkup(createElement(AnalysisResult, { view: buildAnalysisView({ evaluation: evaluation(), illegal: null, notes: [] }, snapshot), stale: false, records: [], leagueKey: "espn:0000abcd", onFeedback: saved }))).not.toMatch(
+      OFFERS_SUMMARY,
+    );
   });
 
-  it("explains the card under it, as the Trade Finder does: Harder to get, How to offer it, and why the message proposes less than the trade built (review of the addendum)", () => {
-    // The trade built: Spoons and Thimble for Snoot; the first offer leaves Thimble out (TradeSteps.ranked "full").
-    const built = steppedFull();
+  it("explains the card under it, as the Trade Finder does: Harder to get, How to offer it with the trade built among its offers, and the roster moves (review of the addendum; Checkpoint 7e)", () => {
+    const built = evaluation({ give: ["106", "108"] });
     const result = (stale: boolean, leagueType?: "redraft" | "keeper" | "dynasty") =>
       renderToStaticMarkup(createElement(AnalysisResult, { view: buildAnalysisView({ evaluation: built, illegal: null, notes: [] }, snapshot), stale, records: [], leagueKey: "espn:0000abcd", leagueType, onFeedback: saved }));
     const html = result(false);
     const text = textOf(html);
     expect(text).toContain("How to read the evaluation");
     expect(text).toContain("Harder to get marks a player you'd get who is one of their two most valuable players and one of the top 12 players by trade value");
-    expect(text).toContain("If the trade you built gives a player you can spare along with someone else, the first version leaves him out, and adding him back gives the trade you built. The message to send them proposes the first version; the three numbers are for the trade you built.");
+    expect(text).toContain("“The trade you built”; and “Last offer”, the trade you built plus a player you can spare");
+    expect(text).toContain("Roster moves these numbers assume lists, in order, each move to your roster");
     // Under the card, inside the result's section, closed at first.
     expect(html.indexOf("How to read the evaluation")).toBeGreaterThan(html.indexOf("What happened with it?"));
     expect(html).toMatch(/<\/div><details class="[^"]*"><summary class="flex min-h-11[^"]*">How to read the evaluation<\/summary>[\s\S]*<\/details><\/section>$/);
