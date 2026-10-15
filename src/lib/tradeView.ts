@@ -2873,8 +2873,8 @@ const STAGE_ORDER: readonly TradeSearchStage[] = ["setup", "screening", "exact",
  * simulations 0.7 s and 0.95 s, the ranking with the shown pass 1.2 s: 8%, 30%, 21%, 9%, 14% and 17%; his 12-team league
  * 12%, 26%, 19%, 12%, 16% and 16%), where its 4% had left the bar at 96–99% for over a second. Checkpoint 7f (planner reply
  * to Checkpoint 7e, answer 2): each idea's run on the shown block continues its ranking run, so the "rank" stage is about an
- * eighth (Node, Oct 14 dumps: context 0.53 s, screening 2.25 s, exact 1.59 s, simulations 0.69 s and 0.98 s, the ranking
- * with the shown pass 0.91 s on his first league: 8%, 32%, 23%, 10%, 14% and 13%; his 12-team league 11%, 28%, 20%, 12%, 17%
+ * eighth (Node, Oct 14 dumps: context 0.50 s, screening 2.19 s, exact 1.54 s, simulations 0.68 s and 0.98 s, the ranking
+ * with the shown pass 0.93 s on his first league: 7%, 32%, 23%, 10%, 14% and 14%; his 12-team league 11%, 27%, 19%, 12%, 17%
  * and 13%), and the two simulation stages take what it gave up.
  */
 const STAGE_WEIGHT: Record<TradeSearchStage, number> = { setup: 0.07, screening: 0.36, exact: 0.2, simScreen: 0.1, simFinal: 0.14, rank: 0.13 };

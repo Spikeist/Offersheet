@@ -331,7 +331,7 @@
  * restarted it), with TradeSearchProgress.part "shown" while the pass runs on a block of its own, which tradeView.ts names,
  * still the "rank" stage so a re-filter reads as one), so a worker can slice it and stop it. ⚠️ A run on the shown block is
  * one unit of about 45–50 ms on Parker's league in Node (20,000 seasons), over the 40 ms the other units keep to; about 35 ms
- * since Checkpoint 7f, continuing its ranking run (about 50 ms on his 12-team league). Timings:
+ * since Checkpoint 7f, continuing its ranking run (about 47 ms on his 12-team league, 61 before). Timings:
  * one key per TradeSearchStage, "steps" (the shown trades' Plan B and words; until Checkpoint 7e their steps too: the key
  * keeps its name), "shown" (the runs on the shown block,
  * Checkpoint 7e) and "total"; a re-filter's: "rank", "steps", "shown" (when the pass has a block of its own) and "total".
@@ -1354,8 +1354,8 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
     }
     const x = exactByKey.get(key);
     if (!x) return;
-    // A yield before each run too: a run on the shown block is the stage's longest unit of work (about 35–50 ms on Parker's
-    // leagues in Node since Checkpoint 7f, continuing its ranking run; 45–65 before), so no slice holds a run and other work
+    // A yield before each run too: a run on the shown block is the stage's longest unit of work (about 35–47 ms on Parker's
+    // leagues in Node since Checkpoint 7f, continuing its ranking run; 45–61 before), so no slice holds a run and other work
     // besides.
     yield progress();
     if (!sim.partners.has(x.partner.id)) {
