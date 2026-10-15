@@ -19,7 +19,7 @@ import { rankCaps, runRefilter, runTradeSearch, searchStateOf, type SearchState 
 import { defaultTradeSettings, type TradeSettings } from "./settings";
 import { TEST_NOW } from "./testLeague";
 import { smallLeague } from "./trade.testing";
-import type { MergedTrade, OfferLadder, TradeEvaluation, TradeEvaluationCore, TradeSearchResult } from "./tradeModel";
+import type { MergedTrade, OfferLadder, TradeEvaluation, TradeEvaluationCore, TradeSearchProgress, TradeSearchResult } from "./tradeModel";
 
 const bare = (c: TradeEvaluationCore): TradeEvaluation => ({ ...c, reasons: [], pitch: "" });
 const at = (minChance: number): TradeSettings => ({ ...defaultTradeSettings(), minChance });
@@ -105,10 +105,20 @@ describe("merged cards (Checkpoint 7f; planner reply to Checkpoint 7e, decision 
   for (const lg of LEAGUES) {
     it(`smallLeague(${lg.seed}, ${lg.teams} teams) at ${lg.minChance ? `${100 * lg.minChance}%` : "Any"}: each merged trade an offer of a card above it, no card holding a card below it, the lists by hand, re-filters, the switch, the kept ladders`, () => {
       const ctx = contextOf(lg.seed, lg.teams);
-      const r = runTradeSearch(ctx, { settings: at(lg.minChance) });
+      const progress: TradeSearchProgress[] = [];
+      const r = runTradeSearch(ctx, { settings: at(lg.minChance) }, (p) => progress.push(p));
       const st = searchStateOf(r) as SearchState;
       const merged = r.merged;
       if (!merged) throw new Error("no merge");
+      // 0. Progress: the "rank" stage's bar never goes back though later rounds and the ladders' steps add units (each one
+      // counted as planned and done at once), and ends done.
+      const rank = progress.filter((p) => p.stage === "rank");
+      for (let i = 1; i < rank.length; i++) {
+        const a = rank[i - 1] as TradeSearchProgress;
+        const b = rank[i] as TradeSearchProgress;
+        expect(b.done / b.total, `${lg.seed} step ${i}`).toBeGreaterThanOrEqual(a.done / a.total - 1e-12);
+      }
+      expect((rank.at(-1) as TradeSearchProgress).done).toBe((rank.at(-1) as TradeSearchProgress).total);
       // Something merged (a fact of the synthetic data) and nothing given back; the counts.
       expect(merged.overall.length + merged.helpsBoth.length).toBeGreaterThan(0);
       expect(merged.released).toBe(0);

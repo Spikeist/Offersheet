@@ -43,8 +43,9 @@
  *    tagged by the search's own rule, taggerOf), and its trade value (tradeValueText: g_mkt(me) and B's market term in
  *    points a week on the card's scale, TradeEvaluation.marketWeekly; planner reply to Checkpoint 7a, §2 question 5); the
  *    counts over the top 10 and every card, the Plan B boxes receiving an injury-tagged player among them (cardCounts;
- *    Checkpoint 7e: no card has steps, its "How to offer it" is section 11's); the pattern note (TradeSearchResult.pattern)
- *    when it shows.
+ *    Checkpoint 7e: no card has steps, its "How to offer it" is section 11's), the ideas hidden and those the variety rules
+ *    dropped, and since Checkpoint 7f those merged into another idea's offers (TradeSearchResult.dropped.merged: section
+ *    11); the pattern note (TradeSearchResult.pattern) when it shows.
  * 2. "What does your league reward?" (planner change 8; Checkpoint 7c, planner reply to Checkpoint 7b, §6: "how his top 5
  *    changed from 'Only the champion'"): the search the app runs under "Several prizes" on the league's split (--prizes;
  *    ⚠️ the prefilled split, config.benefit.prizesDefault, without it: prizesSettingsOf), on the trade context the app builds
