@@ -83,6 +83,7 @@ import {
   waiverToggleKind,
   OFFERS_ALONE,
   offersAlsoProblems,
+  offersMergeProblems,
   offersProblems,
   printedChancePoints,
   throughOf,
@@ -1464,6 +1465,20 @@ describe("Checkpoint 7c: “Helps both” (planner reply to Checkpoint 7b, §7)"
       "offer 4 (“Last offer”) reads “Also shown as trade idea 4.”, though no idea shown is its trade",
       "offer 5 (“Last offer”) carries no key to compare with the ideas shown",
     ]);
+  });
+
+  it("Checkpoint 7f: in the Overall sort an idea's offers include no idea below it, which the merge shows among its offers only (offersMergeProblems; planner reply to Checkpoint 7e, decision 3)", () => {
+    const suggested = [OFFER_STEP_LABEL.suggested, ANALYZER_SUGGESTED_LABEL];
+    const offer = (label: string, key: string | null): OfferRead => ({ label, helps: "40", chance: "30%", copy: true, key });
+    const places = { a: 1, b: 2, c: 3 };
+    // Idea 2 opens with idea 1 (above it: it stays, labeled), and its other offers are no idea's: fine.
+    expect(offersMergeProblems({ offers: [offer("Open with", "a"), offer("The suggested trade", "b"), offer("Last offer", "x"), offer("Then", null)] }, places, "b", suggested)).toEqual([]);
+    // Idea 1 offering ideas 2 and 3: both below it.
+    expect(offersMergeProblems({ offers: [offer("Open with", "b"), offer("The suggested trade", "a"), offer("Last offer", "c")] }, places, "a", suggested)).toEqual([
+      "offer 1 (“Open with”) is trade idea 2, below this one (1) on Overall, which should show it among this idea's offers only",
+      "offer 3 (“Last offer”) is trade idea 3, below this one (1) on Overall, which should show it among this idea's offers only",
+    ]);
+    expect(offersMergeProblems({ offers: [offer("Open with", "b")] }, places, "zz", suggested)).toEqual(["the idea isn't among the ideas shown"]);
   });
 
   it("FINDER_DONE reads every status line the Finder's done state can show, in every sort, and none of a search under way", () => {

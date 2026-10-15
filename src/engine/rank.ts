@@ -66,7 +66,10 @@
  *       each would make it filler again, and none made the list without it. Rounds until nothing changes (fillerRounds); a
  *       card leaves and comes back at most once each, so the rounds end. In Overall order the pass already drops every such
  *       card (the smaller trade comes first), so that list is ranked once, exactly as before. A bigger variant whose smaller
- *       trade the other rules leave out stays;
+ *       trade the other rules leave out stays. Checkpoint 7f (merged cards; search.ts, "Merged cards"): the trades
+ *       RankOptions.shownElsewhere names, folded into another card's "How to offer it", count as kept trades for this rule
+ *       alone (a variant of one that only adds a filler player leaves, as it would beside the card it was), never for a
+ *       place or a cap;
  *    b. core: perCore kept trades already share its core, the highest-value asset on each side (`value`: the
  *       perception value; ties and unknown values: the smaller asset id; an empty side has no core asset);
  *    c. partner cap: while fewer than partnerCapTop (20, §13's "top 20") trades are kept, its partner already has
@@ -127,6 +130,14 @@ export interface RankOptions {
    * guards and before the minimum chance; the others the guards keep are counted (RankedTrades.notKept). Absent: every trade.
    */
   readonly keep?: (trade: TradeEvaluation) => boolean;
+  /**
+   * Checkpoint 7f (planner reply to Checkpoint 7e, decision 3; search.ts, "Merged cards"): trades the list shows elsewhere,
+   * folded into another card's "How to offer it". The filler rule reads them as kept trades (the file header, rule a: a
+   * variant of one that only adds a filler player leaves, as it would beside the card it was), but they take no place and
+   * count for no cap (⚠️ the lead's call: counted for the caps too, the places they free mostly couldn't be filled). One
+   * that isn't legal or has no known B is ignored. Absent: none.
+   */
+  readonly shownElsewhere?: readonly TradeEvaluation[];
 }
 
 const DEFAULT_RANK_CONFIG: RankConfig = {
@@ -178,6 +189,15 @@ function furthestFirst(a: TradeEvaluation, b: TradeEvaluation): number {
 /** The common tie-break: EG, then the key, then furthestFirst (one key evaluated twice). */
 function byGainThenKey(a: TradeEvaluation, b: TradeEvaluation): number {
   return descending(gainOf(a), gainOf(b)) || byString(a.key, b.key) || furthestFirst(a, b);
+}
+
+/**
+ * Overall order (sortTrades "overall": EG highest first, then the key), as a comparator: negative when `a` comes first. The
+ * merge's "the card with the higher Overall" (Checkpoint 7f; search.ts, "Merged cards") reads it, so it agrees with the order
+ * the Overall list is in.
+ */
+export function compareOverall(a: TradeEvaluation, b: TradeEvaluation): number {
+  return byGainThenKey(a, b);
 }
 
 /** Which evaluation of one key rankTrades keeps (the file header): a legal one, then the furthest evaluated, then the higher EG. */
@@ -279,8 +299,11 @@ function fillerOf(c: Candidate, k: Candidate, cutoff: number): boolean {
   );
 }
 
-/** One greedy pass of the diversity rules (the file header, step 2) over `candidates` in the list's order. */
-function diversify(candidates: readonly Candidate[], cfg: RankConfig, givenCap: number): { kept: Candidate[]; dropped: RankedTrades["dropped"] } {
+/**
+ * One greedy pass of the diversity rules (the file header, step 2) over `candidates` in the list's order; `elsewhere`, the
+ * trades shown elsewhere (RankOptions.shownElsewhere), are kept trades for the filler rule alone.
+ */
+function diversify(candidates: readonly Candidate[], cfg: RankConfig, givenCap: number, elsewhere: readonly Candidate[]): { kept: Candidate[]; dropped: RankedTrades["dropped"] } {
   const dropped = { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 };
   const kept: Candidate[] = [];
   const perCore = new Map<string, number>();
@@ -289,7 +312,7 @@ function diversify(candidates: readonly Candidate[], cfg: RankConfig, givenCap: 
   const limit = Math.max(0, Math.floor(cfg.resultsShown));
   for (const c of candidates) {
     if (kept.length >= limit) break;
-    if (kept.some((k) => fillerOf(c, k, cfg.fillerCutoffFraction))) {
+    if (kept.some((k) => fillerOf(c, k, cfg.fillerCutoffFraction)) || elsewhere.some((k) => fillerOf(c, k, cfg.fillerCutoffFraction))) {
       dropped.filler++;
       continue;
     }
@@ -353,7 +376,7 @@ export function rankTrades(evaluations: readonly TradeEvaluation[], value: (asse
   }
   const qualifying = shown.length;
 
-  const candidates: Candidate[] = shown.map((trade) => {
+  const candidateOf = (trade: TradeEvaluation): Candidate => {
     const give = trade.proposal.give;
     const get = trade.proposal.get;
     return {
@@ -364,8 +387,11 @@ export function rankTrades(evaluations: readonly TradeEvaluation[], value: (asse
       given: [...new Set(give.flatMap((a) => (a.kind === "player" && !exempt.has(a.id) ? [a.id] : [])))],
       b: trade.b as number,
     };
-  });
-  const pass = fillerRounds(candidates, cfg, givenCap);
+  };
+  const candidates: Candidate[] = shown.map(candidateOf);
+  // Checkpoint 7f: the trades shown elsewhere, for the filler rule alone (RankOptions.shownElsewhere).
+  const elsewhere: Candidate[] = (opts.shownElsewhere ?? []).filter((t) => t.illegal === null && isFiniteNumber(t.b)).map(candidateOf);
+  const pass = fillerRounds(candidates, cfg, givenCap, elsewhere);
   return { trades: pass.kept.map((k) => k.trade), hidden, qualifying, dropped: pass.dropped, ...(opts.keep ? { notKept } : {}) };
 }
 
@@ -380,9 +406,11 @@ export function rankTrades(evaluations: readonly TradeEvaluation[], value: (asse
  *    Judged only on a ranking with no filler left, so a smaller trade that a filler about to leave keeps out isn't given up.
  * Then the trades are ranked again without the cards that left. A card leaves at most once (once it comes back its smaller
  * trades are out, so it is filler of no card the ranking can keep) and comes back at most once, so the rounds end. In Overall
- * order the first pass leaves none.
+ * order the first pass leaves none. `elsewhere` (RankOptions.shownElsewhere) goes to every pass: a candidate that is filler
+ * of one of them leaves in the pass itself (it is checked against them whatever the list's order), so it is never among the
+ * cards that leave here, and none of them is a smaller trade a card can come back for.
  */
-function fillerRounds(candidates: readonly Candidate[], cfg: RankConfig, givenCap: number): { kept: Candidate[]; dropped: RankedTrades["dropped"] } {
+function fillerRounds(candidates: readonly Candidate[], cfg: RankConfig, givenCap: number, elsewhere: readonly Candidate[]): { kept: Candidate[]; dropped: RankedTrades["dropped"] } {
   const late = new Set<string>();
   const out = new Set<string>();
   const parents = new Map<string, Candidate[]>();
@@ -394,7 +422,7 @@ function fillerRounds(candidates: readonly Candidate[], cfg: RankConfig, givenCa
     }
     return ps;
   };
-  let pass = diversify(candidates, cfg, givenCap);
+  let pass = diversify(candidates, cfg, givenCap, elsewhere);
   for (;;) {
     // 1. Every kept card that is filler of an earlier one that stays, in Overall order.
     const stay: Candidate[] = [];
@@ -417,6 +445,7 @@ function fillerRounds(candidates: readonly Candidate[], cfg: RankConfig, givenCa
       candidates.filter((c) => !late.has(c.trade.key) && !out.has(c.trade.key)),
       cfg,
       givenCap,
+      elsewhere,
     );
   }
   const removed = new Set([...late, ...out]).size;

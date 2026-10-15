@@ -1,22 +1,41 @@
 /**
  * "How to offer it": offers in order (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1; src/engine/offers.ts): the
- * candidates (the card's give side with other get sides from the partner's get pool, the lean version, never the card or its
- * Plan B; another card of its list can be one: the lead's call, wave D), the rules on the numbers each offer prints (Open at
+ * candidates (the card's give side with other get sides from the partner's get pool, the lean version, never the card; since
+ * Checkpoint 7f nothing else barred, a Plan B never being an offer by the rules; another card of its list can be one: the
+ * lead's call, wave D), the rules on the numbers each offer prints (Open at
  * least max(15%, the minimum chance) and at least 5 points under the card, each later offer at least 5 points likelier,
  * Helps you never rising from Open to the card nor under the card's, B falling at every step (the final review of Checkpoint
  * 7e, ENG-7E-1: on equal printed Helps you),
  * the Last offer the card plus a throw-in at least 5 points likelier keeping 80% of B, every offer helping me and passing the
  * market guard, helping both under a card tagged "Helps both"), the places (ladderRoom), the messages, the Trade Analyzer's
  * card and a card whose search isn't kept (offerLadderOfProposal), the cases that get the suggested trade alone, and
- * determinism. Synthetic leagues (trade.testing.ts smallLeague: made-up players, placeholder teams); which seeds show what
- * is a fact of the synthetic data, said where a test leans on it.
+ * determinism; and Checkpoint 7f's parts for the merge (ladderNeighbors, offerFeasible, ladderChoiceSteps). Synthetic
+ * leagues (trade.testing.ts smallLeague: made-up players, placeholder teams); which seeds show what is a fact of the
+ * synthetic data, said where a test leans on it.
  */
 import { describe, expect, it } from "vitest";
 import { displayAcceptance } from "./acceptance";
 import { helpsBoth } from "./benefit";
 import { config } from "./config";
 import { buildTradeContext, proposalKey, quickScreen, throwIns, tradeInternals, type TradeContext } from "./evaluate";
-import { ladderCandidates, ladderChoice, ladderJobOfProposal, ladderJobOfSearch, ladderRoom, offerLadderOfProposal, offerLadderOfSearch, openBar, preScreened, proposalFromKey } from "./offers";
+import {
+  ladderCandidates,
+  ladderChoice,
+  ladderChoiceSteps,
+  ladderJobOfProposal,
+  ladderJobOfSearch,
+  ladderNeighbors,
+  ladderRoom,
+  offerFeasible,
+  offerLadderOfProposal,
+  offerLadderOfSearch,
+  openBar,
+  preScreened,
+  proposalFromKey,
+} from "./offers";
+import { planBCandidates, planBConfig } from "./planB";
+import { compareOverall } from "./rank";
+import { mulberry32 } from "./rng";
 import { runRefilter, runTradeSearch, searchStateOf, type SearchState } from "./search";
 import { defaultTradeSettings, type TradeSettings } from "./settings";
 import { TEST_NOW } from "./testLeague";
@@ -147,7 +166,7 @@ describe("ladderRoom: at most config.offers.maxSteps offers, the suggested trade
 });
 
 describe("the candidates (ladderCandidates)", { timeout: 120_000 }, () => {
-  it("the card's give side with every other get side of 1 to maxPerSide players from its partner's get pool; the lean version; never the card or its Plan B", () => {
+  it("the card's give side with every other get side of 1 to maxPerSide players from its partner's get pool; the lean version; never the card", () => {
     const r = search(1);
     const st = searchStateOf(r) as SearchState;
     for (const card of cardsOf(r)) {
@@ -158,7 +177,6 @@ describe("the candidates (ladderCandidates)", { timeout: 120_000 }, () => {
       const keys = candidates.map((c) => c.key);
       expect(new Set(keys).size).toBe(keys.length);
       expect(keys).not.toContain(card.key);
-      if (card.planB) expect(keys).not.toContain(card.planB.key);
       const H = [...new Set([...(pool?.pool ?? []), ...ids(card.proposal.get)])];
       const variants = candidates.filter((c) => c.kind === "variant");
       for (const c of variants) {
@@ -168,20 +186,15 @@ describe("the candidates (ladderCandidates)", { timeout: 120_000 }, () => {
         expect(get.length).toBeLessThanOrEqual(st.settings.maxPerSide);
         for (const id of get) expect(H).toContain(id);
       }
-      // Every such set but the card's own (and its Plan B's): C(H, 1) + … + C(H, maxPerSide), less those.
+      // Every such set but the card's own (nothing else barred since Checkpoint 7f): C(H, 1) + … + C(H, maxPerSide), less one.
       const choose = (n: number, k: number): number => (k === 0 ? 1 : (n * choose(n - 1, k - 1)) / k);
       let all = 0;
       for (let k = 1; k <= st.settings.maxPerSide; k++) all += choose(H.length, k);
-      const barred = [card.key, ...(card.planB ? [card.planB.key] : [])].filter((k) => proposalKey({ ...(proposalFromKey(k) as TradeProposal), get: [] }) === proposalKey({ ...card.proposal, get: [] }));
-      expect(variants.length).toBe(all - barred.length);
-      // The lean version: without my lowest-value throw-in in the trade, when my side keeps a player.
+      expect(variants.length).toBe(all - 1);
+      // The lean version: without my lowest-value throw-in in the trade, whenever my side keeps a player.
       const mine = throwIns(st.I, st.settings).filter((id) => ids(card.proposal.give).includes(id));
       const lean = candidates.filter((c) => c.kind === "lean");
-      if (mine.length > 0 && ids(card.proposal.give).length >= 2 && !lean.length) {
-        // Only when it's barred (the card's Plan B) or a variant already.
-        const want = proposalKey({ ...card.proposal, give: card.proposal.give.filter((a) => a.kind !== "player" || a.id !== mine[0]) });
-        expect(card.planB?.key === want).toBe(true);
-      }
+      expect(lean.length, card.key).toBe(mine.length > 0 && ids(card.proposal.give).length >= 2 ? 1 : 0);
       for (const c of lean) {
         expect(ids(c.proposal.get)).toEqual(ids(card.proposal.get));
         expect(ids(c.proposal.give)).toEqual(ids(card.proposal.give).filter((id) => id !== mine[0]));
@@ -261,21 +274,51 @@ describe("⚠️ on equal printed Helps you, B decides (the final review of Chec
   });
 });
 
-describe("never the card's Plan B; another card of its list can be an offer (the lead's call, wave D, in place of D-ENG-2 and UI-D-2)", { timeout: 300_000 }, () => {
-  it("the job bars the card's Plan B alone, and no offer is it (seeds 1, 3, 9, every card)", () => {
-    for (const seed of [1, 3, 9]) {
-      const r = search(seed);
-      const st = searchStateOf(r) as SearchState;
-      for (const card of cardsOf(r)) {
-        const job = ladderJobOfSearch(st, card);
-        expect([...job.barred], `${seed} ${card.key}`).toEqual(card.planB ? [card.planB.key] : []);
-        const ladder = offerLadderOfSearch(r, card.key) as OfferLadder;
-        if (card.planB) for (const s of ladder.steps) expect(s.evaluation.key, `${seed} ${card.key} ${s.kind}`).not.toBe(card.planB.key);
+describe("never the card's Plan B, by the rules (nothing barred since Checkpoint 7f); another card of its list can be an offer (the lead's call, wave D)", { timeout: 300_000 }, () => {
+  it("⚠️ a box can never be an offer under the default config (a property): it prints a chance at least its card's, where an Open or Then prints one at least minAcceptGain under it, and it's another set of their players, where the lean version and the Last offer keep the card's", () => {
+    const cfg = planBConfig();
+    expect(cfg.minAcceptGain).toBe(GAIN);
+    expect(GAIN).toBeGreaterThan(0);
+    expect(cfg.otherTargetOnly).toBe(true);
+    const rand = mulberry32(20261015);
+    for (let i = 0; i < 20_000; i++) {
+      // Any card and any box planBPasses lets through: a P_complete at least GAIN above the card's.
+      const card = rand() * 0.95;
+      const box = Math.min(1, card + GAIN + rand() * (1 - card));
+      const w = `card ${card} box ${box}`;
+      expect(chance({ pComplete: box }), w).toBeGreaterThanOrEqual(chance({ pComplete: card }) - 1e-9);
+      expect(chance({ pComplete: box }) <= chance({ pComplete: card }) - GAIN + 1e-9, w).toBe(false);
+    }
+    // And every box candidate of whole searches is another set of their players (planBCandidates under the default config).
+    for (const seed of [1, 3]) {
+      const st = searchStateOf(search(seed)) as SearchState;
+      for (const card of st.finals) {
+        for (const c of planBCandidates(card, st.planBPool, cfg)) {
+          expect(c.kind).toBe("otherTarget");
+          expect([...ids(c.core.proposal.get)].sort()).not.toEqual([...ids(card.proposal.get)].sort());
+        }
       }
     }
   });
 
-  it("offers that are another card of its list occur, each holding every rule and printing that card's own numbers (seeds 1, 3, 9: a fact of the synthetic data)", () => {
+  it("no offer is the card's Plan B, nor would be with every candidate played out (seeds 1, 3, 9, every card)", () => {
+    let boxes = 0;
+    for (const seed of [1, 3, 9]) {
+      const r = search(seed);
+      const st = searchStateOf(r) as SearchState;
+      for (const card of cardsOf(r)) {
+        if (!card.planB) continue;
+        boxes++;
+        const ladder = offerLadderOfSearch(r, card.key) as OfferLadder;
+        for (const s of ladder.steps) expect(s.evaluation.key, `${seed} ${card.key} ${s.kind}`).not.toBe(card.planB.key);
+        const every = ladderChoice(ladderJobOfSearch(st, card), { every: true });
+        expect([every?.open?.candidate.key, ...(every?.thens ?? []).map((t) => t.candidate.key), every?.last?.printed.key], `${seed} ${card.key}`).not.toContain(card.planB.key);
+      }
+    }
+    expect(boxes).toBeGreaterThan(0);
+  });
+
+  it("offers that are another card of its list occur, each holding every rule, printing that card's own numbers and, since Checkpoint 7f, above it on Overall (the merge folds one below it: search.merge.test.ts) (seeds 1, 3, 9: a fact of the synthetic data)", () => {
     let others = 0;
     for (const seed of [1, 3, 9]) {
       const r = search(seed);
@@ -290,6 +333,7 @@ describe("never the card's Plan B; another card of its list can be an offer (the
         for (const s of ladder.steps) {
           if (s.kind === "suggested" || !listed.has(s.evaluation.key)) continue;
           others++;
+          expect(compareOverall(cards.get(s.evaluation.key) as TradeEvaluation, card), `${seed} ${card.key} ${s.kind}`).toBeLessThan(0);
           if (s.kind === "open" || s.kind === "then") expect(candidates.has(s.evaluation.key), `${seed} ${card.key} ${s.kind}`).toBe(true);
           // The other card's own printed numbers (the same trade on the same block: the ladder reads the search's).
           const other = cards.get(s.evaluation.key) as TradeEvaluation;
@@ -349,17 +393,17 @@ describe("the pre-screen (preScreened; the review of wave D, D-ENG-1 and D-ENG-7
 });
 
 describe("on demand: the Trade Analyzer's card, and a card whose search isn't kept (offerLadderOfProposal)", { timeout: 300_000 }, () => {
-  it("hold the same rules; the Analyzer's card reads the settings it's given, with no Plan B barred", () => {
+  it("hold the same rules; the Analyzer's card reads the settings it's given; a Finder card's barred keys are ignored (an older page's request, Checkpoint 7f)", () => {
     const r = search(1);
     const ctx = contextOf(1);
     let shown = 0;
     for (const card of cardsOf(r).slice(0, 6)) {
       const ladder = offerLadderOfProposal(ctx, card.proposal, { settings: at(0.1) });
       const job = ladderJobOfProposal(ctx, card.proposal, { settings: at(0.1) });
-      expect(job?.barred.size).toBe(0);
-      // A Finder card whose search isn't kept: the keys the page bars (its Plan B), never the card itself.
+      // A Finder card whose search isn't kept: whatever keys an older page bars, the ladder is the one without them.
       const planB = card.planB ? [card.planB.key] : [];
-      expect([...(ladderJobOfProposal(ctx, card.proposal, { settings: at(0.1), page: "finder", barred: [...planB, card.key] })?.barred ?? [])]).toEqual(planB);
+      const finder = { settings: at(0.1), page: "finder" as const };
+      expect(offerLadderOfProposal(ctx, card.proposal, { ...finder, barred: [...planB, card.key] })).toEqual(offerLadderOfProposal(ctx, card.proposal, finder));
       expect(job?.legalMax).toBe(config.search.analyzerMaxPerSide);
       expectRules(ladder, { ...(job?.card as TradeEvaluation), planB: undefined }, at(0.1), `analysis ${card.key}`);
       if (ladder.steps.length > 1) shown++;
@@ -417,5 +461,99 @@ describe("determinism and the store", { timeout: 300_000 }, () => {
     const r = search(9);
     expect(offerLadderOfSearch(r, "nope|give:|get:")).toBeNull();
     expect(offerLadderOfSearch({ ...r }, (r.trades[0] as TradeEvaluation).key)).toBeNull();
+  });
+});
+
+describe("Checkpoint 7f: which ladders the merge works out (ladderNeighbors, offerFeasible) and in steps (ladderChoiceSteps)", { timeout: 300_000 }, () => {
+  /** A search without the merge (Checkpoint 7e's lists), where cards offer other cards of their list more often. */
+  const unmerged = new Map<number, TradeSearchResult>();
+  const before = (seed: number): TradeSearchResult => {
+    let r = unmerged.get(seed);
+    if (!r) {
+      r = runTradeSearch(contextOf(seed), { settings: at(0.1), mergeCards: false });
+      unmerged.set(seed, r);
+    }
+    return r;
+  };
+
+  it("every card of its list a ladder holds is one of its ladderNeighbors, of the kind of its place, and passes offerFeasible on both cards' printed numbers (seeds 1, 3, 9, 48: a superset and a necessary condition)", () => {
+    let held = 0;
+    let neighbors = 0;
+    for (const seed of [1, 3, 9, 48]) {
+      const r = before(seed);
+      const st = searchStateOf(r) as SearchState;
+      for (const list of [r.trades, r.helpsBoth?.trades ?? []]) {
+        const byKey = new Map(list.map((t) => [t.key, t]));
+        for (const card of list) {
+          const near = new Map(ladderNeighbors(st, card, list).map((n) => [n.key, n.kind]));
+          expect(near.has(card.key)).toBe(false);
+          neighbors += near.size;
+          for (const s of (offerLadderOfSearch(r, card.key) as OfferLadder).steps) {
+            const other = byKey.get(s.evaluation.key);
+            if (s.kind === "suggested" || !other) continue;
+            held++;
+            const kind = s.kind === "last" ? "last" : "earlier";
+            const w = `${seed} ${card.key} ${s.kind} ${other.key}`;
+            expect(near.get(other.key), w).toBe(kind);
+            expect(offerFeasible(card, other, kind, at(0.1).minChance), w).toBe(true);
+          }
+        }
+      }
+    }
+    expect(held).toBeGreaterThan(0);
+    expect(neighbors).toBeGreaterThan(held);
+  });
+
+  it("offerFeasible reads the rules on the printed numbers: an earlier offer's window, a Last offer's, every offer's own rules", () => {
+    // A card with room on both sides of its chance (a fact of the synthetic data).
+    const k = cardsOf(search(1)).find((t) => t.pComplete > 0.3 && t.pComplete < 0.7 && (t.tradeScore as number) > 2) as TradeEvaluation;
+    expect(k).toBeDefined();
+    const b = k.b as number;
+    const like = (x: Partial<TradeEvaluation>): TradeEvaluation => ({ ...k, ...x });
+    const pk = k.pComplete;
+    // An Open or Then: a higher Helps you and B, a chance at least the Open's bar and GAIN under the card's.
+    const open = like({ b: b * 1.5, tradeScore: (k.tradeScore as number) + 5, pComplete: pk - GAIN - 0.01 });
+    expect(offerFeasible(k, open, "earlier", 0.1)).toBe(true);
+    expect(offerFeasible(k, { ...open, b }, "earlier", 0.1)).toBe(false);
+    expect(offerFeasible(k, { ...open, tradeScore: (k.tradeScore as number) - 1 }, "earlier", 0.1)).toBe(false);
+    expect(offerFeasible(k, open, "last", 0.1)).toBe(false);
+    // The Open's bar is the user's minimum chance when that's higher.
+    expect(offerFeasible(k, open, "earlier", pk)).toBe(false);
+    expect(offerFeasible(k, like({ b: b * 1.5, pComplete: pk + 0.1 }), "earlier", 0.1)).toBe(false);
+    expect(offerFeasible(k, like({ b: b * 1.5, pComplete: 0.05 }), "earlier", 0.1)).toBe(false);
+    // A Last offer: likelier by GAIN, B under the card's but at least minBShare of it, Helps you at most the card's.
+    const last = like({ b: b * 0.9, tradeScore: k.tradeScore, pComplete: Math.min(0.85, pk + GAIN + 0.01) });
+    expect(offerFeasible(k, last, "last", 0.1)).toBe(true);
+    expect(offerFeasible(k, { ...last, b: b * (config.search.steps.minBShare - 0.05) }, "last", 0.1)).toBe(false);
+    expect(offerFeasible(k, { ...last, b }, "last", 0.1)).toBe(false);
+    expect(offerFeasible(k, { ...last, tradeScore: (k.tradeScore as number) + 1 }, "last", 0.1)).toBe(false);
+    expect(offerFeasible(k, { ...last, pComplete: pk }, "last", 0.1)).toBe(false);
+    // Every offer's own rules: legal, helping me, not hidden by the market guard.
+    expect(offerFeasible(k, { ...last, illegal: "no" }, "last", 0.1)).toBe(false);
+    expect(offerFeasible(k, { ...last, b: -1 }, "last", 0.1)).toBe(false);
+    expect(offerFeasible(k, { ...last, flags: { ...last.flags, hiddenByMarket: true } }, "last", 0.1)).toBe(false);
+  });
+
+  it("ladderChoiceSteps gives ladderChoice's choices, and each step makes at most one new exact evaluation or run on the printed block (seed 3, every card, on a store of its own)", () => {
+    let steps = 0;
+    const fresh = runTradeSearch(contextOf(3), { settings: at(0.1), mergeCards: false });
+    const st = searchStateOf(fresh) as SearchState;
+    for (const card of cardsOf(fresh)) {
+      const job = ladderJobOfSearch(st, card);
+      const made = () => job.store.versions.size + job.store.printed.size;
+      const it = ladderChoiceSteps(job);
+      let last = made();
+      let r = it.next();
+      expect(made() - last, card.key).toBeLessThanOrEqual(1);
+      last = made();
+      while (!r.done) {
+        steps++;
+        r = it.next();
+        expect(made() - last, card.key).toBeLessThanOrEqual(1);
+        last = made();
+      }
+      expect(r.value, card.key).toEqual(ladderChoice(ladderJobOfSearch(searchStateOf(before(3)) as SearchState, card)));
+    }
+    expect(steps).toBeGreaterThan(0);
   });
 });

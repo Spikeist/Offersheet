@@ -260,27 +260,29 @@ describe("the worker's 'How to offer it' (Checkpoint 7e, item 4.1)", () => {
     answer(failing, 3);
   });
 
-  it("⚠️ a card whose result isn't kept: its trade in the card's own order and the keys the page bars (its Plan B: tradeView.ts offersBarredOf), as the result would (the review of wave D, D-ENG-3 and UI-D-4)", () => {
+  it("⚠️ a card whose result isn't kept: its trade in the card's own order (the review of wave D, D-ENG-3 and UI-D-4); the barred keys an older page sends read and ignored (Checkpoint 7f: nothing is barred)", () => {
     const h = harness();
     answer(h, 1);
     const own: TradeProposal = { partnerId: "6", give: [{ kind: "player", id: "101" }], get: [{ kind: "player", id: "203" }, { kind: "player", id: "202" }] };
     h.handle(offers(2, { kind: "search", resultId: -1, key: KEY_A, proposal: own, barred: ["6|give:101,104|get:202,203", KEY_B] }));
     expect(h.reply(2)).toMatchObject({ type: "offers", id: 2 });
-    // The card's own order (203 before 202), not the key's id order; the barred keys passed on, sorted.
+    // The card's own order (203 before 202), not the key's id order; no barred keys passed on.
     expect(h.byProposal[0]?.proposal).toEqual(own);
-    expect(h.byProposal[0]?.opts?.barred).toEqual([KEY_B, "6|give:101,104|get:202,203"].sort());
-    // Other barred keys (another Plan B): another ladder.
+    expect(h.byProposal[0]?.opts?.barred).toBeUndefined();
+    // Other barred keys, or none: the same card, the ladder kept.
     h.handle(offers(3, { kind: "search", resultId: -1, key: KEY_A, proposal: own, barred: [KEY_B] }));
-    expect(h.byProposal).toHaveLength(2);
-    expect(h.byProposal[1]?.opts?.barred).toEqual([KEY_B]);
+    h.handle(offers(4, { kind: "search", resultId: -1, key: KEY_A, proposal: own }));
+    expect(h.byProposal).toHaveLength(1);
+    const ladderOf = (id: number) => (h.reply(id) as Extract<EngineResponse, { type: "offers" }>).result;
+    expect(ladderOf(3)).toBe(ladderOf(2));
+    expect(ladderOf(4)).toBe(ladderOf(2));
     // A proposal that isn't the key's trade isn't trusted: the key's trade.
     const wrong: TradeProposal = { partnerId: "6", give: [{ kind: "player", id: "999" }], get: [] };
-    h.handle(offers(4, { kind: "search", resultId: -1, key: KEY_A, proposal: wrong }));
-    expect(h.byProposal[2]?.proposal).toEqual({ partnerId: "6", give: [{ kind: "player", id: "101" }], get: [{ kind: "player", id: "202" }, { kind: "player", id: "203" }] });
-    expect(h.byProposal[2]?.opts?.barred).toEqual([]);
-    // A source whose barred keys aren't strings isn't one.
-    h.handle(offers(5, { kind: "search", resultId: -1, key: KEY_A, barred: [7] } as unknown as OffersSource));
-    expect(h.reply(5)).toMatchObject({ type: "error", id: 5, detail: "Not an engine request." });
+    h.handle(offers(5, { kind: "search", resultId: -1, key: KEY_A, proposal: wrong }));
+    expect(h.byProposal[1]?.proposal).toEqual({ partnerId: "6", give: [{ kind: "player", id: "101" }], get: [{ kind: "player", id: "202" }, { kind: "player", id: "203" }] });
+    // A source whose barred keys aren't strings still isn't one.
+    h.handle(offers(6, { kind: "search", resultId: -1, key: KEY_A, barred: [7] } as unknown as OffersSource));
+    expect(h.reply(6)).toMatchObject({ type: "error", id: 6, detail: "Not an engine request." });
   });
 
   it("⚠️ an offers request never replaces the context the searches use nor forgets the kept results: its own context waits aside (the review of wave D, D-ENG-8 and UI-D-4)", () => {

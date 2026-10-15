@@ -143,9 +143,11 @@
  *   veto it, its roster moves when they aren't the card's (moveLinesOf) and its own message; "Offer them in order: if they
  *   say no, try the next." above them, or "Offer this trade as it is: no version of it with Team 8 makes a better first
  *   offer." when the ladder holds the suggested trade alone (⚠️ the lead's words, ours). The card's numbers and message are its
- *   own trade's. An offer can be another card of the list (the lead's call, wave D): on the Trade Finder it then says so under
+ *   own trade's. An offer can be another card of the list (the lead's call, wave D; since Checkpoint 7f only one the search
+ *   didn't merge into the card, one above it on Overall: search.ts, "Merged cards"): on the Trade Finder it then says so under
  *   its players, Plan B's words, "Also shown as trade idea 2." with that card's place in the sort shown (planBAlsoText; the
- *   page gives the places at render time, TradeCard.tsx `places`, so they follow a re-sort); never the card's Plan B's trade.
+ *   page gives the places at render time, TradeCard.tsx `places`, so they follow a re-sort); a trade merged into the card is
+ *   no card, so it reads like any offer. Never the card's Plan B's trade (by the rules: offers.ts, "The candidates").
  * The evaluation's own notes (TradeDetail.notes: the week in progress on game days, keeper costs not modeled, …)
  * aren't repeated per card: the Finder lists every distinct one once with the search's notes (the week in progress
  * worded for the whole list: listNote), and the Analyzer shows its notes with its result, leaving out any its card's
@@ -1391,17 +1393,6 @@ export function cardVersions(card: Pick<TradeCardView, "versions">, ladder: Pick
   if (!ladder || !ladder.versions.length) return card.versions;
   const offered = new Set(ladder.versions.map((v) => v.key));
   return [...ladder.versions, ...card.versions.filter((v) => !offered.has(v.key))];
-}
-
-/**
- * The keys a Trade Finder card's "How to offer it" may not offer (the review of wave D, D-ENG-3 and UI-D-4): its Plan B's (the
- * box keeps it), what the engine bars itself while it keeps the card's search (offers.ts ladderJobOfSearch), which the page
- * sends for a card whose search it no longer keeps (engine.worker.ts OffersSource.barred). ⚠️ Only that (the lead's call, wave
- * D, in place of the review's D-ENG-2 and UI-D-2): another card of its list can be an offer, which the card labels with that
- * card's place in the sort shown ("Also shown as trade idea 2.": planBAlsoText, TradeCard.tsx `places`).
- */
-export function offersBarredOf(card: Pick<TradeEvaluation, "planB">): string[] {
-  return card.planB ? [card.planB.key] : [];
 }
 
 /** Plan B's heading on the card (the planner's words, planner reply to Checkpoint 7d, item 4.1; "If they say no, try:" until Checkpoint 7e). */

@@ -6,7 +6,9 @@
  * suggested trade plus the throw-in, using the existing rule (at least 5 points likelier, and Helps you at least 80% of the
  * suggested trade's)"; the lead's addendum for wave D). Built on demand in the engine worker when the user opens a card's
  * "How to offer it" (engine.worker.ts `offers`): a Trade Finder card from its search's state (offerLadderOfSearch), the Trade
- * Analyzer's card, or a Finder card whose search the worker no longer keeps, from its proposal (offerLadderOfProposal). Pure
+ * Analyzer's card, or a Finder card whose search the worker no longer keeps, from its proposal (offerLadderOfProposal). Since
+ * Checkpoint 7f also during the search, for the cards the merge reads (search.ts, "Merged cards": ladderNeighbors,
+ * offerFeasible, ladderChoiceSteps), whose ladders the search keeps and the worker hands back as they are. Pure
  * and deterministic: the same context, settings and card give the same ladder; the only clock is the optional one for
  * OfferLadder.ms. Every number comes from config.offers, config.search.steps and the rest of config through evaluate.ts.
  *
@@ -21,15 +23,21 @@
  * - The lean version (until Checkpoint 7e the steps' case 1): the suggested trade without my lowest-value throw-in in it
  *   (evaluate.ts throwIns: a player whose loss costs my lineup at most config.search.throwInMaxCost), when my side keeps a
  *   player without him.
- * - Never the card itself, nor ⚠️ the trade its Plan B box shows (the box keeps it: "If they won't move: try …").
+ * - Never the card itself. Nothing else is barred since Checkpoint 7f (the lead's call): the trade its Plan B box shows can
+ *   never be an offer by the rules. A box is at least minAcceptGain likelier to go through than its card (planB.ts
+ *   planBPasses), so it prints a chance at least the card's, while an Open or Then prints one at least minAcceptGain under
+ *   it; and a box is another set of their players (planB.ts, "Which"), while the Last offer and the lean version keep the
+ *   card's. (Checkpoint 7e barred the box from the candidates, which changed none of 893 ladders on Parker's leagues and 68
+ *   synthetic ones; ⚠️ the report switches planB otherTargetOnly false and minAcceptGain null can make a box an offer.)
  * - ⚠️ Another card of its list can be an offer (the lead's call, wave D; it replaces the review's barring, D-ENG-2 and
- *   UI-D-2): the rules choose it as they choose any candidate, and the card labels it with that card's place in the sort the
- *   Trade Finder shows ("Also shown as trade idea 2.", Plan B's words: tradeView.ts planBAlsoText, TradeCard.tsx `places`).
- *   Why not bar it: the card's plan is lost, and "no version of it makes a better first offer" can be false (barred, on
- *   Parker's league, week 6, his top 3 cards each read "Offer this trade as it is", though #1 opens with #2's trade, #2
- *   ends with #1's as its Last offer and #3 opens with #5's).
- *   Why not fold one of the two cards away, as Phase 4c folded a card whose offer-first step named another: the ladder is
- *   built when a card's "How to offer it" is opened, so the search can't know whether that card would take a place.
+ *   UI-D-2): the rules choose it as they choose any candidate. Since Checkpoint 7f (planner reply to Checkpoint 7e, decision 3:
+ *   "When one card's offer list contains another card's trade, merge them") the search folds it into the card when the card
+ *   has the higher Overall (search.ts, "Merged cards"), so it shows only among the card's offers; when it has the higher
+ *   Overall itself (a smaller ask that opens with the bigger one, which can't ask for less after it) both stay, and the card
+ *   labels it with that card's place in the sort the Trade Finder shows ("Also shown as trade idea 2.", Plan B's words:
+ *   tradeView.ts planBAlsoText, TradeCard.tsx `places`). Why not bar it: the card's plan is lost, and "no version of it makes
+ *   a better first offer" can be false (barred, on Parker's league, week 6, his top 3 cards each read "Offer this trade as
+ *   it is", though #1 opens with #2's trade, #2 ends with #1's as its Last offer and #3 opens with #5's).
  * The pre-screen (preScreened; ⚠️ ours, the review of wave D, D-ENG-1 and D-ENG-7: evaluating every candidate exactly kept
  * about 33 MB a card in the engine worker's context, the optimizer's memos, and took 1.4–2.0 s in Node with 3 players a
  * side): each candidate's quick estimate of the chance on the screening's fast method (evaluate.ts quickScreen, as the Last
@@ -41,10 +49,11 @@
  * points under its chance lost an Open printing 18% that way; moving the floor by the card's own miss kept that one but
  * let low-chance asks crowd the cap and lost more: config.offers). Every card's candidates go through the same filter
  * whoever evaluated them before, so a ladder doesn't depend on which cards were opened first. The Analyzer's ladder for a
- * Finder card's trade differs by what the Finder bars (its Plan B, which the Analyzer doesn't show) and, ⚠️ through the
- * Last offer, by the per-side limit (rule 4: the Analyzer's analyzerMaxPerSide, the steps' case 2 rule there since Phase 4;
- * the final review of Checkpoint 7e, ENG-7E-4: on Parker's two leagues 10 of 25 cards opened in the Analyzer add a Last
- * offer with a third player of mine, which the Trade Finder's maxPerSide of 2 leaves out).
+ * Finder card's trade differs only ⚠️ through the Last offer, by the per-side limit (rule 4: the Analyzer's
+ * analyzerMaxPerSide, the steps' case 2 rule there since Phase 4; the final review of Checkpoint 7e, ENG-7E-4: on Parker's two
+ * leagues 10 of 25 cards opened in the Analyzer add a Last offer with a third player of mine, which the Trade Finder's
+ * maxPerSide of 2 leaves out); until Checkpoint 7f also by what the Finder barred, its Plan B. ⚠️ The pre-screen yields
+ * every config.search.yieldEveryScreens quick estimates (ladderChoiceSteps), as the screening does.
  * The candidates that pass are evaluated exactly (legality re-checked, V* on both sides with item 2.1's either-way moves:
  * evaluate.ts tradeVersion) with the screening simulation, the search's own versions reused by key.
  *
@@ -77,8 +86,8 @@
  *    per-side limit: the search's maxPerSide, the Analyzer's analyzerMaxPerSide), printing a chance at least 5 points above
  *    the suggested trade's and ⚠️ a Helps you at most the suggested trade's at a lower B (the review of wave D, D-ENG-4 and
  *    UI-D-3: one printing more on both would be a better card, not a last offer, the lead's rule for the variants, and on 7
- *    of 1,023 synthetic cards the ladder told the user to send the worse deal first; ENG-7E-1 above for an equal one). ⚠️
- *    Never the card's Plan B either (another card of its list can be one, labeled: "The candidates" above).
+ *    of 1,023 synthetic cards the ladder told the user to send the worse deal first; ENG-7E-1 above for an equal one).
+ *    (Another card of its list can be one: "The candidates" above.)
  * At most config.offers.maxSteps offers in all, the suggested trade counted: Open first, then the Last offer, then as many
  * Thens as fit (4: Open, at most one Then with a Last offer, two without one). No Open: no Then (any Then would have been an
  * Open). ⚠️ A variant that prints a higher Helps you and a higher chance than the card isn't in the ladder (the lead's call:
@@ -95,6 +104,7 @@ import { displayAcceptance } from "./acceptance";
 import { helpsBoth } from "./benefit";
 import { config } from "./config";
 import {
+  addCandidates,
   evaluateExact,
   explainContextOf,
   lastOfferVersions,
@@ -102,6 +112,7 @@ import {
   quickScreen,
   rewardFor,
   simulateTrade,
+  stepConfig,
   throwIns,
   tradeInternals,
   tradeVersion,
@@ -131,6 +142,11 @@ export interface LadderStore {
   printed: Map<string, TradeEvaluationCore>;
   /** Printed numbers made elsewhere (a search's cards and boxes: SearchState.shownByKey), read only. */
   known?: ReadonlyMap<string, TradeEvaluationCore>;
+  /**
+   * Checkpoint 7f: a search's ladder choices by the minimum chance they were worked out for and the card (searchLadderChoiceSteps;
+   * shared with its re-filters, which change only the minimum). Absent for a context's store (offerLadderOfProposal).
+   */
+  choices?: Map<string, LadderChoice | null>;
 }
 
 /** What a ladder is built from (ladderJobOfSearch, ladderJobOfProposal). */
@@ -149,8 +165,6 @@ export interface LadderJob {
   /** The partner's get pool H (its must-include players last) and its must-include players. */
   pool: readonly string[];
   forcedGet: readonly string[];
-  /** Keys no offer may be: the card's Plan B box (the file header, "The candidates"). */
-  barred: ReadonlySet<string>;
   store: LadderStore;
   /** The block the card prints from ("shown"; the ranking block's "final" when the search prints its ranking numbers). */
   printed: SimStage;
@@ -267,6 +281,27 @@ function byHelps(a: TradeEvaluationCore, b: TradeEvaluationCore): number {
   return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
 }
 
+/**
+ * Whether a card `n` of the list can be an offer of the card `k` on the numbers both print (Checkpoint 7f; search.ts, "Merged
+ * cards": the merge works out a ladder only for a card one of whose ladderNeighbors passes it): a necessary condition, every
+ * rule of the file header an offer of that kind holds on its printed numbers, which an offer that is a card prints (the
+ * ladder reads the search's own). "earlier", an Open or a Then (a variant or the lean version): it helps me, passes the
+ * market guard and, under a `k` tagged "Helps both", helps both; it prints a chance of at least the Open's bar for
+ * `minChance` (a Then's is higher still) and at least minAcceptGain under `k`'s, and a Helps you at least `k`'s at a higher B.
+ * "last", the Last offer (`k` plus a throw-in): the same first rules, a chance at least minAcceptGain above `k`'s, a B under
+ * `k`'s but at least minBShare of it, and a Helps you at most `k`'s.
+ */
+export function offerFeasible(k: TradeEvaluationCore, n: TradeEvaluationCore, kind: "earlier" | "last", minChance: number): boolean {
+  if (!stepPasses(n, helpsBoth(k))) return false;
+  if (kind === "earlier") return inWindow(n, openBar(minChance), k) && betweenForMe(n, k, null);
+  const hn = helpsOf(n);
+  const hk = helpsOf(k);
+  const bn = bOf(n);
+  const bk = bOf(k);
+  if (hn === null || hk === null || bn === null || bk === null) return false;
+  return chanceOf(n) >= chanceOf(k) + config.search.steps.minAcceptGain - EPS && bn >= config.search.steps.minBShare * bk - EPS && bn < bk - EPS && hn <= hk;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Numbers
 
@@ -288,7 +323,7 @@ export function printedOf(job: LadderJob, v: TradeVersion): TradeEvaluationCore 
 
 /**
  * The card's candidate versions (the file header, "The candidates"): every variant, in order of size then H's order, then the
- * lean version; never the card nor a barred key, each key once.
+ * lean version; never the card, each key once.
  */
 export function ladderCandidates(job: LadderJob): LadderCandidate[] {
   const { card } = job;
@@ -299,7 +334,7 @@ export function ladderCandidates(job: LadderJob): LadderCandidate[] {
   const pool = [...new Set([...job.pool, ...cardGet])];
   const forced = job.forcedGet.filter((id) => cardGet.includes(id));
   const free = pool.filter((id) => !forced.includes(id));
-  const seen = new Set<string>([card.key, ...job.barred]);
+  const seen = new Set<string>([card.key]);
   const out: LadderCandidate[] = [];
   const add = (kind: LadderCandidate["kind"], p: TradeProposal) => {
     const key = proposalKey(p);
@@ -325,6 +360,14 @@ export function ladderCandidates(job: LadderJob): LadderCandidate[] {
  * ladderCandidates(job) when the caller has them.
  */
 export function preScreened(job: LadderJob, all: readonly LadderCandidate[] = ladderCandidates(job)): LadderCandidate[] {
+  return ranOut(preScreenSteps(job, all));
+}
+
+/** Quick estimates between two yields of the pre-screen (config.search: responsiveness, as the screening's). */
+const SCREEN_BATCH = Math.max(1, Math.floor(config.search.yieldEveryScreens));
+
+/** preScreened as a generator (ladderChoiceSteps): it yields after every SCREEN_BATCH quick estimates. */
+function* preScreenSteps(job: LadderJob, all: readonly LadderCandidate[]): Generator<void, LadderCandidate[], void> {
   const { I, card } = job;
   const partner = I.byId.get(card.proposal.partnerId);
   if (!partner || !I.me) return [];
@@ -334,13 +377,23 @@ export function preScreened(job: LadderJob, all: readonly LadderCandidate[] = la
   const low = openBar(job.settings.minChance) - margin;
   const high = (own ? own.pComplete : card.pComplete) - config.search.steps.minAcceptGain + margin;
   const kept: { c: LadderCandidate; gain: number }[] = [];
+  let screens = 0;
   for (const c of all) {
+    if (++screens % SCREEN_BATCH === 0) yield;
     const q = quickScreen(I, partner, playerIds(c.proposal.give), playerIds(c.proposal.get));
     if (!q || q.pComplete < low - EPS || q.pComplete > high + EPS) continue;
     kept.push({ c, gain: q.myDelta });
   }
   kept.sort((a, b) => (Math.abs(b.gain - a.gain) > EPS ? b.gain - a.gain : a.c.key < b.c.key ? -1 : a.c.key > b.c.key ? 1 : 0));
   return kept.slice(0, most).map((x) => x.c);
+}
+
+/** A generator run to its end on the calling thread (the ladder's steps, when nothing waits on them). */
+function ranOut<T>(it: Generator<void, T, void>): T {
+  for (;;) {
+    const r = it.next();
+    if (r.done) return r.value;
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -352,20 +405,50 @@ interface Screened {
   version: TradeVersion;
 }
 
+/** versionOf, yielding first when it makes a new exact evaluation (ladderChoiceSteps). */
+function* versionSteps(job: LadderJob, proposal: TradeProposal): Generator<void, TradeVersion | null, void> {
+  if (!job.store.versions.has(proposalKey(proposal))) yield;
+  return versionOf(job, proposal);
+}
+
+/** printedOf, yielding first when it makes a new run on the printed block (ladderChoiceSteps). */
+function* printedSteps(job: LadderJob, v: TradeVersion): Generator<void, TradeEvaluationCore, void> {
+  const key = v.screen.key;
+  if (!job.store.printed.has(key) && !job.store.known?.has(key)) yield;
+  return printedOf(job, v);
+}
+
 /**
  * The first of `ordered` whose printed numbers pass `ok`, trying at most config.offers.tries of them on the printed block
  * (the file header): the version and its printed numbers, or null.
  */
-function firstPrinted(job: LadderJob, ordered: readonly Screened[], ok: (printed: TradeEvaluationCore) => boolean): { s: Screened; printed: TradeEvaluationCore } | null {
+function* firstPrinted(job: LadderJob, ordered: readonly Screened[], ok: (printed: TradeEvaluationCore) => boolean): Generator<void, { s: Screened; printed: TradeEvaluationCore } | null, void> {
   const tries = Math.max(0, Math.floor(config.offers.tries));
   let tried = 0;
   for (const s of ordered) {
     if (tried >= tries) break;
     tried++;
-    const printed = printedOf(job, s.version);
+    const printed = yield* printedSteps(job, s.version);
     if (ok(printed)) return { s, printed };
   }
   return null;
+}
+
+/**
+ * The trades the Last offer's rule evaluates (evaluate.ts lastOfferVersions: the card plus each throw-in its pre-screen keeps,
+ * when the card helps me on the screening block, holds only players and my side has room), so ladderChoiceSteps can make
+ * their exact evaluations one at a time first; lastOfferVersions then finds them in the store.
+ */
+function lastOfferProposals(job: LadderJob): TradeProposal[] {
+  const card = job.cardVersion;
+  if (!card || !job.I.me) return [];
+  const proposal = card.screen.proposal;
+  if ([...proposal.give, ...proposal.get].some((a) => a.kind !== "player")) return [];
+  const give = playerIds(proposal.give);
+  const get = playerIds(proposal.get);
+  const b = card.screen.b;
+  if (b === null || !Number.isFinite(b) || !(b > 0) || give.length + 1 > job.legalMax) return [];
+  return addCandidates(job.I, proposal, throwIns(job.I, job.settings), stepConfig()).map((id) => ({ partnerId: proposal.partnerId, give: players([...give, id]), get: players(get) }));
 }
 
 /** "Thanks for considering it! Would you trade … for … instead? Let me know what you think!" (the file header). */
@@ -425,6 +508,16 @@ function offersApply(job: LadderJob): boolean {
 
 /** The ladder's choices (the file header, "The rules"), or null when the card gets the suggested trade alone. */
 export function ladderChoice(job: LadderJob, opts: LadderChoiceOptions = {}): LadderChoice | null {
+  return ranOut(ladderChoiceSteps(job, opts));
+}
+
+/**
+ * ladderChoice as a generator (Checkpoint 7f: the search works ladders out for the merge, search.ts "Merged cards"), the same
+ * choices: it yields before each exact evaluation and each run on the printed block it makes (one of the store doesn't hold
+ * yet), and every SCREEN_BATCH quick estimates of the pre-screen, so no slice of the search holds more than one of them (a
+ * ladder takes up to about 100 ms on Parker's leagues, 200 ms searching one team, against the search's 40 ms slices).
+ */
+export function* ladderChoiceSteps(job: LadderJob, opts: LadderChoiceOptions = {}): Generator<void, LadderChoice | null, void> {
   if (!offersApply(job)) return null;
   const card = job.card;
   const cardScreen = (job.cardVersion as TradeVersion).screen;
@@ -445,12 +538,13 @@ export function ladderChoice(job: LadderJob, opts: LadderChoiceOptions = {}): La
     const bc = bOf(card);
     return hn !== null && hb !== null && hn <= hb && bn !== null && bc !== null && bn < bc - EPS;
   };
-  const lastRule = (n: TradeEvaluationCore, base: TradeEvaluationCore) =>
-    stepPasses(n, tagged) && chanceOf(n) >= chanceOf(card) + gain - EPS && (n.b as number) >= config.search.steps.minBShare * (base.b as number) - EPS && !job.barred.has(n.key);
+  const lastRule = (n: TradeEvaluationCore, base: TradeEvaluationCore) => stepPasses(n, tagged) && chanceOf(n) >= chanceOf(card) + gain - EPS && (n.b as number) >= config.search.steps.minBShare * (base.b as number) - EPS;
+  // Its candidates' exact evaluations one at a time first (lastOfferVersions finds them in the store).
+  for (const p of lastOfferProposals(job)) yield* versionSteps(job, p);
   const throwIn = lastOfferVersions(job.I, job.cardVersion as TradeVersion, { settings: job.settings, maxPerSide: job.legalMax, versions: job.store.versions }).filter((t) => lastRule(t.version.screen, cardScreen));
   const tries = Math.max(0, Math.floor(config.offers.tries));
   for (const t of throwIn.slice(0, tries)) {
-    const printed = printedOf(job, t.version);
+    const printed = yield* printedSteps(job, t.version);
     if (lastRule(printed, card) && notAbove(printed)) {
       last = { add: t.add, proposal: t.version.screen.proposal, printed };
       break;
@@ -459,10 +553,10 @@ export function ladderChoice(job: LadderJob, opts: LadderChoiceOptions = {}): La
 
   // The candidates the pre-screen lets through (the file header, "The pre-screen"), on the screening block.
   const all = ladderCandidates(job);
-  const considered = opts.every ? all : preScreened(job, all);
+  const considered = opts.every ? all : yield* preScreenSteps(job, all);
   const screened: Screened[] = [];
   for (const c of considered) {
-    const v = versionOf(job, c.proposal);
+    const v = yield* versionSteps(job, c.proposal);
     if (v) screened.push({ candidate: c, version: v });
   }
   const passing = screened.filter((s) => stepPasses(s.version.screen, tagged) && helpsBetween(s.version.screen, cardScreen, null));
@@ -470,7 +564,7 @@ export function ladderChoice(job: LadderJob, opts: LadderChoiceOptions = {}): La
 
   // Open.
   const openPool = passing.filter((s) => inWindow(s.version.screen, bar, card)).sort((a, b) => byHelps(a.version.screen, b.version.screen));
-  const openHit = firstPrinted(job, openPool, (p) => stepPasses(p, tagged) && inWindow(p, bar, card) && betweenForMe(p, card, null));
+  const openHit = yield* firstPrinted(job, openPool, (p) => stepPasses(p, tagged) && inWindow(p, bar, card) && betweenForMe(p, card, null));
   let open: LadderChoice["open"] = openHit ? { candidate: openHit.s.candidate, printed: openHit.printed } : null;
 
   // Room: the suggested trade, then Open, then the Last offer, then as many Thens as fit.
@@ -489,7 +583,7 @@ export function ladderChoice(job: LadderJob, opts: LadderChoiceOptions = {}): La
       .filter((s) => !used.has(s.candidate.key))
       .filter((s) => inWindow(s.version.screen, chanceOf(before.screen) + gain, card) && helpsBetween(s.version.screen, cardScreen, before.screen))
       .sort((a, b) => byHelps(a.version.screen, b.version.screen));
-    const hit = firstPrinted(job, pool, (p) => stepPasses(p, tagged) && inWindow(p, chanceOf(before.printed) + gain, card) && betweenForMe(p, card, before.printed));
+    const hit = yield* firstPrinted(job, pool, (p) => stepPasses(p, tagged) && inWindow(p, chanceOf(before.printed) + gain, card) && betweenForMe(p, card, before.printed));
     if (!hit) break;
     thens.push({ candidate: hit.s.candidate, printed: hit.printed });
     used.add(hit.s.candidate.key);
@@ -502,7 +596,16 @@ export function ladderChoice(job: LadderJob, opts: LadderChoiceOptions = {}): La
 /** The ladder (the file header) from a job. */
 export function buildOfferLadder(job: LadderJob, opts: LadderOptions = {}): OfferLadder {
   const start = opts.clock?.();
-  const choice = ladderChoice(job);
+  const ladder = ladderFromChoice(job, ladderChoice(job));
+  const end = opts.clock?.();
+  return { ...ladder, ...(start !== undefined && end !== undefined ? { ms: end - start } : {}) };
+}
+
+/**
+ * The ladder in words from its choices (ladderChoice; null: the suggested trade alone): each offer's evaluation with its words
+ * and its message (the file header), the suggested trade the job's card.
+ */
+export function ladderFromChoice(job: LadderJob, choice: LadderChoice | null): OfferLadder {
   const card = job.card;
   const picked: { kind: OfferStepKind; evaluation: TradeEvaluation }[] = [];
   if (choice?.open) picked.push({ kind: "open", evaluation: stepEvaluation(job, choice.open.printed, choice.open.candidate.proposal) });
@@ -510,8 +613,17 @@ export function buildOfferLadder(job: LadderJob, opts: LadderOptions = {}): Offe
   picked.push({ kind: "suggested", evaluation: card });
   if (choice?.last) picked.push({ kind: "last", evaluation: stepEvaluation(job, choice.last.printed, choice.last.proposal) });
   const steps: OfferStep[] = picked.map((p, i) => ({ kind: p.kind, evaluation: p.evaluation, message: i === 0 ? p.evaluation.pitch : followUp(job.I, p.evaluation.proposal) }));
-  const end = opts.clock?.();
-  return { cardKey: card.key, steps, ...(start !== undefined && end !== undefined ? { ms: end - start } : {}) };
+  return { cardKey: card.key, steps };
+}
+
+/** The keys of a ladder choice's offers (Open, Thens, the Last offer; null: none), each with its place. */
+export function choiceOffers(choice: LadderChoice | null): { key: string; kind: Exclude<OfferStepKind, "suggested"> }[] {
+  if (!choice) return [];
+  return [
+    ...(choice.open ? [{ key: choice.open.candidate.key, kind: "open" as const }] : []),
+    ...choice.thens.map((t) => ({ key: t.candidate.key, kind: "then" as const })),
+    ...(choice.last ? [{ key: choice.last.printed.key, kind: "last" as const }] : []),
+  ];
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -522,10 +634,10 @@ const searchStores = new WeakMap<Map<string, TradeVersion>, LadderStore>();
 
 /**
  * A card's job from its search's state (the file header): the search's settings (the state's: a re-filter's carries its own
- * minimum chance), its get pool for the partner (SearchState.getPools), its versions and printed numbers, and the card's Plan
- * B barred (⚠️ only that: another card of its list can be an offer, which the card labels; the file header, "The
- * candidates"). The card prints from the shown block when the search ran its shown pass on a block of its own, else from the
- * ranking block (search.ts finish: the numbers it printed).
+ * minimum chance), its get pool for the partner (SearchState.getPools), its versions and printed numbers. Nothing barred
+ * since Checkpoint 7f (the file header, "The candidates": its Plan B can't be an offer, and another card of its list can).
+ * The card prints from the shown block when the search ran its shown pass on a block of its own, else from the ranking block
+ * (search.ts finish: the numbers it printed).
  */
 export function ladderJobOfSearch(state: SearchState, card: TradeEvaluation): LadderJob {
   const { I, settings } = state;
@@ -533,7 +645,7 @@ export function ladderJobOfSearch(state: SearchState, card: TradeEvaluation): La
   const own = state.shownPass && sim !== null && sim.blocks.shown !== sim.blocks.final;
   let store = searchStores.get(state.versions);
   if (!store) {
-    store = { versions: state.versions, printed: new Map(), known: own ? state.shownByKey : state.finalByKey };
+    store = { versions: state.versions, printed: new Map(), known: own ? state.shownByKey : state.finalByKey, choices: new Map() };
     searchStores.set(state.versions, store);
   }
   const pool = state.getPools.get(card.proposal.partnerId);
@@ -546,35 +658,96 @@ export function ladderJobOfSearch(state: SearchState, card: TradeEvaluation): La
     legalMax: settings.maxPerSide,
     pool: pool?.pool ?? [],
     forcedGet: pool?.forced ?? [],
-    barred: new Set(card.planB ? [card.planB.key] : []),
     store,
     printed: own ? "shown" : "final",
   };
 }
 
 /**
+ * A search card's ladder choices (ladderChoiceSteps; Checkpoint 7f), worked out once per minimum chance and card in the
+ * search's store (LadderStore.choices), so the merge (search.ts, "Merged cards") and the card's first open read one choice,
+ * and a re-filter back to a minimum seen reads it there. They depend on nothing else a re-filter changes (the card's numbers
+ * on each block are the search's, its get pool and versions the search's).
+ */
+export function* searchLadderChoiceSteps(job: LadderJob): Generator<void, LadderChoice | null, void> {
+  const choices = job.store.choices;
+  if (!choices) return yield* ladderChoiceSteps(job);
+  const key = `${job.settings.minChance}|${job.card.key}`;
+  if (choices.has(key)) return choices.get(key) ?? null;
+  const choice = yield* ladderChoiceSteps(job);
+  choices.set(key, choice);
+  return choice;
+}
+
+/**
+ * The cards of `listed` that can be offers of `card` whatever their numbers (Checkpoint 7f; search.ts, "Merged cards": a card
+ * none of whose listed cards is one, or passes offerFeasible, needs no ladder for the merge), in `listed`'s order, never the
+ * card, each with the kind of offer it would be: "earlier" for one of its ladder's candidates (ladderCandidates: a variant or
+ * the lean version, an Open or a Then), "last" for the card plus one of the throw-ins the Last offer's pre-screen keeps
+ * (evaluate.ts addCandidates, my side within the per-side limit). A superset of the cards its ladder can hold: exactly the
+ * versions the ladder could pick.
+ */
+export function ladderNeighbors(state: SearchState, card: TradeEvaluation, listed: readonly Pick<TradeEvaluationCore, "key" | "proposal">[]): { key: string; kind: "earlier" | "last" }[] {
+  const others = listed.filter((n) => n.key !== card.key);
+  if (!others.length) return [];
+  const job = ladderJobOfSearch(state, card);
+  const earlier = new Set(ladderCandidates(job).map((c) => c.key));
+  const proposal = job.cardVersion?.screen.proposal ?? card.proposal;
+  const onlyPlayers = [...proposal.give, ...proposal.get].every((a) => a.kind === "player");
+  const give = playerIds(proposal.give);
+  const theirs = [...playerIds(proposal.get)].sort().join(",");
+  let adds: Set<string> | null = null;
+  const out: { key: string; kind: "earlier" | "last" }[] = [];
+  for (const n of others) {
+    if (earlier.has(n.key)) {
+      out.push({ key: n.key, kind: "earlier" });
+      continue;
+    }
+    // The card plus one player of mine: the same partner and players of theirs, my side with one more.
+    if (!onlyPlayers || give.length + 1 > job.legalMax || n.proposal.partnerId !== proposal.partnerId) continue;
+    const nGive = playerIds(n.proposal.give);
+    if (nGive.length !== give.length + 1 || !give.every((id) => nGive.includes(id)) || [...playerIds(n.proposal.get)].sort().join(",") !== theirs) continue;
+    const added = nGive.find((id) => !give.includes(id)) as string;
+    adds ??= new Set(addCandidates(state.I, proposal, throwIns(state.I, state.settings), stepConfig()));
+    if (adds.has(added)) out.push({ key: n.key, kind: "last" });
+  }
+  return out;
+}
+
+/**
  * The ladder for a card of a finished search's result (the result object the engine returned, whose state it reads:
- * search.ts searchStateOf), its Plan B barred (ladderJobOfSearch), or null when the result has no state or no card under
- * `key`.
+ * search.ts searchStateOf): since Checkpoint 7f the one the search kept for it when its merge read it (SearchState.ladders),
+ * else worked out (its choices once per minimum chance: searchLadderChoiceSteps); null when the result has no state or no
+ * card under `key`. Every way gives the same ladder: the choices depend only on the card and the minimum chance, and the
+ * words on the card's printed numbers.
  */
 export function offerLadderOfSearch(result: TradeSearchResult, key: string, opts: LadderOptions = {}): OfferLadder | null {
   const state = searchStateOf(result);
   const card = cardOf(result, key);
   if (!state || !card) return null;
-  return buildOfferLadder(ladderJobOfSearch(state, card), opts);
+  const start = opts.clock?.();
+  let ladder = state.ladders?.get(key);
+  if (!ladder) {
+    const job = ladderJobOfSearch(state, card);
+    ladder = ladderFromChoice(job, ranOut(searchLadderChoiceSteps(job)));
+  }
+  const end = opts.clock?.();
+  return start !== undefined && end !== undefined ? { ...ladder, ms: end - start } : ladder;
 }
 
 /** The ladder caches of a context, by the settings its numbers read and the per-side limit. */
 const contextStores = new WeakMap<TradeInternals, Map<string, LadderStore>>();
 
 /**
- * A proposal ladder's options: the call's settings (default: the defaults), whose card it is (default the Analyzer's), and
- * the keys no offer may be (`barred`: a Finder card's Plan B, which the page sends for a card whose search the engine no
- * longer keeps: the review of wave D, D-ENG-3 and UI-D-4; none for the Analyzer's card).
+ * A proposal ladder's options: the call's settings (default: the defaults) and whose card it is (default the Analyzer's).
+ * `barred`, the keys a Finder card's offers couldn't be (its Plan B, which the page sent for a card whose search the engine no
+ * longer keeps: the review of wave D, D-ENG-3 and UI-D-4), is ignored since Checkpoint 7f (the file header, "The candidates":
+ * a Plan B can't be an offer) and kept so a request from an older page still reads.
  */
 export interface ProposalLadderOptions extends LadderOptions {
   settings?: TradeSettings;
   page?: "finder" | "analysis";
+  /** Ignored since Checkpoint 7f (above). */
   barred?: Iterable<string>;
 }
 
@@ -583,8 +756,8 @@ export interface ProposalLadderOptions extends LadderOptions {
  * Last offer within config.search.analyzerMaxPerSide), or a Finder card whose search isn't kept (page "finder": within the
  * settings' maxPerSide). The card is evaluated as analyzeTrade evaluates it (exact evaluation in the proposal's own order,
  * the shown block), its version on the screening block from the same exact evaluation; the partner's get pool from
- * search.ts getPoolOf with the settings' must-include players of that partner; the keys `opts.barred` names barred (a Finder
- * card's Plan B, sent by the page; none for the Analyzer's card, which has none).
+ * search.ts getPoolOf with the settings' must-include players of that partner. Nothing barred (`opts.barred` is ignored), so a
+ * Finder card's ladder here is the one its search kept or works out (Checkpoint 7f).
  * Null when the proposal can't be evaluated (no team, another team's partner, illegal).
  */
 export function ladderJobOfProposal(ctx: TradeContext, proposal: TradeProposal, opts: Omit<ProposalLadderOptions, "clock"> = {}): LadderJob | null {
@@ -621,7 +794,6 @@ export function ladderJobOfProposal(ctx: TradeContext, proposal: TradeProposal, 
     legalMax,
     pool: getPoolOf(I, settings, partner, forced),
     forcedGet: forced,
-    barred: new Set([...(opts.barred ?? [])].filter((k) => typeof k === "string" && k !== card.key)),
     store,
     printed: "shown",
   };

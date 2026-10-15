@@ -16,6 +16,8 @@
  * of 15 on the one-partner lists of Teams 8, 4 and 9, 10 of them the first card), and since Phase 4c a card plus more
  * players who don't make it config.search.steps.minAcceptGain likelier to go through (the same card again, no easier to
  * say yes to; players worth at most W at first, any player since the final review of Phase 4c, findings R2 and PAGES-1).
+ * Since Checkpoint 7f the search counts a list's merged trades as its cards here (search.ts, "Merged cards": each is among a
+ * card's offers), and in dominatedByCard's cards.
  * Candidates are with the card's partner (any other trade with that team differs
  * from the card in at least one player) and pass the rules on those numbers (planBPasses):
  * - legal, and it helps me: B known and above 0 (so its Helps you and Overall are numbers);

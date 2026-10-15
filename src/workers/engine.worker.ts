@@ -69,20 +69,21 @@
  *   'How to offer it,' in the Web Worker"): a card's "How to offer it", offers in order (src/engine/offers.ts). `source`
  *   names the card: a Trade Finder card by the id of the search or re-filter whose result holds it (engineClient.ts
  *   searchResultIdOf) and its key, built from that result's search state (the search's own get pool for the partner, the
- *   evaluations it made, the card's Plan B); a Trade Analyzer card by its proposal, built on the evaluation context for the
- *   request (offers.ts offerLadderOfProposal). ⚠️ A Finder card whose result the worker no longer holds (KEPT_RESULTS, a new
- *   context, a worker that restarted) is built the Analyzer's way from its trade (the source's `proposal`, in the card's own
- *   order, else the trade its key names), with the request's settings and the keys the page sends as barred (its Plan B:
- *   tradeView.ts offersBarredOf; the review of wave D, D-ENG-3 and UI-D-4: without it the ladder could offer the very trade
- *   the card's "If they won't move: try …" box shows, and it named the players in id order; another card of its list can be
- *   an offer, as from the result: the lead's call, wave D): the same offers as from the result. ⚠️ A result the worker keeps answers for its cards whatever the request's
+ *   evaluations it made; since Checkpoint 7f the very ladder the search kept when its merge read it, search.ts "Merged
+ *   cards"); a Trade Analyzer card by its proposal, built on the evaluation context for the request (offers.ts
+ *   offerLadderOfProposal). ⚠️ A Finder card whose result the worker no longer holds (KEPT_RESULTS, a new context, a worker
+ *   that restarted) is built the Analyzer's way from its trade (the source's `proposal`, in the card's own order, else the
+ *   trade its key names; the review of wave D, D-ENG-3 and UI-D-4: it named the players in id order), with the request's
+ *   settings: the same offers as from the result (nothing barred since Checkpoint 7f, so the `barred` keys an older page
+ *   sends, its Plan B, are read and ignored: a Plan B can't be an offer by the rules, offers.ts "The candidates"). ⚠️ A
+ *   result the worker keeps answers for its cards whatever the request's
  *   settings or moment (no context is built for it): the offers are the card's as it was found, from the state that made it.
  *   ⚠️ An `offers` request never replaces the context the worker keeps for its searches, nor forgets the results it keeps
  *   (the review of wave D, D-ENG-8 and UI-D-4: opening a dimmed idea's offers while a newer search ran rebuilt the old
  *   settings' context, so the newer search's next minimum chance searched again instead of re-filtering): when the kept
  *   context isn't the request's, the request's own goes into a second slot (`aside`), dropped once a search or re-filter
- *   answers or the kept one is built again. Each ladder is kept per result (or per context, settings, trade and barred
- *   keys) and card key, so a second open is instant. One reply: `offers` with the ladder, or `error`. One piece of work, not
+ *   answers or the kept one is built again. Each ladder is kept per result (or per context, settings and trade) and card
+ *   key, so a second open is instant. One reply: `offers` with the ladder, or `error`. One piece of work, not
  *   sliced: on Parker's leagues the first open of a top card takes a few tenths of a second in Node (⚠️ about ×1.24 in the
  *   browser; its candidates pre-screened since the review of wave D: offers.ts), and a search or re-filter under way waits
  *   for it.
@@ -181,9 +182,9 @@ export interface WaiversRequest extends LeagueJobFields {
 /**
  * Which card "How to offer it" is for (the header, `offers`): a Trade Finder card, by the id of the search or re-filter whose
  * result holds it (engineClient.ts searchResultIdOf; -1 when unknown) and its key (TradeEvaluation.key), with (the review of
- * wave D, D-ENG-3) its trade in its own order (`proposal`) and the keys no offer of it may be (`barred`: its Plan B,
- * tradeView.ts offersBarredOf), which the worker reads when it no longer keeps that result; or the Trade Analyzer's card, by
- * its proposal.
+ * wave D, D-ENG-3) its trade in its own order (`proposal`), which the worker reads when it no longer keeps that result; or the
+ * Trade Analyzer's card, by its proposal. `barred`, the keys no offer of it could be (its Plan B, which the page sent until
+ * Checkpoint 7f), is still read so an older page's request answers, and ignored (the header, `offers`).
  */
 export type OffersSource = { kind: "search"; resultId: number; key: string; proposal?: TradeProposal; barred?: string[] } | { kind: "analysis"; proposal: TradeProposal };
 
@@ -510,10 +511,12 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
   };
 
   /**
-   * A card's "How to offer it" (the header, `offers`): a Finder card from the result the worker keeps under its id, else (⚠️ a
-   * result no longer kept) its trade (the source's proposal when it's the trade the key names, else the key's), built the
-   * Analyzer's way on the context for the request, the source's barred keys barred; the Analyzer's card from its proposal.
-   * The context: the kept one when it's the request's, else the `aside` slot's (offersContext).
+   * A card's "How to offer it" (the header, `offers`): a Finder card from the result the worker keeps under its id (since
+   * Checkpoint 7f the very ladder the search's merge read, when it did: offers.ts offerLadderOfSearch), else (⚠️ a result no
+   * longer kept) its trade (the source's proposal when it's the trade the key names, else the key's), built the Analyzer's way
+   * on the context for the request (the source's barred keys, which an older page sends, ignored: nothing is barred since
+   * Checkpoint 7f); the Analyzer's card from its proposal. The context: the kept one when it's the request's, else the `aside`
+   * slot's (offersContext).
    */
   function offersFor(req: OffersRequest, now: Date, settings: TradeSettings): OfferLadder {
     const src = req.source;
@@ -525,11 +528,9 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
     const fromKey = src.kind === "search" ? proposalFromKey(src.key) : null;
     const proposal = src.kind === "analysis" ? src.proposal : src.proposal && fromKey && sameTrade(src.proposal, fromKey) ? src.proposal : fromKey;
     if (!proposal) throw new Error("The card's trade can't be read from its key.");
-    const barred = src.kind === "search" ? [...new Set(src.barred ?? [])].sort() : [];
     const ctx = offersContext(req, now, settings);
     const scope = src.kind === "analysis" ? "analysis" : "finder";
-    const which = src.kind === "analysis" ? JSON.stringify(proposal) : `${JSON.stringify(proposal)}|${barred.join(",")}`;
-    const made = ladderIn(ctx, `${scope}|${settingsFingerprint(settings, TRADE_SETTINGS)}|${which}`, () => offersOfProposal(ctx, proposal, { settings, page: scope, ...(scope === "finder" ? { barred } : {}), ...timing }));
+    const made = ladderIn(ctx, `${scope}|${settingsFingerprint(settings, TRADE_SETTINGS)}|${JSON.stringify(proposal)}`, () => offersOfProposal(ctx, proposal, { settings, page: scope, ...timing }));
     return made as OfferLadder;
   }
 
