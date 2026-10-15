@@ -278,7 +278,7 @@
  * that doesn't help both as printed) and 8 partners' scales, about 1.2 s of a 6.5 s search. Since Checkpoint 7f (planner
  * reply to Checkpoint 7e, answer 2) each of those runs continues its ranking run (evaluate.ts runSim and
  * partnerCalibrationOf; sim.ts, "Continuing a run"), so the pass plays 15,000 of each one's 20,000 seasons, with the same
- * numbers bit for bit (the Oct 14 dump: 18 trades and 8 partners' scales, about 0.9 s of a 6.4 s search). When the shown block is the
+ * numbers bit for bit (the Oct 14 dump: 18 trades and 8 partners' scales, about 0.9 s of a 6.3 s search). When the shown block is the
  * ranking block (shownSims at most finalSims) a trade's ranking numbers are its shown ones, bit for bit, and are taken as
  * they are, and without the pass (TradeSearchOptions.shownPass false) every number is the ranking block's: either way the
  * search is Checkpoint 7d's exactly.
