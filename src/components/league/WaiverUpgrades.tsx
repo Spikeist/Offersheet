@@ -41,15 +41,19 @@
  * narrow phone, the fold's words wrap inside its button).
  *
  * Checkpoint 7f (planner reply to Checkpoint 7e, item 3: "Show the rows that rate above 0, followed by a collapsed “N more
- * pickups that don't help you (show).”"): each list shows the rows that help (the first config.waivers.rowsShown of them,
- * then "Show all N", N the rows that help), or a line when none does; then one button, a disclosure (aria-expanded), "42
- * more pickups that don't help you (show)", which shows the rest in their own list right after it ("(hide)" folds them
- * again). The button stays where it is, the list opening below it, so keyboard focus stays on it either way; aria-controls
- * names the list only while it's there. The toggle folds both again; a recompute (a lock, the switch, the rating's answer)
- * keeps them as they are. Which rows help, and the words: waiversView.ts (WaiverListView.helping, .rest, .noneHelps).
+ * pickups that don't help you (show).”"): each list shows above the fold the rows that help and then (review of Checkpoint
+ * 7f, WAIVERS-1) the moves that can't be made, the first config.waivers.rowsShown of them, then "Show all N" (N the rows
+ * above the fold), with a line when none helps; then one button, a disclosure (aria-expanded), "42 more pickups that don't
+ * help you (show)", which shows the "No gain" rows in their own list right after it ("(hide)" folds them again). The button
+ * stays where it is, the list opening below it, so keyboard focus stays on it either way; aria-controls names the list only
+ * while it's there. The toggle folds both again; a recompute (a lock, the switch, the rating's answer) keeps them as they
+ * are, but "Show all" closes for good once the rows above the fold are no more than it shows at first, and when a recompute
+ * takes away "Show all" or the fold's button while it has keyboard focus, focus moves to the fold's button, else the
+ * section's heading (useFocusFallback; review of Checkpoint 7f, WAIVERS-2: focus fell to the page). Which rows help, and the
+ * words: waiversView.ts (WaiverListView.helping, .blocked, .rest, .noneHelps).
  */
 import Link from "next/link";
-import { createContext, use, useEffect, useId, useRef, useState, type RefObject } from "react";
+import { createContext, use, useCallback, useEffect, useId, useRef, useState, type RefObject } from "react";
 import { EngineError, waiverRatingFor, waiverRatingKnown } from "@/lib/engineClient";
 import {
   DEPTH_ONLY_TAG,
@@ -159,6 +163,45 @@ function useLockFocus(view: WaiversView, heading: RefObject<HTMLHeadingElement |
   }, [view, heading]);
 }
 
+/** A button's ref callback that can say, as the button goes, whether it had keyboard focus (useFocusFallback). */
+type TrackedRef = (el: HTMLButtonElement | null) => (() => void) | undefined;
+
+/**
+ * Keeps keyboard focus in the section when a redraw takes away the button that had it (review of Checkpoint 7f, WAIVERS-2 and
+ * INTEGRATION-2): "Show all N" (or "Show fewer") counts the rows above the fold, so the rating's answer, a lock or the switch
+ * can leave too few for it (on Parker's second league, 11 rows help by the lineup gain while the rating is pending, 1 once
+ * it's rated), and a list without "No gain" rows has no fold; focus fell to the page. Each of the two buttons notes as it goes
+ * whether it had focus (its ref's cleanup runs while it's still in the page), and once the redraw is done focus moves to the
+ * next control left, the fold's button, else the section's heading (useLockFocus's fallback), only while focus is still lost,
+ * so a press or a key since is never undone.
+ */
+function useFocusFallback(heading: RefObject<HTMLHeadingElement | null>): { trackShowAll: TrackedRef; trackFold: TrackedRef } {
+  const fold = useRef<HTMLButtonElement | null>(null);
+  const lost = useRef(false);
+  const trackShowAll = useCallback<TrackedRef>((el) => {
+    if (!el) return undefined;
+    return () => {
+      if (document.activeElement === el) lost.current = true;
+    };
+  }, []);
+  const trackFold = useCallback<TrackedRef>((el) => {
+    if (!el) return undefined;
+    fold.current = el;
+    return () => {
+      if (document.activeElement === el) lost.current = true;
+      if (fold.current === el) fold.current = null;
+    };
+  }, []);
+  useEffect(() => {
+    if (!lost.current) return;
+    lost.current = false;
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    (fold.current ?? heading.current)?.focus();
+  });
+  return { trackShowAll, trackFold };
+}
+
 /**
  * The section for a given view (tests render it directly); `rating`: the season list's rating under way, or failed
  * (RatedWaivers); `open`: whether "Show all" and the fold start open (the page starts both closed; static-render tests open
@@ -175,8 +218,13 @@ export function WaiverUpgradesCard({ view, rating = null, open }: { view: Waiver
     if (window.location.hash === `#${WAIVERS_SECTION_ID}`) revealSection(browserSectionPage(), WAIVERS_SECTION_ID);
   }, []);
   useLockFocus(view, headingRef);
+  const { trackShowAll, trackFold } = useFocusFallback(headingRef);
   const lists = waiverLists(view);
   const list = lists.find((l) => l.mode === mode) ?? lists[0] ?? null;
+  // "Show all" opened closes for good once the rows above the fold are no more than it shows at first (review of Checkpoint
+  // 7f, WAIVERS-2: it stayed open unseen, so a later list with more opened expanded), set during render as React documents for
+  // state that follows the props, guarded so it runs once.
+  if (all && (!list || list.helping + list.blocked <= list.shown)) setAll(false);
   return (
     <Card id={WAIVERS_SECTION_ID} className="scroll-mt-4">
       <CardTitle eyebrow="Free agents" headingRef={headingRef}>
@@ -209,7 +257,7 @@ export function WaiverUpgradesCard({ view, rating = null, open }: { view: Waiver
           ))}
         </div>
       ) : null}
-      {list ? <WaiverListBody list={list} all={all} onShowAll={() => setAll((a) => !a)} more={more} onMore={() => setMore((m) => !m)} rating={rating} /> : null}
+      {list ? <WaiverListBody list={list} all={all} onShowAll={() => setAll((a) => !a)} more={more} onMore={() => setMore((m) => !m)} rating={rating} showAllRef={trackShowAll} foldRef={trackFold} /> : null}
     </Card>
   );
 }
@@ -273,18 +321,38 @@ function WaiverControls({ view }: { view: WaiversView }) {
 }
 
 /**
- * One list (the file header): the rows that help (the first `shown`, then "Show all"), or the line saying none does; then the
- * fold's button and, while it's open, the rows that don't help in their own list right after it. Each part keeps its place
- * among its siblings whatever the others show, so the fold's button is never remounted (focus stays on it). The wrapper
- * says which list it is and whether it's rated, for check:browser (data-waiver-list, data-rated).
+ * One list (the file header): the line saying none helps when none does, the rows above the fold (those that help, then the
+ * moves that can't be made: the first `shown`, then "Show all"), then the fold's button and, while it's open, the "No gain"
+ * rows in their own list right after it. Each part keeps its place among its siblings whatever the others show, so the fold's
+ * button is never remounted (focus stays on it). The wrapper says which list it is, whether it's rated and how many rows it
+ * has, for check:browser (data-waiver-list, data-rated, data-waiver-total: review of Checkpoint 7f, WAIVERS-3, so a fold that
+ * goes missing fails rather than reading as a list whose every row shows).
  */
-function WaiverListBody({ list, all, onShowAll, more, onMore, rating }: { list: WaiverListView; all: boolean; onShowAll: () => void; more: boolean; onMore: () => void; rating: WaiverRatingStatus }) {
+function WaiverListBody({
+  list,
+  all,
+  onShowAll,
+  more,
+  onMore,
+  rating,
+  showAllRef,
+  foldRef,
+}: {
+  list: WaiverListView;
+  all: boolean;
+  onShowAll: () => void;
+  more: boolean;
+  onMore: () => void;
+  rating: WaiverRatingStatus;
+  showAllRef: TrackedRef;
+  foldRef: TrackedRef;
+}) {
   const restId = useId();
-  const helping = list.rows.slice(0, list.helping);
-  const rows = all ? helping : helping.slice(0, list.shown);
+  const above = list.rows.slice(0, list.helping + list.blocked);
+  const rows = all ? above : above.slice(0, list.shown);
   const rest = list.rest;
   return (
-    <div data-waiver-list={list.mode} data-rated={list.rated ? "true" : "false"}>
+    <div data-waiver-list={list.mode} data-rated={list.rated ? "true" : "false"} data-waiver-total={list.rows.length}>
       {list.underWay ? <p className="mb-1 text-sm font-semibold">{list.underWay}</p> : null}
       {/* The season list's rating (the file header): its line stays mounted, so each change is announced. A one-week list's
           drops are the season list's, so it says meanwhile that one can change (the final review of Checkpoint 7e, UI-F-7). */}
@@ -302,34 +370,44 @@ function WaiverListBody({ list, all, onShowAll, more, onMore, rating }: { list: 
       <p className="mb-3 text-xs leading-relaxed text-muted">{list.note}</p>
       {list.rows.length ? (
         <>
-          {helping.length ? (
-            <ul data-waiver-rows="helping" aria-label={list.caption} className="space-y-2">
+          {/* No row helps: the line says so, before any move that can't be made (review of Checkpoint 7f, WAIVERS-1). */}
+          {list.noneHelps ? (
+            <p data-waiver-none="" className="text-sm">
+              {list.noneHelps}
+            </p>
+          ) : null}
+          {above.length ? (
+            <ul data-waiver-rows="shown" aria-label={list.caption} className={cx("space-y-2", list.noneHelps && "mt-3")}>
               {rows.map((r) => (
                 <WaiverRowCard key={r.id} row={r} weekLabel={list.weekLabel} depthOnlyTitle={list.depthOnlyTitle} />
               ))}
             </ul>
-          ) : (
-            <p data-waiver-none="" className="text-sm">
-              {list.noneHelps}
-            </p>
-          )}
-          {helping.length > list.shown ? (
-            <button type="button" aria-expanded={all} onClick={onShowAll} className={cx(buttonClass("secondary"), "mt-3")}>
-              {all ? "Show fewer" : `Show all ${helping.length}`}
+          ) : null}
+          {above.length > list.shown ? (
+            <button ref={showAllRef} type="button" aria-expanded={all} onClick={onShowAll} className={cx(buttonClass("secondary"), "mt-3")}>
+              {all ? "Show fewer" : `Show all ${above.length}`}
             </button>
           ) : null}
           {/* The rows that don't help, folded (Checkpoint 7f, item 3): a block of its own, so it never sits beside "Show all";
               its words wrap inside the button on a phone. The list opens after it, so the button doesn't move. */}
           {rest ? (
             <div className="mt-3">
-              <button type="button" aria-expanded={more} aria-controls={more ? restId : undefined} data-waiver-more="" onClick={onMore} className={cx(buttonClass("secondary"), "max-w-full py-2 text-left")}>
+              <button
+                ref={foldRef}
+                type="button"
+                aria-expanded={more}
+                aria-controls={more ? restId : undefined}
+                data-waiver-more=""
+                onClick={onMore}
+                className={cx(buttonClass("secondary"), "max-w-full py-2 text-left")}
+              >
                 {more ? rest.hide : rest.show}
               </button>
             </div>
           ) : null}
           {rest && more ? (
             <ul id={restId} data-waiver-rows="rest" aria-label={rest.caption} className="mt-3 space-y-2">
-              {list.rows.slice(list.helping).map((r) => (
+              {list.rows.slice(list.helping + list.blocked).map((r) => (
                 <WaiverRowCard key={r.id} row={r} weekLabel={list.weekLabel} depthOnlyTitle={list.depthOnlyTitle} />
               ))}
             </ul>

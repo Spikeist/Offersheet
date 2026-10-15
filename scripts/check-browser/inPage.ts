@@ -855,10 +855,13 @@ return {
  * same position" switch (its label, whether it's on, its help), and each row shown as a move (contracts.ts WaiverMoveRead:
  * whether it starts "Add", how it makes room, its main number's label and value, whether its second number reads as one, its
  * lock buttons and whether each is named "Untouchable: …" with what pressing it does as its title: review of wave C,
- * UI-C-10), never a name. Checkpoint 7f (planner reply to Checkpoint 7e, item 3): the rows that help as moves (`moves`,
- * `rows`: the list above the fold, data-waiver-rows "helping"), the folded rows (`restMoves`, `restRows`, `restId`: there
- * only while the fold is open), the fold's button (its words, aria-expanded, aria-controls, size, and whether it has keyboard
- * focus), the line when no row helps, the list's label (the toggle's button pressed) and whether it's rated (data-rated).
+ * UI-C-10), never a name. Checkpoint 7f (planner reply to Checkpoint 7e, item 3): the rows above the fold as moves (`moves`,
+ * `rows`: the list data-waiver-rows "shown", the rows that help, then since the review of Checkpoint 7f, WAIVERS-1, the moves
+ * that can't be made), the folded rows (`restMoves`, `restRows`, `restId`: there only while the fold is open, and `restAfter`:
+ * whether their list is the next element after the button's own block), the fold's button (its words, aria-expanded,
+ * aria-controls, size, and whether it has keyboard focus), the line when no row helps, the list's label (the toggle's button
+ * pressed), whether it's rated (data-rated) and how many rows it has (data-waiver-total, null without one: review of
+ * Checkpoint 7f, WAIVERS-3).
  */
 export const READ_WAIVERS = String.raw`
 const s = document.getElementById("waivers");
@@ -871,7 +874,7 @@ const group = s.querySelector('[role=group][aria-label="Which weeks"]');
 const pressed = group ? [...group.querySelectorAll("button")].find((b) => b.getAttribute("aria-pressed") === "true") || null : null;
 const more = [...s.querySelectorAll("button[aria-expanded]")].find((b) => /^Show (?:all \d+|fewer)$/.test(txt(b))) || null;
 const wrap = s.querySelector("[data-waiver-list]");
-const list = s.querySelector('ul[data-waiver-rows="helping"]');
+const list = s.querySelector('ul[data-waiver-rows="shown"]');
 const restList = s.querySelector('ul[data-waiver-rows="rest"]');
 const fold = s.querySelector("button[data-waiver-more]");
 const noneEl = s.querySelector("p[data-waiver-none]");
@@ -903,10 +906,12 @@ return {
   restMoves: movesOf(restList),
   restRows: restList ? restList.querySelectorAll(":scope > li").length : 0,
   restId: restList ? restList.id || null : null,
+  restAfter: restList ? !!fold && !!fold.parentElement && fold.parentElement.nextElementSibling === restList : null,
   rest: fold ? Object.assign({ text: txt(fold), expanded: fold.getAttribute("aria-expanded"), controls: fold.getAttribute("aria-controls"), focused: a === fold }, size(fold)) : null,
   none: noneEl ? txt(noneEl) : null,
   label: pressed ? txt(pressed) : wrap && wrap.getAttribute("data-waiver-list") === "ros" ? "Rest of season" : null,
   rated: wrap ? wrap.getAttribute("data-rated") === "true" : null,
+  total: wrap && /^\d+$/.test(wrap.getAttribute("data-waiver-total") || "") ? Number(wrap.getAttribute("data-waiver-total")) : null,
   section: true,
   path: location.pathname,
   hash: location.hash,

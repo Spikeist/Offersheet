@@ -5,8 +5,10 @@
  * toggle (44 px, aria-pressed; three lists while a week is under way, wrapping rather than overflowing), the first
  * config.waivers.rowsShown rows and "Show all", tags in words, the 375 px rules (cards that wrap, no table), and its place
  * on the League page (from the page's context, after the trade partners). Checkpoint 7f (planner reply to Checkpoint 7e,
- * item 3): the rows that help, then the fold of the rest ("N more pickups that don't help you (show)": 44 px, aria-expanded,
- * aria-controls only while its list is there, the list right after it), or the line when none helps.
+ * item 3): the rows that help, then (its review, WAIVERS-1) the moves that can't be made, then the fold of the "No gain" rows
+ * ("N more pickups that don't help you (show)": 44 px, aria-expanded, aria-controls only while its list is there, the list
+ * right after it), or the line when none helps; the list's row count for check:browser (data-waiver-total, WAIVERS-3). The
+ * focus rules after a recompute need a browser (WAIVERS-2: the fix's own write-up proves them in headless Chrome).
  */
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -214,7 +216,7 @@ describe("Checkpoint 7e: one move per row, the switch and the locks (planner rep
     if (!v) throw new Error("no waivers view");
     return v;
   }
-  /** The section with the League page's settings, the rows that don't help unfolded (Checkpoint 7f: a move that can't be made is among them). */
+  /** The section with the League page's settings, the rows that don't help unfolded (since the review of Checkpoint 7f a move that can't be made shows above the fold anyway). */
   const withEdit = (view: WaiversView, settings: TradeSettings) =>
     renderToStaticMarkup(createElement(LeagueSettingsEditContext, { value: { leagueKey: "test-key", settings, season: 2026 } }, createElement(WaiverUpgradesCard, { view, open: { more: true } })));
 
@@ -284,11 +286,24 @@ describe("Checkpoint 7f: the rows that don't help, folded (planner reply to Chec
    * `helping` free-agent RBs who'd start in my FLEX (over Wade Route's 7), then `folded` who beat only Ronnie Slow (6): "No
    * gain", depth only. Unrated (no season simulated): the lineup gain is each row's main number.
    */
-  function foldView(helping: number, folded: number): WaiversView {
+  function foldView(helping: number, folded: number, blocked = 0): WaiversView {
     const mine = MINE.map((x) => (x.id === "r3" ? { ...x, points: 6 } : x.id === "w3" ? { ...x, points: 7 } : x));
-    const fas = [...Array.from({ length: helping }, (_, i) => p(`fh${i}`, "RB", 8 + i, `Helper Number${i}`)), ...Array.from({ length: folded }, (_, i) => p(`fd${i}`, "RB", 6.1 + i / 10, `Depth Number${i}`))];
+    const fas = [...Array.from({ length: helping + blocked }, (_, i) => p(`fh${i}`, "RB", 8 + i, `Helper Number${i}`)), ...Array.from({ length: folded }, (_, i) => p(`fd${i}`, "RB", 6.1 + i / 10, `Depth Number${i}`))];
     const l = buildTestLeague({ platform: "espn", teams: [{ id: "1", roster: mine }, { id: "2", roster: [p("q2", "QB", 18, "Other QB")] }], freeAgents: fas });
-    const model = buildLeagueModel(l.snapshot, l.inputs, { now: TEST_NOW, sims: 0 }, NO_RISK);
+    const built = buildLeagueModel(l.snapshot, l.inputs, { now: TEST_NOW, sims: 0 }, NO_RISK);
+    // `blocked` of the helpers made moves only untouchables could make room for (review of Checkpoint 7f, WAIVERS-1).
+    const ros = built.waiverUpgrades?.ros;
+    const cant = new Set(Array.from({ length: blocked }, (_, i) => `fh${i}`));
+    const model =
+      ros && blocked
+        ? {
+            ...built,
+            waiverUpgrades: {
+              ...(built.waiverUpgrades as NonNullable<typeof built.waiverUpgrades>),
+              ros: { ...ros, rows: ros.rows.map((r) => (cant.has(r.playerId) ? { ...r, gain: null, drop: null, dropPoints: null, depthOnly: false, blocked: { why: "untouchable" as const, atPosition: true, otherPosition: true, untouchable: ["r2"] } } : r)) },
+            },
+          }
+        : built;
     const v = buildWaiversView({ snapshot: l.snapshot, model, inputs: l.inputs, timeZone: "America/New_York", now: TEST_NOW.toISOString() });
     if (!v) throw new Error("no waivers view");
     return v;
@@ -296,15 +311,16 @@ describe("Checkpoint 7f: the rows that don't help, folded (planner reply to Chec
   const render = (view: WaiversView, open?: { all?: boolean; more?: boolean }) => renderToStaticMarkup(createElement(WaiverUpgradesCard, { view, ...(open ? { open } : {}) }));
   /** The fold's button: its attributes in the order React writes them, and its words. */
   const FOLD = /<button type="button" aria-expanded="(true|false)"(?: aria-controls="([^"]+)")? data-waiver-more="" class="([^"]*)">([^<]*)<\/button>/;
-  const listOf = (html: string, which: "helping" | "rest") => new RegExp(`<ul(?: id="([^"]+)")? data-waiver-rows="${which}" aria-label="([^"]*)" class="[^"]*">([\\s\\S]*?)</ul>`).exec(html);
+  const listOf = (html: string, which: "shown" | "rest") => new RegExp(`<ul(?: id="([^"]+)")? data-waiver-rows="${which}" aria-label="([^"]*)" class="[^"]*">([\\s\\S]*?)</ul>`).exec(html);
   const items = (html: string) => (html.match(/<li class="rounded-xl border/g) ?? []).length;
 
   it("the rows that help, then one button: “N more pickups that don't help you (show)”, 44 px, collapsed (aria-expanded false, no aria-controls); none of the others in the page", () => {
     const view = foldView(3, 2);
-    expect([view.ros?.helping, view.ros?.rest?.count]).toEqual([3, 2]);
+    expect([view.ros?.helping, view.ros?.blocked, view.ros?.rest?.count]).toEqual([3, 0, 2]);
     const html = render(view);
-    expect(html).toMatch(/<div data-waiver-list="ros" data-rated="false">/);
-    const helping = listOf(html, "helping");
+    // The list says how many rows it has, for check:browser (review of Checkpoint 7f, WAIVERS-3).
+    expect(html).toMatch(/<div data-waiver-list="ros" data-rated="false" data-waiver-total="5">/);
+    const helping = listOf(html, "shown");
     expect(textOf(helping?.[2] ?? "")).toBe("Waiver upgrades for the rest of the season");
     expect(items(helping?.[3] ?? "")).toBe(3);
     expect(items(html)).toBe(3);
@@ -338,10 +354,10 @@ describe("Checkpoint 7f: the rows that don't help, folded (planner reply to Chec
   it("more than config.waivers.rowsShown help: the first of them and “Show all N”, N the rows that help, then the fold; “Show all” opened shows them all", () => {
     const view = foldView(config.waivers.rowsShown + 2, 2);
     const html = render(view);
-    expect(items(listOf(html, "helping")?.[3] ?? "")).toBe(config.waivers.rowsShown);
+    expect(items(listOf(html, "shown")?.[3] ?? "")).toBe(config.waivers.rowsShown);
     expect(html).toMatch(new RegExp(`<button type="button" aria-expanded="false" class="[^"]*min-h-11[^"]*">Show all ${config.waivers.rowsShown + 2}</button><div class="mt-3"><button type="button" aria-expanded="false" data-waiver-more=""`));
     const all = render(view, { all: true });
-    expect(items(listOf(all, "helping")?.[3] ?? "")).toBe(config.waivers.rowsShown + 2);
+    expect(items(listOf(all, "shown")?.[3] ?? "")).toBe(config.waivers.rowsShown + 2);
     expect(all).toMatch(/aria-expanded="true" class="[^"]*">Show fewer<\/button>/);
     expect(listOf(all, "rest")).toBeNull();
   });
@@ -349,7 +365,7 @@ describe("Checkpoint 7f: the rows that don't help, folded (planner reply to Chec
   it("none helps: the line instead of the rows, then the fold without “more”", () => {
     const html = render(foldView(0, 3));
     expect(html).toContain('<p data-waiver-none="" class="text-sm">No pickup helps you over the rest of the season.</p>');
-    expect(listOf(html, "helping")).toBeNull();
+    expect(listOf(html, "shown")).toBeNull();
     expect(textOf(FOLD.exec(html)?.[4] ?? "")).toBe("3 pickups that don't help you (show)");
     expect(items(html)).toBe(0);
     // Opened: the three rows.
@@ -360,9 +376,50 @@ describe("Checkpoint 7f: the rows that don't help, folded (planner reply to Chec
     const view = foldView(2, 2);
     expect([view.week?.helping, view.week?.rest?.count]).toEqual([2, 2]);
     const html = render({ ...view, first: "week" }, { more: true });
-    expect(html).toMatch(/<div data-waiver-list="week" data-rated="false">/);
+    expect(html).toMatch(/<div data-waiver-list="week" data-rated="false" data-waiver-total="4">/);
     expect(textOf(FOLD.exec(html)?.[4] ?? "")).toBe("2 more pickups that don't help you this week (hide)");
     expect(textOf(listOf(html, "rest")?.[2] ?? "")).toBe("Pickups that don't help you in week 4");
+  });
+
+  it("moves that can't be made show above the fold, after the rows that help, with why; the fold counts the “No gain” rows alone (review of Checkpoint 7f, WAIVERS-1)", () => {
+    const view = foldView(2, 2, 1);
+    expect([view.ros?.helping, view.ros?.blocked, view.ros?.rest?.count]).toEqual([2, 1, 2]);
+    const html = render(view);
+    const shown = listOf(html, "shown");
+    expect(items(shown?.[3] ?? "")).toBe(3);
+    // The last row above the fold is the move that can't be made, its number and sentence in words, the switch's hint among them.
+    const text = textOf(shown?.[3] ?? "");
+    expect(text.lastIndexOf("Can't add")).toBeGreaterThan(text.lastIndexOf("Lineup gain: +"));
+    expect(text).toContain(`Every RB you could drop is untouchable: R. Dash. ${SAME_POSITION_HINT}`);
+    expect(textOf(FOLD.exec(html)?.[4] ?? "")).toBe("2 more pickups that don't help you (show)");
+    expect(html).toMatch(/<div data-waiver-list="ros" data-rated="false" data-waiver-total="5">/);
+    // Opened: the two "No gain" rows alone.
+    const rest = listOf(render(view, { more: true }), "rest");
+    expect(items(rest?.[3] ?? "")).toBe(2);
+    expect(textOf(rest?.[3] ?? "")).not.toContain("Can't add");
+  });
+
+  it("none helps but a move can't be made: “No pickup you can make helps you …”, then that move, then the fold without “more”", () => {
+    const html = render(foldView(0, 2, 1));
+    expect(html).toContain('<p data-waiver-none="" class="text-sm">No pickup you can make helps you over the rest of the season.</p>');
+    // The line first, then the list above the fold (spaced from it), holding the one move that can't be made.
+    expect(html).toMatch(/No pickup you can make helps you over the rest of the season\.<\/p><ul data-waiver-rows="shown" aria-label="[^"]*" class="space-y-2 mt-3">/);
+    expect(items(listOf(html, "shown")?.[3] ?? "")).toBe(1);
+    expect(textOf(FOLD.exec(html)?.[4] ?? "")).toBe("2 pickups that don't help you (show)");
+    // Every move can't be made: no fold at all.
+    const only = render(foldView(0, 0, 2));
+    expect(only).not.toContain("data-waiver-more");
+    expect(items(listOf(only, "shown")?.[3] ?? "")).toBe(2);
+  });
+
+  it("“Show all N” counts the rows above the fold, the moves that can't be made among them", () => {
+    const view = foldView(config.waivers.rowsShown - 1, 1, 3);
+    const above = config.waivers.rowsShown + 2;
+    expect((view.ros?.helping ?? 0) + (view.ros?.blocked ?? 0)).toBe(above);
+    const html = render(view);
+    expect(items(listOf(html, "shown")?.[3] ?? "")).toBe(config.waivers.rowsShown);
+    expect(html).toContain(`>Show all ${above}</button>`);
+    expect(items(listOf(render(view, { all: true }), "shown")?.[3] ?? "")).toBe(above);
   });
 });
 
