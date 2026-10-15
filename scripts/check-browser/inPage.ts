@@ -855,7 +855,10 @@ return {
  * same position" switch (its label, whether it's on, its help), and each row shown as a move (contracts.ts WaiverMoveRead:
  * whether it starts "Add", how it makes room, its main number's label and value, whether its second number reads as one, its
  * lock buttons and whether each is named "Untouchable: …" with what pressing it does as its title: review of wave C,
- * UI-C-10), never a name.
+ * UI-C-10), never a name. Checkpoint 7f (planner reply to Checkpoint 7e, item 3): the rows that help as moves (`moves`,
+ * `rows`: the list above the fold, data-waiver-rows "helping"), the folded rows (`restMoves`, `restRows`, `restId`: there
+ * only while the fold is open), the fold's button (its words, aria-expanded, aria-controls, size, and whether it has keyboard
+ * focus), the line when no row helps, the list's label (the toggle's button pressed) and whether it's rated (data-rated).
  */
 export const READ_WAIVERS = String.raw`
 const s = document.getElementById("waivers");
@@ -865,15 +868,20 @@ if (!s) return { section: false, over: [...document.querySelectorAll("main p")].
 const h = s.querySelector("h2");
 const hb = h ? h.getBoundingClientRect() : null;
 const group = s.querySelector('[role=group][aria-label="Which weeks"]');
+const pressed = group ? [...group.querySelectorAll("button")].find((b) => b.getAttribute("aria-pressed") === "true") || null : null;
 const more = [...s.querySelectorAll("button[aria-expanded]")].find((b) => /^Show (?:all \d+|fewer)$/.test(txt(b))) || null;
-const list = s.querySelector("ul[aria-label]");
+const wrap = s.querySelector("[data-waiver-list]");
+const list = s.querySelector('ul[data-waiver-rows="helping"]');
+const restList = s.querySelector('ul[data-waiver-rows="rest"]');
+const fold = s.querySelector("button[data-waiver-more]");
+const noneEl = s.querySelector("p[data-waiver-none]");
 const size = (el) => { const r = el.getBoundingClientRect(); return { height: Math.round(r.height * 10) / 10, width: Math.round(r.width) }; };
 const statusEl = s.querySelector("p[role=status]");
 const sw = s.querySelector("input[role=switch]");
 const swLabel = sw ? sw.closest("label") : null;
 const helpId = sw ? sw.getAttribute("aria-describedby") : null;
 const help = helpId ? document.getElementById(helpId) : null;
-const moves = list ? [...list.querySelectorAll(":scope > li")].map((li) => {
+const movesOf = (ul) => ul ? [...ul.querySelectorAll(":scope > li")].map((li) => {
   const ps = [...li.querySelectorAll("p")].map((p) => txt(p));
   const main = ps.find((t) => /^(Helps you|Lineup gain):/.test(t)) || "";
   const kind = ps.some((t) => /^Drop \S/.test(t)) ? "drop" : ps.includes("Open roster spot") ? "open" : ps.some((t) => /untouchable[.:]|make room for him/.test(t)) ? "blocked" : "none";
@@ -891,7 +899,14 @@ const moves = list ? [...list.querySelectorAll(":scope > li")].map((li) => {
 return {
   status: statusEl ? txt(statusEl) : null,
   switch: sw ? { label: swLabel ? txt(swLabel) : null, on: sw.checked, help: help ? txt(help) : null } : null,
-  moves: moves,
+  moves: movesOf(list),
+  restMoves: movesOf(restList),
+  restRows: restList ? restList.querySelectorAll(":scope > li").length : 0,
+  restId: restList ? restList.id || null : null,
+  rest: fold ? Object.assign({ text: txt(fold), expanded: fold.getAttribute("aria-expanded"), controls: fold.getAttribute("aria-controls"), focused: a === fold }, size(fold)) : null,
+  none: noneEl ? txt(noneEl) : null,
+  label: pressed ? txt(pressed) : wrap && wrap.getAttribute("data-waiver-list") === "ros" ? "Rest of season" : null,
+  rated: wrap ? wrap.getAttribute("data-rated") === "true" : null,
   section: true,
   path: location.pathname,
   hash: location.hash,
@@ -906,7 +921,7 @@ return {
   toggle: group ? [...group.querySelectorAll("button")].map((b) => Object.assign({ label: txt(b), pressed: b.getAttribute("aria-pressed") }, size(b))) : null,
   more: more ? Object.assign({ text: txt(more), expanded: more.getAttribute("aria-expanded") }, size(more)) : null,
   rows: list ? list.querySelectorAll(":scope > li").length : 0,
-  list: !!list,
+  list: !!wrap,
 };
 `;
 
@@ -917,6 +932,19 @@ export function waiverToggle(i: number): string {
 
 /** The waiver view's "Show all N" (or "Show fewer") button, for a tap. */
 export const WAIVER_SHOW_ALL = String.raw`[...document.querySelectorAll("#waivers button[aria-expanded]")].find((b) => /^Show (?:all \d+|fewer)$/.test(txt(b)))`;
+
+/** The list's fold, "N more pickups that don't help you (show)" or "(hide)" (Checkpoint 7f), for a tap. */
+export const WAIVER_REST = String.raw`document.querySelector("#waivers button[data-waiver-more]")`;
+
+/**
+ * The waiver section's every word, hover texts and labels included, the league's names replaced (after a cleaning prelude:
+ * cleanCall). Checkpoint 7f: read with the fold open, so the rows that don't help (their "Why no gain" lines among them),
+ * which the League step's own scan of the page no longer reaches while they're folded, are read for trade values too.
+ */
+export const READ_WAIVERS_TEXT = String.raw`
+const s = document.getElementById("waivers");
+return s ? clean(pageText(s, { all: true, attributes: true })) : "";
+`;
 
 /**
  * Before the Settings page opens (a client-side navigation keeps the document): records every value its "Playoff weeks

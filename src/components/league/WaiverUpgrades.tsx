@@ -37,8 +37,16 @@
  *
  * At 375 px: one card per move (no table: seven columns don't fit a phone), the add line and the drop line (with its lock)
  * wrapping, the two numbers on the card's right from sm up and under the names on a phone; tags in words (never color
- * alone); 44 px toggle, switch, lock and "Show all" targets (the toggle's three buttons wrap rather than overflow on a
- * narrow phone). The first config.waivers.rowsShown rows show, then "Show all".
+ * alone); 44 px toggle, switch, lock, "Show all" and fold targets (the toggle's three buttons wrap rather than overflow on a
+ * narrow phone, the fold's words wrap inside its button).
+ *
+ * Checkpoint 7f (planner reply to Checkpoint 7e, item 3: "Show the rows that rate above 0, followed by a collapsed “N more
+ * pickups that don't help you (show).”"): each list shows the rows that help (the first config.waivers.rowsShown of them,
+ * then "Show all N", N the rows that help), or a line when none does; then one button, a disclosure (aria-expanded), "42
+ * more pickups that don't help you (show)", which shows the rest in their own list right after it ("(hide)" folds them
+ * again). The button stays where it is, the list opening below it, so keyboard focus stays on it either way; aria-controls
+ * names the list only while it's there. The toggle folds both again; a recompute (a lock, the switch, the rating's answer)
+ * keeps them as they are. Which rows help, and the words: waiversView.ts (WaiverListView.helping, .rest, .noneHelps).
  */
 import Link from "next/link";
 import { createContext, use, useEffect, useId, useRef, useState, type RefObject } from "react";
@@ -118,8 +126,8 @@ function waiverLists(view: WaiversView): WaiverListView[] {
  * or stayed on a reused button that now locked another player). Each lock carries its player's id (UntouchableLock
  * LOCK_PLAYER_ATTRIBUTE, the row's drop lock keyed by him); when the lists redraw with focus lost, it goes to that player's
  * lock wherever it now is (the untouchables line after locking him, a row's drop after unlocking him), else to the section's
- * heading (SettingsForm.tsx useRemoveFocus is the Settings page's own pattern). Any other press or key ends the watch, so
- * focus is never taken back later.
+ * heading (SettingsForm.tsx useRemoveFocus is the Settings page's own pattern; since Checkpoint 7f also when his row now sits
+ * in the fold while it's closed). Any other press or key ends the watch, so focus is never taken back later.
  */
 function useLockFocus(view: WaiversView, heading: RefObject<HTMLHeadingElement | null>) {
   const pressed = useRef<string | null>(null);
@@ -151,10 +159,15 @@ function useLockFocus(view: WaiversView, heading: RefObject<HTMLHeadingElement |
   }, [view, heading]);
 }
 
-/** The section for a given view (tests render it directly); `rating`: the season list's rating under way, or failed (RatedWaivers). */
-export function WaiverUpgradesCard({ view, rating = null }: { view: WaiversView; rating?: WaiverRatingStatus }) {
+/**
+ * The section for a given view (tests render it directly); `rating`: the season list's rating under way, or failed
+ * (RatedWaivers); `open`: whether "Show all" and the fold start open (the page starts both closed; static-render tests open
+ * them to read every row).
+ */
+export function WaiverUpgradesCard({ view, rating = null, open }: { view: WaiversView; rating?: WaiverRatingStatus; open?: { all?: boolean; more?: boolean } }) {
   const [mode, setMode] = useState<WaiverListMode>(view.first);
-  const [all, setAll] = useState(false);
+  const [all, setAll] = useState(open?.all ?? false);
+  const [more, setMore] = useState(open?.more ?? false);
   // The heading takes focus from script (tabIndex −1) when the section is revealed (the file header).
   const headingRef = useRef<HTMLHeadingElement>(null);
   // Arrived through the header's link (the file header): bring the section into view once it's there, its heading focused.
@@ -187,6 +200,7 @@ export function WaiverUpgradesCard({ view, rating = null }: { view: WaiversView;
               onClick={() => {
                 setMode(l.mode);
                 setAll(false);
+                setMore(false);
               }}
               className={cx("min-h-11 rounded-lg px-3 text-sm font-bold", list?.mode === l.mode ? "bg-surface text-foreground shadow-sm" : "text-muted hover:text-foreground")}
             >
@@ -195,7 +209,7 @@ export function WaiverUpgradesCard({ view, rating = null }: { view: WaiversView;
           ))}
         </div>
       ) : null}
-      {list ? <WaiverListBody list={list} all={all} onShowAll={() => setAll((a) => !a)} rating={rating} /> : null}
+      {list ? <WaiverListBody list={list} all={all} onShowAll={() => setAll((a) => !a)} more={more} onMore={() => setMore((m) => !m)} rating={rating} /> : null}
     </Card>
   );
 }
@@ -258,10 +272,19 @@ function WaiverControls({ view }: { view: WaiversView }) {
   );
 }
 
-function WaiverListBody({ list, all, onShowAll, rating }: { list: WaiverListView; all: boolean; onShowAll: () => void; rating: WaiverRatingStatus }) {
-  const rows = all ? list.rows : list.rows.slice(0, list.shown);
+/**
+ * One list (the file header): the rows that help (the first `shown`, then "Show all"), or the line saying none does; then the
+ * fold's button and, while it's open, the rows that don't help in their own list right after it. Each part keeps its place
+ * among its siblings whatever the others show, so the fold's button is never remounted (focus stays on it). The wrapper
+ * says which list it is and whether it's rated, for check:browser (data-waiver-list, data-rated).
+ */
+function WaiverListBody({ list, all, onShowAll, more, onMore, rating }: { list: WaiverListView; all: boolean; onShowAll: () => void; more: boolean; onMore: () => void; rating: WaiverRatingStatus }) {
+  const restId = useId();
+  const helping = list.rows.slice(0, list.helping);
+  const rows = all ? helping : helping.slice(0, list.shown);
+  const rest = list.rest;
   return (
-    <div>
+    <div data-waiver-list={list.mode} data-rated={list.rated ? "true" : "false"}>
       {list.underWay ? <p className="mb-1 text-sm font-semibold">{list.underWay}</p> : null}
       {/* The season list's rating (the file header): its line stays mounted, so each change is announced. A one-week list's
           drops are the season list's, so it says meanwhile that one can change (the final review of Checkpoint 7e, UI-F-7). */}
@@ -279,15 +302,37 @@ function WaiverListBody({ list, all, onShowAll, rating }: { list: WaiverListView
       <p className="mb-3 text-xs leading-relaxed text-muted">{list.note}</p>
       {list.rows.length ? (
         <>
-          <ul aria-label={list.caption} className="space-y-2">
-            {rows.map((r) => (
-              <WaiverRowCard key={r.id} row={r} weekLabel={list.weekLabel} depthOnlyTitle={list.depthOnlyTitle} />
-            ))}
-          </ul>
-          {list.rows.length > list.shown ? (
+          {helping.length ? (
+            <ul data-waiver-rows="helping" aria-label={list.caption} className="space-y-2">
+              {rows.map((r) => (
+                <WaiverRowCard key={r.id} row={r} weekLabel={list.weekLabel} depthOnlyTitle={list.depthOnlyTitle} />
+              ))}
+            </ul>
+          ) : (
+            <p data-waiver-none="" className="text-sm">
+              {list.noneHelps}
+            </p>
+          )}
+          {helping.length > list.shown ? (
             <button type="button" aria-expanded={all} onClick={onShowAll} className={cx(buttonClass("secondary"), "mt-3")}>
-              {all ? "Show fewer" : `Show all ${list.rows.length}`}
+              {all ? "Show fewer" : `Show all ${helping.length}`}
             </button>
+          ) : null}
+          {/* The rows that don't help, folded (Checkpoint 7f, item 3): a block of its own, so it never sits beside "Show all";
+              its words wrap inside the button on a phone. The list opens after it, so the button doesn't move. */}
+          {rest ? (
+            <div className="mt-3">
+              <button type="button" aria-expanded={more} aria-controls={more ? restId : undefined} data-waiver-more="" onClick={onMore} className={cx(buttonClass("secondary"), "max-w-full py-2 text-left")}>
+                {more ? rest.hide : rest.show}
+              </button>
+            </div>
+          ) : null}
+          {rest && more ? (
+            <ul id={restId} data-waiver-rows="rest" aria-label={rest.caption} className="mt-3 space-y-2">
+              {list.rows.slice(list.helping).map((r) => (
+                <WaiverRowCard key={r.id} row={r} weekLabel={list.weekLabel} depthOnlyTitle={list.depthOnlyTitle} />
+              ))}
+            </ul>
           ) : null}
         </>
       ) : (

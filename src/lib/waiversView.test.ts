@@ -5,7 +5,8 @@
  * the note pointed to a "This week" the page didn't show), the gain and the drop in words ("No gain" when the gain prints
  * as 0), "No room", who and why when none of mine at his position plays ("No TE of yours plays in week 4 (T. Block:
  * bye)"), the waiver status ("On waivers until Wed", "Free agent now", none on Sleeper), opponents on the one-week lists,
- * the D/ST label, and nothing once my redraft season is over.
+ * the D/ST label, and nothing once my redraft season is over. Checkpoint 7f (planner reply to Checkpoint 7e, item 3): the
+ * rows that help first, the rest folded behind "N more pickups that don't help you (show)", on every list.
  */
 import { describe, expect, it } from "vitest";
 import { config } from "@/engine/config";
@@ -31,10 +32,12 @@ import {
   WAIVERS_NO_WEEKS,
   WAIVERS_PICK_TEAM,
   WAIVERS_SECTION_ID,
+  WAIVERS_NONE_HELPS,
   WAIVERS_SEASON_OVER,
   buildWaiversView,
   positionPlural,
   waiverStatusText,
+  waiversRestText,
   type WaiverListView,
 } from "./waiversView";
 
@@ -513,5 +516,140 @@ describe("Checkpoint 7e: one move per row, Helps you, the switch and the untouch
       expect(text).not.toMatch(/9876\d\d|987,6\d\d/);
       expect(text).not.toContain(String(model.market.waiverCredit));
     });
+
+    it("Checkpoint 7f: the rows whose Helps you prints above 0 first and shown, the rest folded behind “N more pickups that don't help you (show)”", () => {
+      const ros = rv?.ros;
+      if (!ros) throw new Error("no list");
+      const helps = ros.rows.filter((r) => r.main.label === "Helps you" && /^[1-9]\d*$/.test(r.main.text));
+      expect(ros.helping).toBe(helps.length);
+      expect(ros.helping).toBeGreaterThan(0);
+      expect(ros.helping).toBeLessThan(ros.rows.length);
+      expect(ros.rows.slice(0, ros.helping).every((r) => r.helps && r.main.positive)).toBe(true);
+      expect(ros.rows.slice(ros.helping).every((r) => !r.helps && (r.main.text === NO_GAIN_TEXT || r.blocked !== null))).toBe(true);
+      const folded = ros.rows.length - ros.helping;
+      expect(ros.rest).toEqual({
+        count: folded,
+        show: `${folded} more ${folded === 1 ? "pickup that doesn't" : "pickups that don't"} help you (show)`,
+        hide: `${folded} more ${folded === 1 ? "pickup that doesn't" : "pickups that don't"} help you (hide)`,
+        caption: "Pickups that don't help you over the rest of the season",
+      });
+      expect(ros.noneHelps).toBeNull();
+      // The engine's order puts them so already; the view keeps it within each group (a stable partition): the first row,
+      // made to print no gain where it stands in the engine's order, moves behind every row that helps, the others in order.
+      const first = ros.rows[0];
+      const engine = model.waiverUpgrades?.ros;
+      if (!first || !engine) throw new Error("no row");
+      const rows = engine.rows.map((r) => (r.playerId === first.id ? { ...r, rating: { b: -0.2, bWin: -0.1, helps: null, sims: 400 } } : r));
+      const m: LeagueModel = { ...model, waiverUpgrades: { ...(model.waiverUpgrades as NonNullable<LeagueModel["waiverUpgrades"]>), ros: { ...engine, rows } } };
+      const demoted = buildWaiversView({ snapshot: l.snapshot, model: m, inputs, timeZone: NY, now: TEST_NOW.toISOString() })?.ros;
+      expect(demoted?.helping).toBe(ros.helping - 1);
+      expect(demoted?.rows.map((r) => r.id)).toEqual([...ros.rows.slice(1, ros.helping), first, ...ros.rows.slice(ros.helping)].map((r) => r.id));
+    });
+
+    it("Checkpoint 7f: waiting for its rating (or when it fails), the season list folds by the number each row shows then: the lineup gain (⚠️ ours)", () => {
+      // The League page's own build: without the rating, which it asks for on its own request (pendingRating).
+      const unrated = buildLeagueModel(l.snapshot, inputs, { now: TEST_NOW, sims: 400 }, RATED);
+      const pv = buildWaiversView({ snapshot: l.snapshot, model: unrated, inputs, timeZone: NY, now: TEST_NOW.toISOString() });
+      expect(pv?.pendingRating).not.toBeNull();
+      const ros = pv?.ros;
+      if (!ros) throw new Error("no list");
+      expect(ros.rated).toBe(false);
+      expect(ros.helping).toBeGreaterThan(0);
+      for (const [i, r] of ros.rows.entries()) {
+        expect(r.main.label).toBe("Lineup gain");
+        expect(r.helps).toBe(i < ros.helping);
+        expect(r.helps).toBe(/^\+[\d.]+ pts$/.test(r.main.text));
+      }
+      expect(ros.rest?.show).toMatch(/^\d+ more pickups? that (doesn't|don't) help you \(show\)$/);
+    });
+  });
+});
+
+describe("Checkpoint 7f: the rows that don't help fold (planner reply to Checkpoint 7e, item 3)", () => {
+  // The planner: "Show the rows that rate above 0, followed by a collapsed “N more pickups that don't help you (show).”"
+  it("the fold's words: plural or singular, the week on a one-week list, no “more” when no row helps; and the line when none does", () => {
+    expect(waiversRestText(42, "ros", { more: true, open: false })).toBe("42 more pickups that don't help you (show)");
+    expect(waiversRestText(42, "ros", { more: true, open: true })).toBe("42 more pickups that don't help you (hide)");
+    expect(waiversRestText(1, "ros", { more: true, open: false })).toBe("1 more pickup that doesn't help you (show)");
+    expect(waiversRestText(59, "thisWeek", { more: true, open: false })).toBe("59 more pickups that don't help you this week (show)");
+    expect(waiversRestText(1, "nextWeek", { more: true, open: true })).toBe("1 more pickup that doesn't help you next week (hide)");
+    expect(waiversRestText(21, "ros", { more: false, open: false })).toBe("21 pickups that don't help you (show)");
+    expect(waiversRestText(1, "thisWeek", { more: false, open: true })).toBe("1 pickup that doesn't help you this week (hide)");
+    expect(WAIVERS_NONE_HELPS).toEqual({ ros: "No pickup helps you over the rest of the season.", thisWeek: "No pickup helps you this week.", nextWeek: "No pickup helps you next week." });
+  });
+
+  it("an unrated list: the rows whose lineup gain prints above 0 show; a “Depth only” row at no gain folds, its tag still explained under the list", () => {
+    const v = view(setup());
+    const ros = v?.ros;
+    expect(ros?.rows.map((r) => [r.name, r.helps])).toEqual([
+      ["Frankie Burst", true],
+      ["Fred Depth", false],
+    ]);
+    expect(ros?.helping).toBe(1);
+    expect(ros?.rest).toEqual({ count: 1, show: "1 more pickup that doesn't help you (show)", hide: "1 more pickup that doesn't help you (hide)", caption: "Pickups that don't help you over the rest of the season" });
+    expect(ros?.noneHelps).toBeNull();
+    expect(row(ros, "Fred Depth")?.depthOnly).toBe(true);
+    // The note's sentence is unchanged: said whenever a row of the list carries the tag, folded or not (the lead's call).
+    expect(ros?.note).toContain(`${DEPTH_ONLY_TAG}: ${DEPTH_ONLY_WORDS.ros}.`);
+    // "This week": the week named, the folded list's caption naming it.
+    expect(v?.week?.helping).toBe(2);
+    expect(v?.week?.rest).toEqual({ count: 1, show: "1 more pickup that doesn't help you this week (show)", hide: "1 more pickup that doesn't help you this week (hide)", caption: "Pickups that don't help you in week 4" });
+  });
+
+  it("while a week is under way: “This week” for its games still to play and “Next week” name their weeks", () => {
+    const EAR = new Date(TEST_NOW.getTime() - 3_600_000).toISOString();
+    const LAT = new Date(TEST_NOW.getTime() + 86_400_000).toISOString();
+    const mine = MINE.map((x) => ({ ...x, nflTeam: x.id === "t1" || x.id === "k1" ? "EAR" : "LAT" }));
+    const u = view(setup({ mine, freeAgents: [p("fa1", "RB", 13, "Frankie Burst", { nflTeam: "LAT" }), p("fa5", "RB", 6.5, "Fred Depth", { nflTeam: "LAT" })], kickoffs: { 4: { EAR, LAT } } }));
+    expect([u?.underWay?.label, u?.week?.label]).toEqual(["This week", "Next week"]);
+    expect(u?.underWay?.rest).toEqual({ count: 1, show: "1 more pickup that doesn't help you this week (show)", hide: "1 more pickup that doesn't help you this week (hide)", caption: "Pickups that don't help you in week 4's games still to play" });
+    expect(u?.week?.rest).toEqual({ count: 1, show: "1 more pickup that doesn't help you next week (show)", hide: "1 more pickup that doesn't help you next week (hide)", caption: "Pickups that don't help you in week 5" });
+    // Every game of the week kicked off: "Next week" alone.
+    const next = view(setup({ kickoffs: { 4: { AAA: EAR } } }));
+    expect(next?.week?.label).toBe("Next week");
+    expect(next?.week?.rest?.show).toBe("1 more pickup that doesn't help you next week (show)");
+  });
+
+  it("when no row helps: the line instead of them, then the fold without “more”", () => {
+    const depth = [p("fa5", "RB", 6.5, "Fred Depth"), p("fa6", "RB", 6.2, "Dale Bench"), p("fa7", "RB", 6.8, "Dusty Pine")];
+    const v = view(setup({ freeAgents: depth }));
+    expect(v?.ros?.helping).toBe(0);
+    expect(v?.ros?.noneHelps).toBe("No pickup helps you over the rest of the season.");
+    expect(v?.ros?.rest?.show).toBe("3 pickups that don't help you (show)");
+    expect(v?.ros?.rest?.hide).toBe("3 pickups that don't help you (hide)");
+    expect(v?.week?.noneHelps).toBe("No pickup helps you this week.");
+    expect(v?.week?.rest?.show).toBe("3 pickups that don't help you this week (show)");
+  });
+
+  it("every row helps: nothing folded, no line", () => {
+    const EAR = new Date(TEST_NOW.getTime() - 3_600_000).toISOString();
+    const LAT = new Date(TEST_NOW.getTime() + 86_400_000).toISOString();
+    const mine = MINE.map((x) => ({ ...x, nflTeam: x.id === "t1" || x.id === "k1" ? "EAR" : "LAT" }));
+    const u = view(setup({ mine, freeAgents: [p("fa1", "RB", 13, "Frankie Burst", { nflTeam: "LAT" }), p("ft", "TE", 9, "Tad Fill", { nflTeam: "LAT" })], kickoffs: { 4: { EAR, LAT } } }));
+    for (const list of [u?.ros, u?.underWay, u?.week]) {
+      expect(list?.rows.length).toBeGreaterThan(0);
+      expect(list?.helping).toBe(list?.rows.length);
+      expect(list?.rest).toBeNull();
+      expect(list?.noneHelps).toBeNull();
+    }
+  });
+
+  it("a move that can't be made folds, after the rows that print no gain (⚠️ ours), whatever the order it comes in", () => {
+    const base = setup();
+    const ros = base.model.waiverUpgrades?.ros;
+    if (!ros) throw new Error("no list");
+    // Frankie Burst, the list's first row, made a move only untouchables could make room for.
+    const blocked: WaiverBlocked = { why: "untouchable", atPosition: true, otherPosition: false, untouchable: ["r2"] };
+    const rows = ros.rows.map((r) => (r.playerId === "fa1" ? { ...r, gain: null, drop: null, dropPoints: null, depthOnly: false, blocked } : r));
+    expect(rows[0]?.playerId).toBe("fa1");
+    const model: LeagueModel = { ...base.model, waiverUpgrades: { ...(base.model.waiverUpgrades as NonNullable<LeagueModel["waiverUpgrades"]>), ros: { ...ros, rows } } };
+    const v = buildWaiversView({ snapshot: base.snapshot, model, inputs: base.inputs, timeZone: NY, now: TEST_NOW.toISOString() })?.ros;
+    expect(v?.rows.map((r) => [r.name, r.main.text])).toEqual([
+      ["Fred Depth", NO_GAIN_TEXT],
+      ["Frankie Burst", CANT_ADD_TEXT],
+    ]);
+    expect(v?.helping).toBe(0);
+    expect(v?.noneHelps).toBe("No pickup helps you over the rest of the season.");
+    expect(v?.rest?.show).toBe("2 pickups that don't help you (show)");
   });
 });

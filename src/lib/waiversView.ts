@@ -30,7 +30,17 @@
  * same position'"); its number reads "Can't add" ("No room" when no untouchable is why), under the list's own label, with
  * the sentence as its hover. A rated "No gain" row whose odds part is a gain says that the value it gives up outweighs it
  * (WaiverRowView.why; UI-C-2). Gains print to config.waivers.gainDecimals, the precision the engine orders rows by
- * (waivers.gainSteps). The page shows the first config.waivers.rowsShown rows, then "Show all".
+ * (waivers.gainSteps).
+ *
+ * The rows that don't help fold (Checkpoint 7f; planner reply to Checkpoint 7e, item 3: "Show the rows that rate above 0,
+ * followed by a collapsed “N more pickups that don't help you (show).”"): a row helps when its main number as printed is
+ * above 0 (WaiverRowView.helps): Helps you on the rated season list, the lineup gain on the one-week lists and, ⚠️ ours, on a
+ * season list waiting for its rating or whose rating failed (the number each row shows then). The rows that help come first
+ * and show (the first config.waivers.rowsShown of them, then "Show all"); the rest fold behind one button ("42 more pickups
+ * that don't help you (show)": WaiverListView.rest), on every list (⚠️ the lead's call: the one-week lists print "No gain" on
+ * most of their rows too), the moves that can't be made last among them (⚠️ ours); when none helps, a line says so
+ * (WaiverListView.noneHelps). The engine's order puts them so already (waivers.ts compareRatedRows, compareWaiverRows); the
+ * view partitions the rows stably anyway, so the rule holds whatever the order.
  *
  * Above the lists (Checkpoint 7e): "Drop from the same position" (item 3.2; WaiversView.samePosition, the setting the lists
  * were built with: the page shows the switch as the browser holds it now) and my untouchables, never suggested as drops
@@ -104,6 +114,31 @@ export const SAME_POSITION_HELP = "On: the player you drop plays the same positi
 export const UNTOUCHABLES_LABEL = "Untouchable (never in trade ideas, never suggested as drops):";
 /** The suggestion under a move only another position could make room for (item 3.3: "suggest turning off 'Drop from the same position'"). */
 export const SAME_POSITION_HINT = `Turn off “${SAME_POSITION_LABEL}” to drop a player at another position.`;
+
+/**
+ * Which weeks a list's fold and its "none helps" line name (Checkpoint 7f, item 3): the rest of the season, this week (a
+ * week under way's games still to play included), or next week.
+ */
+export type WaiverListWhen = "ros" | "thisWeek" | "nextWeek";
+
+/** Instead of the rows that help when none does (Checkpoint 7f, item 3), before the fold that holds every row. */
+export const WAIVERS_NONE_HELPS: Readonly<Record<WaiverListWhen, string>> = {
+  ros: "No pickup helps you over the rest of the season.",
+  thisWeek: "No pickup helps you this week.",
+  nextWeek: "No pickup helps you next week.",
+};
+
+/**
+ * The fold's button (Checkpoint 7f; planner reply to Checkpoint 7e, item 3: "a collapsed “N more pickups that don't help you
+ * (show).”"): "42 more pickups that don't help you (show)", "(hide)" once open, "1 more pickup that doesn't help you", the
+ * week on a one-week list ("… help you this week (show)", "… next week"), and no "more" when no row helps ("21 pickups that
+ * don't help you (show)").
+ */
+export function waiversRestText(n: number, when: WaiverListWhen, opts: { more: boolean; open: boolean }): string {
+  const what = n === 1 ? "pickup that doesn't" : "pickups that don't";
+  const week = when === "thisWeek" ? " this week" : when === "nextWeek" ? " next week" : "";
+  return `${n} ${opts.more ? "more " : ""}${what} help you${week} (${opts.open ? "hide" : "show"})`;
+}
 
 /** Which list (WaiverUpgrades): the rest of the season, the week under way, or the first week team numbers count. */
 export type WaiverListMode = "ros" | "underWay" | "week";
@@ -179,9 +214,19 @@ export interface WaiverListView {
   underWay: string | null;
   /** The column heading of the week's projection: "Wk 5". */
   weekLabel: string;
+  /** The rows that help first (`helping` of them), then those that don't, then the moves that can't be made (the file header). */
   rows: WaiverRowView[];
-  /** Rows shown before "Show all" (config.waivers.rowsShown). */
+  /** Checkpoint 7f (item 3): how many rows help, the first ones of `rows` (WaiverRowView.helps). */
+  helping: number;
+  /** Rows that help shown before "Show all" (config.waivers.rowsShown); the rows that don't help are folded (`rest`). */
   shown: number;
+  /**
+   * Checkpoint 7f (item 3): the rows that don't help, folded behind one button: how many, the button's words collapsed and
+   * open (waiversRestText), and the folded list's caption for screen readers. Null when every row helps.
+   */
+  rest: { count: number; show: string; hide: string; caption: string } | null;
+  /** Checkpoint 7f (item 3): when the list has rows and none helps, the line instead of them (WAIVERS_NONE_HELPS); else null. */
+  noneHelps: string | null;
   /** Shown when there's no row. */
   empty: string;
   /** For screen readers: what the list is. */
@@ -220,6 +265,8 @@ export interface WaiverRowView {
   dropText: string | null;
   /** The row's main number: Helps you on a rated list, else the lineup gain (with its label: "Helps you", "Lineup gain"). */
   main: { label: string; text: string; positive: boolean; title: string };
+  /** Checkpoint 7f (item 3): the row helps, its main number as printed above 0 (`main.positive`): it shows; else it's folded. */
+  helps: boolean;
   /** The second number: "Outscores R. Doubs by 18", "R. Doubs outscores him by 3", "No drop needed: 77 points"; null when he can't be added. */
   outscores: string | null;
   /** On a rated list: the lineup gain in the details, "+2.5 points over weeks 6–17" or "None over weeks 6–17"; null otherwise. */
@@ -404,7 +451,18 @@ function listView(input: WaiversInput, list: WaiverList, mode: WaiverListMode, t
         ? `Lineup gain: what adding him adds to your starting lineup in ${span}, ${how}, after dropping the player named (the same one as for the rest of the season when he's on that list, among players whose games haven't started). Outscores: his projection for the games still to play against the player you'd drop. Players whose games have started are locked: yours stay in the best lineup you could have set before kickoff.`
         : `Lineup gain: what adding him adds to your starting lineup in ${span}, ${how}, after dropping the player named (the same one as for the rest of the season when he's on that list). Outscores: his projection ${when} against the player you'd drop.`;
   const weekIndex = model.weeks.indexOf(pickupWeek);
-  const rows = list.rows.map((r) => rowView(input, list, r, mode, span, weekIndex, pickupWeek, rating, when));
+  // The rows that help first, then those that don't, then the moves that can't be made (Checkpoint 7f, item 3; the file
+  // header), each group in the engine's order (which puts them so already: the sort is stable).
+  const rows = list.rows
+    .map((r) => {
+      const view = rowView(input, list, r, mode, span, weekIndex, pickupWeek, rating, when);
+      return { view, place: view.helps ? 0 : r.gain !== null ? 1 : 2 };
+    })
+    .sort((a, b) => a.place - b.place)
+    .map((x) => x.view);
+  const helping = rows.filter((r) => r.helps).length;
+  const folded = rows.length - helping;
+  const which: WaiverListWhen = mode === "ros" ? "ros" : nextWeek ? "nextWeek" : "thisWeek";
   const underWay =
     underWayWeek === null ? null : mode === "underWay" ? `Week ${underWayWeek} is under way: this list counts only its games still to play.` : nextWeek ? `Week ${underWayWeek} is under way, so this list is for week ${pickupWeek}.` : null;
   // "Depth only" in words, visible under the list when a row of it carries the tag (DEPTH_ONLY_WORDS; review of Phase 7b).
@@ -418,7 +476,18 @@ function listView(input: WaiversInput, list: WaiverList, mode: WaiverListMode, t
     underWay,
     weekLabel: `Wk ${pickupWeek}`,
     rows,
+    helping,
     shown: Math.max(1, Math.floor(config.waivers.rowsShown)),
+    rest:
+      folded > 0
+        ? {
+            count: folded,
+            show: waiversRestText(folded, which, { more: helping > 0, open: false }),
+            hide: waiversRestText(folded, which, { more: helping > 0, open: true }),
+            caption: mode === "ros" ? "Pickups that don't help you over the rest of the season" : mode === "underWay" ? `Pickups that don't help you in week ${pickupWeek}'s games still to play` : `Pickups that don't help you in week ${pickupWeek}`,
+          }
+        : null,
+    noneHelps: rows.length > 0 && helping === 0 ? WAIVERS_NONE_HELPS[which] : null,
     empty:
       mode === "ros"
         ? "No free agent projects for more rest-of-season points than one of your players at his position."
@@ -588,6 +657,7 @@ function rowView(
     drop,
     dropText: r.gain === null ? null : dropName ? `Drop ${dropName}` : "Open roster spot",
     main,
+    helps: main.positive,
     outscores,
     lineupGain,
     blocked,

@@ -73,7 +73,13 @@
  *   (the League step). Checkpoint 7e (planner reply to Checkpoint 7d, items 3.1–3.4): "Rest of season" rated on its own
  *   request ("Rating these against your odds…" gone, the time noted), the "Drop from the same position" switch with its
  *   help, every row one move ("Add" him, "Drop" the player named with a lock next to him), Helps you on the season list and
- *   the lineup gain on the one-week list (waiverMoveChecks).
+ *   the lineup gain on the one-week list (waiverMoveChecks). Checkpoint 7f (planner reply to Checkpoint 7e, item 3), on both
+ *   lists: only the rows that help above the fold, their main number above 0 (or the line saying none helps), then "N more
+ *   pickups that don't help you (show)", 44 px, collapsed; a tap shows as many rows as it says right after it, each one move
+ *   that doesn't help, "(hide)" with aria-expanded true and aria-controls naming them, keyboard focus kept on the button; another
+ *   tap folds them, focus kept (waiverListChecks; contracts.ts waiverSplitProblems, waiverFoldProblems); and, with the fold open,
+ *   no trade value in the section (pageValueLeaks: the League step's scan no longer reaches the folded rows). "Show all N"
+ *   counts the rows that help, so it's checked only when more help than show at first.
  * - Settings (5.2, §6.1, §2 question 5): "What does your league reward?" with the planner's three answers and hint; the
  *   read-only playoff weight going from "Working it out…" to "N.N×, set automatically from your odds." within about 15 s,
  *   worked out by the page's own engine worker without a request off the site; "Protect my trade value" without a number.
@@ -153,9 +159,11 @@ import {
   READ_SETTINGS_SCORING,
   READ_TRADING_LEAGUE,
   READ_WAIVERS,
+  READ_WAIVERS_TEXT,
   sanitizeCall,
   STOP_PLAYOFF_WEIGHT,
   typePrize,
+  WAIVER_REST,
   WAIVER_SHOW_ALL,
   waiverToggle,
   WATCH_PLAYOFF_WEIGHT,
@@ -195,13 +203,16 @@ import {
   rowCount,
   valueLeaks,
   VALUES_CREDIT,
+  waiverFoldProblems,
   waiverMoveProblems,
+  waiverSplitProblems,
   waiverToggleKind,
   type CreditRead,
   type FantasyCalcLink,
   type NowOrLaterRead,
   type OffersRead,
   type PrizeGroupRead,
+  type WaiverFoldRead,
   type WaiverMoveRead,
 } from "./contracts";
 import type { AppRequest, PageEvent, PageSession } from "./page";
@@ -1656,7 +1667,20 @@ interface WaiversRead {
   /** Checkpoint 7e: the season list's rating line (empty once rated or when it can't be), the switch, and the rows as moves. */
   status?: string | null;
   switch?: { label: string | null; on: boolean; help: string | null } | null;
+  /** The rows above the fold (since Checkpoint 7f the rows that help), as moves; `rows` counts them. */
   moves?: WaiverMoveRead[];
+  /**
+   * Checkpoint 7f (planner reply to Checkpoint 7e, item 3): the folded rows as moves (there while the fold is open), how many,
+   * their list's id, the fold's button, the line when no row helps, the list's label (the toggle's button pressed, "Rest of
+   * season" when there's no toggle) and whether it's rated by Helps you (the list's data-rated).
+   */
+  restMoves?: WaiverMoveRead[];
+  restRows?: number;
+  restId?: string | null;
+  rest?: WaiverFoldRead["rest"];
+  none?: string | null;
+  label?: string | null;
+  rated?: boolean | null;
   section: boolean;
   /** Without the section: the League page says the season is over (nothing left to list). */
   over?: boolean;
@@ -1683,6 +1707,10 @@ export const WAIVERS_REVEALED = `(() => { const s = document.getElementById("wai
 export const togglePressed = (i: number) =>
   `(() => { const bs = [...document.querySelectorAll('#waivers [role=group][aria-label="Which weeks"] button')]; return bs.length > ${i} && bs[${i}].getAttribute("aria-pressed") === "true" && bs.filter((b) => b.getAttribute("aria-pressed") === "true").length === 1; })()`;
 
+/** Whether the waiver list's fold is open (aria-expanded true, its rows there) or closed (false, none): a waitFor expression (Checkpoint 7f). */
+export const waiverFoldOpen = (open: boolean) =>
+  `(() => { const b = document.querySelector("#waivers button[data-waiver-more]"); const ul = document.querySelector('#waivers ul[data-waiver-rows="rest"]'); return !!b && b.getAttribute("aria-expanded") === "${String(open)}" && ${open ? "!!ul" : "!ul"}; })()`;
+
 /** How long the Waivers step waits for the season list's rating (its own request: about a second on Parker's league in Node). */
 export const WAIVER_RATING_WAIT_MS = 60_000;
 
@@ -1691,7 +1719,8 @@ export const WAIVER_RATING_WAIT_MS = 60_000;
  * "Rating these against your odds…", gone within WAIVER_RATING_WAIT_MS, never the failure's words; how long it took is noted),
  * "Drop from the same position" with its help, and every row shown as one move (contracts.ts waiverMoveProblems): Helps you on
  * the rated season list (the lineup gain where the season can't be simulated), a lock next to each drop; then, on the
- * toggle's second list, the lineup gain. The toggle is put back on the season list.
+ * toggle's second list, the lineup gain. The toggle is put back on the season list. Checkpoint 7f (planner reply to
+ * Checkpoint 7e, item 3): on each of the two lists, the rows that help and the fold of the rest (waiverListChecks).
  */
 async function waiverMoveChecks(ctx: StepContext, step: string): Promise<void> {
   const { page, report } = ctx;
@@ -1716,34 +1745,90 @@ async function waiverMoveChecks(ctx: StepContext, step: string): Promise<void> {
     `“${SAME_POSITION_LABEL}” is a switch with its help (${sw?.on ? "on" : "off"})`,
     !sw ? `no “${SAME_POSITION_LABEL}” switch` : `the switch reads “${sw.label ?? ""}”, its help “${sw.help ?? "(none)"}”`,
   );
-  const moves = r.moves ?? [];
-  const made = moves.filter((m) => m.kind === "drop" || m.kind === "open");
-  const rated = made.some((m) => m.main === "Helps you");
-  if (!moves.length) report.skip(step, "the waiver rows: “Rest of season” lists none");
-  else {
-    const problems = waiverMoveProblems(moves, { main: rated ? "Helps you" : "Lineup gain", locks: true });
-    report.check(
-      step,
-      problems.length === 0,
-      `“Rest of season”: each of ${pl(moves.length, "row")} reads as one move (add him, drop the player named), ${rated ? "Helps you" : "the lineup gain"} and how his points compare, a lock next to each drop`,
-      `${pl(problems.length, "problem")} with the season list's rows`,
-      problems,
-    );
-    if (!rated && made.length) report.info(step, "“Rest of season” isn't rated by Helps you here (no season to simulate): its rows show the lineup gain");
-  }
+  await waiverListChecks(ctx, step, r, r.label ?? "Rest of season");
+  if (!r.rated && ((r.moves ?? []).length || r.rest)) report.info(step, "“Rest of season” isn't rated by Helps you here (no season to simulate): its rows show the lineup gain");
   const toggle = r.toggle ?? null;
   if (!toggle || toggle.length < 2) return;
   await page.click(waiverToggle(1), `the toggle's “${toggle[1]?.label ?? ""}”`);
   await page.waitFor<boolean>(togglePressed(1), 5_000, "the toggle to follow the tap").catch(() => false);
   const week = await page.run<WaiversRead>(READ_WAIVERS);
-  const weekMoves = week.moves ?? [];
-  if (!weekMoves.length) report.skip(step, `the waiver rows: “${toggle[1]?.label ?? ""}” lists none`);
-  else {
-    const problems = waiverMoveProblems(weekMoves, { main: "Lineup gain", locks: true });
-    report.check(step, problems.length === 0, `“${toggle[1]?.label ?? ""}”: each of ${pl(weekMoves.length, "row")} reads as one move, in points`, `${pl(problems.length, "problem")} with the one-week list's rows`, problems);
-  }
+  await waiverListChecks(ctx, step, week, week.label ?? toggle[1]?.label ?? "");
   await page.click(waiverToggle(0), "the toggle's “Rest of season”");
   await page.waitFor<boolean>(togglePressed(0), 5_000, "the toggle to follow the tap back").catch(() => false);
+}
+
+/** The fold as contracts.ts waiverFoldProblems reads it, from READ_WAIVERS. */
+function foldRead(r: WaiversRead): WaiverFoldRead {
+  return { rest: r.rest ?? null, rows: (r.moves ?? []).length, restRows: r.restRows ?? 0, restId: r.restId ?? null, none: r.none ?? null };
+}
+
+/**
+ * One waiver list, as the page shows it (Checkpoint 7f; planner reply to Checkpoint 7e, item 3: "Show the rows that rate above
+ * 0, followed by a collapsed “N more pickups that don't help you (show).”"; contracts.ts decides): above the fold, each row
+ * that helps reads as one move with its main number above 0 (Helps you on a rated list, the lineup gain otherwise:
+ * waiverMoveProblems, waiverSplitProblems), or a line says none does; then the fold (waiverFoldProblems): tapped, its rows
+ * appear right after it, as many as it says, each one move that doesn't help, and keyboard focus stays on its button; tapped
+ * again, they go and focus stays. A list with nothing folded: a skip line. ⚠️ Ours: while it's open, the section is read for
+ * trade values (pageValueLeaks, the League step's own rule), since the League step's scan of the page no longer reaches the
+ * rows that don't help (their "Why no gain" lines among them) while they're folded.
+ */
+async function waiverListChecks(ctx: StepContext, step: string, r: WaiversRead, label: string): Promise<void> {
+  const { page, report } = ctx;
+  const name = `“${label}”`;
+  const helping = r.moves ?? [];
+  const main = r.rated ? "Helps you" : "Lineup gain";
+  if (!r.list || (!helping.length && !r.none && !r.rest)) {
+    report.skip(step, `the waiver rows: ${name} lists none`);
+    return;
+  }
+  const split = [...waiverMoveProblems(helping, { main, locks: true }), ...waiverSplitProblems(helping, [], r.none ?? null, label)];
+  const each = helping.length === 1 ? "1 row that helps above the fold, one move" : `${pl(helping.length, "row")} that help above the fold, each one move`;
+  report.check(
+    step,
+    split.length === 0,
+    helping.length ? `${name}: ${each} (add him, drop the player named) with ${main} above 0 and how his points compare, a lock next to each drop` : `${name}: no row helps, and the list says so (“${r.none ?? ""}”)`,
+    `${pl(split.length, "problem")} with ${name}'s rows above the fold`,
+    split,
+  );
+  const closed = r.rest ?? null;
+  if (!closed) {
+    report.skip(step, `the fold on ${name}: every row helps, so nothing is folded`);
+    return;
+  }
+  await page.click(WAIVER_REST, `“${closed.text}”`);
+  const opened = await page.waitFor<boolean>(waiverFoldOpen(true), 5_000, "the fold to open").catch(() => false);
+  const open = await page.run<WaiversRead>(READ_WAIVERS);
+  const leaks = opened ? pageValueLeaks(await page.run<string>(cleaning(ctx) + READ_WAIVERS_TEXT)) : [];
+  await page.click(WAIVER_REST, `“${open.rest?.text ?? closed.text}”`);
+  const shut = await page.waitFor<boolean>(waiverFoldOpen(false), 5_000, "the fold to close").catch(() => false);
+  const after = await page.run<WaiversRead>(READ_WAIVERS);
+  const folded = open.restMoves ?? [];
+  const problems = [
+    ...waiverFoldProblems(foldRead(r), label).map((p) => `before a tap: ${p}`),
+    ...(opened ? [] : ["a tap didn't open it (aria-expanded true, its rows after it)"]),
+    ...waiverFoldProblems(foldRead(open), label).map((p) => `after a tap: ${p}`),
+    ...(open.rest?.focused ? [] : [`after a tap, keyboard focus is on ${open.active}, not the fold's button`]),
+    ...waiverMoveProblems(folded, { main, locks: true }).map((p) => `folded ${p}`),
+    ...waiverSplitProblems(open.moves ?? [], folded, open.none ?? null, label),
+    ...(shut ? [] : ["another tap didn't fold them again"]),
+    ...waiverFoldProblems(foldRead(after), label).map((p) => `after another tap: ${p}`),
+    ...(after.rest?.focused ? [] : [`after another tap, keyboard focus is on ${after.active}, not the fold's button`]),
+  ];
+  report.check(
+    step,
+    problems.length === 0,
+    `“${closed.text}” shows ${pl(open.restRows ?? 0, "row")} (aria-expanded true), each one move that doesn't help, keeps keyboard focus, and folds them again`,
+    `${pl(problems.length, "problem")} with ${name}'s fold`,
+    problems,
+  );
+  if (opened)
+    report.check(
+      step,
+      leaks.length === 0,
+      `no trade-market number or value comparison in ${name} with its fold open (hover texts included)`,
+      `${pl(leaks.length, "trade value")} in ${name}'s folded rows: Offer Sheet never displays FantasyCalc's values (their condition 4)`,
+      leaks,
+    );
 }
 
 /** Why the section didn't count as revealed, in words. */
@@ -1760,8 +1845,9 @@ function revealProblem(r: WaiversRead): string {
  * The waiver view (planner reply to Checkpoint 7a, §6.2), from the Trade Finder: the header's "Waivers" link opens the League
  * page, and once it has computed, "Waiver upgrades" comes into view with keyboard focus on its heading; tapped again from the
  * top of the page, the same, without a new history entry. At 375 px: its toggle (two lists, or three while a week is under
- * way with games left), each button a 44 px target whose aria-pressed follows a tap; "Show all N" (when there's more to
- * show) flips aria-expanded and shows all N; the section's layout.
+ * way with games left), each button a 44 px target whose aria-pressed follows a tap; "Show all N" (when more rows help than
+ * show at first) flips aria-expanded and shows all N; the section's layout. Checkpoint 7f: each list's fold of the rows that
+ * don't help (waiverMoveChecks, waiverListChecks).
  */
 export async function waiversStep(ctx: StepContext): Promise<void> {
   const step = "Waivers";
@@ -1840,11 +1926,13 @@ export async function waiversStep(ctx: StepContext): Promise<void> {
     );
   }
 
-  // "Show all N": aria-expanded flips, and all N rows show; "Show fewer" folds them again.
+  // "Show all N" (more rows help than show at first; since Checkpoint 7f N counts the rows that help): aria-expanded flips,
+  // and all N rows that help show; "Show fewer" folds them again.
   const listed = await page.run<WaiversRead>(READ_WAIVERS);
   const more = listed.more ?? null;
   if (!more) {
-    report.skip(step, `“Show all”: the list shows all ${pl(listed.rows ?? 0, "row")} already`);
+    const helping = listed.rows ?? 0;
+    report.skip(step, helping ? `“Show all”: ${pl(helping, "row")} help${helping === 1 ? "s" : ""}, all shown` : "“Show all”: no row helps, so there's nothing to show all of");
   } else {
     const total = /^Show all (\d+)$/.exec(more.text);
     await page.click(WAIVER_SHOW_ALL, `“${more.text}”`);
@@ -1857,7 +1945,7 @@ export async function waiversStep(ctx: StepContext): Promise<void> {
     report.check(
       step,
       n !== null && more.expanded === "false" && more.height >= 43.5 && open.more?.expanded === "true" && open.more.text === "Show fewer" && open.rows === n && closed.more?.expanded === "false" && closed.more.text === more.text,
-      `“${more.text}” shows all ${n ?? "?"} rows (aria-expanded true), and “Show fewer” folds them again`,
+      `“${more.text}” shows all ${n ?? "?"} rows that help (aria-expanded true), and “Show fewer” folds them again`,
       `“${more.text}” doesn't open and close the list as it should`,
       [
         `before: “${more.text}”, aria-expanded ${more.expanded ?? "missing"}, ${listed.rows ?? 0} rows, ${more.height} px tall`,
