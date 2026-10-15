@@ -2935,13 +2935,18 @@ const STAGE_ORDER: readonly TradeSearchStage[] = ["setup", "screening", "exact",
  * Checkpoint 7d, item 1.1; the review's SHOWN-5): the "rank" stage plays out every idea shown on 20,000 seasons, about a
  * sixth of the whole on Parker's league (week 6, his prizes; Node: context 0.55 s, screening 2.1 s, exact 1.5 s,
  * simulations 0.7 s and 0.95 s, the ranking with the shown pass 1.2 s: 8%, 30%, 21%, 9%, 14% and 17%; his 12-team league
- * 12%, 26%, 19%, 12%, 16% and 16%), where its 4% had left the bar at 96–99% for over a second. Checkpoint 7f (planner reply
- * to Checkpoint 7e, answer 2): each idea's run on the shown block continues its ranking run, so the "rank" stage is about an
- * eighth (Node, Oct 14 dumps: context 0.50 s, screening 2.19 s, exact 1.54 s, simulations 0.68 s and 0.98 s, the ranking
- * with the shown pass 0.93 s on his first league: 7%, 32%, 23%, 10%, 14% and 14%; his 12-team league 11%, 27%, 19%, 12%, 17%
- * and 13%), and the two simulation stages take what it gave up.
+ * 12%, 26%, 19%, 12%, 16% and 16%), where its 4% had left the bar at 96–99% for over a second. Checkpoint 7f: each idea's
+ * run on the shown block continues its ranking run (planner reply to Checkpoint 7e, answer 2), while the merge (decision 3)
+ * plays out the ideas that come in on the shown block and works out the ladders it reads ("offers"), both under the "rank"
+ * stage. Measured on the build with both (the review of the speed track; Node, the context's build and the search, the
+ * "rank" stage being the ranking, the Plan Bs and words, the shown pass and the ladders): Parker's first league 7.0%, 29.8%,
+ * 20.7%, 10.0%, 12.0% and 20.6% on Oct 15 (its merges the most), 6.8%, 30.5%, 21.5%, 9.7%, 13.8% and 16.4% on Oct 14; his
+ * 12-team league 9.5%, 28.8%, 19.8%, 12.5%, 15.3% and 14.6% on Oct 15, 10.4%, 26.8%, 19.5%, 12.6%, 17.3% and 13.3% on Oct
+ * 14. The weights are about the four dumps' means (8%, 29%, 20%, 11%, 15% and 16%), the "rank" stage's a little above its
+ * mean: a search that merges spends up to a fifth of its time there (the speed track's 13%, measured before the merge, left
+ * the bar crawling from 87% to 99% over the last 1.4 s on his first league, Oct 15).
  */
-const STAGE_WEIGHT: Record<TradeSearchStage, number> = { setup: 0.07, screening: 0.36, exact: 0.2, simScreen: 0.1, simFinal: 0.14, rank: 0.13 };
+const STAGE_WEIGHT: Record<TradeSearchStage, number> = { setup: 0.08, screening: 0.3, exact: 0.2, simScreen: 0.11, simFinal: 0.14, rank: 0.17 };
 
 /** Each stage in plain words. */
 export const STAGE_LABEL: Record<TradeSearchStage, string> = {
@@ -2959,6 +2964,13 @@ export const STAGE_LABEL: Record<TradeSearchStage, string> = {
  */
 export const SHOWN_PASS_LABEL = `Playing out the ideas you'll see ${fmtWhole(Math.max(config.simulation.finalSims, config.simulation.shownSims))} times`;
 
+/**
+ * The "rank" stage while the merge works out the offers of the ideas whose "How to offer it" may hold another idea of the
+ * list (Checkpoint 7f; TradeSearchProgress.part "offers": search.ts, "Merged cards"; the review of the speed track: the bar
+ * said the ideas were being played out).
+ */
+export const OFFERS_PASS_LABEL = "Working out how to offer the ideas";
+
 export interface ProgressView {
   label: string;
   /** "120 of 480" (null when a stage has one step). */
@@ -2973,7 +2985,8 @@ export interface ProgressView {
  * The progress bar in words. `mode` "refilter" (Phase 4c: the minimum chance changed, and the worker ranks the same ideas
  * again: search.ts refilterSearch) shows the ranking and words alone, the whole bar for the "rank" stage; a search, and a
  * re-filter that had to search afresh (any other stage), the stages by STAGE_WEIGHT. The "rank" stage reads
- * SHOWN_PASS_LABEL while it plays out the ideas shown (TradeSearchProgress.part "shown", Checkpoint 7e), else its own label.
+ * SHOWN_PASS_LABEL while it plays out the ideas shown (TradeSearchProgress.part "shown", Checkpoint 7e), OFFERS_PASS_LABEL
+ * while the merge works out their offers (part "offers", Checkpoint 7f), else its own label.
  */
 export function progressView(p: TradeSearchProgress | null, mode: "search" | "refilter" = "search"): ProgressView {
   const stage = p?.stage ?? (mode === "refilter" ? "rank" : "setup");
@@ -2988,7 +3001,7 @@ export function progressView(p: TradeSearchProgress | null, mode: "search" | "re
   }
   const percent = Math.min(99, Math.max(0, Math.floor(fraction * 100)));
   const detail = p && p.total > 1 ? `${fmtWhole(Math.min(p.done, p.total))} of ${fmtWhole(p.total)}` : null;
-  const label = stage === "rank" && p?.part === "shown" ? SHOWN_PASS_LABEL : STAGE_LABEL[stage];
+  const label = stage !== "rank" ? STAGE_LABEL[stage] : p?.part === "shown" ? SHOWN_PASS_LABEL : p?.part === "offers" ? OFFERS_PASS_LABEL : STAGE_LABEL.rank;
   return { label, detail, percent, valueText: detail ? `${label}: ${detail}` : label };
 }
 

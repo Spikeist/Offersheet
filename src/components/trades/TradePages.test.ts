@@ -182,8 +182,8 @@ describe("FinderFrame: one status line through every state", () => {
 
   it("shows a progress bar while searching: the stage and its count in words, its value for screen readers, and Stop", () => {
     const html = renderFrame(STATES.searching as FinderState);
-    expect(html).toMatch(/role="progressbar" aria-label="Trade search progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="16" aria-valuetext="Screening trade ideas: 120 of 480"/);
-    expect(html).toContain('style="width:16%"');
+    expect(html).toMatch(/role="progressbar" aria-label="Trade search progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="15" aria-valuetext="Screening trade ideas: 120 of 480"/);
+    expect(html).toContain('style="width:15%"');
     expect(textOf(html)).toContain("Screening trade ideas · 120 of 480");
     expect(html).toMatch(/<button type="button" class="[^"]*min-h-11[^"]*">Stop<\/button>/);
     expect(html).not.toContain("aria-busy");
@@ -1033,10 +1033,13 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
   it("explains Harder to get and How to offer it: its offers in order, by their rules from config (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1), and merged ideas (Checkpoint 7f; planner reply to Checkpoint 7e, decision 3)", () => {
     expect(how()).toContain(HARDER);
     expect(how()).toContain(
-      "How to offer it works out, when you open it on an idea that helps you, up to 4 offers to the same team, in order: “Open with” the version that helps you most while it still has at least a 15% chance they accept (or your minimum chance, when that's higher); “Then”, versions that help you a little less, each at least 5 percentage points likelier than the one before; “The suggested trade”, the idea itself; and “Last offer”, the suggested trade plus a player you can spare (losing him costs your lineup little), when that makes it at least 5 percentage points likelier while it still does at least 80% as much for you. Each offer shows Helps you, the chance they accept, the roster moves its numbers assume when they aren't the idea's, and its own message to send them. When one idea's offers include another idea on the list, the list shows only the one with the higher Overall, and the other is among its offers. An offer can still be another idea with a higher Overall, when that idea can't offer this one back; it then says so, with that idea's place (“Also shown as trade idea 2.”). The idea's own “If they won't move: try …” trade is never one of its offers. When no other version makes a better first offer, it says to offer the trade as it is.",
+      "How to offer it works out, when you open it on an idea that helps you, up to 4 offers to the same team, in order: “Open with” the version that helps you most while it still has at least a 15% chance they accept (or your minimum chance, when that's higher); “Then”, versions that help you a little less, each at least 5 percentage points likelier than the one before; “The suggested trade”, the idea itself; and “Last offer”, the suggested trade plus a player you can spare (losing him costs your lineup little), when that makes it at least 5 percentage points likelier while it still does at least 80% as much for you. Each offer shows Helps you, the chance they accept, the roster moves its numbers assume when they aren't the idea's, and its own message to send them. When an idea's offers include another idea below it on Overall, the list shows only the higher one, and the other is among its offers. An offer can still be an idea above it on Overall whose own offers don't include this one; it then says so, with that idea's place (“Also shown as trade idea 2.”). The idea's own “If they won't move: try …” trade is never one of its offers. When no other version makes a better first offer, it says to offer the trade as it is.",
     );
     // The Analyzer's card is no idea of a list: nothing on merging there.
-    expect(offersWords("analyzer")).not.toContain("higher Overall");
+    expect(offersWords("analyzer")).not.toContain("on Overall");
+    // ⚠️ The review of the merge, MERGE-1: never that the higher idea "can't offer" this one back (it can, when this one is its
+    // lean version: it passed it over); only what holds, that its own offers don't include it.
+    expect(offersWords("finder")).not.toMatch(/can't (?:offer|ask)/);
     expect(offersWords("finder")).toContain(`up to ${config.offers.maxSteps} offers`);
     expect(offersWords("finder")).toContain(`at least a ${Math.round(config.offers.openMinChance * 100)}% chance`);
     expect(how()).not.toContain("Offer first");

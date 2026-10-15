@@ -638,7 +638,7 @@ describe("trade report: what Helps both costs a search (section 10)", () => {
       `- Overall: Team 2: Garrett Wilson → Chuba Hubbard + Mike Evans (${n(folded)}), idea 2 without the merge, is now among the offers of idea 1 (“Open with”), Team 2: Garrett Wilson → Chuba Hubbard (${n(into)}).`,
       `- Came in: Overall idea 6, Team 4: Garrett Wilson → Mike Evans (${n(other)}).`,
       `- Left, not merged (the usual rules after a merge): “Helps both” idea 3 without the merge, Team 4: Garrett Wilson → Mike Evans (${n(other)}).`,
-      `- Kept with a label (⚠️ the lead's call: an idea whose offers hold an idea above it, which can't offer it back, so both stay and that offer says "Also shown as trade idea N."): Overall idea 6, Team 4: Garrett Wilson → Mike Evans (${n(other)}), offers idea 1 (“Last offer”).`,
+      `- Kept with a label (⚠️ the lead's call: an idea whose offers hold an idea above it on Overall, whose own offers don't include this one, so both stay and that offer says "Also shown as trade idea N."): Overall idea 6, Team 4: Garrett Wilson → Mike Evans (${n(other)}), offers idea 1 (“Last offer”).`,
       "",
     ]);
     const quiet = mergeLines(snapshot, { ...section7f, merged: null, rows: [], cameIn: [], left: [], labels: [], ms: null }, team);

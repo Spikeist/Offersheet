@@ -836,7 +836,7 @@ export function offersAlsoProblems(read: Pick<OffersRead, "offers">, places: Rea
  * card's trade, merge them: Keep only the card with the higher Overall in the list"; the lead's check:browser bullet): in the
  * Overall sort, an idea's offers include no other idea of the list below it (`places`: the list's cards by key, each its place,
  * 1 = first: inPage.ts cardPlaces; `cardKey`, the idea's own), since the merge would have shown that one among this idea's
- * offers only. One above it can stay, labeled (it can't offer this one back: offersAlsoProblems checks its label). The
+ * offers only. One above it can stay, labeled (its own offers don't include this one: offersAlsoProblems checks its label). The
  * suggested trade (its label one of `suggested`) is the idea itself. Each that breaks it, in words.
  */
 export function offersMergeProblems(read: Pick<OffersRead, "offers">, places: Readonly<Record<string, number>>, cardKey: string, suggested: readonly string[]): string[] {
