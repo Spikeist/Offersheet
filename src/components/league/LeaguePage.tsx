@@ -59,6 +59,7 @@ import { revealResult } from "../reveal";
 import { useSavedLeagueSettings } from "../settings/useLeagueSettings";
 import { Callout, Card, FOCUS_TARGET, Spinner, buttonClass, cx } from "../ui";
 import { LeagueView } from "./LeagueView";
+import { LeagueSettingsEditContext } from "./leagueSettingsEdit";
 import { WaiversViewContext } from "./WaiverUpgrades";
 import { INPUTS_UNREACHABLE, leagueTag, useCurrentLeague, useSavedLeagueInputs, type InputsOutcome } from "./useLeagueInputs";
 
@@ -333,9 +334,14 @@ function LoadedLeague({ current }: { current: Extract<CurrentLeagueRead, { kind:
       headingRef,
     };
   }
+  // The lock icons, "Drop from the same position" and my players' return weeks edit the league's settings from this page
+  // (leagueSettingsEdit.ts; Checkpoint 7e): the settings as the browser holds them now, so a change shows at once.
+  const settingsEdit = useMemo(() => (settings ? { leagueKey: current.league.leagueKey, settings } : null), [settings, current.league.leagueKey]);
   return (
-    <WaiversViewContext value={waivers}>
-      <LeagueFrame state={state} leagueName={snapshot.name} statusRef={statusRef} />
-    </WaiversViewContext>
+    <LeagueSettingsEditContext value={settingsEdit}>
+      <WaiversViewContext value={waivers}>
+        <LeagueFrame state={state} leagueName={snapshot.name} statusRef={statusRef} />
+      </WaiversViewContext>
+    </LeagueSettingsEditContext>
   );
 }
