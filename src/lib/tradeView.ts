@@ -61,7 +61,8 @@
  *   room for Christian Watson: drop Kyle Pitts Sr. (TE)."; a later week's with its week: "Week 7, when Alec Pierce returns
  *   from IR: release …", since Checkpoint 7f with why when the near-tie rule decided it: releaseReason), and the moves made
  *   either way on one line ("Assumed with or without this trade: add Jake Ferguson, drop Romeo Doubs."; since Checkpoint 7f
- *   then the releases made either way, one line each), from TradeEvaluation.myMoves (myMovesLines); the partner's as
+ *   with the releases at an IR return made either way, names only: "…, release Alec Pierce in week 7, when he returns from
+ *   IR."), from TradeEvaluation.myMoves (myMovesLines); the partner's as
  *   before. With either-way moves (item 2.1) my odds start from the trade's own "before" (TradeEvaluation.before), on the
  *   card, a Plan B box and in the Analyzer's line above its card;
  * - the reasons and the pitch message (src/engine/explain.ts wrote them; shown as they are, except explain.ts's
@@ -241,6 +242,7 @@ import { isTitleOnly, type PrizeDeltas, type PrizeOdds, type Reward } from "@/en
 import type { Goal, TradeSettings } from "@/engine/settings";
 import type {
   AcceptanceFeatures,
+  AssumedRelease,
   InjuryTag,
   LaterNumbers,
   NearTieRelease,
@@ -1425,6 +1427,11 @@ export interface PlanBContext {
   baseline?: CardContext["baseline"];
   /** The card's reward (CardContext.reward): the box's odds add the card's top-N line (Checkpoint 7c). */
   reward?: CardContext["reward"];
+  /**
+   * My team (the card's TradeDetail.myTeamId): the surnames in a release's reason among the box's roster moves are told apart
+   * from my roster's (myRosterIds; review of Checkpoint 7f, PIERCE-3). Absent: the players the box's trade brings me alone.
+   */
+  myTeamId?: string | null | undefined;
 }
 
 /**
@@ -1489,7 +1496,7 @@ export function planBView(planB: TradeEvaluation["planB"], snapshot: SnapshotPar
     odds,
     weekly,
     oddsNote: planB.before && odds.length ? OWN_BEFORE_NOTE : null,
-    moves: planB.myMoves ? myMovesLines(planB.myMoves, snapshot, teamNameOf(snapshot, planB.proposal.partnerId)) : [],
+    moves: planB.myMoves ? myMovesLines(planB.myMoves, snapshot, teamNameOf(snapshot, planB.proposal.partnerId), { roster: myRosterIds(snapshot, ctx.myTeamId, planB.proposal) }) : [],
     also: null,
     pitch: planBPitch(planB.proposal, snapshot),
     analyzerHref: analyzerHref(planB.proposal, { from: "planB" }),
@@ -1972,41 +1979,87 @@ function returnsWhen(week: number, returner: string, snapshot: SnapshotPart): st
  *   (TE)."), else his surname ("… and keep Kyle Pitts Sr. (TE). Pierce and Marvin Harrison Jr. are …");
  * - the player kept by his full name the first time, by surname after, and by surname both times when the line already named
  *   him (`named`: the returner, the trade's "before"'s release: "He and Pierce are nearly even …");
- * - surnames as names.ts says them ("Pierce", "Harrison Jr.", "St. Brown"), and both players by their full names when they
- *   share one;
- * - a D/ST by its name, never "He", and "it" ("Lock Giants D/ST to keep it instead.").
+ * - surnames as names.ts says them ("Pierce", "Harrison Jr.", "St. Brown"); either player by his full name, both times,
+ *   whenever his surname is another's the line names (the other of the two, the returner, the "before"'s release: `named`) or
+ *   another's on my roster (`roster`: myRosterIds), so a bare surname never names two people (review of Checkpoint 7f,
+ *   PIERCE-3: "… and keep Roman Wilson. Wilson and Marvin Harrison Jr. are …" read as either Wilson);
+ * - a D/ST by its name, never "He", and "it" ("Lock Giants D/ST to keep it instead.");
+ * - the lock where it is: "Lock Pierce to keep him instead." on the League page (`page` "league": its roster card holds the
+ *   lock), "Lock Pierce on the League page to keep him instead." on a trade page (`page` "trade": the cards, Plan B boxes,
+ *   offers and the Analyzer's card, which have no lock; review of Checkpoint 7f, INTEGRATION-5).
  * The rule decided it, so it holds by construction: what losing either costs the lineup from the return on is within the
  * rule's tolerance, and the player kept is worth more then (returners.ts, the file header). Which one is worth more, in words:
  * no FantasyCalc value. Empty when either player isn't in the league's data.
  */
-export function releaseReason(released: string, nearTie: NearTieRelease, snapshot: SnapshotPart, opts: { endsOnReleased: boolean; named?: readonly string[] }): string {
+export function releaseReason(
+  released: string,
+  nearTie: NearTieRelease,
+  snapshot: SnapshotPart,
+  opts: { endsOnReleased: boolean; page: ReleasePage; named?: readonly (string | undefined)[]; roster?: readonly string[] | undefined },
+): string {
   const p = snapshot.players[released];
   const k = typeof nearTie.keptInstead === "string" ? snapshot.players[nearTie.keptInstead] : undefined;
   if (!p || !k) return "";
-  const clash = surname(p.name, p.pos) === surname(k.name, k.pos);
-  const pShort = clash ? p.name : surname(p.name, p.pos);
-  const kShort = clash ? k.name : surname(k.name, k.pos);
+  // Everyone whose surname could be mistaken for one of the two: the pair, the players the line names, my roster.
+  const near = [released, nearTie.keptInstead, ...(opts.named ?? []), ...(opts.roster ?? [])];
+  const shared = (id: string, info: PlayerInfo) =>
+    near.some((o) => {
+      const x = typeof o === "string" && o !== id ? snapshot.players[o] : undefined;
+      return !!x && surname(x.name, x.pos) === surname(info.name, info.pos);
+    });
+  const pShort = shared(released, p) ? p.name : surname(p.name, p.pos);
+  const kShort = shared(nearTie.keptInstead, k) ? k.name : surname(k.name, k.pos);
   const team = p.pos === "DEF";
   const subject = opts.endsOnReleased ? (team ? p.name : "He") : pShort;
   const kFirst = opts.named?.includes(nearTie.keptInstead) ? kShort : k.name;
-  const lock = nearTie.lockable === true ? ` Lock ${pShort} to keep ${team ? "it" : "him"} instead.` : "";
+  const lock = nearTie.lockable === true ? ` Lock ${pShort}${opts.page === "trade" ? " on the League page" : ""} to keep ${team ? "it" : "him"} instead.` : "";
   return `${subject} and ${kFirst} are nearly even for your lineup, and ${kShort} has more trade value.${lock}`;
 }
 
 /**
- * A release at an IR player's return, in a card's words (Checkpoint 7e's line, myMovesLines; since Checkpoint 7f also the
- * releases a trade's numbers assume with or without it, RosterMoves.assumedLater, and the League page's "Returns from IR",
- * leagueView.ts RosterCard.returns): "Week 7, when Alec Pierce returns from IR: release him instead of dropping someone
- * else." (the returner himself), "…: release Kyle Pitts Sr. (TE)."; `alike` (the lead's R3): "…: release him, with or
- * without this trade."; and when the near-tie rule decided it, its reason after it (releaseReason), the returner himself
- * then just "release him." (the planner's words: "Week 7, when Alec Pierce returns from IR: release him. He and Marvin
- * Harrison Jr. are nearly even for your lineup, and Harrison Jr. has more trade value. Lock Pierce to keep him instead.").
+ * Where a release's words show (releaseReason, releaseLine): "league", the League page's roster card, where my lock is; "trade",
+ * a trade page (a card, a Plan B box, an offer of "How to offer it", the Analyzer's card), which names where the lock is.
  */
-export function releaseLine(r: { week: number; player: string; returner: string; nearTie?: NearTieRelease | undefined }, snapshot: SnapshotPart, opts: { alike?: boolean } = {}): string {
+export type ReleasePage = "league" | "trade";
+
+/**
+ * The players a release's reason compares surnames with (releaseReason's `roster`; review of Checkpoint 7f, PIERCE-3): my roster
+ * as imported, active and IR, and the players a trade brings me (`proposal`, ⚠️ ours: they're on my roster when the release
+ * comes); the latter alone without my team in the league's data.
+ */
+export function myRosterIds(snapshot: Pick<SnapshotPart, "teams">, myTeamId: string | null | undefined, proposal?: Pick<TradeProposal, "get"> | null): string[] {
+  const team = typeof myTeamId === "string" ? snapshot.teams.find((t) => t.id === myTeamId) : undefined;
+  const got = (proposal?.get ?? []).flatMap((a) => (a.kind === "player" ? [a.id] : []));
+  return [...new Set([...(team?.roster ?? []), ...(team?.ir ?? []), ...got])];
+}
+
+/**
+ * A release at an IR player's return, in its own line's words (Checkpoint 7e's line, myMovesLines' release a trade changes;
+ * since Checkpoint 7f the League page's "Returns from IR", leagueView.ts RosterCard.returns): "Week 7, when Alec Pierce returns
+ * from IR: release him instead of dropping someone else." (the returner himself), "…: release Kyle Pitts Sr. (TE)."; and when
+ * the near-tie rule decided it, its reason after it (releaseReason, on `page`, with `roster`), the returner himself then just
+ * "release him." (the planner's words: "Week 7, when Alec Pierce returns from IR: release him. He and Marvin Harrison Jr. are
+ * nearly even for your lineup, and Harrison Jr. has more trade value. Lock Pierce to keep him instead."). A release made with
+ * or without a trade isn't worded here: it joins the card's assumed line (assumedReleaseText).
+ */
+export function releaseLine(r: { week: number; player: string; returner: string; nearTie?: NearTieRelease | undefined }, snapshot: SnapshotPart, opts: { page: ReleasePage; roster?: readonly string[] | undefined }): string {
   const info = snapshot.players[r.player];
-  const reason = r.nearTie ? releaseReason(r.player, r.nearTie, snapshot, { endsOnReleased: true, named: [r.returner] }) : "";
-  const whom = r.player === r.returner ? (reason || opts.alike ? "him" : "him instead of dropping someone else") : info ? `${info.name} (${posLabel(info.pos, snapshot.platform)})` : GONE_PLAYER;
-  return `${returnsWhen(r.week, r.returner, snapshot)}: release ${whom}${opts.alike ? ", with or without this trade" : ""}.${reason ? ` ${reason}` : ""}`;
+  const reason = r.nearTie ? releaseReason(r.player, r.nearTie, snapshot, { endsOnReleased: true, named: [r.returner], page: opts.page, roster: opts.roster }) : "";
+  const whom = r.player === r.returner ? (reason ? "him" : "him instead of dropping someone else") : info ? `${info.name} (${posLabel(info.pos, snapshot.platform)})` : GONE_PLAYER;
+  return `${returnsWhen(r.week, r.returner, snapshot)}: release ${whom}.${reason ? ` ${reason}` : ""}`;
+}
+
+/**
+ * A release at an IR return made with or without the trade (RosterMoves.assumedLater), as the card's "Assumed with or without
+ * this trade" line names it (myMovesLines; review of Checkpoint 7f, INTEGRATION-4: its own line, with why, repeated the same
+ * 214 characters on most of a list): names only, no reason (the League page's "Returns from IR" says why): "release Alec
+ * Pierce in week 7, when he returns from IR", "release Kyle Pitts Sr. in week 7, when Alec Pierce returns from IR" ("…
+ * when he returns from IR" without a week).
+ */
+function assumedReleaseText(r: AssumedRelease, snapshot: SnapshotPart): string {
+  const name = snapshot.players[r.player]?.name ?? GONE_PLAYER;
+  const returner = r.player === r.returner ? "he" : (snapshot.players[r.returner]?.name ?? GONE_PLAYER);
+  return `release ${name}${Number.isFinite(r.week) ? ` in week ${r.week},` : ""} when ${returner} returns from IR`;
 }
 
 /**
@@ -2043,23 +2096,29 @@ export function releaseLine(r: { week: number; player: string; returner: string;
  *   "Week 7, when Alec Pierce returns from IR: this trade leaves room, so keep Kyle Pitts Sr. (TE)." when it releases nobody
  *   ("Keep Kyle Pitts Sr. (TE): without this trade you'd release him in week 7, when Alec Pierce returns from IR." when the
  *   returner goes in the trade); since Checkpoint 7f (planner reply to Checkpoint 7e, answer 4: "keep the rule, but the card
- *   must say why"), a release the near-tie rule decided with its reason after it (releaseReason, releaseLine: "Week 7, when
- *   Alec Pierce returns from IR: release him. He and Marvin Harrison Jr. are nearly even for your lineup, and Harrison Jr.
- *   has more trade value. Lock Pierce to keep him instead.", the planner's words; "… and keep Kyle Pitts Sr. (TE). Pierce
- *   and Marvin Harrison Jr. are …");
+ *   must say why"), a release the trade changes that the near-tie rule decided, with its reason after it (releaseReason,
+ *   releaseLine: "Week 7, when Alec Pierce returns from IR: release Kyle Pitts Sr. (TE). He and Marvin Harrison Jr. are nearly
+ *   even for your lineup, and Harrison Jr. has more trade value. Lock Pitts Sr. on the League page to keep him instead.";
+ *   "… and keep Kyle Pitts Sr. (TE). Pierce and Marvin Harrison Jr. are …"; the lock is on the League page: review of
+ *   Checkpoint 7f, INTEGRATION-5);
  * - "Drop …", "Keep …", "Add …" (a difference the moves above don't explain: a safety net, none on any test league);
  * - last, "Assumed with or without this trade: add Jake Ferguson, drop Romeo Doubs." (MY_MOVES_ASSUMED: the League page's
  *   pickups and the players dropped in both versions, "drop Romeo Doubs"; names only, the sentence's own period kept after a
- *   name that ends with one: "… drop Marvin Harrison Jr.", review of wave B, finding moves-assumed-double-period), then item
- *   2.1's either-way moves on a line of their own, since the League page doesn't list them: "Also assumed with or without
- *   this trade, though the League page doesn't list it: add Darren Waller, drop Kyle Pitts Sr." ("Assumed …" alone), then
- *   (Checkpoint 7f, the lead's R3) each release at an IR return made with or without the trade, one line each, with its
- *   reason when the near-tie rule decided it (RosterMoves.assumedLater): "Week 7, when Alec Pierce returns from IR: release
- *   him, with or without this trade. He and Marvin Harrison Jr. are nearly even for your lineup, and Harrison Jr. has more
- *   trade value. Lock Pierce to keep him instead."
- * `partnerName` names the partner in a "taken" skip.
+ *   name that ends with one: "… drop Marvin Harrison Jr.", review of wave B, finding moves-assumed-double-period), since
+ *   Checkpoint 7f with each release at an IR return made with or without the trade after them, by week, names only, without
+ *   its reason (RosterMoves.assumedLater, assumedReleaseText; the League page's "Returns from IR" says why; review of
+ *   Checkpoint 7f, INTEGRATION-4: a line of its own with the reason repeated the same sentence on most of a list): "Assumed with
+ *   or without this trade: add Jake Ferguson, drop Romeo Doubs, release Alec Pierce in week 7, when he returns from IR." (the
+ *   lead's words; "Assumed with or without this trade: release Alec Pierce in week 7, when he returns from IR." alone; ⚠️ ours:
+ *   with two pickup groups or two releases every part after a semicolon, as two pickup groups already are, so a release never
+ *   reads as part of the pickup before it); ⚠️ the trade's "before" can release another player there than the League page's
+ *   when it makes either-way moves, and the line still names its own. Then item 2.1's either-way moves on a line of their own,
+ *   since the League page doesn't list them: "Also assumed with or without this trade, though the League page doesn't list it:
+ *   add Darren Waller, drop Kyle Pitts Sr." ("Assumed …" alone).
+ * `partnerName` names the partner in a "taken" skip; `opts.roster`, my roster for the surnames in a release's reason
+ * (myRosterIds: releaseReason).
  */
-export function myMovesLines(moves: RosterMoves, snapshot: SnapshotPart, partnerName: string): string[] {
+export function myMovesLines(moves: RosterMoves, snapshot: SnapshotPart, partnerName: string, opts: { roster?: readonly string[] | undefined } = {}): string[] {
   const plain = (id: string) => snapshot.players[id]?.name ?? "a player who's no longer in this league's data";
   const who = (id: string) => {
     const info = snapshot.players[id];
@@ -2142,9 +2201,9 @@ export function myMovesLines(moves: RosterMoves, snapshot: SnapshotPart, partner
           // keep him" read as keeping the player just released).
           const line = m.kept ? `${when}: ${go} and keep ${m.instead === m.returner ? plain(m.returner) : who(m.instead)}.` : `${when}: ${go}; without this trade, ${who(m.instead)} would go then.`;
           // Checkpoint 7f: why the near-tie rule decided it; the line ends naming another player, so the reason names him.
-          const reason = m.nearTie ? releaseReason(m.player, m.nearTie, snapshot, { endsOnReleased: false, named: [m.returner, m.instead] }) : "";
+          const reason = m.nearTie ? releaseReason(m.player, m.nearTie, snapshot, { endsOnReleased: false, named: [m.returner, m.instead], page: "trade", roster: opts.roster }) : "";
           out.push(reason ? `${line} ${reason}` : line);
-        } else out.push(releaseLine(m, snapshot));
+        } else out.push(releaseLine(m, snapshot, { page: "trade", roster: opts.roster }));
         break;
       }
       case "keepAtReturn": {
@@ -2175,14 +2234,20 @@ export function myMovesLines(moves: RosterMoves, snapshot: SnapshotPart, partner
   // A name can end the sentence with its own period ("Jr."), as draftSummary's (review of wave B, moves-assumed-double-period).
   const sentence = (text: string) => (text.endsWith(".") ? text : `${text}.`);
   const own = partsOf(false);
-  if (own.length) out.push(sentence(`${MY_MOVES_ASSUMED} ${own.join("; ")}`));
+  // Checkpoint 7f (the lead's R3; review of Checkpoint 7f, INTEGRATION-4): each release at an IR return made with or without
+  // the trade joins this line, by week, names only (the League page's "Returns from IR" says why). One pickup group (or none)
+  // and one release make one list, the lead's words; with more, every part after a semicolon, as pickup groups already are.
+  const week = (w: number) => (Number.isFinite(w) ? w : Number.MAX_SAFE_INTEGER);
+  const later = (moves.assumedLater ?? [])
+    .filter((r) => r && typeof r.player === "string" && typeof r.returner === "string")
+    .sort((a, b) => week(a.week) - week(b.week))
+    .map((r) => assumedReleaseText(r, snapshot));
+  const parts = [...own, ...later];
+  if (parts.length) out.push(sentence(`${MY_MOVES_ASSUMED} ${parts.join(later.length === 1 && own.length <= 1 ? ", " : "; ")}`));
   // Item 2.1's either-way moves on a line of their own: the League page doesn't list them (review of wave B, finding
   // either-way-before-unexplained).
   const either = partsOf(true);
-  if (either.length) out.push(sentence(`${own.length ? "Also assumed" : "Assumed"} with or without this trade, though the League page doesn't list ${either.length === 1 ? "it" : "them"}: ${either.join("; ")}`));
-  // Checkpoint 7f (planner reply to Checkpoint 7e, answer 4; the lead's R3): each release at an IR return made with or without
-  // the trade, by week, with why when the near-tie rule decided it.
-  for (const r of moves.assumedLater ?? []) if (r && typeof r.player === "string" && typeof r.returner === "string") out.push(releaseLine(r, snapshot, { alike: true }));
+  if (either.length) out.push(sentence(`${parts.length ? "Also assumed" : "Assumed"} with or without this trade, though the League page doesn't list ${either.length === 1 ? "it" : "them"}: ${either.join("; ")}`));
   return out;
 }
 
@@ -2222,12 +2287,17 @@ export function marketCheckText(e: Pick<TradeEvaluation, "proposal" | "flags" | 
  * own the same way, buildLadderView), mine first: since Checkpoint 7e every one, in order, with its reason, and those made
  * either way on one line (item 2.2: myMovesLines, from TradeEvaluation.myMoves); an evaluation made before it words
  * `required.me` as before (§7; Phase 4b's IR slots and returns, Phase 7c's open roster spots: requiredLines). The partner's
- * as before.
+ * as before. My roster for the surnames in a release's reason: my team's as imported and the players this trade brings me
+ * (myRosterIds; the latter alone without `detail`).
  */
-export function moveLinesOf(e: Pick<TradeEvaluation, "required" | "myMoves">, snapshot: SnapshotPart, partnerName: string): string[] {
+export function moveLinesOf(
+  e: Pick<TradeEvaluation, "required" | "myMoves"> & Partial<Pick<TradeEvaluation, "proposal">> & { detail?: Pick<TradeDetail, "myTeamId"> | undefined },
+  snapshot: SnapshotPart,
+  partnerName: string,
+): string[] {
   return [
     ...(e.myMoves
-      ? myMovesLines(e.myMoves, snapshot, partnerName)
+      ? myMovesLines(e.myMoves, snapshot, partnerName, { roster: myRosterIds(snapshot, e.detail?.myTeamId, e.proposal) })
       : requiredLines(e.required.me, { drop: "You'd drop", dropLater: "you'd drop", release: "you'd release", pickUp: "You'd pick up", their: "your", ir: "your", would: "you'd", openSpot: "Open roster spot: add" }, snapshot)),
     ...requiredLines(
       e.required.partner,
@@ -2344,7 +2414,7 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
     helpsBothTag,
     details: ctx.details ? detailsView(e, snapshot.settings.leagueType, ctx.helpsScale) : null,
     offers,
-    planB: planBView(e.planB, snapshot, { cardTags: tags, knownTags: ctx.knownTags, seasonEnd: end, baseline: ctx.baseline, reward: ctx.reward }),
+    planB: planBView(e.planB, snapshot, { cardTags: tags, knownTags: ctx.knownTags, seasonEnd: end, baseline: ctx.baseline, reward: ctx.reward, myTeamId: e.detail.myTeamId }),
     injuryNote: incomingInjuryNote(tags, snapshot, flagged, blendOn),
     versions: versionChoices(e, snapshot, ctx.goal ?? null, offers?.suggested ?? (ctx.offers === "finder" || ctx.offers === undefined ? OFFER_STEP_LABEL.suggested : ANALYZER_SUGGESTED_LABEL)),
     flags,

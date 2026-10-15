@@ -278,9 +278,13 @@ describe("no trade value shows on the trade pages (planner reply to Checkpoint 7
     const html = renderToStaticMarkup(createElement(TradeCard, { card, rank: 1, feedback: NONE, onFeedback: saved, showAnalyzerLink: true }));
     expectHidden("a card with a release's reason", html);
     for (const s of stringsOf(card)) expectHidden("a card with a release's reason (its view)", s);
-    // The reason is there, in words, on the card's moves and its box's.
-    expect(card.required.join(" ")).toContain("are nearly even for your lineup, and Oddfellow has more trade value.");
-    expect(card.planB?.moves.join(" ")).toContain("with or without this trade. He and Glimmer Oddfellow are nearly even for your lineup");
+    // The reason is there, in words, on the card's moves and its box's (a release the trade changes); one made either way is
+    // named in the line of moves made either way, without it (review of Checkpoint 7f, INTEGRATION-4).
+    expect(card.required.join(" ")).toContain("are nearly even for your lineup, and Oddfellow has more trade value. Lock Thimble on the League page to keep him instead.");
+    expect(card.planB?.moves).toEqual([
+      "Week 15, when Humbert Fiddlesticks returns from IR: release Tobias Thimble (TE) and keep Wiggleton Spoons (WR). Thimble and Glimmer Oddfellow are nearly even for your lineup, and Oddfellow has more trade value. Lock Thimble on the League page to keep him instead.",
+      "Assumed with or without this trade: release Wiggleton Spoons in week 16, when Humbert Fiddlesticks returns from IR.",
+    ]);
   });
 
   it("shows none in “How to offer it” (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1): each offer's players, its Helps you and chance, its roster moves and its own message, and as a version the feedback asks about", () => {

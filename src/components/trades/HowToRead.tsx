@@ -146,8 +146,11 @@ export function nowOrLaterWords(): string {
  * its numbers assume, in order, each with its reason and its week"; wave B's box, which How to read hadn't explained): what
  * its lines are, the line of moves made either way, and (item 2.1) whose odds then start from them. Checkpoint 7f (planner
  * reply to Checkpoint 7e, answer 4: "keep the rule, but the card must say why"): when the near-tie rule decides a release at
- * an IR return, the line says why (tradeView.ts releaseReason), and a release made with or without the trade is named at the
- * end too (RosterMoves.assumedLater), so the moves made either way are no longer on one line.
+ * an IR return the trade changes, the line says why (tradeView.ts releaseReason), and a release made with or without the trade
+ * is named at the end with the moves made either way (RosterMoves.assumedLater), its reason on the League page's roster card.
+ * The review of Checkpoint 7f (PIERCE-2): the rule's words as it decides (the player the lineup would miss least goes unless
+ * another, nearly as cheap to lose from then on, has less trade value; values tie at the best free agent's, where the lineup
+ * decides), where "the one with less trade value goes" wasn't always so, and the reason shows only when trade value decided.
  */
 export function rosterMovesWords(page: HowToReadPage): string {
   const either =
@@ -157,8 +160,10 @@ export function rosterMovesWords(page: HowToReadPage): string {
   return (
     "lists, in order, each move to your roster that the card's numbers count on, with its reason and its week: a player you'd drop to stay within your " +
     "league's limits or to make room, a free agent for a roster spot the trade opens, a waiver move the trade makes worthwhile, and who you'd release when a " +
-    "player comes back from IR (when two of your players are nearly even for your lineup from then on, the one with less trade value goes, and the line says why). " +
-    `Moves you'd make with or without the trade, like the pickups the League page suggests or such a release, are named at the end and aren't counted for the trade; ${either} ` +
+    "player comes back from IR (when the player your lineup would miss least has more trade value than another player nearly as cheap to lose from then on, " +
+    "that other player goes instead, and the line says why). " +
+    `Moves you'd make with or without the trade, like the pickups the League page suggests, are named at the end and aren't counted for the trade; ${either} ` +
+    "A release you'd make with or without the trade is named with those moves, and your roster card on the League page says why. " +
     "The other team's moves follow yours."
   );
 }

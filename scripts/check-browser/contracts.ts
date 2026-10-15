@@ -696,25 +696,39 @@ export function nowOrLaterProblems(cards: readonly NowOrLaterRead[], want: { min
 /**
  * A release at an IR return with the near-tie rule's reason after it (Checkpoint 7f; planner reply to Checkpoint 7e, answer 4:
  * "Week 7, when Alec Pierce returns from IR: release him. He and Marvin Harrison Jr. are nearly even for your lineup, and
- * Harrison Jr. has more trade value. Lock Pierce to keep him instead."; tradeView.ts releaseReason).
+ * Harrison Jr. has more trade value. Lock Pierce to keep him instead."; tradeView.ts releaseReason). Its lock's sentence says
+ * where the lock is on a trade page ("Lock Pierce on the League page to keep him instead.": the review of Checkpoint 7f,
+ * INTEGRATION-5) and not on the League page, whose roster card holds it: releaseLineProblems checks which (RELEASE_LOCK).
  */
 export const RELEASE_REASON = /^(?:Week \d+, )?[Ww]hen .+ returns from IR: .+\. (?:He|.+) and .+ are nearly even for your lineup, and .+ has more trade value\.(?: Lock .+ to keep (?:him|it) instead\.)?$/;
 
-/** A release made with or without the trade (the lead's R3: "Week 7, when Alec Pierce returns from IR: release him, with or without this trade."), a reason after it or not. */
-export const RELEASE_EITHER_WAY = /^(?:Week \d+, )?[Ww]hen .+ returns from IR: release .+, with or without this trade\.(?: .+)?$/;
+/** A release's lock sentence, at the end of its reason: "Lock Pierce to keep him instead.", "Lock Pierce on the League page to keep him instead." */
+export const RELEASE_LOCK = / Lock .+ to keep (?:him|it) instead\.$/;
 
 /**
- * What's wrong with the page's lines about a release at an IR return (Checkpoint 7f; inPage.ts READ_RELEASE_LINES: a card's
- * roster moves, a Plan B box's and an offer's, the League page's "Returns from IR"): a line with the near-tie rule's reason reads
- * as RELEASE_REASON and never keeps "instead of dropping someone else" (the planner's "release him."); a release made with or
- * without the trade reads as RELEASE_EITHER_WAY. Empty when every line is right.
+ * A card's line of moves made with or without the trade when it names a release at an IR return made either way (Checkpoint
+ * 7f, the lead's R3; since the review of Checkpoint 7f, INTEGRATION-4, inside that line, names only and without a reason, the
+ * releases last: "Assumed with or without this trade: add Jake Ferguson, drop Romeo Doubs, release Alec Pierce in week 7, when
+ * he returns from IR."; tradeView.ts myMovesLines). Its own line, "…: release him, with or without this trade.", is gone.
  */
-export function releaseLineProblems(lines: readonly string[]): string[] {
+export const RELEASE_EITHER_WAY = /^Assumed with or without this trade: (?:.+(?:, |; ))?release .+ (?:in week \d+, )?when .+ returns from IR\.$/;
+
+/**
+ * What's wrong with a page's lines about a release at an IR return (Checkpoint 7f; inPage.ts READ_RELEASE_LINES: a card's
+ * roster moves, a Plan B box's and an offer's, on a trade page; the "Returns from IR" of my roster card on the League page,
+ * `page` "league"): a line with the near-tie rule's reason reads as RELEASE_REASON, never keeps "instead of dropping someone
+ * else" (the planner's "release him.") and, on a trade page, says its lock is on the League page (the League page's doesn't);
+ * a release made with or without the trade reads as RELEASE_EITHER_WAY. Empty when every line is right.
+ */
+export function releaseLineProblems(lines: readonly string[], page: "league" | "trade"): string[] {
   const out: string[] = [];
   for (const line of lines) {
     const reason = line.includes(" are nearly even for your lineup");
     if (reason && !RELEASE_REASON.test(line)) out.push(`a release's reason reads “${line}”`);
     if (reason && line.includes("instead of dropping someone else")) out.push(`a release with a reason still says “instead of dropping someone else”: “${line}”`);
+    const lock = RELEASE_LOCK.exec(line)?.[0] ?? null;
+    if (lock && page === "trade" && !lock.includes(" on the League page to keep ")) out.push(`a release's lock doesn't say it's on the League page: “${line}”`);
+    if (lock && page === "league" && lock.includes(" on the League page ")) out.push(`the League page's lock sends you to the League page: “${line}”`);
     if (line.includes("with or without this trade") && !RELEASE_EITHER_WAY.test(line)) out.push(`a release made either way reads “${line}”`);
   }
   return out;

@@ -1336,13 +1336,17 @@ function freeAgentPickups(snapshot: LeagueSnapshot, team: TeamModel | undefined,
  * My IR players' returns as the odds assume them (RosterCard.returns; Checkpoint 7f, the lead's R2): each release of my team
  * after its pickups (TeamModel.displacedWithPickups), by week, in a trade card's words (tradeView.ts releaseLine), why when
  * the near-tie rule decided it (TeamDisplacement.keptInstead), "Lock … to keep him instead." for a player on my active
- * roster or IR as imported (where this card's lock is; not a free agent my pickups add). Null when nobody is released.
+ * roster or IR as imported (where this card's lock is, so it says no more: page "league"; not a free agent my pickups add),
+ * each player by his full name when his surname is another's on my roster (review of Checkpoint 7f, PIERCE-3). Null when
+ * nobody is released.
  */
 function returnsFromIr(snapshot: LeagueSnapshot, team: TeamModel | undefined, roster: Team): string[] | null {
   const mine = new Set([...roster.roster, ...roster.ir]);
   const lines = (team?.displacedWithPickups ?? [])
     .filter((d) => d && typeof d.id === "string" && typeof d.returner === "string")
-    .map((d) => releaseLine({ week: d.week, player: d.id, returner: d.returner, ...(typeof d.keptInstead === "string" ? { nearTie: { keptInstead: d.keptInstead, lockable: mine.has(d.id) } } : {}) }, snapshot));
+    .map((d) =>
+      releaseLine({ week: d.week, player: d.id, returner: d.returner, ...(typeof d.keptInstead === "string" ? { nearTie: { keptInstead: d.keptInstead, lockable: mine.has(d.id) } } : {}) }, snapshot, { page: "league", roster: [...mine] }),
+    );
   return lines.length ? lines : null;
 }
 

@@ -137,7 +137,8 @@ export interface RosterMoves {
    * Checkpoint 7f (planner reply to Checkpoint 7e, answer 4; the lead's R3): the releases at an IR player's return made with or
    * without the trade (the "before" and my roster after the trade release the same player from the same week for the same
    * returner, so no move above names them), by week, each with why when the near-tie rule decided it after the trade. Absent
-   * or empty: none (or an evaluation made before Checkpoint 7f).
+   * or empty: none (or an evaluation made before Checkpoint 7f). The card names them in its line of moves made either way,
+   * names only, the reason left to the League page (tradeView.ts myMovesLines; review of Checkpoint 7f, INTEGRATION-4).
    */
   assumedLater?: AssumedRelease[];
 }
@@ -147,7 +148,7 @@ export interface RosterMoves {
  * "keep the rule, but the card must say why"; returners.Displacement.keptInstead): `keptInstead`, the player the lineup alone
  * would have released, kept for his trade value (the two are nearly even for my lineup from the return on, and he's worth
  * more then); `lockable` when the player released is on my active roster or IR as imported, where the League page's lock is
- * (the card's "Lock Pierce to keep him instead."), not one the trade brings in or a pickup after it.
+ * (the card's "Lock Pierce on the League page to keep him instead."), not one the trade brings in or a pickup after it.
  */
 export interface NearTieRelease {
   keptInstead: string;
