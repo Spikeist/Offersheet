@@ -643,9 +643,10 @@ describe("LeagueView rosters", () => {
     const view = buildLeagueView({ ...f, myTeamSource: "platform", timeZone: "America/Chicago", now: NOW });
     const page = renderToStaticMarkup(createElement(LeagueView, { view, refresh }));
     const mine = between(page, '<span class="block font-extrabold break-words">Moonbeam Mudcats', "</details>");
-    // After the pickups, before the players, under a heading that names the team for screen readers.
+    // After the pickups, before the players, under a heading that names the team for screen readers; the list marked as
+    // roster moves, which check:browser reads alone (review of Checkpoint 7f, PIERCE-1), and its lock on this card.
     expect(mine).toContain(
-      '<h3 class="text-sm font-extrabold">Returns from IR<span class="sr-only"> for Moonbeam Mudcats</span></h3><ul class="mt-1 list-disc space-y-0.5 pl-5 text-sm leading-snug"><li class="break-words">Week 15, when Humbert Fiddlesticks returns from IR: release Tobias Thimble (TE). He and Wiggleton Spoons are nearly even for your lineup, and Spoons has more trade value. Lock Thimble to keep him instead.</li></ul>',
+      '<h3 class="text-sm font-extrabold">Returns from IR<span class="sr-only"> for Moonbeam Mudcats</span></h3><ul data-roster-moves="returns" class="mt-1 list-disc space-y-0.5 pl-5 text-sm leading-snug"><li class="break-words">Week 15, when Humbert Fiddlesticks returns from IR: release Tobias Thimble (TE). He and Wiggleton Spoons are nearly even for your lineup, and Spoons has more trade value. Lock Thimble to keep him instead.</li></ul>',
     );
     expect(mine.indexOf("Free-agent pickups that would help<span")).toBeLessThan(mine.indexOf("Returns from IR"));
     expect(mine.indexOf("Returns from IR")).toBeLessThan(mine.indexOf("<table"));

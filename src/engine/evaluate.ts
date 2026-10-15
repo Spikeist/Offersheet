@@ -3153,7 +3153,8 @@ function myRosterMoves(
     const a = relAfter.get(returner);
     const b = relBefore.get(returner);
     if (a && b && a.id === b.id && a.from === b.from) {
-      // The same release with or without the trade (the lead's R3): said after the assumed line, not as the trade's move.
+      // The same release with or without the trade (the lead's R3): named in the card's line of moves made either way
+      // (tradeView.ts myMovesLines; review of Checkpoint 7f, INTEGRATION-4), not as the trade's move.
       const week = weeks[a.from];
       if (week !== undefined) alike.push({ from: a.from, release: { week, player: a.id, returner, ...nearTieOf(a) } });
       continue;

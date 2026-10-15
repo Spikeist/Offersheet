@@ -79,6 +79,9 @@
  * numbers (after the veto note), the planner's tooltip on it, and the same words among the card's facts ("After this week's
  * games"), so a phone shows them too (TradeCardView.nowOrLater). A Trade Finder card's line arrives after the search; the
  * Analyzer's comes with its evaluation. A Plan B box has none.
+ * Each list of roster moves (the card's, its Plan B box's, each offer's) carries `data-roster-moves` ("card", "plan-b",
+ * "offer"), so `npm run check:browser` reads its lines alone (review of Checkpoint 7f, PIERCE-1: it read every list item under
+ * main, and a card sits in one).
  * It's an <article> named by its heading; the heading level is the page's to choose.
  */
 import Link from "next/link";
@@ -344,7 +347,7 @@ function OfferStepItem({ step, name, places }: { step: OfferStepView; name: stri
       {step.moves.length ? (
         <>
           <p className="mt-1 font-semibold">{ROSTER_MOVES_HEADING}</p>
-          <ul className="list-disc space-y-0.5 pl-5">
+          <ul data-roster-moves="offer" className="list-disc space-y-0.5 pl-5">
             {step.moves.map((m) => (
               <li key={m} className="break-words">
                 {m}
@@ -621,7 +624,7 @@ function PlanBBox({ planB, name, showLink, onOpen }: { planB: PlanBView; name: s
       {planB.moves.length ? (
         <>
           <p className="mt-1 font-semibold">{ROSTER_MOVES_HEADING}</p>
-          <ul className="list-disc space-y-0.5 pl-5">
+          <ul data-roster-moves="plan-b" className="list-disc space-y-0.5 pl-5">
             {planB.moves.map((m) => (
               <li key={m} className="break-words">
                 {m}
@@ -760,7 +763,7 @@ export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedbac
       {card.required.length ? (
         <div className="mt-3 rounded-xl bg-surface-muted px-3 py-2 text-sm">
           <p className="font-bold">{ROSTER_MOVES_HEADING}</p>
-          <ul className="mt-1 list-disc space-y-0.5 pl-5">
+          <ul data-roster-moves="card" className="mt-1 list-disc space-y-0.5 pl-5">
             {card.required.map((r) => (
               <li key={r} className="break-words">
                 {r}

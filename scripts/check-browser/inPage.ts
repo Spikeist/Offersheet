@@ -1095,10 +1095,20 @@ return [...document.querySelectorAll("main p")].map(visibleText).filter((t) => t
 `;
 
 /**
+ * The list items of every list of roster moves (TradeCard.tsx: a card's, its Plan B box's, each offer's of "How to offer it";
+ * LeagueView.tsx: my roster card's "Returns from IR"), each marked `data-roster-moves`: the lines themselves, never a card's
+ * or an offer's own list item, whose text holds them all (review of Checkpoint 7f, PIERCE-1: "main li" read each Trade Finder
+ * card, whose <li> holds the card, as one more "line", and the contract failed the app's right words).
+ */
+export const ROSTER_MOVE_LINES = "main [data-roster-moves] > li";
+
+/**
  * Every line about a release at an IR player's return the page shows (Checkpoint 7f; planner reply to Checkpoint 7e, answer 4):
- * "Week 7, when Alec Pierce returns from IR: …", a card's roster moves, its Plan B box's and its offers', or the League page's
- * "Returns from IR" (list items, cleaned: the cleaning prelude before it). contracts.ts releaseLineProblems reads them.
+ * "Week 7, when Alec Pierce returns from IR: …", or a card's "Assumed with or without this trade: …, release Alec Pierce in week
+ * 7, when he returns from IR." (the review of Checkpoint 7f, INTEGRATION-4), from a card's roster moves, its Plan B box's and its
+ * offers', or the League page's "Returns from IR" (ROSTER_MOVE_LINES, cleaned: the cleaning prelude before it).
+ * contracts.ts releaseLineProblems reads them.
  */
 export const READ_RELEASE_LINES = String.raw`
-return [...document.querySelectorAll("main li")].map((li) => clean(txt(li))).filter((t) => / returns from IR: /.test(t));
+return [...document.querySelectorAll(${JSON.stringify(ROSTER_MOVE_LINES)})].map((li) => clean(txt(li))).filter((t) => / returns from IR\b/.test(t));
 `;

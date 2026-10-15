@@ -2025,6 +2025,17 @@ describe("buildLeagueView: my IR players' returns (Checkpoint 7f; planner reply 
     ]);
   });
 
+  it("names a player by his full name when another player of mine shares his surname, and keeps the lock on this card (review of Checkpoint 7f, PIERCE-3 and INTEGRATION-5)", () => {
+    const f = withReleases([{ id: "108", week: 15, returner: "107", keptInstead: "106" }]);
+    const renamed = (id: string, name: string) => ({ ...f.snapshot.players[id], name }) as LeagueFixture["snapshot"]["players"][string];
+    // 102 is on my roster: "Thimble" alone could be either of two players of mine.
+    f.snapshot = { ...f.snapshot, players: { ...f.snapshot.players, "102": renamed("102", "Ophelia Thimble") } };
+    expect(returns(f)).toEqual([`${when}: release ${nameOf("108")} (TE). He and ${nameOf("106")} are nearly even for your lineup, and Spoons has more trade value. Lock ${nameOf("108")} to keep him instead.`]);
+    // Another team's player sharing it (201, team 2's) changes nothing.
+    f.snapshot = { ...f.snapshot, players: { ...f.snapshot.players, "102": renamed("102", nameOf("102")), "201": renamed("201", "Ophelia Thimble") } };
+    expect(returns(f)).toEqual([`${when}: release ${nameOf("108")} (TE). He and ${nameOf("106")} are nearly even for your lineup, and Spoons has more trade value. Lock Thimble to keep him instead.`]);
+  });
+
   it("only on my roster card, from the odds' own roster (after the pickups); none without a release, without a team of mine, or in a model that doesn't say", () => {
     // Another team's release: its card says nothing (the lock and the advice are mine).
     const theirs = withReleases([{ id: "206", week: 15, returner: "206", keptInstead: "205" }], "2");

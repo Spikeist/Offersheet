@@ -238,7 +238,9 @@ function PickupsList({ pickups, teamName }: { pickups: FreeAgentPickups; teamNam
 /**
  * My IR players' returns as the odds assume them (Checkpoint 7f; planner reply to Checkpoint 7e, answer 4; RosterCard.returns),
  * after the pickups on my roster card, one line each in a trade card's words: whom I release, and why when the near-tie rule
- * decided it. Its "Lock … to keep him instead." points at the lock on this same card.
+ * decided it. Its "Lock … to keep him instead." points at the lock on this same card. The list carries `data-roster-moves`
+ * ("returns"), as a trade card's roster moves do, so `npm run check:browser` reads its lines alone (review of Checkpoint 7f,
+ * PIERCE-1).
  */
 function ReturnsList({ lines, teamName }: { lines: readonly string[]; teamName: string }) {
   return (
@@ -247,7 +249,7 @@ function ReturnsList({ lines, teamName }: { lines: readonly string[]; teamName: 
         {RETURNS_FROM_IR_LABEL}
         <span className="sr-only">{` for ${teamName}`}</span>
       </h3>
-      <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm leading-snug">
+      <ul data-roster-moves="returns" className="mt-1 list-disc space-y-0.5 pl-5 text-sm leading-snug">
         {lines.map((line) => (
           <li key={line} className="break-words">
             {line}
