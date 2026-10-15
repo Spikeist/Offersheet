@@ -97,8 +97,11 @@ export const WAIVERS_NO_WEEKS = "Waiver upgrades cover the weeks still to come, 
 /** "Drop from the same position" (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.2): the switch's label and its help. */
 export const SAME_POSITION_LABEL = "Drop from the same position";
 export const SAME_POSITION_HELP = "On: the player you drop plays the same position as the one you add. Off: any position.";
-/** My untouchables above the lists (item 3.3): never suggested as drops, each with its lock to unlock him. */
-export const UNTOUCHABLES_LABEL = "Untouchable, never suggested as drops:";
+/**
+ * My untouchables above the lists (item 3.3): never suggested as drops, each with its lock to unlock him; kept out of trade
+ * ideas too, which the line says since the final review of Checkpoint 7e (UI-F-3: it said "never suggested as drops" alone).
+ */
+export const UNTOUCHABLES_LABEL = "Untouchable (never in trade ideas, never suggested as drops):";
 /** The suggestion under a move only another position could make room for (item 3.3: "suggest turning off 'Drop from the same position'"). */
 export const SAME_POSITION_HINT = `Turn off “${SAME_POSITION_LABEL}” to drop a player at another position.`;
 
@@ -155,6 +158,11 @@ export type WaiverRatingStatus = "pending" | "failed" | null;
 /** The section's line while its season list is rated on its own request (Checkpoint 7e, item 3.4), and when that fails. */
 export const RATING_PENDING_TEXT = "Rating these against your odds…";
 export const RATING_FAILED_TEXT = "These couldn't be rated against your odds, so they're listed by lineup gain.";
+/**
+ * A one-week list's line meanwhile (the final review of Checkpoint 7e, UI-F-7): its drops are the season list's (the rated
+ * ones once it's rated), so one can change when the rating comes.
+ */
+export const RATING_PENDING_WEEK_TEXT = "Rating the rest-of-season moves against your odds… A drop named here can change when that's done.";
 
 export interface WaiverListView {
   mode: WaiverListMode;
@@ -345,16 +353,26 @@ function weekLabel(input: WaiversInput, list: WaiverList): string {
 
 /**
  * What a rated season list's Helps you weighs, in words (Checkpoint 7e, item 3.4): the season played out, and the trade
- * value or long-term value it counts too (WaiverListRating.weighs; no number: CLAUDE.md §2.9).
+ * value or long-term value it counts too (WaiverListRating.weighs; no number: CLAUDE.md §2.9), and how many seasons are
+ * behind its rows (`rated` and `finished`: its rows with a rating, and those played out on the whole shown block; the final
+ * review of Checkpoint 7e, UI-F-5: it said "the others" when every move was finished, and how many times each move is played
+ * out when no move could be made).
  */
-function ratingNote(r: WaiverListRating, span: string): string {
+function ratingNote(r: WaiverListRating, span: string, counts: { rated: number; finished: number }): string {
   const weighs =
     r.weighs === "tradeValue"
-      ? " It counts the trade value you'd give up or gain too, as your “Protect my trade value” setting asks."
+      ? " It counts the trade value you'd give up too, as your “Protect my trade value” setting asks."
       : r.weighs === "longTerm"
         ? " It counts the change in your roster's long-term value too, as your Win now ↔ Future setting asks."
         : "";
-  const sims = r.finished > 0 && r.screenSims < r.shownSims ? ` The ${r.finished === 1 ? "best move is" : `${r.finished} best moves are`} played out ${fmtWhole(r.shownSims)} times, the others ${fmtWhole(r.screenSims)} times.` : ` Each move is played out ${fmtWhole(r.screenSims)} times.`;
+  const others = counts.rated - counts.finished;
+  const each = counts.rated === 1 ? "The move is" : "Each move is";
+  const sims =
+    counts.rated === 0
+      ? ""
+      : counts.finished > 0 && others > 0
+        ? ` The ${counts.finished === 1 ? "best move is" : `${counts.finished} best moves are`} played out ${fmtWhole(r.shownSims)} times, the others ${fmtWhole(r.screenSims)} times.`
+        : ` ${each} played out ${fmtWhole(counts.finished > 0 ? r.shownSims : r.screenSims)} times.`;
   return `Helps you: how much each move raises your chances at what your league rewards over ${span}, from simulated seasons, on the same scale as trade ideas.${weighs}${sims} Outscores: his rest-of-season points against the player you'd drop.`;
 }
 
@@ -373,14 +391,18 @@ function listView(input: WaiversInput, list: WaiverList, mode: WaiverListMode, t
   const streamedNote = streamed.length && oneWeek.length ? ` Positions you stream weekly (${streamed.join(", ")}) are under ${oneWeek.join(" and ")}.` : "";
   const rating = mode === "ros" ? (list.rating ?? null) : null;
   const when = mode === "ros" ? null : nextWeek ? "next week" : "this week";
+  const rated = rating ? list.rows.filter((r) => r.rating) : [];
+  const counts = rating ? { rated: rated.length, finished: rated.filter((r) => (r.rating?.sims ?? 0) >= rating.shownSims).length } : null;
+  // A one-week list's drop is the season list's for the same free agent, when he's on it (waivers.ts; the final review of
+  // Checkpoint 7e, UI-F-7: a streamed kicker's or D/ST's row has none there, its drop the drop order's).
   const note =
     mode === "ros"
-      ? rating
-        ? `${ratingNote(rating, span)} Lineup gain: what the move adds to your starting lineup over ${span}, each week counted once, ${how}.${streamedNote}`
+      ? rating && counts
+        ? `${ratingNote(rating, span, counts)} Lineup gain: what the move adds to your starting lineup over ${span}, each week counted once, ${how}.${streamedNote}`
         : `Lineup gain: what adding him adds to your starting lineup over ${span}, each week counted once, ${how}, after dropping the player named. Outscores: his rest-of-season points against the player you'd drop.${streamedNote}`
       : mode === "underWay"
-        ? `Lineup gain: what adding him adds to your starting lineup in ${span}, ${how}, after dropping the player named (the same one as for the rest of the season, among players whose games haven't started). Outscores: his projection for the games still to play against the player you'd drop. Players whose games have started are locked: yours stay in the best lineup you could have set before kickoff.`
-        : `Lineup gain: what adding him adds to your starting lineup in ${span}, ${how}, after dropping the player named (the same one as for the rest of the season). Outscores: his projection ${when} against the player you'd drop.`;
+        ? `Lineup gain: what adding him adds to your starting lineup in ${span}, ${how}, after dropping the player named (the same one as for the rest of the season when he's on that list, among players whose games haven't started). Outscores: his projection for the games still to play against the player you'd drop. Players whose games have started are locked: yours stay in the best lineup you could have set before kickoff.`
+        : `Lineup gain: what adding him adds to your starting lineup in ${span}, ${how}, after dropping the player named (the same one as for the rest of the season when he's on that list). Outscores: his projection ${when} against the player you'd drop.`;
   const weekIndex = model.weeks.indexOf(pickupWeek);
   const rows = list.rows.map((r) => rowView(input, list, r, mode, span, weekIndex, pickupWeek, rating, when));
   const underWay =

@@ -1226,7 +1226,7 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     const s = section(10);
     expect(s).toContain(`without it the Overall list is the same ${trades.length} cards with the same numbers, boxes and words ✅`);
     expect(s).toContain(`| | Cold | Warm (median of ${report.runtime.runs.length}) |`);
-    for (const label of [`| The partner calibration runs (${partners}, one per partner of the exact trades) |`, `| The extras' final runs (${st.helpsBothExtras.length}) |`, "| The second list: its ranking, Plan B and words | – |", "| **The extra: the three parts** |", `| Search total with "Helps them" (the app: section 4's) |`, "| Search total without (with, less the extra: ⚠️ derived) |"]) expect(s).toContain(label);
+    for (const label of [`| The partner calibration runs (${partners}, one per partner of the exact trades) |`, `| The extras' final runs (${st.helpsBothExtras.length}) |`, `| Helps them's share of the ranking stage: the shown pass's partner scales and the second list's cards on ${config.simulation.shownSims.toLocaleString("en-US")} seasons, its ranking, Plan B and words | – |`, "| **The extra: the three parts** |", `| Search total with "Helps them" (the app: section 4's) |`, "| Search total without (with, less the extra: ⚠️ derived) |"]) expect(s).toContain(label);
     // The runs without it as measured, against section 4's with their own sign (review HBR-1); the suite times one run a set,
     // so no spread from run to run is printed (it read "up to 0.0 ms") and no cause it doesn't compute.
     const m = h.cost.measured;
@@ -1337,7 +1337,7 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     expect(s).toContain(`| The Finder's "checked N closely", without → with ${pair((x) => `${x.exact.without} → ${x.exact.with}`)}`);
     expect(s).toContain(`| The Finder's "Left out on purpose": ideas that wouldn't help you · that give up much more trade value · under the minimum chance, without → with ${pair((x) => `${left(x.leftOut.without)} → ${left(x.leftOut.with)}`)}`);
     expect(s).toContain(`**What the lane costs** (⚠️ ours: under "Only the champion", section 4's runs, each timed one followed by the same search without the lane on its own context`);
-    for (const label of [`| The lane's exact evaluations (${l.cost.exact.count}: its trades and their lean companions) |`, `| Their screening simulations (${l.cost.simScreen.count}, the legal ones) |`, "| The rest: final simulation, ranking and steps, with the lane less without | – |", "| **The lane's extra: the three parts** |", "| Search total with the lane (the app: section 4's) |", "| Search total without the lane (measured) | – |"]) expect(s).toContain(label);
+    for (const label of [`| The lane's exact evaluations (${l.cost.exact.count}: its trades and their lean companions) |`, `| Their screening simulations (${l.cost.simScreen.count}, the legal ones) |`, "| The rest: final simulation, ranking, the shown pass and Plan B, with the lane less without | – |", "| **The lane's extra: the three parts** |", "| Search total with the lane (the app: section 4's) |", "| Search total without the lane (measured) | – |"]) expect(s).toContain(label);
     expect(s).toMatch(/Under "Several prizes", section 2's one search \(warm, [^)]+\): the lane's exact evaluations [^;]+ and screening simulations [^;]+; the search without the lane, on a context of its own, /);
   });
 

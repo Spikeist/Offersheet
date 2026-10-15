@@ -321,15 +321,42 @@ describe("my players who don't play aren't compared (review: one bye listed ever
     expect(w?.idle).toEqual([{ playerId: "t1", pos: "TE", why: "bye" }]);
   });
 
-  it("rest of season: a player of mine out for the season isn't compared (he's named as out)", () => {
-    // w3 is out for the season (no points left): only free agents who beat a WR of mine who still plays are listed.
-    const mine = MINE.map((x) => (x.id === "w3" ? { ...x, injury: "IR" as const, injuryReturnWeek: 30 } : x));
-    const { model } = build({ mine, nflLastWeek: 18, freeAgents: [p("fw1", "WR", 12), p("fw2", "WR", 6)] });
-    const ros = waivers(model)?.ros;
+  it("⚠️ rest of season: a player of mine out for the season is beaten by the best few free agents there, he the drop (the final review of Checkpoint 7e, ENG-7E-3)", () => {
+    // w3 is out for the season (no points left). Until the final review he wasn't compared at all, so a free agent had to beat
+    // a WR of mine who still plays: with the user's own "Out for the season" (item 3.5) the list had no row at his position.
+    // Now the best perPositionCap who beat only him are listed too, each dropping him; "Better than" names him.
+    // A full roster (16) whose WRs are w1 (14), w2 (11) and w3, out: the bench WRs made an RB and a QB.
+    const mine = FULL.map((x) => (x.id === "w3" ? { ...x, injury: "IR" as const, injuryReturnWeek: 30 } : x.id === "b3" ? p("b3", "RB", 1.2) : x.id === "b4" ? p("b4", "QB", 2.5) : x));
+    const wrs = [p("fw1", "WR", 12), ...Array.from({ length: 5 }, (_, i) => p(`fx${i}`, "WR", 2 + i))];
+    const { model } = build({ mine, nflLastWeek: 18, freeAgents: wrs });
+    const w = waivers(model);
+    const ros = w?.ros;
     expect(model.players.w3?.ros.total).toBe(0);
-    expect(ids(ros)).toEqual(["fw1"]);
-    expect(rowOf(ros, "fw1")?.betterThan).toEqual(["w2"]);
+    expect(rowOf(ros, "fw1")?.betterThan).toEqual(["w2", "w3"]);
+    const spentOnly = ["fx4", "fx3", "fx2", "fx1", "fx0"].slice(0, config.waivers.perPositionCap);
+    expect(ids(ros).filter((id) => id.startsWith("fx"))).toEqual(spentOnly);
+    for (const id of spentOnly) {
+      expect(rowOf(ros, id)?.betterThan).toEqual(["w3"]);
+      // He's the drop: losing him costs my lineup nothing (the lowest keep value at WR).
+      expect(rowOf(ros, id)?.drop).toBe("w3");
+      expect(rowOf(ros, id)?.gain).toBeGreaterThanOrEqual(0);
+    }
     expect(ros?.idle).toEqual([{ playerId: "w3", pos: "WR", why: "out" }]);
+    // One week: he's idle as before, so a free agent must beat a WR of mine who plays that week (fw1 does, no fx).
+    expect(ids(w?.week).filter((id) => id.startsWith("f"))).toEqual(["fw1"]);
+    expect(w?.week?.idle).toEqual([{ playerId: "w3", pos: "WR", why: "out" }]);
+  });
+
+  it("⚠️ an untouchable out for the season adds nobody, and neither does one where none of mine scores (the rule for none: the best few, beating nobody)", () => {
+    const mine = MINE.map((x) => (x.id === "w3" ? { ...x, injury: "IR" as const, injuryReturnWeek: 30 } : x));
+    const free = [p("fw1", "WR", 12), p("fw2", "WR", 6)];
+    const locked = build({ mine, nflLastWeek: 18, freeAgents: free }, NO_RISK, { settings: { ...defaultTradeSettings(), untouchables: ["w3"] } });
+    expect(ids(waivers(locked.model)?.ros)).toEqual(["fw1"]);
+    expect(rowOf(waivers(locked.model)?.ros, "fw1")?.betterThan).toEqual(["w2"]);
+    // My only TE out for the season: none of mine at TE scores, so the best few there, each beating nobody, as before.
+    const te = MINE.map((x) => (x.id === "t1" ? { ...x, injury: "IR" as const, injuryReturnWeek: 30 } : x));
+    const tes = build({ mine: te, nflLastWeek: 18, freeAgents: [p("ft1", "TE", 5), p("ft2", "TE", 3)] });
+    for (const id of ["ft1", "ft2"]) expect(rowOf(waivers(tes.model)?.ros, id)?.betterThan).toEqual([]);
   });
 });
 

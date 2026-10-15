@@ -48,7 +48,9 @@
  *
  * "How to offer it" (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1): the card's offers in order, the trade built
  * among them ("The trade you built"), worked out in the engine worker when its disclosure opens (onOffers: engineClient.ts
- * offers, by the card's proposal, for the moment and settings it was evaluated for), not on a result gone stale.
+ * offers, by the card's proposal, for the moment and settings it was evaluated for), not on a result gone stale (whose offers
+ * already in stay, as its feedback reads them: TradeCard.tsx offersStateFor; the final review of Checkpoint 7e, UI-F-2). The
+ * card is keyed by its trade, so the next trade evaluated starts with its own feedback and offers (UI-F-1).
  *
  * Getting there and back (review of Phase 4): on a phone the result sits a few screens below the form. Evaluate brings
  * it into view (its section's top at the top of the screen when it's taller than the screen) and moves focus to its
@@ -78,7 +80,7 @@ import { feedbackShareContext, shownRewardOf, type FeedbackSaveResult } from "@/
 import type { FeedbackChange, FeedbackRecord } from "@/lib/feedbackStore";
 import type { CurrentLeagueRead } from "@/lib/leagueStore";
 import { modelRequest } from "@/lib/modelStore";
-import { settingsFingerprint } from "@/lib/settingsStore";
+import { TRADE_SETTINGS, settingsFingerprint } from "@/lib/settingsStore";
 import {
   ANALYZER_MAX_PER_SIDE,
   EMPTY_DRAFT,
@@ -139,9 +141,13 @@ export function AnalyzerPage() {
   return <LoadedAnalyzer key={read.league.id} current={read} query={query} />;
 }
 
-/** What an evaluation is for besides the trade: the league data, the inputs' build, my team and every setting. */
+/**
+ * What an evaluation is for besides the trade: the league data, the inputs' build, my team and every setting a trade reads
+ * (settingsStore.ts TRADE_SETTINGS: "Drop from the same position", Waiver upgrades' alone, dims nothing here; the final
+ * review of Checkpoint 7e, RT-2).
+ */
 function contextTagFor(snapshot: Pick<LeagueSnapshot, "platform" | "leagueId" | "season" | "fetchedAt">, builtAt: string, myTeamId: string, settings: TradeSettings): string {
-  return `${leagueTag(snapshot)}|${builtAt}|${myTeamId}|${settingsFingerprint(settings)}`;
+  return `${leagueTag(snapshot)}|${builtAt}|${myTeamId}|${settingsFingerprint(settings, TRADE_SETTINGS)}`;
 }
 
 interface Evaluated {
@@ -578,7 +584,10 @@ export function AnalysisResult({
             {view.illegal}
           </Callout>
         ) : card ? (
+          // Keyed by the trade (the final review of Checkpoint 7e, UI-F-1): another trade evaluated is another card, so a
+          // version question left open on the last one, its versions and its offers' answers never carry over to it.
           <TradeCard
+            key={card.key}
             card={card}
             headingLevel="h3"
             showAnalyzerLink={false}

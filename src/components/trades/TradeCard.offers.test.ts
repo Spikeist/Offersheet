@@ -114,12 +114,41 @@ describe("the card's feedback waits for its offers (the review of wave D, UI-D-1
 
 describe("the offers' state (offersStateFor; the review of wave D, UI-D-10)", () => {
   const ladder = buildLadderView(ladderOf(buildTradeCard(base, { snapshot })), buildTradeCard(base, { snapshot }), { snapshot });
-  it("asks only while the disclosure is open; an answer shows open or not; nothing without a loader", () => {
+  it("asks only while the disclosure is open; an answer shows open or not; without a loader only offers already in", () => {
     expect(offersStateFor(true, false, null)).toEqual({ kind: "idle" });
     expect(offersStateFor(true, true, null)).toEqual({ kind: "loading" });
     expect(offersStateFor(true, false, { ladder })).toEqual({ kind: "done", ladder });
     expect(offersStateFor(true, true, { ladder: null })).toEqual({ kind: "failed" });
-    expect(offersStateFor(false, true, { ladder })).toEqual({ kind: "idle" });
+    // The final review of Checkpoint 7e, UI-F-2: the Trade Analyzer gives no loader while its result is stale, and the offers
+    // already in still show and still count for the feedback (it asked which one was sent; it saved "the suggested trade").
+    expect(offersStateFor(false, true, { ladder })).toEqual({ kind: "done", ladder });
+    expect(offersStateFor(false, false, { ladder })).toEqual({ kind: "done", ladder });
+    // Nothing to retry without one: no failure, nothing loading.
+    expect(offersStateFor(false, true, { ladder: null })).toEqual({ kind: "idle" });
+    expect(offersStateFor(false, true, null)).toEqual({ kind: "idle" });
+  });
+});
+
+describe("the Trade Analyzer's card is keyed by its trade (the final review of Checkpoint 7e, UI-F-1)", () => {
+  it("so another trade evaluated is another card: no version question, versions or offers carry over from the last one", async () => {
+    const { AnalysisResult } = await import("./AnalyzerPage");
+    const { buildAnalysisView } = await import("@/lib/tradeView");
+    /** The TradeCard elements in a rendered tree (a function component's output, walked without rendering it). */
+    const cardsIn = (node: unknown, out: { key: string | null }[] = []): { key: string | null }[] => {
+      if (Array.isArray(node)) for (const n of node) cardsIn(n, out);
+      else if (node && typeof node === "object" && "props" in node) {
+        const el = node as { type: unknown; key: string | null; props: { children?: unknown } };
+        if (el.type === TradeCard) out.push({ key: el.key });
+        cardsIn(el.props.children, out);
+      }
+      return out;
+    };
+    for (const e of [base, open]) {
+      const view = buildAnalysisView({ evaluation: e, illegal: null, notes: [] }, snapshot);
+      const tree = AnalysisResult({ view, stale: false, records: [], leagueKey: "espn:0000abcd", onFeedback: () => ({ ok: true as const }) });
+      expect(cardsIn(tree)).toEqual([{ key: e.key }]);
+    }
+    expect(base.key).not.toBe(open.key);
   });
 });
 

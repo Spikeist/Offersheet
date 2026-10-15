@@ -56,6 +56,7 @@ import type { LeagueModel, WaiverUpgrades } from "@/engine/leagueModel";
 import type { LeagueSnapshot } from "@/engine/model";
 import { defaultTradeSettings, type TradeSettings } from "@/engine/settings";
 import type { TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeSearchProgress, TradeSearchResult } from "@/engine/tradeModel";
+import { LEAGUE_MODEL_SETTINGS } from "@/lib/settingsStore";
 import {
   ENGINE_ERROR_MESSAGE,
   KEPT_RESULTS,
@@ -800,9 +801,15 @@ describe("contextStillValid and contextKey", () => {
 
   it("keys on the league, its data, the inputs, my team and only the settings the context reads", () => {
     const key = contextKey({ snapshot, model, myTeamId: "3" }, settings);
-    expect(key).toBe(`espn|4242|2026|2026-10-01T15:00:00.000Z|2026-10-01T15:01:00.000Z|3|{"goal":"title","prizes":{"first":60,"second":30,"third":10,"weeklyHigh":null,"pointsLeader":null},"returnWeeks":{},"returnWeeksSeason":null,"streamPositions":["DEF","K","QB"],"untouchables":[],"waiverSamePosition":true}`);
-    // Checkpoint 7e: the untouchables, "Drop from the same position" and the user's return weeks are read by the League model.
+    expect(key).toBe(`espn|4242|2026|2026-10-01T15:00:00.000Z|2026-10-01T15:01:00.000Z|3|{"goal":"title","prizes":{"first":60,"second":30,"third":10,"weeklyHigh":null,"pointsLeader":null},"returnWeeks":{},"returnWeeksSeason":null,"streamPositions":["DEF","K","QB"],"untouchables":[]}`);
+    // Checkpoint 7e: the untouchables and the user's return weeks are read by the League model.
     expect(contextKey({ snapshot, model, myTeamId: "3" }, { ...settings, untouchables: ["101"] })).not.toBe(key);
+    // "Drop from the same position" only by its Waiver upgrades, which a trade context doesn't build (the final review of
+    // Checkpoint 7e, RT-2): the trade context keeps its key; the League page's kept build, which reads it, is keyed with it.
+    expect(contextKey({ snapshot, model, myTeamId: "3" }, { ...settings, waiverSamePosition: false })).toBe(key);
+    const kept = contextKey({ snapshot, model, myTeamId: "3" }, settings, LEAGUE_MODEL_SETTINGS);
+    expect(kept).toContain('"waiverSamePosition":true');
+    expect(contextKey({ snapshot, model, myTeamId: "3" }, { ...settings, waiverSamePosition: false }, LEAGUE_MODEL_SETTINGS)).not.toBe(kept);
     // The manual playoff weight isn't one of them any more (ω is set automatically; an older version's stored one counts for
     // nothing); the goal is.
     expect(contextKey({ snapshot, model, myTeamId: "3" }, { ...settings, playoffWeight: 1.25 } as TradeSettings)).toBe(key);

@@ -822,3 +822,23 @@ describe("LeagueView streaming picks (§7 streaming positions; planner reply to 
     expect(rosters.match(/>Streams /g)).toHaveLength(2);
   });
 });
+
+describe("the lock's words over my roster (the final review of Checkpoint 7e, UI-F-3)", () => {
+  it("say what the lock on my players' rows does, only where the locks are: with the League page's settings edits and a team of mine", async () => {
+    const { LeagueSettingsEditContext } = await import("./leagueSettingsEdit");
+    const { LOCK_HELP } = await import("./UntouchableLock");
+    const { defaultTradeSettings } = await import("@/engine/settings");
+    expect(LOCK_HELP).toBe("The lock next to one of your players makes him untouchable: trade ideas never offer him, and he's never suggested as a drop.");
+    const withEdits = (f: LeagueFixture) => {
+      const view = buildLeagueView({ ...f, myTeamSource: f.model.myTeamId ? "platform" : "none", timeZone: "America/Chicago", now: NOW });
+      return renderToStaticMarkup(createElement(LeagueSettingsEditContext, { value: { leagueKey: "test-league", settings: defaultTradeSettings(), season: f.snapshot.season } }, createElement(LeagueView, { view, refresh })));
+    };
+    const rosters = between(withEdits(leagueFixture()), 'id="rosters-title"', "Best available");
+    // Visible (not a hover), under the section's intro, and the locks are there.
+    expect(rosters).toContain(`<p class="mt-1 text-sm text-muted">${LOCK_HELP.replace(/'/g, "&#x27;")}</p>`);
+    expect(rosters).toContain('aria-label="Untouchable: ');
+    // No locks, no words: without the League page's settings edits, or without a team of mine.
+    expect(textOf(html)).not.toContain(LOCK_HELP);
+    expect(textOf(withEdits(leagueFixture({ myTeamId: null })))).not.toContain(LOCK_HELP);
+  });
+});

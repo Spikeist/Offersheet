@@ -33,6 +33,7 @@ import { StreamingPicks } from "./StreamingPicks";
 import { StrengthHeatmap } from "./StrengthHeatmap";
 import { TeamTable } from "./TeamTable";
 import { TradePartners } from "./TradePartners";
+import { LockHelp } from "./UntouchableLock";
 import { ValuesCredit } from "./ValuesCredit";
 import { WaiverUpgrades } from "./WaiverUpgrades";
 
@@ -156,6 +157,8 @@ function Rosters({ view }: ViewProps) {
         <p className="mt-1 text-sm text-muted">
           Rest-of-season (ROS) points count only the games left. Tap a player for his week-by-week points. <ValuesCredit />
         </p>
+        {/* What the lock on my players' rows does (the final review of Checkpoint 7e, UI-F-3): only where the locks are. */}
+        {view.rosters.some((r) => r.isMine) ? <LockHelp className="mt-1 text-sm text-muted" /> : null}
         {view.pickupsNote ? (
           <>
             <p className="mt-1 text-sm break-words text-muted">{view.pickupsNote.text}</p>

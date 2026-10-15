@@ -21,13 +21,16 @@
  * league type (review of the "Helps both" UI, helps-both-ui-1). Checkpoint 7d (planner reply to Checkpoint 7c, answer 1): the
  * feedback export, a file users open, which holds what the cards printed. Checkpoint 7e (planner reply to Checkpoint 7d, item
  * 4.1): "How to offer it", each offer with its players, numbers, roster moves and message, and as a version the feedback asks
- * about. Every name is made up.
+ * about; (item 3.4; the final review of Checkpoint 7e) Waiver upgrades' rated rows, whose Helps you counts trade value in a
+ * redraft league and long-term value in a dynasty one, an open roster spot's row and a "No gain" row's line among them, on
+ * every list. Every name is made up.
  */
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { ReportView, type RefreshControl } from "@/components/import/ReportView";
 import { LeagueView } from "@/components/league/LeagueView";
+import { WaiverUpgradesCard } from "@/components/league/WaiverUpgrades";
 import { PlayerDetail } from "@/components/league/PlayerTable";
 import { leagueFixture, type LeagueFixture } from "@/components/league/testFixtures";
 import { SettingsForm } from "@/components/settings/SettingsForm";
@@ -38,18 +41,23 @@ import { OffersPanel, TradeCard } from "@/components/trades/TradeCard";
 import { FinderControls, FinderFrame } from "@/components/trades/TradeFinderPage";
 import { GLOOP_PREMIUM, evaluation, searchResult, steppedFull, tradeSnapshot } from "@/components/trades/testFixtures";
 import { helpsBoth, type HelpsScale } from "@/engine/benefit";
+import { config } from "@/engine/config";
 import { titleDeltas } from "@/engine/reward";
 import { explainTrade, type ExplainContext } from "@/engine/explain";
 import type { MarketInputs } from "@/engine/inputs";
-import type { PlayerBlend } from "@/engine/leagueModel";
+import { buildLeagueModel } from "@/engine/league";
+import type { LeagueModel, PlayerBlend } from "@/engine/leagueModel";
 import type { LeagueSnapshot } from "@/engine/model";
 import { PROTECT_VALUE_LEVELS, defaultTradeSettings } from "@/engine/settings";
+import { TEST_NOW } from "@/engine/testLeague";
+import { smallLeague } from "@/engine/trade.testing";
 import { acceptanceTerms, planBFixture, type EvaluationFixture } from "@/engine/tradeTestFixtures";
 import type { PartnerNumbers, TradeEvaluation } from "@/engine/tradeModel";
 import { applyFeedback, feedbackExportText, type FeedbackRecord } from "./feedbackStore";
 import { buildImportReport } from "./importReport";
 import { buildLeagueView } from "./leagueView";
 import type { CardFeedback } from "./tradeView";
+import { buildWaiversView } from "./waiversView";
 import { buildAnalysisView, buildFinderView, buildLadderView, buildTradeCard, cardPress, cardVersions, fantasyCalcLookup, planBPitch } from "./tradeView";
 
 /**
@@ -485,4 +493,54 @@ describe("no trade value shows in Settings or the Import Report (planner reply t
     for (const s of stringsOf(view)) expectHidden("the Import Report's view", s);
     expect(html).toContain("Values: FantasyCalc");
   });
+});
+
+describe("no trade value shows in Waiver upgrades, whose Helps you counts it (Checkpoint 7e, item 3.4; the final review, live-fantasycalc-guard)", () => {
+  // A made-up league rated as the League page rates its season list (400 seasons here), FantasyCalc's list every value 7,777
+  // or 8,888, so the waiver credit W and every package total are distinctive too: a redraft league with "Protect my trade
+  // value" on (the market term), and the same league as a dynasty one with long-term values (ΔDyn).
+  const RATED = { ...config, waivers: { ...config.waivers, ratingScreenSims: 100, ratingFinishRows: 2 } };
+  const leagueOf = (leagueType: "redraft" | "dynasty") => {
+    const l = smallLeague(11, leagueType === "dynasty" ? { leagueType } : {});
+    const market = l.inputs.market;
+    if (!market) throw new Error("no values");
+    // Every player valued (none of our curve's estimates), so W is one of the two values too.
+    const values = Object.fromEntries(Object.keys(l.snapshot.players).map((id, i) => [id, i % 2 ? 7777 : 8888]));
+    const format = { ...market.format, isDynasty: leagueType === "dynasty" };
+    const inputs = { ...l.inputs, market: { ...market, format, values, topValue: 8888, ...(leagueType === "dynasty" ? { seasonValues: { ...values } } : {}) } };
+    return { snapshot: l.snapshot, inputs };
+  };
+
+  for (const leagueType of ["redraft", "dynasty"] as const) {
+    it(`${leagueType}: the rated rows, an open roster spot's and a “No gain” row's words, and every string of the view`, () => {
+      const { snapshot, inputs } = leagueOf(leagueType);
+      const model = buildLeagueModel(snapshot, inputs, { now: TEST_NOW, sims: 400, waiverRating: true }, RATED);
+      const w = model.waiverUpgrades;
+      const ros = w?.ros;
+      if (!w || !ros?.rating) throw new Error("no rated list");
+      expect(ros.rating.weighs).toBe(leagueType === "redraft" ? "tradeValue" : "longTerm");
+      // The made-up league's distinctive values reach the rating: W is one of them.
+      expect([7777, 8888]).toContain(model.market.waiverCredit);
+      // A row into an open roster spot, and a "No gain" row whose odds part is a gain (its "why" line), as the page shows them.
+      const made = ros.rows.filter((r) => r.gain !== null);
+      expect(made.length).toBeGreaterThan(1);
+      const [open, why] = made;
+      const rows = ros.rows.map((r) => (r === open ? { ...r, drop: null, dropPoints: null } : r === why ? { ...r, rating: { b: -0.2, bWin: 0.3, helps: null, sims: 400 } } : r));
+      const shown: LeagueModel = { ...model, waiverUpgrades: { ...w, ros: { ...ros, rows } } };
+      const view = buildWaiversView({ snapshot, model: shown, inputs, timeZone: "America/Chicago", now: TEST_NOW.toISOString() });
+      if (!view?.ros) throw new Error("no view");
+      const all = view.ros.rows.length;
+      // Every row shown (not just the first config.waivers.rowsShown) on each list.
+      for (const first of ["ros", "week"] as const) {
+        const html = renderToStaticMarkup(createElement(WaiverUpgradesCard, { view: { ...view, first, ros: { ...view.ros, shown: all } } }));
+        expectHidden(`Waiver upgrades (${leagueType}, ${first})`, html);
+      }
+      for (const s of stringsOf(view)) expectHidden(`Waiver upgrades' view (${leagueType})`, s);
+      // The rows are there, in words: Helps you, an open spot, and the line saying what the move gives up.
+      const text = stringsOf(view).join(" ");
+      expect(text).toContain("Helps you");
+      expect(text).toContain("Open roster spot");
+      expect(text).toMatch(leagueType === "redraft" ? /the trade value you'd give up outweighs that/ : /the long-term value you'd give up outweighs that/);
+    });
+  }
 });

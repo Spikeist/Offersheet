@@ -32,7 +32,9 @@
  * haven't loaded asks for them first, then which version was sent among them (UI-D-1: such a card saved "the suggested
  * trade" without a word, though its offers said to open with another); Try again hands focus to the status line that
  * replaces it (UI-D-7); and once the offers open with another trade, a line over the card's own "Message to send them" says
- * that message proposes the trade as it is (UI-D-6).
+ * that message proposes the trade as it is (UI-D-6). The final review of Checkpoint 7e: offers already in stay, and stay the
+ * versions the feedback asks about, when the page stops giving a loader (the Trade Analyzer's result gone stale: UI-F-2,
+ * whose next outcome saved "the suggested trade" without asking); the disclosure then shows only offers that are in.
  * Planner reply to Checkpoint 4, change 6: every injury-tagged player on either side carries his tag in words under his
  * name ("Out — expected back week 8"; a tinted tag that wraps, so a long one never widens the card past a 375 px
  * screen), and when a player I'd get is tagged, one line under the two lists says his projection assumes he returns at
@@ -464,13 +466,17 @@ interface OffersAnswer {
 const OFFERS_ANSWERS_KEPT = 4;
 
 /**
- * Where a card's "How to offer it" is (useOffers; pure, tests read it): no loader, "idle"; an answer for the evaluation and
- * attempt shown, "done" with it, or "failed" (asked by the disclosure or by the feedback, open or not); else "loading" while
- * the disclosure is open (it asks) and "idle" while it's closed: nothing is asked then (the review of wave D, UI-D-10).
+ * Where a card's "How to offer it" is (useOffers; pure, tests read it): offers for the evaluation and attempt shown, "done"
+ * with them, loader or not (the final review of Checkpoint 7e, UI-F-2: the Trade Analyzer gives none while its result is
+ * stale, and the offers already in still count for the feedback, which asks which one was sent); without a loader nothing
+ * else ("idle"); an answer that they couldn't be worked out, "failed" (asked by the disclosure or by the feedback, open or
+ * not); else "loading" while the disclosure is open (it asks) and "idle" while it's closed: nothing is asked then (the review
+ * of wave D, UI-D-10).
  */
 export function offersStateFor(on: boolean, open: boolean, answer: Pick<OffersAnswer, "ladder"> | null): OffersState {
+  if (answer?.ladder) return { kind: "done", ladder: answer.ladder };
   if (!on) return { kind: "idle" };
-  if (answer) return answer.ladder ? { kind: "done", ladder: answer.ladder } : { kind: "failed" };
+  if (answer) return { kind: "failed" };
   return open ? { kind: "loading" } : { kind: "idle" };
 }
 
@@ -539,15 +545,16 @@ function useOffers(
     ask(attempt).catch(() => undefined); // cancelled: nothing to say
   }, [open, onOffers, evaluation, attempt, done, ask]);
   // The versions the feedback asks about once the offers are in (cardVersions); the card's own and its Plan B's when they
-  // couldn't be worked out.
-  const versions = useCallback(
-    (): Promise<readonly VersionChoice[]> =>
-      ask(attempt).then(
-        (ladder) => (ladder ? cardVersions(latest.current, ladder) : latest.current.versions),
-        () => latest.current.versions,
-      ),
-    [ask, attempt],
-  );
+  // couldn't be worked out. Of the card the offers were asked for (`ask` reads the latest one when it's called), never one
+  // built since for another evaluation (the final review of Checkpoint 7e, UI-F-1: one trade's offers with the next one's own
+  // versions listed "The suggested trade" twice).
+  const versions = useCallback((): Promise<readonly VersionChoice[]> => {
+    const c = latest.current;
+    return ask(attempt).then(
+      (ladder) => (ladder ? cardVersions(c, ladder) : c.versions),
+      () => c.versions,
+    );
+  }, [ask, attempt]);
   const state = offersStateFor(!!onOffers, open, done);
   return { state, open, toggle: setOpen, retry: () => setAttempt((a) => a + 1), versions };
 }
@@ -716,7 +723,8 @@ export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedbac
       {card.nowOrLater ? <NowOrLater line={card.nowOrLater} /> : null}
       <OddsLines odds={card.odds} weekly={card.weekly} them={card.them} />
       {card.oddsNote ? <p className="mt-1 text-xs leading-relaxed break-words text-muted">{card.oddsNote}</p> : null}
-      {card.offers && onOffers ? <OffersDisclosure offers={card.offers} state={offers.state} open={offers.open} name={name} onToggle={offers.toggle} onRetry={offers.retry} places={places} /> : null}
+      {/* Without a loader (a stale Analyzer result) only offers already in show, as the feedback reads them (UI-F-2). */}
+      {card.offers && (onOffers || ladder) ? <OffersDisclosure offers={card.offers} state={offers.state} open={offers.open} name={name} onToggle={offers.toggle} onRetry={offers.retry} places={places} /> : null}
 
       {card.flags.length ? (
         <ul aria-label="Risks" className="mt-3 space-y-1.5">

@@ -2599,7 +2599,7 @@ function stagesTable(L: string[], main: Runtime, beams: Runtime): void {
     simScreen: `screening simulation (seasons ${thousands(shown + 1)}–${thousands(shown + scr)})`,
     simFinal: `final simulation, the ranking block (seasons 1–${thousands(fin)})`,
     rank: "ranking",
-    steps: "steps, Plan B and words",
+    steps: "Plan B and words (the steps too until Checkpoint 7e)",
     shown: `the shown pass (seasons 1–${thousands(shown)}: the cards and boxes shown, Checkpoint 7e)`,
     total: "search, total",
   };
@@ -2936,13 +2936,13 @@ function renderHelpsBoth(L: string[], snapshot: LeagueSnapshot, inputs: ModelInp
   const many = (n: number, one: string, more: string): string => `${n} ${n === 1 ? one : more}`;
   const splitText = sp ? ` Under "${other}", section 2's one search (warm, ${ms(r.goals.result.timings.total)}): its ${many(sp.calibrations.count, "calibration run", "calibration runs")} ${ms(sp.calibrations.ms)} and its ${many(sp.extras.count, "extra's final run", "extras' final runs")} ${ms(sp.extras.ms)}.` : "";
   L.push(
-    `**The extra runtime** (⚠️ ours: under "${main}", section 4's runs, whose first is the process's only cold search, each timed one followed by the same search without "Helps them" on its own context: every partner's calibration run set to none in the context's memo, the engine test's way, so no calibration run (${h.without.calibrated} made), no extra (${h.without.extras}) and an empty second list (${h.without.list}); ${same}). The calibration runs and the extras' final runs are read off each run's own progress; the second list's own work is the ranking stage's difference between the two sets, warm only (the cold extra adds the warm figure).${measured ? ` ${measured}` : ""}${splitText}`,
+    `**The extra runtime** (⚠️ ours: under "${main}", section 4's runs, whose first is the process's only cold search, each timed one followed by the same search without "Helps them" on its own context: every partner's calibration run set to none in the context's memo, the engine test's way, so no calibration run (${h.without.calibrated} made), no extra (${h.without.extras}) and an empty second list (${h.without.list}); ${same}). The calibration runs and the extras' final runs are read off each run's own progress; Helps them's share of the ranking stage (since Checkpoint 7e the shown pass's too: the partners' scales on the shown block, which every card's tag reads, and the second list's cards played out there; then the second list's ranking, Plan B and words) is that stage's difference between the two sets, warm only (the cold extra adds the warm figure).${measured ? ` ${measured}` : ""}${splitText}`,
     "",
   );
   L.push(`| | Cold | Warm (median of ${r.runtime.runs.length}) |`, "|---|---|---|");
   L.push(`| The partner calibration runs (${c.calibrations.count}, one per partner of the exact trades) | ${ms(c.calibrations.cold)} | ${ms(c.calibrations.warm)} |`);
   L.push(`| The extras' final runs (${c.extras.count}) | ${ms(c.extras.cold)} | ${ms(c.extras.warm)} |`);
-  L.push(`| The second list: its ranking, Plan B and words | – | ${msSigned(c.secondList)} |`);
+  L.push(`| Helps them's share of the ranking stage: the shown pass's partner scales and the second list's cards on ${thousands(shownSimsOf())} seasons, its ranking, Plan B and words | – | ${msSigned(c.secondList)} |`);
   L.push(`| **The extra: the three parts** | ${c.extra.cold === null ? "–" : `≈ ${msChange(c.extra.cold)} ⚠️`} | ${c.extra.warm === null ? "–" : `${msChange(c.extra.warm)}${finite(c.without.warm) && c.without.warm > 0 ? ` (${signed((100 * c.extra.warm) / c.without.warm, 1)}%)` : ""}`} |`);
   L.push(`| Search total with "Helps them" (the app: section 4's) | ${ms(c.with.cold)} | ${ms(c.with.warm)} |`);
   L.push(`| Search total without (with, less the extra: ⚠️ derived) | ${ms(c.without.cold)} | ${ms(c.without.warm)} |`, "");
@@ -2998,13 +2998,13 @@ function renderLane(L: string[], r: Report, main: string, other: string): void {
       ? ` Under "${other}", section 2's one search (warm, ${ms(sp.with)}): the lane's exact evaluations ${ms(sp.parts.exact.ms)} and screening simulations ${ms(sp.parts.simScreen.ms)}; the search without the lane, on a context of its own, ${ms(sp.without)}${finite(sp.with) && finite(sp.without) ? ` (${msChange(sp.with - sp.without)} with it, one run each)` : ""}.`
       : "";
   L.push(
-    `**What the lane costs** (⚠️ ours: under "${main}", section 4's runs, each timed one followed by the same search without the lane on its own context, after the one without "Helps them"). Its exact evaluations and screening simulations are read off each run's own progress (⚠️ a batch of ${cs.yieldEverySims} simulations' time shared out evenly where the lane's begin inside one); the rest, the final simulation, ranking and steps with the lane less without (more extras' final runs and the displaced finalists' kept ones, a bigger Plan B pool and second list), is warm only (the cold extra adds the warm figure).${measured}${splitText}`,
+    `**What the lane costs** (⚠️ ours: under "${main}", section 4's runs, each timed one followed by the same search without the lane on its own context, after the one without "Helps them"). Its exact evaluations and screening simulations are read off each run's own progress (⚠️ a batch of ${cs.yieldEverySims} simulations' time shared out evenly where the lane's begin inside one); the rest, the final simulation, ranking, the shown pass and Plan B with the lane less without (more extras' final runs and the displaced finalists' kept ones, a bigger Plan B pool and second list), is warm only (the cold extra adds the warm figure).${measured}${splitText}`,
     "",
   );
   L.push(`| | Cold | Warm (median of ${r.runtime.runs.length}) |`, "|---|---|---|");
   L.push(`| The lane's exact evaluations (${c.exact.count}: its trades and their lean companions) | ${ms(c.exact.cold)} | ${ms(c.exact.warm)} |`);
   L.push(`| Their screening simulations (${c.simScreen.count}, the legal ones) | ${ms(c.simScreen.cold)} | ${ms(c.simScreen.warm)} |`);
-  L.push(`| The rest: final simulation, ranking and steps, with the lane less without | – | ${msSigned(c.rest)} |`);
+  L.push(`| The rest: final simulation, ranking, the shown pass and Plan B, with the lane less without | – | ${msSigned(c.rest)} |`);
   L.push(`| **The lane's extra: the three parts** | ${c.extra.cold === null ? "–" : `≈ ${msChange(c.extra.cold)} ⚠️`} | ${c.extra.warm === null ? "–" : `${msChange(c.extra.warm)}${finite(c.with.warm) && finite(c.extra.warm) && c.with.warm - c.extra.warm > 0 ? ` (${signed((100 * c.extra.warm) / (c.with.warm - c.extra.warm), 1)}%)` : ""}`} |`);
   L.push(`| Search total with the lane (the app: section 4's) | ${ms(c.with.cold)} | ${ms(c.with.warm)} |`);
   L.push(`| Search total without the lane (measured) | – | ${ms(c.measured.without)} |`, "");

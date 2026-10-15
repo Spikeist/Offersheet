@@ -2682,8 +2682,11 @@ function waiverUpgradesOf(ctx: LeagueContext, t: TeamWork, inputs: ModelInputs, 
  * - B (benefitOf) as evaluate.ts simulateTrade makes it (benefit.benefit): the league's reward; the "Helps you" scale B₃ of
  *   LeagueModel.helpsCalibration (benefit.helpsScale with my P(playoffs) on the headline and the settings' λ; MyDynTotal in a
  *   dynasty or keeper league with long-term values); in a redraft league the market term on g_mkt(me) of receiving him and
- *   giving the drop (market.marketGain: perception values, W; an open spot: receiving him for a roster spot), κ the "Protect
- *   my trade value" level's, 0 when the values are FantasyCalc's curve estimates or missing (evaluate.ts's rule) and ⚠️ ours,
+ *   giving the drop (market.marketGain: perception values, W; an open spot: receiving him for a roster spot), ⚠️ only when
+ *   it's a loss (the lead's call, the final review of Checkpoint 7e, ENG-7E-2: the trade value a move gives up is a cost, as
+ *   the lead's addendum named it, while a pickup's own value is no gain to count: every free agent worth more than W is one
+ *   the model gives another team, whose claim the before season keeps, and on Parker's first league that credit made 84% of
+ *   the top row's B, Helps you 27 for a lineup gain of 1.6 points over 12 weeks), κ the "Protect my trade value" level's, 0 when the values are FantasyCalc's curve estimates or missing (evaluate.ts's rule) and ⚠️ ours,
  *   once the trade deadline has passed (the value can't be traded then); in a dynasty or keeper league ΔDyn on the long-term
  *   values (benefit.tradePackage at the long-term W: the best free agent the allocation leaves unclaimed, as evaluate.ts's).
  * Null without the season's odds, the calibration run or my odds in it (sims 0, a season that can't be simulated), or when
@@ -2770,7 +2773,8 @@ function waiverRaterOf(ctx: LeagueContext, t: TeamWork, model: LeagueModel, inpu
         dPO: change.dPO,
         dCH: change.dCH,
         dPrizes: change.dPrizes,
-        gMine: leagueType === "redraft" ? marketGain([addId], give, values, W, cfg.market) : 0,
+        // Only the trade value the move gives up (the header, ⚠️ ENG-7E-2): a gain counts as none.
+        gMine: leagueType === "redraft" ? Math.min(0, marketGain([addId], give, values, W, cfg.market)) : 0,
         dynasty: pkg && myDynTotal !== null ? { delta: pkg.recv - pkg.give, total: myDynTotal } : null,
         myPPlayoffs: mine.pPlayoffs,
         lambda: settings.lambda,

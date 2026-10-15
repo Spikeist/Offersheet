@@ -2079,7 +2079,9 @@ export function myMovesLines(moves: RosterMoves, snapshot: SnapshotPart, partner
         const self = m.player === m.returner;
         if (typeof m.instead === "string" && m.instead !== m.player) {
           const go = self ? "release him" : `release ${who(m.player)}`;
-          out.push(m.kept ? `${when}: ${go} and keep ${m.instead === m.returner ? "him" : who(m.instead)}.` : `${when}: ${go}; without this trade, ${who(m.instead)} would go then.`);
+          // The returner kept is named, never "him" (the final review of Checkpoint 7e, MOVES-1: "release Josh Jacobs (RB) and
+          // keep him" read as keeping the player just released).
+          out.push(m.kept ? `${when}: ${go} and keep ${m.instead === m.returner ? plain(m.returner) : who(m.instead)}.` : `${when}: ${go}; without this trade, ${who(m.instead)} would go then.`);
         } else out.push(`${when}: release ${self ? "him instead of dropping someone else" : who(m.player)}.`);
         break;
       }

@@ -240,6 +240,10 @@ describe("my roster moves on the card (item 2.2)", () => {
     expect(x.evaluation.required.me.drops).toEqual(["wc1"]);
     expect(x.before).toBeNull();
     expect(x.evaluation.myMoves).toEqual({ moves: [{ kind: "makeRoom", week: 5, drop: ["rc1"], for: ["wb2"] }], assumed: [{ add: "fx", drop: "wc1" }] });
+    // ⚠️ Whichever order the trade lists them in (the final review of Checkpoint 7e, UI-F-6: the search, a ladder and the
+    // Analyzer each list a trade their own way, and the line named the player listed last): the one with the fewer
+    // rest-of-season points, wb2 (10 a week against te2's 12), needs the room.
+    expect(exact(["te1"], ["wb2", "te2"]).evaluation.myMoves).toEqual(x.evaluation.myMoves);
   });
 
   it("⚠️ so is one my baseline cuts anyway that I send away: the player received in his spot needs the room the pickup then takes", () => {

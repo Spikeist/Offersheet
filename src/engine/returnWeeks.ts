@@ -13,8 +13,9 @@
  * settings go with every engine request, and the worker keys both by them: settingsStore.ts LEAGUE_MODEL_SETTINGS), and the
  * trade cards' injury tags say them (explain.tagContextOf). The others are stale: the League page drops them from the saved
  * settings in one save, once per new snapshot or team (LeaguePage.tsx, leagueSettingsEdit.ts withoutStaleReturnWeeks), and
- * the engine ignores them meanwhile. ⚠️ Ours: without a team of mine nothing counts, and only another season's entries are
- * stale (no roster to judge an entry by, so the page leaves this season's be until a team is picked).
+ * the engine ignores them meanwhile. ⚠️ Ours: without a team of mine nothing counts, and only an earlier season's entries
+ * are stale (no roster to judge an entry by, so the page leaves this season's be until a team is picked); a later season's
+ * are kept (staleReturnWeeks: an older saved season of the same league shares its settings).
  */
 import type { LeagueSnapshot, Team } from "./model";
 import type { TradeSettings } from "./settings";
@@ -54,14 +55,20 @@ export function userReturnWeeks(snapshot: ReturnWeekSnapshot, settings: ReturnWe
 }
 
 /**
- * The saved return weeks that no longer count (userReturnWeeks), in id order: every one set for another season (or for
- * none); else, with a team of mine, the ones it doesn't count (the file header).
+ * The saved return weeks that no longer count (userReturnWeeks), in id order: every one set for an earlier season (or for
+ * none); else, with a team of mine, the ones it doesn't count (the file header). ⚠️ Ours (the final review of Checkpoint 7e:
+ * the League page drops the stale ones from the saved settings, and a league's settings are one copy for all its saved
+ * seasons): weeks set for a later season than the snapshot's (an older season of the same league opened) are kept, not
+ * counted, so looking back at last season never clears this season's.
  */
 export function staleReturnWeeks(snapshot: ReturnWeekSnapshot, settings: ReturnWeekSettings | undefined): string[] {
   const returnWeeks = settings?.returnWeeks;
   if (!returnWeeks) return [];
   const ids = Object.keys(returnWeeks);
-  if (!thisSeason(snapshot, settings)) return ids.sort();
+  if (!thisSeason(snapshot, settings)) {
+    const set = settings?.returnWeeksSeason;
+    return typeof set === "number" && Number.isFinite(set) && set > snapshot.season ? [] : ids.sort();
+  }
   if (!myTeamOf(snapshot)) return [];
   const counted = userReturnWeeks(snapshot, settings);
   return ids.filter((id) => !counted.has(id)).sort();

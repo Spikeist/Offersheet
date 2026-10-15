@@ -289,6 +289,11 @@ describe("the minimum chance and the pattern note on the Trade Finder (planner r
     expect(key({ ...d, goal: "prizes" })).not.toBe(key(d));
     expect(key({ ...d, prizes: { ...d.prizes, first: 50 } })).not.toBe(key(d));
     expect(key({ ...d, maxPerSide: 3 })).not.toBe(key(d));
+    // Neither does "Drop from the same position", Waiver upgrades' alone (the final review of Checkpoint 7e, RT-2: switching
+    // it on the League page searched again for the same ideas); the untouchables and return weeks do (they reach the trades).
+    expect(key({ ...d, waiverSamePosition: false })).toBe(key(d));
+    expect(key({ ...d, untouchables: ["101"] })).not.toBe(key(d));
+    expect(key({ ...d, returnWeeks: { "101": 9 }, returnWeeksSeason: 2026 })).not.toBe(key(d));
     // Ideas ranked at another minimum need ranking again; a search that stopped before ranking holds for any.
     const ranked = { filter: { minChance: 0.1, qualifying: 12, few: false } };
     expect([needsRefilter(ranked, 0.1), needsRefilter(ranked, 0.3), needsRefilter(ranked, 0), needsRefilter({}, 0.3)]).toEqual([false, true, true, false]);

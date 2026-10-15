@@ -63,10 +63,20 @@ describe("staleReturnWeeks: the saved return weeks that no longer count", () => 
     expect(staleReturnWeeks(snapshot("9"), weeks({ "a-active": 9 }))).toEqual([]);
   });
 
-  it("lists every one set for another season, or for none, team or not (review of wave C, UI-C-3)", () => {
+  it("lists every one set for an earlier season, or for none, team or not (review of wave C, UI-C-3)", () => {
     expect(staleReturnWeeks(snapshot("1", SEASON + 1), weeks({ "a-q": 7, "a-ir": 19 }))).toEqual(["a-ir", "a-q"]);
     expect(staleReturnWeeks(snapshot(null, SEASON + 1), weeks({ gone: 9 }))).toEqual(["gone"]);
     expect(staleReturnWeeks(snapshot(), weeks({ "a-q": 7 }, null))).toEqual(["a-q"]);
     expect(staleReturnWeeks(snapshot(), weeks({}, SEASON + 1))).toEqual([]);
+  });
+
+  it("⚠️ keeps the ones set for a later season, uncounted: an older saved season of the same league opened (the final review of Checkpoint 7e: it cleared this season's weeks, the settings being one copy for every season)", () => {
+    const now = weeks({ "a-q": 7, "a-ir": 19, "a-active": 9, gone: 9 });
+    expect(staleReturnWeeks(snapshot("1", SEASON - 1), now)).toEqual([]);
+    expect(staleReturnWeeks(snapshot(null, SEASON - 1), now)).toEqual([]);
+    expect(userReturnWeeks(snapshot("1", SEASON - 1), now).size).toBe(0);
+    // Back on this season's page they count as before, and its own stale ones go.
+    expect(Object.fromEntries(userReturnWeeks(snapshot(), now))).toEqual({ "a-q": 7, "a-ir": 19 });
+    expect(staleReturnWeeks(snapshot(), now)).toEqual(["a-active", "gone"]);
   });
 });

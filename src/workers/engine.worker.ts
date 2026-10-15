@@ -50,7 +50,8 @@
  *   with a move to rate, odds and the "Helps you" calibration; ⚠️ a redraft season over still keeps it, though the page
  *   then doesn't ask: until the next build, or the page closes); the Waivers section asks for the rating when it first
  *   shows (src/lib/engineClient.ts waiverRatingFor, with the very job its model was built for), and the worker rates the
- *   kept build when it's that job's (the same key as contextKey and the same moment), else builds the League model again
+ *   kept build when it's that job's (the same contextKey over LEAGUE_MODEL_SETTINGS, "Drop from the same position"
+ *   included, and the same moment), else builds the League model again
  *   for that job and rates it, with the request's own "Protect my trade value" and Win now ↔ Future either way (the key
  *   doesn't hold them: RC-ENG-4). One reply: `waivers` with the rated lists (null without my team, or when the list can't
  *   be rated: no odds, or a move's season the simulator refuses), or `error`. ⚠️ One piece of work, not sliced: a
@@ -91,7 +92,8 @@
  * optimized roster, the baseline simulation) is the slow part, so the worker keeps the last one and reuses it
  * for the next search or analysis of the same league while it still holds (M12): same league, same league
  * data (snapshot.fetchedAt), same model inputs (ModelInputs.builtAt), same "my team", and the same settings the
- * context reads (settingsStore.ts LEAGUE_MODEL_SETTINGS, by fingerprint: the search's own settings are per
+ * context reads (settingsStore.ts TRADE_CONTEXT_SETTINGS, by fingerprint: the League model's but "Drop from the same
+ * position", which only Waiver upgrades reads, the final review of Checkpoint 7e, RT-2; the search's own settings are per
  * call), and no NFL kickoff (ModelInputs.nfl.kickoffs) between the time it was built for and the request's: a
  * game that kicks off no longer counts (§6 step 7), so the numbers change at kickoffs. ⚠️ Ours, on top of M12:
  * the trade deadline's two readings (acceptance.ts urgencyTerm and tradeDeadlinePassed) must be the same at both
@@ -116,7 +118,7 @@ import { refilterSearch, searchStateOf, tradeSearch } from "@/engine/search";
 import { normalizeTradeSettings, type TradeSettings } from "@/engine/settings";
 import type { LaterNumbers, OfferLadder, TradeAsset, TradeEvaluation, TradeEvaluationCore, TradeProposal, TradeSearchProgress, TradeSearchResult } from "@/engine/tradeModel";
 import { waiverRatingPending } from "@/engine/waivers";
-import { LEAGUE_MODEL_SETTINGS, settingsFingerprint } from "@/lib/settingsStore";
+import { LEAGUE_MODEL_SETTINGS, TRADE_CONTEXT_SETTINGS, TRADE_SETTINGS, settingsFingerprint } from "@/lib/settingsStore";
 import { contextStillValid } from "./freshness";
 
 /** What every engine job carries: the league, its model inputs, "my team", the time and the league's settings. */
@@ -385,11 +387,13 @@ function errorDetail(err: unknown): string {
 
 /**
  * What a cached evaluation context is for (see the header): the league and its data, the inputs' build, my team
- * and the settings the context reads. The time is checked apart (contextStillValid).
+ * and the settings the context reads (`fields`: TRADE_CONTEXT_SETTINGS; the League page's kept build, whose Waiver
+ * upgrades read "Drop from the same position" too, passes LEAGUE_MODEL_SETTINGS). The time is checked apart
+ * (contextStillValid).
  */
-export function contextKey(req: Pick<LeagueJobFields, "snapshot" | "model" | "myTeamId">, settings: TradeSettings): string {
+export function contextKey(req: Pick<LeagueJobFields, "snapshot" | "model" | "myTeamId">, settings: TradeSettings, fields: readonly (keyof TradeSettings)[] = TRADE_CONTEXT_SETTINGS): string {
   const s = req.snapshot;
-  return [s.platform, s.leagueId, s.season, s.fetchedAt, req.model.builtAt, req.myTeamId ?? "-", settingsFingerprint(settings, LEAGUE_MODEL_SETTINGS)].join("|");
+  return [s.platform, s.leagueId, s.season, s.fetchedAt, req.model.builtAt, req.myTeamId ?? "-", settingsFingerprint(settings, fields)].join("|");
 }
 
 /**
@@ -525,7 +529,7 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
     const ctx = offersContext(req, now, settings);
     const scope = src.kind === "analysis" ? "analysis" : "finder";
     const which = src.kind === "analysis" ? JSON.stringify(proposal) : `${JSON.stringify(proposal)}|${barred.join(",")}`;
-    const made = ladderIn(ctx, `${scope}|${settingsFingerprint(settings)}|${which}`, () => offersOfProposal(ctx, proposal, { settings, page: scope, ...(scope === "finder" ? { barred } : {}), ...timing }));
+    const made = ladderIn(ctx, `${scope}|${settingsFingerprint(settings, TRADE_SETTINGS)}|${which}`, () => offersOfProposal(ctx, proposal, { settings, page: scope, ...(scope === "finder" ? { barred } : {}), ...timing }));
     return made as OfferLadder;
   }
 
@@ -760,7 +764,7 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
           keptLeague = null; // a build that fails leaves nothing behind
           const built = buildWithContext(snap, message.model, opts);
           const m = built.model;
-          if (message.keepForWaivers === true && waiverRatingPending(m)) keptLeague = { key: contextKey(message, settings), nowIso: message.nowIso, built, inputs: message.model, opts };
+          if (message.keepForWaivers === true && waiverRatingPending(m)) keptLeague = { key: contextKey(message, settings, LEAGUE_MODEL_SETTINGS), nowIso: message.nowIso, built, inputs: message.model, opts };
           post({ type: "league", id, result: m });
         } catch (err) {
           fail(id, err);
@@ -770,7 +774,7 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
         try {
           // The kept build when it's this job's (the same key and moment), else the League model built again for the job
           // (not kept: the kept build stays the last `league` request's); rated either way.
-          const kept = keptLeague && keptLeague.key === contextKey(message, settings) && keptLeague.nowIso === message.nowIso ? keptLeague : null;
+          const kept = keptLeague && keptLeague.key === contextKey(message, settings, LEAGUE_MODEL_SETTINGS) && keptLeague.nowIso === message.nowIso ? keptLeague : null;
           const opts: BuildLeagueModelOptions = { now, settings, waiverRating: false, ...timing };
           const job = kept ?? { built: buildWithContext({ ...message.snapshot, myTeamId: message.myTeamId }, message.model, opts), inputs: message.model, opts };
           // The request's own settings: "Protect my trade value" and Win now ↔ Future, which the rating reads and the key

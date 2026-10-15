@@ -3,7 +3,8 @@
  * candidates (the card's give side with other get sides from the partner's get pool, the lean version, never the card or its
  * Plan B; another card of its list can be one: the lead's call, wave D), the rules on the numbers each offer prints (Open at
  * least max(15%, the minimum chance) and at least 5 points under the card, each later offer at least 5 points likelier,
- * Helps you never rising from Open to the card nor under the card's,
+ * Helps you never rising from Open to the card nor under the card's, B falling at every step (the final review of Checkpoint
+ * 7e, ENG-7E-1: on equal printed Helps you),
  * the Last offer the card plus a throw-in at least 5 points likelier keeping 80% of B, every offer helping me and passing the
  * market guard, helping both under a card tagged "Helps both"), the places (ladderRoom), the messages, the Trade Analyzer's
  * card and a card whose search isn't kept (offerLadderOfProposal), the cases that get the suggested trade alone, and
@@ -80,8 +81,10 @@ function expectRules(ladder: OfferLadder, card: TradeEvaluation, settings: Trade
     expect(e.sims, w).toBe(card.sims);
     // Never the card's Plan B.
     if (card.planB) expect(e.key, w).not.toBe(card.planB.key);
-    // Each offer at least 5 points likelier than the one before (as printed).
+    // Each offer at least 5 points likelier than the one before (as printed), and ⚠️ less good for me: a B strictly below the
+    // one before's, whatever Helps you prints (the final review of Checkpoint 7e, ENG-7E-1).
     if (i > 0) expect(chance(e), w).toBeGreaterThanOrEqual(chance(steps[i - 1]?.evaluation as TradeEvaluation) + GAIN - 1e-9);
+    if (i > 0) expect(e.b as number, w).toBeLessThan((steps[i - 1]?.evaluation.b as number) - 1e-9);
     // Messages: the first offer's pitch, then follow-ups naming each version.
     if (i === 0) expect(s.message, w).toBe(e.pitch);
     else expect(s.message.startsWith("Thanks for considering it! Would you"), w).toBe(true);
@@ -97,8 +100,10 @@ function expectRules(ladder: OfferLadder, card: TradeEvaluation, settings: Trade
       expect(sameGive || lean, w).toBe(true);
     }
     if (s.kind === "last") {
-      // ⚠️ Never a higher Helps you than the card's, as printed (the review of wave D, D-ENG-4: it would be a better card).
+      // ⚠️ Never a higher Helps you than the card's, as printed (the review of wave D, D-ENG-4: it would be a better card),
+      // nor a B as high (ENG-7E-1, above).
       expect(e.tradeScore as number, w).toBeLessThanOrEqual(card.tradeScore as number);
+      expect(e.b as number, w).toBeLessThan((card.b as number) - 1e-9);
       // The card plus one player of mine, keeping 80% of its B.
       expect(ids(e.proposal.get).sort(), w).toEqual(ids(card.proposal.get).sort());
       const added = ids(e.proposal.give).filter((id) => !ids(card.proposal.give).includes(id));
@@ -232,6 +237,27 @@ describe("the rules on the numbers each offer prints (every card of whole search
       const open = ladder.steps.find((s) => s.kind === "open");
       if (open) expect(chance(open.evaluation)).toBeGreaterThanOrEqual(0.3 - 1e-9);
     }
+  });
+});
+
+describe("⚠️ on equal printed Helps you, B decides (the final review of Checkpoint 7e, ENG-7E-1)", { timeout: 300_000 }, () => {
+  it("smallLeague(32) at Any, the context's own scenarios: a card and its version without a throw-in that costs me nothing print the same Helps you at the same B; neither is the other's offer (on HEAD 24e244b the bigger one opened with the smaller, and the smaller ended with the bigger)", () => {
+    const league = smallLeague(32);
+    const ctx = buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW });
+    const r = runTradeSearch(ctx, { settings: at(0) });
+    const cards = new Map(cardsOf(r).map((t) => [t.key, t]));
+    // Facts of the synthetic data: both are cards of the list, the same partner, the throw-in (1002) costing me nothing.
+    const lean = cards.get("4|give:1003|get:1039");
+    const full = cards.get("4|give:1002,1003|get:1039");
+    if (!lean || !full) throw new Error("smallLeague(32) at Any no longer shows both cards: find another pair");
+    expect(lean.tradeScore).toBe(full.tradeScore);
+    expect(Math.abs((lean.b as number) - (full.b as number))).toBeLessThan(1e-9);
+    expect(chance(lean)).toBeLessThan(chance(full));
+    const keysOf = (card: TradeEvaluation) => (offerLadderOfSearch(r, card.key) as OfferLadder).steps.map((s) => s.evaluation.key);
+    expect(keysOf(full)).toEqual([full.key]);
+    expect(keysOf(lean)).toEqual([lean.key]);
+    // Every rule, the B order among them, on every card of the search.
+    for (const card of cards.values()) expectRules(offerLadderOfSearch(r, card.key) as OfferLadder, card, at(0), "smallLeague(32) at Any");
   });
 });
 

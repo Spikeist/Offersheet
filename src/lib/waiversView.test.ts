@@ -443,7 +443,8 @@ describe("Checkpoint 7e: one move per row, Helps you, the switch and the untouch
       if (first && first.main.text !== NO_GAIN_TEXT)
         expect(first.main.title).toMatch(/^Helps you \d+: about as good as adding (less than 0\.1 points|1 point|[\d.]+ points) a week to your lineup for the rest of the season, on the same scale as trade ideas \(from [\d,]+ simulated seasons\)\.$/);
       expect(rv?.ros?.note).toContain("Helps you: how much each move raises your chances at what your league rewards over weeks 6–10, from simulated seasons, on the same scale as trade ideas.");
-      expect(rv?.ros?.note).toContain("It counts the trade value you'd give up or gain too, as your “Protect my trade value” setting asks.");
+      // The trade value a move gives up only (the final review of Checkpoint 7e, ENG-7E-2: a gain counts as none).
+      expect(rv?.ros?.note).toContain("It counts the trade value you'd give up too, as your “Protect my trade value” setting asks.");
       expect(rv?.ros?.note).toContain("The 2 best moves are played out 400 times, the others 100 times.");
       // The one-week list stays in points.
       for (const r of rv?.week?.rows ?? []) if (!r.blocked) expect(r.main.label).toBe("Lineup gain");
@@ -486,6 +487,25 @@ describe("Checkpoint 7e: one move per row, Helps you, the switch and the untouch
       const one = rowWith({ b: b3 / 3, helps: 28 }, 1);
       expect(one?.lineupGain).toMatch(/^\+1 point over weeks /);
       expect(one?.gain.title).toMatch(/ adds 1 point to your starting lineup over weeks /);
+    });
+
+    it("says how many seasons are behind the moves as they are: never “the others” when every move was finished, nothing when none could be rated (the final review of Checkpoint 7e, UI-F-5)", () => {
+      // Every row finished (no floor, room for all): one count.
+      const ALL: LeagueModelConfig = { ...RATED, waivers: { ...config.waivers, ratingScreenSims: 100, ratingFinishRows: 99, ratingFinishFloor: Number.NEGATIVE_INFINITY } };
+      const every = buildLeagueModel(l.snapshot, inputs, { now: TEST_NOW, sims: 400, waiverRating: true }, ALL);
+      const rows = every.waiverUpgrades?.ros?.rows.filter((r) => r.rating) ?? [];
+      expect(rows.length).toBeGreaterThan(2);
+      expect(rows.every((r) => r.rating?.sims === 400)).toBe(true);
+      const note = buildWaiversView({ snapshot: l.snapshot, model: every, inputs, timeZone: NY, now: TEST_NOW.toISOString() })?.ros?.note ?? "";
+      expect(note).toContain("Each move is played out 400 times.");
+      expect(note).not.toContain("the others");
+      // No move rated (every one blocked, say): no count at all.
+      const ros = model.waiverUpgrades?.ros;
+      if (!ros) throw new Error("no list");
+      const none: LeagueModel = { ...model, waiverUpgrades: { ...(model.waiverUpgrades as NonNullable<LeagueModel["waiverUpgrades"]>), ros: { ...ros, rows: ros.rows.map(({ rating: _r, ...r }) => (void _r, r)) } } };
+      const noneNote = buildWaiversView({ snapshot: l.snapshot, model: none, inputs, timeZone: NY, now: TEST_NOW.toISOString() })?.ros?.note ?? "";
+      expect(noneNote).toContain("Helps you: how much each move raises your chances");
+      expect(noneNote).not.toMatch(/played out/);
     });
 
     it("shows no trade value: none of FantasyCalc's (distinctive) values, nor W, anywhere in the section", () => {

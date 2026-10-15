@@ -21,7 +21,9 @@
  * B (WaiverRaterInputs.benefitOf, league.ts: benefit.benefit, as for trades): B_win from my P(playoffs) and prize components'
  * changes under the league's reward ("What does your league reward?" with its prizes), plus in a redraft league the market
  * term (B₃ / 3) × κ × clamp(g_mkt(me)) for receiving him and giving the drop (each at max(v, W), market.packageValues' neutral
- * rules; an open spot: receiving him for a roster spot); a dynasty or keeper league's mix with ΔDyn. Helps you =
+ * rules; an open spot: receiving him for a roster spot), ⚠️ only when it's a loss: the trade value the move gives up (the
+ * lead's call, the final review of Checkpoint 7e, ENG-7E-2; league.ts waiverRaterOf); a dynasty or keeper league's mix with
+ * ΔDyn either way (a long-term value gained is next season's roster too). Helps you =
  * benefit.tradeScore(B, B₃) on the League model's B₃ (LeagueModel.helpsCalibration under the same reward), the trade cards'
  * scale: +3 points a week reads 63.
  *

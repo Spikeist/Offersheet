@@ -2891,10 +2891,15 @@ function myRosterMoves(
   /** A skipped pickup's kept player, passed on by a pickup of the "before" that took its spot. */
   const keepFor = new Map<string, string>();
   // The players received beyond those given (a given player the "before" drops anyway opens no spot: legality's rule 4), to
-  // make room for; none when my pickups drop one of the players the trade brings in (review of wave B, finding B-3).
+  // make room for; none when my pickups drop one of the players the trade brings in (review of wave B, finding B-3). ⚠️ Ours
+  // (the final review of Checkpoint 7e, UI-F-6): those with the fewest rest-of-season points (ties: the smaller id), so a trade
+  // names the same players whichever way it was evaluated; it took the trade's own order, which the search, a ladder (key
+  // order) and the Analyzer (the order the user picked) each build their own way.
   const cuts = new Set(asStands.filter((id) => !before.has(id)));
   const givenSpots = givenActive.filter((id) => !cuts.has(id));
-  const forPlayers = droppedIn.size ? [] : receivedActive.length > givenSpots.length ? receivedActive.slice(givenSpots.length) : [];
+  const rosOf = (id: string) => I.league.lp.players[id]?.ros.total ?? 0;
+  const mostRos = [...receivedActive].sort((a, b) => rosOf(b) - rosOf(a) || byId(a, b));
+  const forPlayers = droppedIn.size ? [] : mostRos.length > givenSpots.length ? mostRos.slice(givenSpots.length) : [];
 
   type Took = { kind: "lost" | "in"; id: string } | { kind: "open" } | { kind: "instead"; pickup: string };
   const took = (x: string | null, seen: Set<string> = new Set()): Took => {

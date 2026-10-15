@@ -93,14 +93,14 @@
 import Link from "next/link";
 import { memo, useCallback, useEffect, useEffectEvent, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type Ref } from "react";
 import type { LeagueSettings, LeagueSnapshot } from "@/engine/model";
-import { defaultTradeSettings, type Goal, type TradeSettings } from "@/engine/settings";
+import type { Goal, TradeSettings } from "@/engine/settings";
 import type { TradeEvaluation, TradeSearchProgress, TradeSearchResult, TradeSort } from "@/engine/tradeModel";
 import { EngineError, laterLinesOf, searchResultIdOf, watchLaterLines, type TradeSearchHandle } from "@/lib/engineClient";
 import { feedbackShareContext, shownRewardOf, type FeedbackSaveResult } from "@/lib/feedbackShare";
 import type { FeedbackChange, FeedbackRecord } from "@/lib/feedbackStore";
 import type { CurrentLeagueRead } from "@/lib/leagueStore";
 import { modelRequest } from "@/lib/modelStore";
-import { settingsFingerprint } from "@/lib/settingsStore";
+import { TRADE_SETTINGS, settingsFingerprint } from "@/lib/settingsStore";
 import {
   ANALYZER_PATH,
   MIN_CHANCE_OPTIONS,
@@ -167,11 +167,13 @@ export function TradeFinderPage() {
 }
 
 /**
- * Every setting but the minimum chance: changing the minimum alone re-filters the ideas found instead of searching (the
- * header). (Since the planner's reply to Checkpoint 7a, §6.1, there's no playoff-weight setting: the League model sets the
- * weight from the goal, which is one of these.)
+ * Every setting a trade reads but the minimum chance: changing the minimum alone re-filters the ideas found instead of
+ * searching (the header). (Since the planner's reply to Checkpoint 7a, §6.1, there's no playoff-weight setting: the League
+ * model sets the weight from the goal, which is one of these.) "Drop from the same position", which only Waiver upgrades
+ * reads, isn't one either (settingsStore.ts TRADE_SETTINGS; the final review of Checkpoint 7e, RT-2: switching it searched
+ * again for the same ideas).
  */
-const SEARCH_SETTINGS = (Object.keys(defaultTradeSettings()) as (keyof TradeSettings)[]).filter((k) => k !== "minChance");
+const SEARCH_SETTINGS = TRADE_SETTINGS.filter((k) => k !== "minChance");
 
 /**
  * What a search is for: the league data, the inputs' build, my team, every setting but the minimum chance (the header),

@@ -149,6 +149,23 @@ export function resetLeagueSettings(storage: StorageLike, key: string): SaveResu
 export const LEAGUE_MODEL_SETTINGS = ["streamPositions", "goal", "prizes", "untouchables", "waiverSamePosition", "returnWeeks", "returnWeeksSeason"] as const satisfies readonly (keyof TradeSettings)[];
 
 /**
+ * The settings only Waiver upgrades reads (the final review of Checkpoint 7e, RT-2): "Drop from the same position" (league.ts
+ * step 10; a trade context builds its League model without the lists, evaluate.ts buildTradeContext), so no trade number
+ * moves with it. The trade side's keys leave it out (TRADE_CONTEXT_SETTINGS, TRADE_SETTINGS): the switch on the League page
+ * made the engine worker drop its trade context, kept searches and offers, the Trade Finder search again (about 9 s in the
+ * browser on Parker's leagues, for the same ideas) and the Trade Analyzer's result dim. settingsStore.test.ts checks that a
+ * whole search reads the same either way.
+ */
+export const WAIVER_LIST_SETTINGS = ["waiverSamePosition"] as const satisfies readonly (keyof TradeSettings)[];
+const waiverListOnly = (k: keyof TradeSettings): boolean => (WAIVER_LIST_SETTINGS as readonly (keyof TradeSettings)[]).includes(k);
+
+/** LEAGUE_MODEL_SETTINGS but WAIVER_LIST_SETTINGS: what the engine worker keys its trade context by (engine.worker.ts contextKey). */
+export const TRADE_CONTEXT_SETTINGS: readonly (keyof TradeSettings)[] = LEAGUE_MODEL_SETTINGS.filter((k) => !waiverListOnly(k));
+
+/** Every setting but WAIVER_LIST_SETTINGS: what the trade pages key a search, an evaluation or a ladder by. */
+export const TRADE_SETTINGS: readonly (keyof TradeSettings)[] = (Object.keys(defaultTradeSettings()) as (keyof TradeSettings)[]).filter((k) => !waiverListOnly(k));
+
+/**
  * The settings Waiver upgrades' "Rest of season" rating reads besides those (Checkpoint 7e, item 3.4; league.ts
  * rateWaiverUpgrades, which the League page's engine worker runs on its own request), as a trade's Helps you does: in a
  * redraft league "Protect my trade value" (the market term), in a dynasty or keeper league Win now ↔ Future (the mix and its

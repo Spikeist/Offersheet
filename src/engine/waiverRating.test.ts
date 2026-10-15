@@ -59,7 +59,10 @@ describe("the season list rated by Helps you, end to end (a made-up league, 400 
     const roster = league.snapshot.teams.find((t) => t.id === c.me)?.roster ?? [];
     return r.drop === null ? [...roster, r.playerId] : roster.map((id) => (id === r.drop ? r.playerId : id));
   };
-  /** B for a move by hand: the two seasons on the seed's first `sims` seasons, B under the reward with the market term. */
+  /**
+   * B for a move by hand: the two seasons on the seed's first `sims` seasons, B under the reward with the market term on the
+   * trade value the move gives up only (the lead's call, the final review of Checkpoint 7e, ENG-7E-2: a gain counts as none).
+   */
   const bOf = (add: string, drop: string | null, roster: readonly string[], sims: number): number | null => {
     const after = scorer(roster, c.me);
     if (!after) throw new Error("no score");
@@ -73,7 +76,7 @@ describe("the season list rated by Helps you, end to end (a made-up league, 400 
       dPO: now.pPlayoffs - before.pPlayoffs,
       dCH: now.pTitle !== null && before.pTitle !== null ? now.pTitle - before.pTitle : null,
       dPrizes,
-      gMine: marketGain([add], drop === null ? [] : [drop], c.values, model.market.waiverCredit),
+      gMine: Math.min(0, marketGain([add], drop === null ? [] : [drop], c.values, model.market.waiverCredit)),
       dynasty: null,
       myPPlayoffs: c.mine.pPlayoffs,
       lambda: null,
@@ -95,7 +98,7 @@ describe("the season list rated by Helps you, end to end (a made-up league, 400 
     for (const r of ros?.rows ?? []) expect(r.rating !== undefined).toBe(r.gain !== null);
   });
 
-  it("every row's B is the move's own: my roster as it stands against it with the one move, the same seasons, B with the market term", () => {
+  it("every row's B is the move's own: my roster as it stands against it with the one move, the same seasons, B with the trade value it gives up", () => {
     for (const r of rated) {
       const b = bOf(r.playerId, r.drop, rosterWith(r), r.rating?.sims as number);
       expect(r.rating?.b, r.playerId).toBeCloseTo(b as number, 12);
@@ -103,11 +106,16 @@ describe("the season list rated by Helps you, end to end (a made-up league, 400 
     }
   });
 
-  it("the drop is the candidate with the best B on the screening seasons (here every player of mine at his position can go)", () => {
+  it("the drop is the candidate with the best B on the screening seasons among those he out-projects, when one can go (here every player of mine at his position can go)", () => {
     const roster = league.snapshot.teams.find((t) => t.id === c.me)?.roster ?? [];
+    const ros = (id: string) => model.players[id]?.ros.total ?? 0;
     for (const r of rated.filter((x) => x.drop !== null)) {
       const pos = league.snapshot.players[r.playerId]?.pos;
-      const candidates = roster.filter((id) => league.snapshot.players[id]?.pos === pos && model.players[id]);
+      const all = roster.filter((id) => league.snapshot.players[id]?.pos === pos && model.players[id]);
+      // The final review of Checkpoint 7e, UI-F-4: the drops he out-projects when one can go (waivers.ts), else every one.
+      const below = all.filter((id) => ros(r.playerId) > ros(id) + 1e-9);
+      const candidates = below.length ? below : all;
+      expect(candidates, r.playerId).toContain(r.drop);
       const chosen = bOf(r.playerId, r.drop, rosterWith(r), 100) as number;
       for (const k of candidates) {
         const b = bOf(r.playerId, k, roster.map((id) => (id === k ? r.playerId : id)), 100) as number;

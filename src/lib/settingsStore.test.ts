@@ -8,8 +8,10 @@
  */
 import { describe, expect, it } from "vitest";
 import { config } from "@/engine/config";
+import { buildTradeContext } from "@/engine/evaluate";
 import { buildLeagueModel } from "@/engine/league";
 import type { Matchup } from "@/engine/model";
+import { runTradeSearch } from "@/engine/search";
 import { PRIZE_MAX, defaultTradeSettings, normalizeTradeSettings, type TradeSettings } from "@/engine/settings";
 import { TEST_NOW, randomLeague } from "@/engine/testLeague";
 import type { StorageLike } from "./importStore";
@@ -24,6 +26,9 @@ import {
   readLeagueSettings,
   resetLeagueSettings,
   saveLeagueSettings,
+  TRADE_CONTEXT_SETTINGS,
+  TRADE_SETTINGS,
+  WAIVER_LIST_SETTINGS,
   settingsFingerprint,
   waiverRatingSettings,
 } from "./settingsStore";
@@ -342,10 +347,46 @@ describe("LEAGUE_MODEL_SETTINGS: every setting the League model reads, and only 
       expect(rated({ [field]: value }), `${field} changed the rated League model: add it to waiverRatingSettings`).toEqual(base);
     }
     // "Protect my trade value" weighs a redraft league's rows (its market term), so the League page computes again for it.
-    expect(rated({ protectValue: "high" }).waiverUpgrades?.ros?.rows.map((r) => r.rating?.b)).not.toEqual(base.waiverUpgrades?.ros?.rows.map((r) => r.rating?.b));
+    // Since the final review of Checkpoint 7e (ENG-7E-2) the term counts only the trade value a move gives up, and this
+    // league's moves give up none (its rows take open spots), so it's shown where one does: a full roster whose most valuable
+    // receiver is out for the season, as Parker's Josh Jacobs was, so the free agents who out-project him drop him.
+    const full = randomLeague({ teams: 6, seed: 11, rosterSize: 16, freeAgentsPerPosition: 6 });
+    const fullValues = full.inputs.market?.values ?? {};
+    const fullMine = full.snapshot.teams.find((t) => t.id === full.snapshot.myTeamId)?.roster ?? [];
+    const star = fullMine.filter((id) => fullValues[id] !== undefined && ["RB", "WR", "TE"].includes(full.snapshot.players[id]?.pos ?? "")).sort((x, y) => (fullValues[y] ?? 0) - (fullValues[x] ?? 0))[0] as string;
+    const starInfo = full.snapshot.players[star] as NonNullable<(typeof full.snapshot.players)[string]>;
+    const outForSeason = {
+      ...full.snapshot,
+      schedule: roundRobin(full.snapshot.teams.map((t) => t.id), full.snapshot.settings.regularSeasonWeeks),
+      players: { ...full.snapshot.players, [star]: { ...starInfo, injury: "IR" as const, injuryReturnWeek: 19 } },
+    };
+    const ratedFull = (change: Partial<TradeSettings>) => buildLeagueModel(outForSeason, full.inputs, { now: TEST_NOW, settings: { ...defaultTradeSettings(), ...change }, scenarios: 4, sims: 200, waiverRating: true });
+    const fullBase = ratedFull({});
+    expect(fullBase.waiverUpgrades?.ros?.rows.some((r) => r.drop === star)).toBe(true);
+    expect(ratedFull({ protectValue: "high" }).waiverUpgrades?.ros?.rows.map((r) => r.rating?.b)).not.toEqual(fullBase.waiverUpgrades?.ros?.rows.map((r) => r.rating?.b));
     // Win now ↔ Future weighs a dynasty or keeper league's instead (its mix and scale; a redraft league reads none of it).
     expect(waiverRatingSettings("redraft")).toEqual(["protectValue"]);
     expect(waiverRatingSettings("dynasty")).toEqual(["lambda"]);
     expect(waiverRatingSettings("keeper")).toEqual(["lambda"]);
   });
+
+  it("“Drop from the same position” is Waiver upgrades' alone: the trade side's keys leave it out, and a whole search reads the same either way (the final review of Checkpoint 7e, RT-2)", () => {
+    expect(WAIVER_LIST_SETTINGS).toEqual(["waiverSamePosition"]);
+    expect(TRADE_CONTEXT_SETTINGS).toEqual(LEAGUE_MODEL_SETTINGS.filter((k) => k !== "waiverSamePosition"));
+    expect([...TRADE_SETTINGS].sort()).toEqual((Object.keys(defaultTradeSettings()) as (keyof TradeSettings)[]).filter((k) => k !== "waiverSamePosition").sort());
+    // The switch moves the lists (the League page computes again), and no trade number.
+    expect(build({ waiverSamePosition: false }).waiverUpgrades).not.toEqual(defaults.waiverUpgrades);
+    const search = (waiverSamePosition: boolean) => {
+      const settings = { ...defaultTradeSettings(), waiverSamePosition };
+      const ctx = buildTradeContext({ ...snapshot, myTeamId: snapshot.teams[0]?.id ?? null }, league.inputs, { now: TEST_NOW, settings, scenarios: 4 });
+      const r = runTradeSearch(ctx, { settings });
+      return [...r.trades, ...(r.helpsBoth?.trades ?? [])].map((x) => ({ key: x.key, b: x.b, pComplete: x.pComplete, tradeScore: x.tradeScore, planB: x.planB?.key ?? null, moves: x.myMoves ?? null }));
+    };
+    const on = search(true);
+    expect(on.length).toBeGreaterThan(0);
+    expect(search(false)).toEqual(on);
+    const base = settingsFingerprint(defaultTradeSettings(), TRADE_SETTINGS);
+    expect(settingsFingerprint({ ...defaultTradeSettings(), waiverSamePosition: false }, TRADE_SETTINGS)).toBe(base);
+    expect(settingsFingerprint({ ...defaultTradeSettings(), protectValue: "high" }, TRADE_SETTINGS)).not.toBe(base);
+  }, 120_000);
 });

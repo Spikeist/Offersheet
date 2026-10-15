@@ -34,7 +34,11 @@
  * projection (PlayerModel.weekly[w].p). Review of the Phase 7b lists: my players who score nothing in the list's terms (on
  * bye that week, out, a game already started; for the rest of the season, out for it) aren't compared, and the list names
  * them (WaiverList.idle): every free agent at the position "beat" one of them (one receiver on bye listed 51 free agents,
- * down to one projected at 0.7). ⚠️ Ours: where none of my players at his position scores (nobody there with a model, or
+ * down to one projected at 0.7). ⚠️ Ours (the final review of Checkpoint 7e, ENG-7E-3): in "Rest of season" one of mine out
+ * for it (no points left: ESPN's last week + 1, or the user's "Out for the season", item 3.5) is unlike one on bye for a
+ * week: dropping him costs my lineup nothing, so where another of mine at his position scores, the best perPositionCap free
+ * agents who out-project only him are listed too, and "Better than" names him (a user's week out for the season had left
+ * the list no row at his position, the obvious drop never suggested). ⚠️ Ours: where none of my players at his position scores (nobody there with a model, or
  * every one idle), nobody can be out-projected, yet the slot may be empty: the best config.waivers.perPositionCap free
  * agents there are listed; in the week under way, where one of mine there holds a starting slot (his game has started),
  * that slot isn't open, so only those of them who add lineup points (through a flex). And at most that many rows (the best
@@ -84,7 +88,11 @@
  * The season list rated by Helps you (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.4; WaiverInputs.rater, built by
  * league.ts step 10b on src/engine/waiverRating.ts, which has the runs and B): every row that can be made goes to the rater
  * with every drop the rules above allow (an open spot is the one option when there's one), and takes the drop with the
- * best B (WaiverRow.rating; its gain, "depth only" and the drop's points are that drop's). The rows then go by Helps you as
+ * best B (WaiverRow.rating; its gain, "depth only" and the drop's points are that drop's): ⚠️ ours (the lead's call, the final
+ * review of Checkpoint 7e, UI-F-4), among the allowed drops he out-projects in rest-of-season points when one of them can go,
+ * else among them all. Picked from them all, 40 of the 48 rows on Parker's first league dropped a player who outscored the
+ * pickup ("R. Doubs outscores him by 10": a drop cheaper in trade value than the one he beats), so the row named a move
+ * that loses points. The rows then go by Helps you as
  * printed (compareRatedRows), and WaiverList.rating says how they were rated. Without a rater (no odds, no team, a model
  * built without a simulation, a build not asked to rate it: league.ts BuildLeagueModelOptions.waiverRating), the season
  * list is in points as before. The one-week lists name the season list's drop
@@ -264,6 +272,8 @@ interface Candidate {
    * through another slot (a flex) and a row without gain would be noise.
    */
   needsGain: boolean;
+  /** Listed only because he out-projects one of mine with no points left this season (candidatesOf: the best few). */
+  spentOnly?: boolean;
 }
 
 /** Whether two lists hold the very same rows (objects), in order. */
@@ -490,11 +500,17 @@ export function waiverUpgrades(input: WaiverInputs, cfg: WaiverConfig = config):
     let rating: WaiverListRating | null = null;
     if (f === ros && input.rater) {
       const rated = made.filter((m) => m.d.possible && m.d.options.length > 0);
-      const result = input.rater.rate(rated.map((m) => ({ playerId: m.c.id, points: m.c.points, options: m.d.options.map((o) => ({ drop: o.id, keep: o.keep })) })));
+      // The drops a row's rating weighs (the file header, ⚠️ UI-F-4): the allowed drops he out-projects in the list's terms when
+      // one can go, else every allowed drop (an open spot is an option alone).
+      const weighed = rated.map((m) => {
+        const below = m.d.options.filter((o) => o.id !== null && m.c.points > f.pointsOf(o.id) + EPS);
+        return below.length ? below : m.d.options;
+      });
+      const result = input.rater.rate(rated.map((m, i) => ({ playerId: m.c.id, points: m.c.points, options: (weighed[i] as DropOption[]).map((o) => ({ drop: o.id, keep: o.keep })) })));
       rating = result.runs ? { ...result.info, runs: result.runs } : result.info;
       rated.forEach((m, i) => {
         const r = result.rows[i];
-        const o = r ? m.d.options[r.option] : undefined;
+        const o = r ? weighed[i]?.[r.option] : undefined;
         if (!r || !o) return;
         const d: DropChoice = { ...m.d, drop: o.id, k: o.k };
         m.d = d;
@@ -538,6 +554,13 @@ function candidatesOf(input: WaiverInputs, f: Frame, cfg: WaiverConfig): { candi
   // Of them, the ones a row could drop (review of wave C, RC-ENG-2): my untouchables are never the drop (item 3.3).
   const untouchable = new Set(input.untouchable ?? []);
   const droppable = (pos: Pos) => (mine.get(pos) ?? []).filter((m) => !untouchable.has(m.id));
+  // ⚠️ Ours (the final review of Checkpoint 7e, ENG-7E-3): in "Rest of season" one of mine with no points left (out for the
+  // season: ESPN's last week + 1, or the user's own "Out for the season", item 3.5) isn't idle the way a player on bye is in
+  // one week: every free agent there who scores out-projects him, and dropping him for one costs my lineup nothing. Where
+  // one of mine there scores, the best perPositionCap of the free agents who out-project only such a player are listed too
+  // (the rule for a position where none of mine scores), and "Better than" names him. Never an untouchable (item 3.3).
+  const spent = new Map<Pos, string[]>();
+  if (f.mode === "ros") for (const x of idle) if (!untouchable.has(x.playerId) && mine.get(x.pos)?.length) spent.set(x.pos, [...(spent.get(x.pos) ?? []), x.playerId]);
   // Positions where one of mine holds a starting slot in the week under way (Frame.pinned): not an open slot.
   const heldAt = new Set(input.rows.filter((r) => f.pinned.has(r.id)).map((r) => r.pos));
   const onRoster = new Set(input.roster);
@@ -548,19 +571,25 @@ function candidatesOf(input: WaiverInputs, f: Frame, cfg: WaiverConfig): { candi
     const points = f.pointsOf(id);
     if (!(points > EPS)) continue;
     const here = mine.get(row.pos) ?? [];
-    const betterThan = here.filter((m) => points > m.points + EPS).map((m) => m.id);
-    // He must out-project one of mine there a row could drop; where every one of mine there is untouchable, one of them.
+    const gone = spent.get(row.pos) ?? [];
+    const betterThan = [...here.filter((m) => points > m.points + EPS).map((m) => m.id), ...gone];
+    // He must out-project one of mine there a row could drop; where every one of mine there is untouchable, one of them; or
+    // (the season list) only one of mine with no points left (spent: the best few of these).
     const against = droppable(row.pos);
-    if (here.length && !(against.length ? against : here).some((m) => points > m.points + EPS)) continue;
+    const beats = !here.length || (against.length ? against : here).some((m) => points > m.points + EPS);
+    if (!beats && !gone.length) continue;
     const list = byPos.get(row.pos) ?? [];
-    list.push({ id, row, points, betterThan, needsGain: !here.length && heldAt.has(row.pos) });
+    list.push({ id, row, points, betterThan, needsGain: !here.length && heldAt.has(row.pos), ...(beats ? {} : { spentOnly: true }) });
     byPos.set(row.pos, list);
   }
   const cap = count(cfg.waivers.perPositionCap);
   const capped = new Set(cfg.waivers.cappedPositions);
   const candidates: Candidate[] = [];
   for (const pos of f.positions) {
-    const list = (byPos.get(pos) ?? []).sort((a, b) => b.points - a.points || byId(a.id, b.id));
+    const all = (byPos.get(pos) ?? []).sort((a, b) => b.points - a.points || byId(a.id, b.id));
+    // The free agents who out-project only one of mine with no points left: the best few (spent above).
+    const spentOnly = all.filter((c) => c.spentOnly).slice(0, cap);
+    const list = all.filter((c) => !c.spentOnly || spentOnly.includes(c));
     const cut = capped.has(pos) || (f.mode !== "ros" && streamed.has(pos)) || !droppable(pos).length;
     candidates.push(...(cut ? list.slice(0, cap) : list));
   }

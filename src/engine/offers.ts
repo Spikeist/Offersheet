@@ -40,8 +40,11 @@
  * runs far under the exact chance an Open can fall under the window's floor (a synthetic card whose own estimate was 20
  * points under its chance lost an Open printing 18% that way; moving the floor by the card's own miss kept that one but
  * let low-chance asks crowd the cap and lost more: config.offers). Every card's candidates go through the same filter
- * whoever evaluated them before, so a ladder doesn't depend on which cards were opened first, and the Analyzer's ladder for
- * a Finder card's trade differs only by what the Finder bars (its Plan B, which the Analyzer doesn't show).
+ * whoever evaluated them before, so a ladder doesn't depend on which cards were opened first. The Analyzer's ladder for a
+ * Finder card's trade differs by what the Finder bars (its Plan B, which the Analyzer doesn't show) and, ⚠️ through the
+ * Last offer, by the per-side limit (rule 4: the Analyzer's analyzerMaxPerSide, the steps' case 2 rule there since Phase 4;
+ * the final review of Checkpoint 7e, ENG-7E-4: on Parker's two leagues 10 of 25 cards opened in the Analyzer add a Last
+ * offer with a third player of mine, which the Trade Finder's maxPerSide of 2 leaves out).
  * The candidates that pass are evaluated exactly (legality re-checked, V* on both sides with item 2.1's either-way moves:
  * evaluate.ts tradeVersion) with the screening simulation, the search's own versions reused by key.
  *
@@ -54,24 +57,28 @@
  * config.benefit.marketHideBelow); ⚠️ on a card tagged "Helps both" (benefit.helpsBoth on its printed numbers) every step
  * helps both too (Checkpoint 7c's rule for the steps, HB-1). Chances are P_complete as the card prints it
  * (acceptance.displayAcceptance, the nearest 5%, the minimum chance's own reading; ⚠️ as the steps read it), "5 points" is
- * config.search.steps.minAcceptGain:
+ * config.search.steps.minAcceptGain. "Better for me" is Helps you as printed and, ⚠️ where it prints the same, B: every
+ * step's printed B is strictly below the step before's (betweenForMe, on the printed numbers only; the final review of
+ * Checkpoint 7e, ENG-7E-1: Helps you is rounded and flattens near 100, so on equal printed Helps you the ladder had told the
+ * user to send the worse deal first: on Parker's league, week 6, card #8's Last offer printed the card's 27 at B 1.196
+ * against its 1.160, and was likelier):
  * 1. Open: the candidate with the highest Helps you (ties: the higher chance, then the key) among those that print a chance
  *    of at least max(config.offers.openMinChance, the user's minimum chance) (Phase 4c's rule: never suggest sending
  *    something below the minimum the user set), at least 5 points below the suggested trade's, and a Helps you at least the
- *    suggested trade's.
+ *    suggested trade's, at a higher B (betweenForMe).
  * 2. Then, while the ladder has room: after the step before, the candidate with the highest Helps you (same ties) among those
  *    that print a chance at least 5 points above the step before's and at least 5 points below the suggested trade's, and a
- *    Helps you at most the step before's and at least the suggested trade's ("a little less good for him, each at least 5
- *    points likelier").
+ *    Helps you at most the step before's and at least the suggested trade's, B strictly between theirs ("a little less good
+ *    for him, each at least 5 points likelier").
  * 3. The suggested trade: the card itself, its own printed numbers.
  * 4. Last offer: the suggested trade plus the throw-in by the rule that was the steps' case 2 (evaluate.ts
  *    lastOfferVersions: the throw-in from my roster that raises the chance they accept most while B stays at least
  *    config.search.steps.minBShare of the suggested trade's, ⚠️ "Helps you at least 80%" read as that rule on B, within the
  *    per-side limit: the search's maxPerSide, the Analyzer's analyzerMaxPerSide), printing a chance at least 5 points above
- *    the suggested trade's and ⚠️ a Helps you at most the suggested trade's (the review of wave D, D-ENG-4 and UI-D-3: one
- *    printing more on both would be a better card, not a last offer, the lead's rule for the variants, and on 7 of 1,023
- *    synthetic cards the ladder told the user to send the worse deal first). ⚠️ Never the card's Plan B either (another
- *    card of its list can be one, labeled: "The candidates" above).
+ *    the suggested trade's and ⚠️ a Helps you at most the suggested trade's at a lower B (the review of wave D, D-ENG-4 and
+ *    UI-D-3: one printing more on both would be a better card, not a last offer, the lead's rule for the variants, and on 7
+ *    of 1,023 synthetic cards the ladder told the user to send the worse deal first; ENG-7E-1 above for an equal one). ⚠️
+ *    Never the card's Plan B either (another card of its list can be one, labeled: "The candidates" above).
  * At most config.offers.maxSteps offers in all, the suggested trade counted: Open first, then the Last offer, then as many
  * Thens as fit (4: Open, at most one Then with a Last offer, two without one). No Open: no Then (any Then would have been an
  * Open). ⚠️ A variant that prints a higher Helps you and a higher chance than the card isn't in the ladder (the lead's call:
@@ -211,12 +218,36 @@ function inWindow(e: TradeEvaluationCore, low: number, card: TradeEvaluationCore
   return c >= low - EPS && c <= chanceOf(card) - config.search.steps.minAcceptGain + EPS;
 }
 
-/** Helps you between `ceiling` (null: none) and the card's, as each prints it. */
-function helpsBetween(e: TradeEvaluationCore, card: TradeEvaluationCore, ceiling: number | null): boolean {
+/** Its B (null when not a number). */
+const bOf = (e: Pick<TradeEvaluationCore, "b">): number | null => (typeof e.b === "number" && Number.isFinite(e.b) ? e.b : null);
+
+/** Helps you between the card's and, after a step (`step`; null: none), that step's, as each prints it (the screening block's pre-filter). */
+function helpsBetween(e: TradeEvaluationCore, card: TradeEvaluationCore, step: TradeEvaluationCore | null): boolean {
   const hy = helpsOf(e);
   const floor = helpsOf(card);
   if (hy === null || floor === null || hy < floor) return false;
-  return ceiling === null || hy <= ceiling;
+  if (step === null) return true;
+  const ceiling = helpsOf(step);
+  return ceiling !== null && hy <= ceiling;
+}
+
+/**
+ * Better for me than the card and, after a step, less good than that step, on the numbers they print (the file header):
+ * helpsBetween, and ⚠️ B strictly between theirs (the final review of Checkpoint 7e, ENG-7E-1: Helps you is rounded and
+ * flattens near 100, so two versions printing the same Helps you can rank either way on B, and an Open printing the card's
+ * Helps you at a lower B was the worse deal sent first; an equal B is no better). On one block, one B₃: a higher B never
+ * prints a lower Helps you, so the two agree wherever Helps you differs. ⚠️ On the printed numbers only: the screening
+ * block's 1,000 seasons tie or turn round versions a hair apart, and holding them to it there turned down Opens and Thens
+ * that print better than their card (on synthetic leagues, as for the Last offer's rule below).
+ */
+function betweenForMe(e: TradeEvaluationCore, card: TradeEvaluationCore, step: TradeEvaluationCore | null): boolean {
+  if (!helpsBetween(e, card, step)) return false;
+  const b = bOf(e);
+  const bCard = bOf(card);
+  if (b === null || bCard === null || !(b > bCard + EPS)) return false;
+  if (step === null) return true;
+  const bStep = bOf(step);
+  return bStep !== null && b < bStep - EPS;
 }
 
 /** The Open's least chance (the file header): config.offers.openMinChance, or the user's minimum chance when that's higher. */
@@ -402,14 +433,17 @@ export function ladderChoice(job: LadderJob, opts: LadderChoiceOptions = {}): La
   const maxSteps = Math.max(1, Math.floor(config.offers.maxSteps));
 
   // The Last offer (the rule that was the steps' case 2), on the screening block first, then printed: ⚠️ never printing a
-  // higher Helps you than the suggested trade's (the file header, "4. Last offer"), judged on the printed numbers only (the
-  // card plus a cheap throw-in is often a hair from the card on Helps you, and the screening block's 1,000 seasons turned
-  // down Last offers that print the card's own Helps you).
+  // higher Helps you than the suggested trade's, nor ⚠️ a B as high (the file header, "4. Last offer"; the final review of
+  // Checkpoint 7e, ENG-7E-1: printing the card's own Helps you at a higher B, it was the better deal and likelier), judged on
+  // the printed numbers only (the card plus a cheap throw-in is often a hair from the card on Helps you, and the screening
+  // block's 1,000 seasons turned down Last offers that print the card's own Helps you).
   let last: LadderChoice["last"] = null;
   const notAbove = (n: TradeEvaluationCore) => {
     const hn = helpsOf(n);
     const hb = helpsOf(card);
-    return hn !== null && hb !== null && hn <= hb;
+    const bn = bOf(n);
+    const bc = bOf(card);
+    return hn !== null && hb !== null && hn <= hb && bn !== null && bc !== null && bn < bc - EPS;
   };
   const lastRule = (n: TradeEvaluationCore, base: TradeEvaluationCore) =>
     stepPasses(n, tagged) && chanceOf(n) >= chanceOf(card) + gain - EPS && (n.b as number) >= config.search.steps.minBShare * (base.b as number) - EPS && !job.barred.has(n.key);
@@ -436,7 +470,7 @@ export function ladderChoice(job: LadderJob, opts: LadderChoiceOptions = {}): La
 
   // Open.
   const openPool = passing.filter((s) => inWindow(s.version.screen, bar, card)).sort((a, b) => byHelps(a.version.screen, b.version.screen));
-  const openHit = firstPrinted(job, openPool, (p) => stepPasses(p, tagged) && inWindow(p, bar, card) && helpsBetween(p, card, null));
+  const openHit = firstPrinted(job, openPool, (p) => stepPasses(p, tagged) && inWindow(p, bar, card) && betweenForMe(p, card, null));
   let open: LadderChoice["open"] = openHit ? { candidate: openHit.s.candidate, printed: openHit.printed } : null;
 
   // Room: the suggested trade, then Open, then the Last offer, then as many Thens as fit.
@@ -453,9 +487,9 @@ export function ladderChoice(job: LadderJob, opts: LadderChoiceOptions = {}): La
     const before = prev;
     const pool = passing
       .filter((s) => !used.has(s.candidate.key))
-      .filter((s) => inWindow(s.version.screen, chanceOf(before.screen) + gain, card) && helpsBetween(s.version.screen, cardScreen, helpsOf(before.screen)))
+      .filter((s) => inWindow(s.version.screen, chanceOf(before.screen) + gain, card) && helpsBetween(s.version.screen, cardScreen, before.screen))
       .sort((a, b) => byHelps(a.version.screen, b.version.screen));
-    const hit = firstPrinted(job, pool, (p) => stepPasses(p, tagged) && inWindow(p, chanceOf(before.printed) + gain, card) && helpsBetween(p, card, helpsOf(before.printed)));
+    const hit = firstPrinted(job, pool, (p) => stepPasses(p, tagged) && inWindow(p, chanceOf(before.printed) + gain, card) && betweenForMe(p, card, before.printed));
     if (!hit) break;
     thens.push({ candidate: hit.s.candidate, printed: hit.printed });
     used.add(hit.s.candidate.key);

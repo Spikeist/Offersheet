@@ -20,7 +20,9 @@
  * The season list's Helps you (item 3.4) comes on its own request (about a second on Parker's league, over the lead's rule
  * for the League model build): when the view says so (WaiversView.pendingRating), the section asks the engine client that
  * built its model (engineClient.waiverRatingFor) when it first shows, showing the list in points with "Rating these against
- * your odds…" (a status line, so the change is announced) until the answer comes, then the rated view (RatedWaivers).
+ * your odds…" (a status line, so the change is announced) until the answer comes, then the rated view (RatedWaivers). The
+ * one-week lists, whose drops are the season list's, say meanwhile that one can change (the final review of Checkpoint 7e,
+ * UI-F-7: RATING_PENDING_WEEK_TEXT).
  *
  * Where its view comes from: the League page (LeaguePage.tsx) builds it from the League model it computed and provides it
  * through WaiversViewContext; LeagueView.tsx places <WaiverUpgrades /> among its sections. Without a provider the section
@@ -45,6 +47,7 @@ import {
   DEPTH_ONLY_TAG,
   RATING_FAILED_TEXT,
   RATING_PENDING_TEXT,
+  RATING_PENDING_WEEK_TEXT,
   SAME_POSITION_HELP,
   SAME_POSITION_LABEL,
   UNTOUCHABLES_LABEL,
@@ -61,7 +64,7 @@ import {
 import { browserSectionPage, revealSection } from "../NavLink";
 import { Badge, Card, CardTitle, Spinner, buttonClass, cx } from "../ui";
 import { useLeagueSettingsEdit } from "./leagueSettingsEdit";
-import { LOCK_PLAYER_ATTRIBUTE, UntouchableLock, lockSelector } from "./UntouchableLock";
+import { LOCK_HELP, LOCK_PLAYER_ATTRIBUTE, UntouchableLock, lockSelector } from "./UntouchableLock";
 
 /** The section's view (buildWaiversView), provided by the League page; null: nothing to show. */
 export const WaiversViewContext = createContext<WaiversView | null>(null);
@@ -192,7 +195,7 @@ export function WaiverUpgradesCard({ view, rating = null }: { view: WaiversView;
           ))}
         </div>
       ) : null}
-      {list ? <WaiverListBody list={list} all={all} onShowAll={() => setAll((a) => !a)} rating={list.mode === "ros" ? rating : null} /> : null}
+      {list ? <WaiverListBody list={list} all={all} onShowAll={() => setAll((a) => !a)} rating={rating} /> : null}
     </Card>
   );
 }
@@ -231,6 +234,8 @@ function WaiverControls({ view }: { view: WaiversView }) {
           <p id={helpId} className="text-xs text-muted">
             {SAME_POSITION_HELP}
           </p>
+          {/* What the lock next to each drop does, in words (the final review of Checkpoint 7e, UI-F-3: hover only before). */}
+          <p className="mt-1 text-xs text-muted">{LOCK_HELP}</p>
           {error ? (
             <p role="alert" className="text-xs font-semibold text-danger-fg">
               {error}
@@ -258,13 +263,19 @@ function WaiverListBody({ list, all, onShowAll, rating }: { list: WaiverListView
   return (
     <div>
       {list.underWay ? <p className="mb-1 text-sm font-semibold">{list.underWay}</p> : null}
-      {/* The season list's rating (the file header): its line stays mounted, so each change is announced. */}
+      {/* The season list's rating (the file header): its line stays mounted, so each change is announced. A one-week list's
+          drops are the season list's, so it says meanwhile that one can change (the final review of Checkpoint 7e, UI-F-7). */}
       {list.mode === "ros" ? (
         <p role="status" className={cx("text-sm font-semibold text-muted", rating && "mb-2 flex items-center gap-2")}>
           {rating === "pending" ? <Spinner /> : null}
           {rating === "pending" ? RATING_PENDING_TEXT : rating === "failed" ? RATING_FAILED_TEXT : ""}
         </p>
-      ) : null}
+      ) : (
+        <p role="status" className={cx("text-sm font-semibold text-muted", rating === "pending" && "mb-2 flex items-center gap-2")}>
+          {rating === "pending" ? <Spinner /> : null}
+          {rating === "pending" ? RATING_PENDING_WEEK_TEXT : ""}
+        </p>
+      )}
       <p className="mb-3 text-xs leading-relaxed text-muted">{list.note}</p>
       {list.rows.length ? (
         <>

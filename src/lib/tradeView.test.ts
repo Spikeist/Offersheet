@@ -473,7 +473,8 @@ describe("buildTradeCard (§13: what each card shows)", () => {
       "Cornelius Snoot takes the roster spot of the League page's pickup: skip Floopy Freeman (RB).",
       "This trade takes the roster spot of the League page's pickup: skip Waverly Waiver (RB) and keep Tobias Thimble (TE).",
       "Week 7, when Humbert Fiddlesticks returns from IR: release him and keep Tobias Thimble (TE).",
-      "Week 7, when Humbert Fiddlesticks returns from IR: release Wiggleton Spoons (WR) and keep him.",
+      // The returner kept is named (the final review of Checkpoint 7e, MOVES-1: "… and keep him." read as keeping Wiggleton Spoons).
+      "Week 7, when Humbert Fiddlesticks returns from IR: release Wiggleton Spoons (WR) and keep Humbert Fiddlesticks.",
       "Week 8, when Humbert Fiddlesticks returns from IR: release him; without this trade, Tobias Thimble (TE) would go then.",
       "Week 9, when Humbert Fiddlesticks returns from IR: this trade leaves room, so keep Tobias Thimble (TE).",
       "Keep Tobias Thimble (TE): without this trade you'd release him in week 9, when Humbert Fiddlesticks returns from IR.",

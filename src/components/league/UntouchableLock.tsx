@@ -34,6 +34,19 @@ export function untouchableLockLabel(name: string, locked: boolean): string {
 /** The attribute a lock's button carries its player's id in (Waiver upgrades finds it again after a redraw). */
 export const LOCK_PLAYER_ATTRIBUTE = "data-untouchable-lock";
 
+/**
+ * What the lock does, said where the locks are (the final review of Checkpoint 7e, UI-F-3: it was only in the button's
+ * accessible name and its hover, which a phone doesn't have): once over my roster (LeagueView.tsx Rosters) and once in Waiver
+ * upgrades (WaiverUpgrades.tsx), the Settings page's untouchables help in short (settingsView.ts UNTOUCHABLES_HELP).
+ */
+export const LOCK_HELP = "The lock next to one of your players makes him untouchable: trade ideas never offer him, and he's never suggested as a drop.";
+
+/** LOCK_HELP as a line, only where the locks are: with the League page's settings edits (none without them, as the lock). */
+export function LockHelp({ className }: { className?: string }) {
+  const edit = useLeagueSettingsEdit();
+  return edit ? <p className={className}>{LOCK_HELP}</p> : null;
+}
+
 /** The CSS selector of my player `id`'s lock buttons (LOCK_PLAYER_ATTRIBUTE). */
 export function lockSelector(id: string): string {
   return `button[${LOCK_PLAYER_ATTRIBUTE}="${id.replace(/["\\]/g, "\\$&")}"]`;

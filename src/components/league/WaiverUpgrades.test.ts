@@ -18,6 +18,8 @@ import { buildLeagueView } from "@/lib/leagueView";
 import {
   DEPTH_ONLY_TAG,
   DEPTH_ONLY_WORDS,
+  RATING_PENDING_TEXT,
+  RATING_PENDING_WEEK_TEXT,
   SAME_POSITION_HELP,
   SAME_POSITION_HINT,
   SAME_POSITION_LABEL,
@@ -33,6 +35,7 @@ import {
 } from "@/lib/waiversView";
 import { LeagueView } from "./LeagueView";
 import { LeagueSettingsEditContext } from "./leagueSettingsEdit";
+import { LOCK_HELP } from "./UntouchableLock";
 import { WaiverUpgrades, WaiverUpgradesCard, WaiversViewContext } from "./WaiverUpgrades";
 import { NOW, leagueFixture } from "./testFixtures";
 
@@ -258,5 +261,28 @@ describe("Checkpoint 7e: one move per row, the switch and the locks (planner rep
     const html = renderToStaticMarkup(createElement(WaiverUpgradesCard, { view: fullView() }));
     expect(html).not.toContain('role="switch"');
     expect(html).not.toContain("untouchable");
+  });
+
+  it("say what the lock does where the locks are, and that untouchables stay out of trade ideas too (the final review of Checkpoint 7e, UI-F-3)", () => {
+    const settings = { ...defaultTradeSettings(), untouchables: ["w1"] };
+    const text = textOf(withEdit(fullView(settings), settings));
+    expect(text).toContain(LOCK_HELP);
+    expect(UNTOUCHABLES_LABEL).toBe("Untouchable (never in trade ideas, never suggested as drops):");
+    expect(text).toContain(`${UNTOUCHABLES_LABEL} W. Catch`);
+    // No locks without the League page's settings: no words either.
+    expect(textOf(renderToStaticMarkup(createElement(WaiverUpgradesCard, { view: fullView() })))).not.toContain(LOCK_HELP);
+  });
+});
+
+describe("the season list's rating under way, on every list (the final review of Checkpoint 7e, UI-F-7)", () => {
+  it("“Rest of season” says it's being rated; a one-week list that its drops can change, its note that a drop is the season list's when he's on it", () => {
+    const view = waiversView();
+    const statusOf = (html: string) => /<p role="status" class="[^"]*">([\s\S]*?)<\/p>/.exec(html)?.[1] ?? null;
+    expect(textOf(statusOf(renderToStaticMarkup(createElement(WaiverUpgradesCard, { view, rating: "pending" }))) ?? "").trim()).toBe(RATING_PENDING_TEXT);
+    const week: WaiversView = { ...view, first: "week" };
+    expect(textOf(statusOf(renderToStaticMarkup(createElement(WaiverUpgradesCard, { view: week, rating: "pending" }))) ?? "").trim()).toBe(RATING_PENDING_WEEK_TEXT);
+    // Mounted with nothing in it otherwise, so the change is announced.
+    expect(statusOf(renderToStaticMarkup(createElement(WaiverUpgradesCard, { view: week })))).toBe("");
+    expect(view.week?.note).toContain("after dropping the player named (the same one as for the rest of the season when he's on that list).");
   });
 });
