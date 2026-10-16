@@ -19,7 +19,7 @@ export interface CheckBrowserArgs {
   team: string | null;
   /** --show: a visible browser window instead of headless. */
   show: boolean;
-  /** --no-shots: no screenshots. */
+  /** --no-shots: no screenshots (the clutter check's too, and what they do to the page: shots.ts). */
   shots: boolean;
   /** --max-search <seconds>: the Trade Finder's full search must finish within this (CLAUDE.md §12: 10 seconds). */
   maxSearchSeconds: number;
@@ -49,7 +49,8 @@ export const USAGE = [
   "  --team <id>          pick this team on the Import Report (without it, the Import Report's own choice; with no",
   "                       team picked, the Trade Finder, card and Analyzer checks are skipped)",
   "  --show               show the browser window",
-  "  --no-shots           no screenshots (they go to .cache/check-browser/shots, names replaced by placeholders)",
+  "  --no-shots           no screenshots (they go to .cache/check-browser/shots, names replaced by placeholders;",
+  "                       the clutter check's four too: clutter-1-trade-finder to clutter-4-waivers)",
   "  --max-search <s>     the longest a full trade search may take (default 10 seconds)",
   "  --second-league      also add the public ESPN test league 899513 (2026), switch to it and back, and check that",
   "                       each page shows the right league and settings and feedback stay per league; then remove it",

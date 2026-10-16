@@ -29,7 +29,8 @@
  *    Finder's timing lines, the waiver view (step "Waivers"), the Settings page's scoring questions and automatic playoff
  *    weight, and the Analyzer's link back not prefetched.
  * 4. Prints one line per check as it goes, the numbers (timings and counts), and a summary; writes the same, cleaned,
- *    to .cache/check-browser/results.json, and screenshots (when on) to .cache/check-browser/shots/. An "info" line says
+ *    to .cache/check-browser/results.json, and screenshots (when on) to .cache/check-browser/shots/, the clutter check's four
+ *    among them (Checkpoint 7g: shots.ts, "clutter-1-trade-finder" and so on, each in images of its own). An "info" line says
  *    where the league's own data differs from what a check expected of it (Parker's notices, with --team): it doesn't
  *    fail the run.
  * 5. Always stops Chrome and the server, whatever happened (an error, Ctrl+C, an uncaught exception): each process is

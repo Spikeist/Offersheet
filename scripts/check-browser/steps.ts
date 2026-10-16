@@ -124,7 +124,10 @@
  *   those); the Analyzer step holds its card's line, which comes with its evaluation, to the same (nowOrLaterChecks).
  * After each step: no console errors (page or worker), CSP violations (Part B: enforced or report-only, page or worker),
  * uncaught exceptions, failed requests to the app, or requests to any other site. Screenshots, when on, go to the shots folder after the page's names are replaced with placeholders,
- * put back right after (one that can't be saved is a skip: it's a record to look at, not a check of the app).
+ * put back right after (one that can't be saved is a skip: it's a record to look at, not a check of the app). Checkpoint 7g
+ * (planner reply to Checkpoint 7f, item 5): the clutter check's four screenshots (shots.ts): the whole Trade Finder at the card
+ * step's start, its first idea with everything on it opened at the step's end, then the whole League page and Waiver upgrades
+ * at the Waivers step's end, each in images a little under two phone screens tall; --no-shots turns them off with the rest.
  *
  * Texts these checks look for are the app's own (status lines, headings, button names); when one changes, the check
  * that reads it fails loudly rather than passing by accident: a check that counts something somewhere first checks it
@@ -225,6 +228,7 @@ import {
   type WaiverMoveRead,
 } from "./contracts";
 import type { AppRequest, PageEvent, PageSession } from "./page";
+import { finderShot, leagueShots, openedCardShot } from "./shots";
 
 export interface CardInfo {
   heading: string;
@@ -1341,6 +1345,9 @@ export async function cardStep(ctx: StepContext): Promise<void> {
   }
   // Checkpoint 7e (item 4.2): the cards' "now or after this week" lines, once they're all in, in the default sort.
   await nowOrLaterChecks(ctx, step, "finder");
+  // Checkpoint 7g (planner reply to Checkpoint 7f, item 5): the clutter check's first screenshot, the whole Trade Finder before
+  // anything on a card is pressed or opened (shots.ts; nothing with --no-shots).
+  await finderShot(ctx, step);
 
   // The sorts: each reorders the ideas from the highest down (sortInversions), and none starts a new search. Checkpoint 7c
   // (planner reply to Checkpoint 7b, §7): in every sort the "Helps both" tag shows on exactly the cards that help both teams
@@ -1474,6 +1481,9 @@ export async function cardStep(ctx: StepContext): Promise<void> {
   // Checkpoint 7f: the cards', boxes' and the first idea's offers' releases at IR returns (its offers are open now), with the
   // near-tie rule's reason when it decided one (review of Checkpoint 7f, PIERCE-1: the lists of roster moves alone).
   await releaseLineChecks(ctx, step, "the trade ideas' roster moves (the first idea's offers open)", "trade");
+  // Checkpoint 7g (item 5): the first idea with everything on it opened, after the step's checks; what the shot opens it closes
+  // again (shots.ts; nothing with --no-shots).
+  await openedCardShot(ctx, step);
 }
 
 /**
@@ -2081,6 +2091,9 @@ export async function waiversStep(ctx: StepContext): Promise<void> {
   }
   layoutChecks(ctx, step, await page.run<Measure>(`return measure(document.getElementById("waivers"));`), "the waiver view");
   await screenshot(ctx, "05b-waivers");
+  // Checkpoint 7g (item 5): the whole League page and Waiver upgrades on its own, rated, on "Rest of season", nothing unfolded
+  // (shots.ts; nothing with --no-shots).
+  await leagueShots(ctx, step);
 }
 
 // ---------------------------------------------------------------------------------------------
