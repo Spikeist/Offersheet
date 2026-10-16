@@ -33,8 +33,9 @@ import { nameRules } from "./report";
 const base = tradeSnapshot();
 const snapshot = { ...base, players: { ...base.players, "107": { ...(base.players["107"] as PlayerInfo), name: "Alec Pierce" }, "105": { ...(base.players["105"] as PlayerInfo), name: "Marvin Harrison Jr." }, "108": { ...(base.players["108"] as PlayerInfo), name: "Kyle Pitts Sr." }, "206": { ...(base.players["206"] as PlayerInfo), name: "Jordan Mason" } } };
 const harrison = { keptInstead: "105", lockable: true };
-const PLANNER = "Week 7, when Alec Pierce returns from IR: release him. He and Marvin Harrison Jr. are nearly even for your lineup, and Harrison Jr. has more trade value. Lock Pierce to keep him instead.";
-const ON_TRADES = "Week 7, when Alec Pierce returns from IR: release him. He and Marvin Harrison Jr. are nearly even for your lineup, and Harrison Jr. has more trade value. Lock Pierce on the League page to keep him instead.";
+// The planner's sentence since Checkpoint 7g (planner reply to Checkpoint 7f, answer 5), and a trade page's, whose lock is on the League page.
+const PLANNER = "Week 7, when Alec Pierce returns from IR: release him. From week 7 on, he and Marvin Harrison Jr. add about the same to your starting lineup, and Harrison Jr. has more trade value. Lock Pierce to keep him instead.";
+const ON_TRADES = "Week 7, when Alec Pierce returns from IR: release him. From week 7 on, he and Marvin Harrison Jr. add about the same to your starting lineup, and Harrison Jr. has more trade value. Lock Pierce on the League page to keep him instead.";
 
 // ---------------------------------------------------------------------------------------------
 // A tiny DOM of React's static markup: elements with their attributes and children, text decoded.
@@ -181,10 +182,22 @@ describe("check:browser's release contract (Checkpoint 7f; planner reply to Chec
 
   it("names a reason in another shape, a reason after “instead of dropping someone else”, a lock in the wrong place, and a release made either way worded otherwise", () => {
     const page = "trade" as const;
-    expect(releaseLineProblems(["Week 7, when Alec Pierce returns from IR: release him. He and Marvin Harrison Jr. are nearly even for your lineup, and Harrison Jr. is worth 900."], page)).toHaveLength(1);
-    expect(releaseLineProblems(["Week 7, when Alec Pierce returns from IR: release him instead of dropping someone else. He and Marvin Harrison Jr. are nearly even for your lineup, and Harrison Jr. has more trade value."], page)).toEqual([
-      "a release with a reason still says “instead of dropping someone else”: “Week 7, when Alec Pierce returns from IR: release him instead of dropping someone else. He and Marvin Harrison Jr. are nearly even for your lineup, and Harrison Jr. has more trade value.”",
+    expect(releaseLineProblems(["Week 7, when Alec Pierce returns from IR: release him. From week 7 on, he and Marvin Harrison Jr. add about the same to your starting lineup, and Harrison Jr. is worth 900."], page)).toHaveLength(1);
+    expect(releaseLineProblems(["Week 7, when Alec Pierce returns from IR: release him instead of dropping someone else. From week 7 on, he and Marvin Harrison Jr. add about the same to your starting lineup, and Harrison Jr. has more trade value."], page)).toEqual([
+      "a release with a reason still says “instead of dropping someone else”: “Week 7, when Alec Pierce returns from IR: release him instead of dropping someone else. From week 7 on, he and Marvin Harrison Jr. add about the same to your starting lineup, and Harrison Jr. has more trade value.”",
     ]);
+    // Checkpoint 7f's words are gone (planner reply to Checkpoint 7f, answer 5).
+    const old = "Week 7, when Alec Pierce returns from IR: release him. He and Marvin Harrison Jr. are nearly even for your lineup, and Harrison Jr. has more trade value. Lock Pierce to keep him instead.";
+    expect(releaseLineProblems([old], "league")).toEqual([`a release's reason reads “${old}”`]);
+    // The reason counts from the line's own return week, and from then on in a line without one.
+    const later = PLANNER.replace("From week 7 on", "From week 8 on");
+    expect(releaseLineProblems([later], "league")).toEqual([`a release's reason doesn't count from its return week: “${later}”`]);
+    const then = PLANNER.replace("From week 7 on", "From then on");
+    expect(releaseLineProblems([then], "league")).toEqual([`a release's reason doesn't count from its return week: “${then}”`]);
+    const noWeek = then.replace("Week 7, when", "When");
+    expect(releaseLineProblems([noWeek], "league")).toEqual([]);
+    const noWeekWithOne = PLANNER.replace("Week 7, when", "When");
+    expect(releaseLineProblems([noWeekWithOne], "league")).toEqual([`a release's reason doesn't count from its return week: “${noWeekWithOne}”`]);
     // A trade page has no lock: its sentence says the lock is on the League page; the League page's doesn't send you there.
     expect(releaseLineProblems([PLANNER], "trade")).toEqual([`a release's lock doesn't say it's on the League page: “${PLANNER}”`]);
     expect(releaseLineProblems([ON_TRADES], "league")).toEqual([`the League page's lock sends you to the League page: “${ON_TRADES}”`]);
@@ -192,7 +205,7 @@ describe("check:browser's release contract (Checkpoint 7f; planner reply to Chec
     // first words) nor with its reason.
     const own = "Week 7, when Alec Pierce returns from IR: release him, with or without this trade.";
     expect(releaseLineProblems([own], page)).toEqual([`a release made either way reads “${own}”`]);
-    const reasoned = "Assumed with or without this trade: release Alec Pierce in week 7, when he returns from IR. He and Marvin Harrison Jr. are nearly even for your lineup, and Harrison Jr. has more trade value.";
+    const reasoned = "Assumed with or without this trade: release Alec Pierce in week 7, when he returns from IR. From week 7 on, he and Marvin Harrison Jr. add about the same to your starting lineup, and Harrison Jr. has more trade value.";
     expect(releaseLineProblems([reasoned], page)).toContain(`a release made either way reads “${reasoned}”`);
     expect(releaseLineProblems(["Week 7, when Alec Pierce returns from IR: with or without this trade, release him."], page)).toEqual(["a release made either way reads “Week 7, when Alec Pierce returns from IR: with or without this trade, release him.”"]);
   });
@@ -227,9 +240,9 @@ describe("check:browser's release contract (Checkpoint 7f; planner reply to Chec
     const about = (lines: readonly string[]) => lines.filter((l) => / returns from IR\b/.test(l));
     const want = [...about(view.steps[0]?.moves ?? []), ...about(card.required), ...about(card.planB?.moves ?? [])];
     expect(want).toEqual([
-      "Week 7, when Alec Pierce returns from IR: release Kyle Pitts Sr. (TE). He and Marvin Harrison Jr. are nearly even for your lineup, and Harrison Jr. has more trade value. Lock Pitts Sr. on the League page to keep him instead.",
+      "Week 7, when Alec Pierce returns from IR: release Kyle Pitts Sr. (TE). From week 7 on, he and Marvin Harrison Jr. add about the same to your starting lineup, and Harrison Jr. has more trade value. Lock Pitts Sr. on the League page to keep him instead.",
       "Assumed with or without this trade: release Jordan Mason in week 9, when he returns from IR.",
-      "Week 7, when Alec Pierce returns from IR: release Noodle McSprocket (WR) and keep Alec Pierce. McSprocket and Marvin Harrison Jr. are nearly even for your lineup, and Harrison Jr. has more trade value. Lock McSprocket on the League page to keep him instead.",
+      "Week 7, when Alec Pierce returns from IR: release Noodle McSprocket (WR) and keep Alec Pierce. From week 7 on, McSprocket and Marvin Harrison Jr. add about the same to your starting lineup, and Harrison Jr. has more trade value. Lock McSprocket on the League page to keep him instead.",
       "Assumed with or without this trade: add Floopy Freeman, release Jordan Mason in week 9, when he returns from IR.",
       ON_TRADES,
     ]);
@@ -265,7 +278,7 @@ describe("check:browser's release contract (Checkpoint 7f; planner reply to Chec
     const html = renderToStaticMarkup(createElement("main", null, createElement(LeagueView, { view })));
     const read = readReleaseLines(html);
     expect(read).toEqual([
-      "Week 15, when Humbert Fiddlesticks returns from IR: release Tobias Thimble (TE). He and Wiggleton Spoons are nearly even for your lineup, and Spoons has more trade value. Lock Thimble to keep him instead.",
+      "Week 15, when Humbert Fiddlesticks returns from IR: release Tobias Thimble (TE). From week 15 on, he and Wiggleton Spoons add about the same to your starting lineup, and Spoons has more trade value. Lock Thimble to keep him instead.",
       "Week 16, when Humbert Fiddlesticks returns from IR: release him instead of dropping someone else.",
     ]);
     expect(read).toEqual(view.rosters.find((r) => r.isMine)?.returns);

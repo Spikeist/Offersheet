@@ -146,9 +146,10 @@ export interface RosterMoves {
 /**
  * Why the near-tie rule released a player at an IR player's return (Checkpoint 7f; planner reply to Checkpoint 7e, answer 4:
  * "keep the rule, but the card must say why"; returners.Displacement.keptInstead): `keptInstead`, the player the lineup alone
- * would have released, kept for his trade value (the two are nearly even for my lineup from the return on, and he's worth
- * more then); `lockable` when the player released is on my active roster or IR as imported, where the League page's lock is
- * (the card's "Lock Pierce on the League page to keep him instead."), not one the trade brings in or a pickup after it.
+ * would have released, kept for his trade value (from the return on, the two add about the same to my starting lineup, and
+ * he's worth more then); `lockable` when the player released is on my active roster or IR as imported, where the League
+ * page's lock is (the card's "Lock Pierce on the League page to keep him instead."), not one the trade brings in or a
+ * pickup after it.
  */
 export interface NearTieRelease {
   keptInstead: string;

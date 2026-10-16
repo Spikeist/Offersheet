@@ -11,7 +11,7 @@ import { titleOnlyReward } from "@/engine/benefit";
 import { config } from "@/engine/config";
 import type { BaseRateSource, PlayoffWeightAuto, SeasonOdds, TeamModel, WeekOdds } from "@/engine/leagueModel";
 import { fantasyCalcFallbackText, fantasyCalcFormat } from "@/engine/market";
-import type { LeagueSettings } from "@/engine/model";
+import type { InjuryStatus, LeagueSettings, Pos } from "@/engine/model";
 import { TITLE_ONLY, type Reward } from "@/engine/reward";
 import { weekUnderWayNote } from "@/engine/season";
 import { fmtNum } from "./format";
@@ -206,6 +206,27 @@ describe("buildLeagueView: header (§14 item 3)", () => {
     expect(explainer(false, { meanRelDiff: 0.10026, players: 22, week: 12, leftOut: ["K", "DEF"] }, { sleeper: 33 })).toContain("differ from Sleeper's by 10.03% on average this week (22 rostered players, kickers and D/STs aside), more than the 10% we allow");
     // Nothing left aside: no parentheses (the text before Checkpoint 7f but for "ESPN's").
     expect(explainer(true, { meanRelDiff: 0.04, players: 22, week: 12 }, averaged)).toContain("averaged with ESPN's own projection (they agree within 4% on average this week)");
+  });
+
+  it("names the injury tags the averaging test left aside after the positions, and averaged, whose projections are averaged too (Checkpoint 7g; planner reply to Checkpoint 7f, answer 4)", () => {
+    const explainer = (espnAveraged: boolean, agreement: LeagueFixture["model"]["projection"]["agreement"], sources: Partial<Record<BaseRateSource, number>>) => {
+      const f = leagueFixture();
+      f.model.projection = { ...f.model.projection, espnAveraged, agreement, sources: { ...SOURCES, ...sources } };
+      return of(f).explain[0]?.text ?? "";
+    };
+    const averaged = { "espn+sleeper": 25, sleeper: 8 };
+    const both = { leftOut: ["K", "DEF"] as Pos[], leftOutStatuses: ["QUESTIONABLE"] as InjuryStatus[] };
+    // Averaged: the tagged players' base rates read a later week, so "theirs" would say it of them too: the positions are named.
+    expect(explainer(true, { meanRelDiff: 0.0991, players: 98, week: 6, ...both }, averaged)).toContain(
+      "averaged with ESPN's own projection (they agree within 9.9% on average this week over 98 rostered players, kickers, D/STs and questionable players aside, though kickers and D/STs are averaged too)",
+    );
+    expect(explainer(false, { meanRelDiff: 0.11, players: 98, week: 6, ...both }, { sleeper: 33 })).toContain(
+      "ESPN's own projections differ from Sleeper's by 11% on average this week (98 rostered players, kickers, D/STs and questionable players aside), more than the 10% we allow, so we don't average ESPN's in.",
+    );
+    // Tagged players alone aside: nobody to say is averaged too.
+    expect(explainer(true, { meanRelDiff: 0.04, players: 22, week: 6, leftOutStatuses: ["QUESTIONABLE", "DOUBTFUL"] }, averaged)).toContain(
+      "averaged with ESPN's own projection (they agree within 4% on average this week over 22 rostered players, questionable or doubtful players aside)",
+    );
   });
 
   it("labels a keeper league's values as the redraft (perception) list it shows (§9)", () => {
@@ -2016,14 +2037,14 @@ describe("buildLeagueView: my IR players' returns (Checkpoint 7f; planner reply 
     expect(returns(withReleases([{ id: "108", week: 15, returner: "107" }]))).toEqual([`${when}: release ${nameOf("108")} (TE).`]);
     // The rule decided: the reason, and the lock for my player (it's on this card).
     expect(returns(withReleases([{ id: "107", week: 15, returner: "107", keptInstead: "106" }]))).toEqual([
-      `${when}: release him. He and ${nameOf("106")} are nearly even for your lineup, and Spoons has more trade value. Lock Fiddlesticks to keep him instead.`,
+      `${when}: release him. From week 15 on, he and ${nameOf("106")} add about the same to your starting lineup, and Spoons has more trade value. Lock Fiddlesticks to keep him instead.`,
     ]);
     expect(returns(withReleases([{ id: "108", week: 15, returner: "107", keptInstead: "106" }]))).toEqual([
-      `${when}: release ${nameOf("108")} (TE). He and ${nameOf("106")} are nearly even for your lineup, and Spoons has more trade value. Lock Thimble to keep him instead.`,
+      `${when}: release ${nameOf("108")} (TE). From week 15 on, he and ${nameOf("106")} add about the same to your starting lineup, and Spoons has more trade value. Lock Thimble to keep him instead.`,
     ]);
     // A free agent my pickups add (not on my roster as imported): no lock to offer.
     expect(returns(withReleases([{ id: "901", week: 15, returner: "107", keptInstead: "106" }]))).toEqual([
-      `${when}: release ${nameOf("901")} (RB). He and ${nameOf("106")} are nearly even for your lineup, and Spoons has more trade value.`,
+      `${when}: release ${nameOf("901")} (RB). From week 15 on, he and ${nameOf("106")} add about the same to your starting lineup, and Spoons has more trade value.`,
     ]);
     // Two of my players on IR, two returns: one line each, in the engine's order (by week).
     const two = withReleases([
@@ -2033,7 +2054,7 @@ describe("buildLeagueView: my IR players' returns (Checkpoint 7f; planner reply 
     two.snapshot = { ...two.snapshot, teams: two.snapshot.teams.map((t) => (t.id === "1" ? { ...t, roster: t.roster.filter((id) => id !== "103"), ir: [...t.ir, "103"] } : t)) };
     expect(returns(two)).toEqual([
       `${when}: release ${nameOf("108")} (TE).`,
-      `Week 16, when ${nameOf("103")} returns from IR: release ${nameOf("105")} (WR). He and ${nameOf("106")} are nearly even for your lineup, and Spoons has more trade value. Lock Oddfellow to keep him instead.`,
+      `Week 16, when ${nameOf("103")} returns from IR: release ${nameOf("105")} (WR). From week 16 on, he and ${nameOf("106")} add about the same to your starting lineup, and Spoons has more trade value. Lock Oddfellow to keep him instead.`,
     ]);
   });
 
@@ -2042,10 +2063,10 @@ describe("buildLeagueView: my IR players' returns (Checkpoint 7f; planner reply 
     const renamed = (id: string, name: string) => ({ ...f.snapshot.players[id], name }) as LeagueFixture["snapshot"]["players"][string];
     // 102 is on my roster: "Thimble" alone could be either of two players of mine.
     f.snapshot = { ...f.snapshot, players: { ...f.snapshot.players, "102": renamed("102", "Ophelia Thimble") } };
-    expect(returns(f)).toEqual([`${when}: release ${nameOf("108")} (TE). He and ${nameOf("106")} are nearly even for your lineup, and Spoons has more trade value. Lock ${nameOf("108")} to keep him instead.`]);
+    expect(returns(f)).toEqual([`${when}: release ${nameOf("108")} (TE). From week 15 on, he and ${nameOf("106")} add about the same to your starting lineup, and Spoons has more trade value. Lock ${nameOf("108")} to keep him instead.`]);
     // Another team's player sharing it (201, team 2's) changes nothing.
     f.snapshot = { ...f.snapshot, players: { ...f.snapshot.players, "102": renamed("102", nameOf("102")), "201": renamed("201", "Ophelia Thimble") } };
-    expect(returns(f)).toEqual([`${when}: release ${nameOf("108")} (TE). He and ${nameOf("106")} are nearly even for your lineup, and Spoons has more trade value. Lock Thimble to keep him instead.`]);
+    expect(returns(f)).toEqual([`${when}: release ${nameOf("108")} (TE). From week 15 on, he and ${nameOf("106")} add about the same to your starting lineup, and Spoons has more trade value. Lock Thimble to keep him instead.`]);
   });
 
   it("only on my roster card, from the odds' own roster (after the pickups); none without a release, without a team of mine, or in a model that doesn't say", () => {

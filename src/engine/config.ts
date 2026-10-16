@@ -119,6 +119,19 @@ export const config = {
      * player, and their disagreements are still logged.
      */
     espnSleeperAgreementExcluded: ["K", "DEF"] as readonly Pos[],
+    /**
+     * Injury statuses the averaging test leaves out of its sums too (planner reply to Checkpoint 7f, answer 4: "yes, leave
+     * questionable players out of the test, since their ESPN numbers never reach a base rate."). A PROBABLE, QUESTIONABLE or
+     * DOUBTFUL player gets the Q/D/P base rate (projections.ts usesHealthyBaseRate, §6 step 3), which leaves this week's
+     * projections out and reads his nearest later healthy week, which ESPN doesn't project (it projects only this week and
+     * last): this week's ESPN line, the one the test compares, never reaches his base rate. On Parker's saved readings the
+     * tagged players the test compared were all questionable, and in week 6 they disagreed more than the rest (their own gaps
+     * 14.8–16.2%, against 9.7–10.4% for everyone else it compares, kickers and D/STs aside): without them Oct 15's readings go
+     * under the bar (league 1 9.91%, league 2 9.74%), so ESPN's projections are averaged in; Oct 14's stay over it (10.44%,
+     * 10.28%). The test only: their disagreements are still logged. A player at a position espnSleeperAgreementExcluded names is
+     * left out as that position.
+     */
+    espnSleeperAgreementExcludedStatuses: ["QUESTIONABLE", "DOUBTFUL", "PROBABLE"] as readonly InjuryStatus[],
     /** Log players whose two sources disagree by more than this. */
     sourceDisagreementLog: 0.4,
     /**

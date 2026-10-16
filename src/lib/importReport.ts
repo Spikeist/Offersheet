@@ -918,9 +918,10 @@ const pct = (x: number) => `${Math.round(x * 100)}%`;
 /**
  * Which projections the League page uses (§6): Sleeper's × league scoring; in ESPN leagues averaged
  * with ESPN's own league-scored projections only when the two agree within
- * config.projections.espnSleeperAgreement on average over rostered players in the inputs' week, kickers and D/STs aside
- * (the engine's espnSleeperAgreement with the players' positions: the same test the League model runs), worded as the
- * engine words it (projections.ts agreementAside, and agreementPercent: one decimal beside the bar).
+ * config.projections.espnSleeperAgreement on average over rostered players in the inputs' week, kickers, D/STs and players
+ * tagged questionable, doubtful or probable aside (the engine's espnSleeperAgreement with the players' positions and
+ * statuses: the same test the League model runs, on the same snapshot players), worded as the engine words it
+ * (projections.ts agreementAside, and agreementPercent: one decimal beside the bar).
  */
 function projectionNote(snapshot: LeagueSnapshot, model: ModelInputs): string | null {
   if (model.currentWeek > model.lastWeek) return null; // the season is over: nothing is projected
@@ -935,9 +936,9 @@ function projectionNote(snapshot: LeagueSnapshot, model: ModelInputs): string | 
   if (snapshot.platform !== "espn") return `${sleeperOnly}.`;
   if (!model.espnProjections) return `${sleeperOnly}. ESPN's own projections didn't load, so they aren't averaged in.`;
   const rostered = snapshot.teams.flatMap((t) => [...t.roster, ...t.ir, ...t.taxi]);
-  const { agree, agreement, leftOut } = espnSleeperAgreement(rostered, model.players, model.currentWeek, config.projections, snapshot.players);
+  const { agree, agreement, leftOut, leftOutStatuses } = espnSleeperAgreement(rostered, model.players, model.currentWeek, config.projections, snapshot.players);
   const limit = pct(config.projections.espnSleeperAgreement);
-  const aside = agreementAside(leftOut);
+  const aside = agreementAside(leftOut, leftOutStatuses);
   if (!agreement) return `${sleeperOnly}. No rostered player had both ESPN's and Sleeper's projection in week ${model.currentWeek}${aside}, so they aren't averaged.`;
   const measured = `in week ${agreement.week} (${plural(agreement.players, "rostered player")}${aside})`;
   const gap = agreementPercent(agreement.meanRelDiff);

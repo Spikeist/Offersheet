@@ -94,8 +94,9 @@
  * Returns from IR (Checkpoint 7f; planner reply to Checkpoint 7e, answer 4: "keep the rule, but the card must say why"; the
  * lead's R2): my roster card, after its pickups, says whom the odds assume I release at each of my IR players' returns
  * (RosterCard.returns: TeamModel.displacedWithPickups), in a trade card's words (tradeView.ts releaseLine), with why when
- * the near-tie rule decided it ("He and Marvin Harrison Jr. are nearly even for your lineup, and Harrison Jr. has more trade
- * value. Lock Pierce to keep him instead."): the lock is on that same card. Until then no page said who goes.
+ * the near-tie rule decided it (since Checkpoint 7g the planner's reply to Checkpoint 7f, answer 5: "From week 7 on, he and
+ * Marvin Harrison Jr. add about the same to your starting lineup, and Harrison Jr. has more trade value. Lock Pierce to keep
+ * him instead."): the lock is on that same card. Until then no page said who goes.
  *
  * Trade chips (§7; planner reply to Checkpoint 2, answer 2) replaced Phase 2's surplus chips: a chip
  * reads "C. McCaffrey: worth +33 to Team 2 · costs you 6.1 pts/wk" (his gap: what Team 2 would gain minus
@@ -204,7 +205,7 @@ import type {
 import { prepareLeagueSlots, solveLineup, type LineupPlayer } from "@/engine/lineup";
 import { fantasyCalcFallbackText, fantasyCalcFormat, fantasyCalcFormatLabel, noteDay } from "@/engine/market";
 import { POSITIONS, type InjuryStatus, type LeagueSettings, type LeagueSnapshot, type Platform, type PlayerInfo, type Pos, type Team } from "@/engine/model";
-import { actualWeightFor, agreementAside, agreementPercent } from "@/engine/projections";
+import { actualWeightFor, agreementAside, agreementLeftOutText, agreementPercent } from "@/engine/projections";
 import { TITLE_ONLY, prizeStillMovable, type Reward } from "@/engine/reward";
 import { RETURN_WEEK_MAX } from "@/engine/settings";
 import { DIVISION_RULE_ASSUMED, weekList, weekUnderWayNote } from "@/engine/season";
@@ -580,10 +581,11 @@ export interface RosterCard {
    * roster card only, under RETURNS_FROM_IR_LABEL after the pickups: what the odds assume at each of my IR players' returns
    * (TeamModel.displacedWithPickups, the team after its pickups), one line each in a trade card's words (tradeView.ts
    * releaseLine): "Week 7, when Alec Pierce returns from IR: release him instead of dropping someone else.", and when the
-   * near-tie rule decided it, why ("Week 7, when Alec Pierce returns from IR: release him. He and Marvin Harrison Jr. are
-   * nearly even for your lineup, and Harrison Jr. has more trade value. Lock Pierce to keep him instead.", the lock offered
-   * for a player on my active roster or IR, whose lock is on this card). Null for every other team, and when nobody is
-   * released (or a model built before Phase 7b, which doesn't say).
+   * near-tie rule decided it, why ("Week 7, when Alec Pierce returns from IR: release him. From week 7 on, he and Marvin
+   * Harrison Jr. add about the same to your starting lineup, and Harrison Jr. has more trade value. Lock Pierce to keep him
+   * instead.", the planner's words since Checkpoint 7g, the lock offered for a player on my active roster or IR, whose lock
+   * is on this card). Null for every other team, and when nobody is released (or a model built before Phase 7b, which doesn't
+   * say).
    */
   returns: string[] | null;
   /**
@@ -2344,7 +2346,11 @@ interface ProjectionSource {
  * the review of Checkpoint 7f (the averaging reviewer's note: "kickers and D/STs aside" next to "averaged" and "so we don't
  * average them in" read as if they weren't averaged, which they are once the test passes) the positions left aside go in
  * parentheses with the players compared, as the Import Report words it ("115 rostered players, kickers and D/STs aside"),
- * "though theirs are averaged too" when averaged, and "so we don't average ESPN's in" when not.
+ * "though theirs are averaged too" when averaged, and "so we don't average ESPN's in" when not. Since Checkpoint 7g (planner
+ * reply to Checkpoint 7f, answer 4) the players left out for their injury tag join the list ("98 rostered players, kickers,
+ * D/STs and questionable players aside"), and the averaged words then name whose projections are averaged too, "though
+ * kickers and D/STs are averaged too": a tagged player's base rate reads a later week (the Q/D/P base rate), which ESPN
+ * doesn't project, so "theirs" would have said it of him too.
  */
 function projectionSource(snapshot: LeagueSnapshot, model: LeagueModel): ProjectionSource {
   const s = model.projection.sources;
@@ -2353,11 +2359,14 @@ function projectionSource(snapshot: LeagueSnapshot, model: LeagueModel): Project
   const espnAlone = s.espn;
   const scored = "scored with your league's rules";
   const espnFor = espnAlone ? `ESPN's own for ${plural(espnAlone, "player")} Sleeper doesn't project` : "";
-  const aside = agreementAside(agreement?.leftOut);
-  // The players compared, with the positions the test left aside (only when it left some: nothing to say otherwise).
+  const aside = agreementAside(agreement?.leftOut, agreement?.leftOutStatuses);
+  // The players compared, with whom the test left aside (only when it left some: nothing to say otherwise).
   const compared = agreement && aside ? `${plural(agreement.players, "rostered player")}${aside}` : "";
+  // Averaged: the positions left aside are averaged too once the test passes; the tagged players aren't said to be.
+  const positionsAside = agreementLeftOutText(agreement?.leftOut);
+  const averagedToo = !positionsAside ? "" : agreement?.leftOutStatuses?.length ? `, though ${positionsAside} are averaged too` : ", though theirs are averaged too";
   if (model.projection.espnAveraged && s["espn+sleeper"] > 0) {
-    const within = `they agree within ${agreementPercent(agreement?.meanRelDiff ?? 0)} on average this week${compared ? ` over ${compared}, though theirs are averaged too` : ""}`;
+    const within = `they agree within ${agreementPercent(agreement?.meanRelDiff ?? 0)} on average this week${compared ? ` over ${compared}${averagedToo}` : ""}`;
     return {
       label: "ESPN and Sleeper, averaged",
       from: `Sleeper's projection, ${scored}, averaged with ESPN's own projection (${within})${espnFor ? `; ${espnFor}` : ""}`,

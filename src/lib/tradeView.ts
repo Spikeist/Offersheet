@@ -1969,33 +1969,37 @@ function returnsWhen(week: number, returner: string, snapshot: SnapshotPart): st
 
 /**
  * Why the near-tie rule released a player at an IR player's return, in words (Checkpoint 7f; planner reply to Checkpoint 7e,
- * answer 4: "keep the rule, but the card must say why. For example: “Week 7, when Alec Pierce returns from IR: release him. He
- * and Marvin Harrison Jr. are nearly even for your lineup, and Harrison Jr. has more trade value. Lock Pierce to keep him
- * instead.”"; NearTieRelease, returners.Displacement.keptInstead): the sentences after the release's line (releaseLine,
- * myMovesLines): "He and Marvin Harrison Jr. are nearly even for your lineup, and Harrison Jr. has more trade value.", then,
- * when the player released is mine as imported (NearTieRelease.lockable: the League page's lock is there), "Lock Pierce to
- * keep him instead." ⚠️ Ours, the planner's sentence made a rule for every line:
- * - "He" when the line before ends naming the player released (`endsOnReleased`: "release him.", "release Kyle Pitts Sr.
- *   (TE)."), else his surname ("… and keep Kyle Pitts Sr. (TE). Pierce and Marvin Harrison Jr. are …");
+ * answer 4: "keep the rule, but the card must say why"; since Checkpoint 7g the planner's reply to Checkpoint 7f, answer 5:
+ * "use “Week 7, when Alec Pierce returns from IR: release him. From week 7 on, he and Marvin Harrison Jr. add about the same
+ * to your starting lineup, and Harrison Jr. has more trade value. Lock Pierce to keep him instead.”"; NearTieRelease,
+ * returners.Displacement.keptInstead): the sentences after the release's line (releaseLine, myMovesLines): "From week 7 on, he
+ * and Marvin Harrison Jr. add about the same to your starting lineup, and Harrison Jr. has more trade value.", then, when the
+ * player released is mine as imported (NearTieRelease.lockable: the League page's lock is there), "Lock Pierce to keep him
+ * instead." (Checkpoint 7f's words: "He and Marvin Harrison Jr. are nearly even for your lineup, …".) ⚠️ Ours, the planner's
+ * sentence made a rule for every line:
+ * - the week the return week (`week`: the release's, which its line starts with), "From then on" when the line has none
+ *   ("When Alec Pierce returns from IR: …"), the week the rule compares the two from (returners.ts, item 2);
+ * - "he" when the line before ends naming the player released (`endsOnReleased`: "release him.", "release Kyle Pitts Sr.
+ *   (TE)."), else his surname ("… and keep Kyle Pitts Sr. (TE). From week 7 on, Pierce and Marvin Harrison Jr. add …");
  * - the player kept by his full name the first time, by surname after, and by surname both times when the line already named
- *   him (`named`: the returner, the trade's "before"'s release: "He and Pierce are nearly even …");
+ *   him (`named`: the returner, the trade's "before"'s release: "From week 7 on, he and Pierce add …");
  * - surnames as names.ts says them ("Pierce", "Harrison Jr.", "St. Brown"); either player by his full name, both times,
  *   whenever his surname is another's the line names (the other of the two, the returner, the "before"'s release: `named`) or
  *   another's on my roster (`roster`: myRosterIds), so a bare surname never names two people (review of Checkpoint 7f,
  *   PIERCE-3: "… and keep Roman Wilson. Wilson and Marvin Harrison Jr. are …" read as either Wilson);
- * - a D/ST by its name, never "He", and "it" ("Lock Giants D/ST to keep it instead.");
+ * - a D/ST by its name, never "he", and "it" ("Lock Giants D/ST to keep it instead.");
  * - the lock where it is: "Lock Pierce to keep him instead." on the League page (`page` "league": its roster card holds the
  *   lock), "Lock Pierce on the League page to keep him instead." on a trade page (`page` "trade": the cards, Plan B boxes,
  *   offers and the Analyzer's card, which have no lock; review of Checkpoint 7f, INTEGRATION-5).
- * The rule decided it, so it holds by construction: what losing either costs the lineup from the return on is within the
- * rule's tolerance, and the player kept is worth more then (returners.ts, the file header). Which one is worth more, in words:
- * no FantasyCalc value. Empty when either player isn't in the league's data.
+ * The rule decided it, so it holds by construction: what losing either costs the starting lineup from the return week on is
+ * within the rule's tolerance, and the player kept is worth more then (returners.ts, the file header). Which one is worth
+ * more, in words: no FantasyCalc value. Empty when either player isn't in the league's data.
  */
 export function releaseReason(
   released: string,
   nearTie: NearTieRelease,
   snapshot: SnapshotPart,
-  opts: { endsOnReleased: boolean; page: ReleasePage; named?: readonly (string | undefined)[]; roster?: readonly string[] | undefined },
+  opts: { week: number; endsOnReleased: boolean; page: ReleasePage; named?: readonly (string | undefined)[]; roster?: readonly string[] | undefined },
 ): string {
   const p = snapshot.players[released];
   const k = typeof nearTie.keptInstead === "string" ? snapshot.players[nearTie.keptInstead] : undefined;
@@ -2010,10 +2014,11 @@ export function releaseReason(
   const pShort = shared(released, p) ? p.name : surname(p.name, p.pos);
   const kShort = shared(nearTie.keptInstead, k) ? k.name : surname(k.name, k.pos);
   const team = p.pos === "DEF";
-  const subject = opts.endsOnReleased ? (team ? p.name : "He") : pShort;
+  const subject = opts.endsOnReleased ? (team ? p.name : "he") : pShort;
   const kFirst = opts.named?.includes(nearTie.keptInstead) ? kShort : k.name;
+  const from = Number.isFinite(opts.week) ? `From week ${opts.week} on` : "From then on";
   const lock = nearTie.lockable === true ? ` Lock ${pShort}${opts.page === "trade" ? " on the League page" : ""} to keep ${team ? "it" : "him"} instead.` : "";
-  return `${subject} and ${kFirst} are nearly even for your lineup, and ${kShort} has more trade value.${lock}`;
+  return `${from}, ${subject} and ${kFirst} add about the same to your starting lineup, and ${kShort} has more trade value.${lock}`;
 }
 
 /**
@@ -2038,13 +2043,14 @@ export function myRosterIds(snapshot: Pick<SnapshotPart, "teams">, myTeamId: str
  * since Checkpoint 7f the League page's "Returns from IR", leagueView.ts RosterCard.returns): "Week 7, when Alec Pierce returns
  * from IR: release him instead of dropping someone else." (the returner himself), "…: release Kyle Pitts Sr. (TE)."; and when
  * the near-tie rule decided it, its reason after it (releaseReason, on `page`, with `roster`), the returner himself then just
- * "release him." (the planner's words: "Week 7, when Alec Pierce returns from IR: release him. He and Marvin Harrison Jr. are
- * nearly even for your lineup, and Harrison Jr. has more trade value. Lock Pierce to keep him instead."). A release made with
- * or without a trade isn't worded here: it joins the card's assumed line (assumedReleaseText).
+ * "release him." (the planner's words, since Checkpoint 7g: "Week 7, when Alec Pierce returns from IR: release him. From week
+ * 7 on, he and Marvin Harrison Jr. add about the same to your starting lineup, and Harrison Jr. has more trade value. Lock
+ * Pierce to keep him instead."). A release made with or without a trade isn't worded here: it joins the card's assumed line
+ * (assumedReleaseText).
  */
 export function releaseLine(r: { week: number; player: string; returner: string; nearTie?: NearTieRelease | undefined }, snapshot: SnapshotPart, opts: { page: ReleasePage; roster?: readonly string[] | undefined }): string {
   const info = snapshot.players[r.player];
-  const reason = r.nearTie ? releaseReason(r.player, r.nearTie, snapshot, { endsOnReleased: true, named: [r.returner], page: opts.page, roster: opts.roster }) : "";
+  const reason = r.nearTie ? releaseReason(r.player, r.nearTie, snapshot, { week: r.week, endsOnReleased: true, named: [r.returner], page: opts.page, roster: opts.roster }) : "";
   const whom = r.player === r.returner ? (reason ? "him" : "him instead of dropping someone else") : info ? `${info.name} (${posLabel(info.pos, snapshot.platform)})` : GONE_PLAYER;
   return `${returnsWhen(r.week, r.returner, snapshot)}: release ${whom}.${reason ? ` ${reason}` : ""}`;
 }
@@ -2201,7 +2207,7 @@ export function myMovesLines(moves: RosterMoves, snapshot: SnapshotPart, partner
           // keep him" read as keeping the player just released).
           const line = m.kept ? `${when}: ${go} and keep ${m.instead === m.returner ? plain(m.returner) : who(m.instead)}.` : `${when}: ${go}; without this trade, ${who(m.instead)} would go then.`;
           // Checkpoint 7f: why the near-tie rule decided it; the line ends naming another player, so the reason names him.
-          const reason = m.nearTie ? releaseReason(m.player, m.nearTie, snapshot, { endsOnReleased: false, named: [m.returner, m.instead], page: "trade", roster: opts.roster }) : "";
+          const reason = m.nearTie ? releaseReason(m.player, m.nearTie, snapshot, { week: m.week, endsOnReleased: false, named: [m.returner, m.instead], page: "trade", roster: opts.roster }) : "";
           out.push(reason ? `${line} ${reason}` : line);
         } else out.push(releaseLine(m, snapshot, { page: "trade", roster: opts.roster }));
         break;

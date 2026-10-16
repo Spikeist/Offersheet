@@ -695,13 +695,22 @@ export function nowOrLaterProblems(cards: readonly NowOrLaterRead[], want: { min
 }
 
 /**
- * A release at an IR return with the near-tie rule's reason after it (Checkpoint 7f; planner reply to Checkpoint 7e, answer 4:
- * "Week 7, when Alec Pierce returns from IR: release him. He and Marvin Harrison Jr. are nearly even for your lineup, and
- * Harrison Jr. has more trade value. Lock Pierce to keep him instead."; tradeView.ts releaseReason). Its lock's sentence says
- * where the lock is on a trade page ("Lock Pierce on the League page to keep him instead.": the review of Checkpoint 7f,
- * INTEGRATION-5) and not on the League page, whose roster card holds it: releaseLineProblems checks which (RELEASE_LOCK).
+ * A release at an IR return with the near-tie rule's reason after it (Checkpoint 7f; planner reply to Checkpoint 7e, answer 4;
+ * since Checkpoint 7g the planner's reply to Checkpoint 7f, answer 5: "Week 7, when Alec Pierce returns from IR: release him.
+ * From week 7 on, he and Marvin Harrison Jr. add about the same to your starting lineup, and Harrison Jr. has more trade
+ * value. Lock Pierce to keep him instead."; tradeView.ts releaseReason). Its week is the line's own, the return week ("From
+ * then on" when the line has none: "When Alec Pierce returns from IR: …"); the groups capture both, and releaseLineProblems
+ * checks they agree. Its lock's sentence says where the lock is on a trade page ("Lock Pierce on the League page to keep him
+ * instead.": the review of Checkpoint 7f, INTEGRATION-5) and not on the League page, whose roster card holds it:
+ * releaseLineProblems checks which (RELEASE_LOCK).
  */
-export const RELEASE_REASON = /^(?:Week \d+, )?[Ww]hen .+ returns from IR: .+\. (?:He|.+) and .+ are nearly even for your lineup, and .+ has more trade value\.(?: Lock .+ to keep (?:him|it) instead\.)?$/;
+export const RELEASE_REASON = /^(?:Week (\d+), )?[Ww]hen .+ returns from IR: .+\. From (?:week (\d+)|then) on, .+ and .+ add about the same to your starting lineup, and .+ has more trade value\.(?: Lock .+ to keep (?:him|it) instead\.)?$/;
+
+/** What marks a line about a release as carrying the near-tie rule's reason (RELEASE_REASON's middle; Checkpoint 7g's words). */
+export const RELEASE_REASON_MARK = " add about the same to your starting lineup";
+
+/** Checkpoint 7f's words for the reason ("He and Marvin Harrison Jr. are nearly even for your lineup, …"): no line carries them now. */
+const RELEASE_REASON_7F = " are nearly even for your lineup";
 
 /** A release's lock sentence, at the end of its reason: "Lock Pierce to keep him instead.", "Lock Pierce on the League page to keep him instead." */
 export const RELEASE_LOCK = / Lock .+ to keep (?:him|it) instead\.$/;
@@ -717,15 +726,18 @@ export const RELEASE_EITHER_WAY = /^Assumed with or without this trade: (?:.+(?:
 /**
  * What's wrong with a page's lines about a release at an IR return (Checkpoint 7f; inPage.ts READ_RELEASE_LINES: a card's
  * roster moves, a Plan B box's and an offer's, on a trade page; the "Returns from IR" of my roster card on the League page,
- * `page` "league"): a line with the near-tie rule's reason reads as RELEASE_REASON, never keeps "instead of dropping someone
- * else" (the planner's "release him.") and, on a trade page, says its lock is on the League page (the League page's doesn't);
- * a release made with or without the trade reads as RELEASE_EITHER_WAY. Empty when every line is right.
+ * `page` "league"): a line with the near-tie rule's reason reads as RELEASE_REASON (Checkpoint 7f's words don't), counts from
+ * its own return week ("From week 7 on" after "Week 7, …", "From then on" in a line without a week), never keeps "instead of
+ * dropping someone else" (the planner's "release him.") and, on a trade page, says its lock is on the League page (the League
+ * page's doesn't); a release made with or without the trade reads as RELEASE_EITHER_WAY. Empty when every line is right.
  */
 export function releaseLineProblems(lines: readonly string[], page: "league" | "trade"): string[] {
   const out: string[] = [];
   for (const line of lines) {
-    const reason = line.includes(" are nearly even for your lineup");
-    if (reason && !RELEASE_REASON.test(line)) out.push(`a release's reason reads “${line}”`);
+    const reason = line.includes(RELEASE_REASON_MARK) || line.includes(RELEASE_REASON_7F);
+    const words = reason ? RELEASE_REASON.exec(line) : null;
+    if (reason && !words) out.push(`a release's reason reads “${line}”`);
+    if (words && words[1] !== words[2]) out.push(`a release's reason doesn't count from its return week: “${line}”`);
     if (reason && line.includes("instead of dropping someone else")) out.push(`a release with a reason still says “instead of dropping someone else”: “${line}”`);
     const lock = RELEASE_LOCK.exec(line)?.[0] ?? null;
     if (lock && page === "trade" && !lock.includes(" on the League page to keep ")) out.push(`a release's lock doesn't say it's on the League page: “${line}”`);

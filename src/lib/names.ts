@@ -1,8 +1,9 @@
 /**
  * Players' names in short (CLAUDE.md §14): shortName, "J. Jefferson", for the League page's chips and Waiver upgrades (moved
  * here from leagueView.ts, which still exports it, at Checkpoint 7f), and surname, "Jefferson", for a release's reason on a
- * trade card and the League page ("He and Marvin Harrison Jr. are nearly even for your lineup, and Harrison Jr. has more
- * trade value."; tradeView.ts releaseReason). A light module, so the Trade Finder needn't load the League page's view model.
+ * trade card and the League page ("From week 7 on, he and Marvin Harrison Jr. add about the same to your starting lineup, and
+ * Harrison Jr. has more trade value."; tradeView.ts releaseReason). A light module, so the Trade Finder needn't load the
+ * League page's view model.
  * Pure: no I/O.
  */
 import type { Pos } from "@/engine/model";
