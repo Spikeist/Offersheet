@@ -94,8 +94,9 @@
  * Returns from IR (Checkpoint 7f; planner reply to Checkpoint 7e, answer 4: "keep the rule, but the card must say why"; the
  * lead's R2): my roster card, after its pickups, says whom the odds assume I release at each of my IR players' returns
  * (RosterCard.returns: TeamModel.displacedWithPickups), in a trade card's words (tradeView.ts releaseLine), with why when
- * the near-tie rule decided it ("He and Marvin Harrison Jr. are nearly even for your lineup, and Harrison Jr. has more trade
- * value. Lock Pierce to keep him instead."): the lock is on that same card. Until then no page said who goes.
+ * the near-tie rule decided it (since Checkpoint 7g the planner's reply to Checkpoint 7f, answer 5: "From week 7 on, he and
+ * Marvin Harrison Jr. add about the same to your starting lineup, and Harrison Jr. has more trade value. Lock Pierce to keep
+ * him instead."): the lock is on that same card. Until then no page said who goes.
  *
  * Trade chips (§7; planner reply to Checkpoint 2, answer 2) replaced Phase 2's surplus chips: a chip
  * reads "C. McCaffrey: worth +33 to Team 2 · costs you 6.1 pts/wk" (his gap: what Team 2 would gain minus
@@ -580,10 +581,11 @@ export interface RosterCard {
    * roster card only, under RETURNS_FROM_IR_LABEL after the pickups: what the odds assume at each of my IR players' returns
    * (TeamModel.displacedWithPickups, the team after its pickups), one line each in a trade card's words (tradeView.ts
    * releaseLine): "Week 7, when Alec Pierce returns from IR: release him instead of dropping someone else.", and when the
-   * near-tie rule decided it, why ("Week 7, when Alec Pierce returns from IR: release him. He and Marvin Harrison Jr. are
-   * nearly even for your lineup, and Harrison Jr. has more trade value. Lock Pierce to keep him instead.", the lock offered
-   * for a player on my active roster or IR, whose lock is on this card). Null for every other team, and when nobody is
-   * released (or a model built before Phase 7b, which doesn't say).
+   * near-tie rule decided it, why ("Week 7, when Alec Pierce returns from IR: release him. From week 7 on, he and Marvin
+   * Harrison Jr. add about the same to your starting lineup, and Harrison Jr. has more trade value. Lock Pierce to keep him
+   * instead.", the planner's words since Checkpoint 7g, the lock offered for a player on my active roster or IR, whose lock
+   * is on this card). Null for every other team, and when nobody is released (or a model built before Phase 7b, which doesn't
+   * say).
    */
   returns: string[] | null;
   /**

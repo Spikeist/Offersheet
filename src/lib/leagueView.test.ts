@@ -2037,14 +2037,14 @@ describe("buildLeagueView: my IR players' returns (Checkpoint 7f; planner reply 
     expect(returns(withReleases([{ id: "108", week: 15, returner: "107" }]))).toEqual([`${when}: release ${nameOf("108")} (TE).`]);
     // The rule decided: the reason, and the lock for my player (it's on this card).
     expect(returns(withReleases([{ id: "107", week: 15, returner: "107", keptInstead: "106" }]))).toEqual([
-      `${when}: release him. He and ${nameOf("106")} are nearly even for your lineup, and Spoons has more trade value. Lock Fiddlesticks to keep him instead.`,
+      `${when}: release him. From week 15 on, he and ${nameOf("106")} add about the same to your starting lineup, and Spoons has more trade value. Lock Fiddlesticks to keep him instead.`,
     ]);
     expect(returns(withReleases([{ id: "108", week: 15, returner: "107", keptInstead: "106" }]))).toEqual([
-      `${when}: release ${nameOf("108")} (TE). He and ${nameOf("106")} are nearly even for your lineup, and Spoons has more trade value. Lock Thimble to keep him instead.`,
+      `${when}: release ${nameOf("108")} (TE). From week 15 on, he and ${nameOf("106")} add about the same to your starting lineup, and Spoons has more trade value. Lock Thimble to keep him instead.`,
     ]);
     // A free agent my pickups add (not on my roster as imported): no lock to offer.
     expect(returns(withReleases([{ id: "901", week: 15, returner: "107", keptInstead: "106" }]))).toEqual([
-      `${when}: release ${nameOf("901")} (RB). He and ${nameOf("106")} are nearly even for your lineup, and Spoons has more trade value.`,
+      `${when}: release ${nameOf("901")} (RB). From week 15 on, he and ${nameOf("106")} add about the same to your starting lineup, and Spoons has more trade value.`,
     ]);
     // Two of my players on IR, two returns: one line each, in the engine's order (by week).
     const two = withReleases([
@@ -2054,7 +2054,7 @@ describe("buildLeagueView: my IR players' returns (Checkpoint 7f; planner reply 
     two.snapshot = { ...two.snapshot, teams: two.snapshot.teams.map((t) => (t.id === "1" ? { ...t, roster: t.roster.filter((id) => id !== "103"), ir: [...t.ir, "103"] } : t)) };
     expect(returns(two)).toEqual([
       `${when}: release ${nameOf("108")} (TE).`,
-      `Week 16, when ${nameOf("103")} returns from IR: release ${nameOf("105")} (WR). He and ${nameOf("106")} are nearly even for your lineup, and Spoons has more trade value. Lock Oddfellow to keep him instead.`,
+      `Week 16, when ${nameOf("103")} returns from IR: release ${nameOf("105")} (WR). From week 16 on, he and ${nameOf("106")} add about the same to your starting lineup, and Spoons has more trade value. Lock Oddfellow to keep him instead.`,
     ]);
   });
 
@@ -2063,10 +2063,10 @@ describe("buildLeagueView: my IR players' returns (Checkpoint 7f; planner reply 
     const renamed = (id: string, name: string) => ({ ...f.snapshot.players[id], name }) as LeagueFixture["snapshot"]["players"][string];
     // 102 is on my roster: "Thimble" alone could be either of two players of mine.
     f.snapshot = { ...f.snapshot, players: { ...f.snapshot.players, "102": renamed("102", "Ophelia Thimble") } };
-    expect(returns(f)).toEqual([`${when}: release ${nameOf("108")} (TE). He and ${nameOf("106")} are nearly even for your lineup, and Spoons has more trade value. Lock ${nameOf("108")} to keep him instead.`]);
+    expect(returns(f)).toEqual([`${when}: release ${nameOf("108")} (TE). From week 15 on, he and ${nameOf("106")} add about the same to your starting lineup, and Spoons has more trade value. Lock ${nameOf("108")} to keep him instead.`]);
     // Another team's player sharing it (201, team 2's) changes nothing.
     f.snapshot = { ...f.snapshot, players: { ...f.snapshot.players, "102": renamed("102", nameOf("102")), "201": renamed("201", "Ophelia Thimble") } };
-    expect(returns(f)).toEqual([`${when}: release ${nameOf("108")} (TE). He and ${nameOf("106")} are nearly even for your lineup, and Spoons has more trade value. Lock Thimble to keep him instead.`]);
+    expect(returns(f)).toEqual([`${when}: release ${nameOf("108")} (TE). From week 15 on, he and ${nameOf("106")} add about the same to your starting lineup, and Spoons has more trade value. Lock Thimble to keep him instead.`]);
   });
 
   it("only on my roster card, from the odds' own roster (after the pickups); none without a release, without a team of mine, or in a model that doesn't say", () => {

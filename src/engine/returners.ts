@@ -191,10 +191,11 @@ export interface Displacement {
    * Checkpoint 7f (planner reply to Checkpoint 7e, answer 4: "keep the rule, but the card must say why"): the near-tie rule
    * decided this release, and this is the player the lineup alone would have released (teamValue.lowestKeepValue with no
    * tolerance), kept for his trade value. By the rule's own order his keep value is below `id`'s by at most the tolerance
-   * and his trade value from the return week on, floored at W, is above `id`'s (the file header, item 2), so "the two are
-   * nearly even for your lineup, and he has more trade value" (tradeView.ts releaseReason) holds. Never one the team keeps
-   * (my untouchables aren't candidates). Absent: the lineup decided it (exact ties by value, as before), and always with
-   * long-term values (exact ties only). It only adds: the pick, the lineups and every number are as without it.
+   * and his trade value from the return week on, floored at W, is above `id`'s (the file header, item 2), so "from the
+   * return week on, the two add about the same to your starting lineup, and he has more trade value" (tradeView.ts
+   * releaseReason) holds. Never one the team keeps (my untouchables aren't candidates). Absent: the lineup decided it (exact
+   * ties by value, as before), and always with long-term values (exact ties only). It only adds: the pick, the lineups and
+   * every number are as without it.
    */
   readonly keptInstead?: string;
 }

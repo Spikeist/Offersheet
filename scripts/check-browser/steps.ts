@@ -205,6 +205,7 @@ import {
   PLAYOFF_WEIGHT_RANGE,
   playoffWeightRead,
   prizeGroupProblems,
+  RELEASE_REASON_MARK,
   releaseLineProblems,
   requestNamesAddress,
   rowCount,
@@ -1078,9 +1079,11 @@ export async function leagueStep(ctx: StepContext): Promise<void> {
 /**
  * Every line about a release at an IR return on the page as it stands (Checkpoint 7f; planner reply to Checkpoint 7e, answer 4:
  * "keep the rule, but the card must say why"; inPage.ts READ_RELEASE_LINES: the lists of roster moves alone, the review of
- * Checkpoint 7f, PIERCE-1) reads as the cards word it (contracts.ts releaseLineProblems): a reason in the planner's shape, never
- * after "instead of dropping someone else", its lock where it is (`page`), and a release made with or without the trade named
- * in the line of moves made either way. A skip when the page shows none (no IR player of mine, or room for every return).
+ * Checkpoint 7f, PIERCE-1) reads as the cards word it (contracts.ts releaseLineProblems): a reason in the planner's shape
+ * (since Checkpoint 7g "From week 7 on, he and … add about the same to your starting lineup, …", from the line's own return
+ * week), never after "instead of dropping someone else", its lock where it is (`page`), and a release made with or without
+ * the trade named in the line of moves made either way. A skip when the page shows none (no IR player of mine, or room for
+ * every return).
  */
 async function releaseLineChecks(ctx: StepContext, step: string, where: string, on: "league" | "trade"): Promise<void> {
   const { page, report } = ctx;
@@ -1089,7 +1092,7 @@ async function releaseLineChecks(ctx: StepContext, step: string, where: string, 
     report.skip(step, `${where}: no release at an IR return to read`);
     return;
   }
-  const reasons = lines.filter((l) => l.includes(" are nearly even for your lineup")).length;
+  const reasons = lines.filter((l) => l.includes(RELEASE_REASON_MARK)).length;
   const either = lines.filter((l) => l.startsWith("Assumed with or without this trade")).length;
   const problems = releaseLineProblems(lines, on);
   report.check(

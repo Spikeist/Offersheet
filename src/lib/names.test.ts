@@ -1,7 +1,8 @@
 /**
  * Players' names in short (src/lib/names.ts): surname for a release's reason (Checkpoint 7f; planner reply to Checkpoint 7e,
- * answer 4: "He and Marvin Harrison Jr. are nearly even for your lineup, and Harrison Jr. has more trade value. Lock Pierce to
- * keep him instead."), and shortName as the League page had it (leagueView.test.ts holds its cases too, through the re-export).
+ * answer 4; since Checkpoint 7g the planner's reply to Checkpoint 7f, answer 5: "From week 7 on, he and Marvin Harrison Jr. add
+ * about the same to your starting lineup, and Harrison Jr. has more trade value. Lock Pierce to keep him instead."), and
+ * shortName as the League page had it (leagueView.test.ts holds its cases too, through the re-export).
  */
 import { describe, expect, it } from "vitest";
 import { shortName as leagueShortName } from "./leagueView";

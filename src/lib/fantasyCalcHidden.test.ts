@@ -280,9 +280,9 @@ describe("no trade value shows on the trade pages (planner reply to Checkpoint 7
     for (const s of stringsOf(card)) expectHidden("a card with a release's reason (its view)", s);
     // The reason is there, in words, on the card's moves and its box's (a release the trade changes); one made either way is
     // named in the line of moves made either way, without it (review of Checkpoint 7f, INTEGRATION-4).
-    expect(card.required.join(" ")).toContain("are nearly even for your lineup, and Oddfellow has more trade value. Lock Thimble on the League page to keep him instead.");
+    expect(card.required.join(" ")).toContain("add about the same to your starting lineup, and Oddfellow has more trade value. Lock Thimble on the League page to keep him instead.");
     expect(card.planB?.moves).toEqual([
-      "Week 15, when Humbert Fiddlesticks returns from IR: release Tobias Thimble (TE) and keep Wiggleton Spoons (WR). Thimble and Glimmer Oddfellow are nearly even for your lineup, and Oddfellow has more trade value. Lock Thimble on the League page to keep him instead.",
+      "Week 15, when Humbert Fiddlesticks returns from IR: release Tobias Thimble (TE) and keep Wiggleton Spoons (WR). From week 15 on, Thimble and Glimmer Oddfellow add about the same to your starting lineup, and Oddfellow has more trade value. Lock Thimble on the League page to keep him instead.",
       "Assumed with or without this trade: release Wiggleton Spoons in week 16, when Humbert Fiddlesticks returns from IR.",
     ]);
   });
@@ -483,7 +483,7 @@ describe("no trade value shows on the League page (planner reply to Checkpoint 7
     const { view, html } = page(f);
     expectHidden("my roster card's returns from IR", html);
     for (const s of stringsOf(view)) expectHidden("the League page's view, returns from IR", s);
-    expect(view.rosters.find((r) => r.isMine)?.returns?.[0]).toContain("are nearly even for your lineup, and Spoons has more trade value.");
+    expect(view.rosters.find((r) => r.isMine)?.returns?.[0]).toContain("From week 15 on, he and Wiggleton Spoons add about the same to your starting lineup, and Spoons has more trade value.");
     expect(html).toContain("Returns from IR");
   });
 });
