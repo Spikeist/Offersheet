@@ -1,6 +1,6 @@
 # Status: Offer Sheet (folder: fantasy-trade-finder)
 
-**Current phase:** Checkpoint 7c approved and tagged `checkpoint-7c` on 2026-10-09 (the launch candidate). Checkpoint 7d (the planner's reply to Checkpoint 7c) approved and tagged `checkpoint-7d` on 2026-10-14. **Offer Sheet is live** at https://offersheet.vercel.app since 2026-10-14: production serves `checkpoint-7d` (offersheet-e50m4rlg3-parker-daniels.vercel.app), deployed after Parker's "go" through `npm run prod:deploy`; `--verify` passes every check. **Checkpoint 7e** (the planner's reply to Checkpoint 7d: launch-week fixes) approved and tagged `checkpoint-7e` (cec277a) on 2026-10-15; no separate 7e deploy (the planner's reply to Checkpoint 7f). **Checkpoint 7f** (the planner's reply to Checkpoint 7e) approved and tagged `checkpoint-7f` (9940b6f) on 2026-10-16; production keeps serving `checkpoint-7d` until Parker's go for 7f, which includes 7e. **Checkpoint 7g** (the planner's reply to Checkpoint 7f) starts after that deploy.
+**Current phase:** Checkpoint 7c approved and tagged `checkpoint-7c` on 2026-10-09 (the launch candidate). Checkpoint 7d (the planner's reply to Checkpoint 7c) approved and tagged `checkpoint-7d` on 2026-10-14. **Offer Sheet is live** at https://offersheet.vercel.app since 2026-10-14: production serves `checkpoint-7d` (offersheet-e50m4rlg3-parker-daniels.vercel.app), deployed after Parker's "go" through `npm run prod:deploy`; `--verify` passes every check. **Checkpoint 7e** (the planner's reply to Checkpoint 7d: launch-week fixes) approved and tagged `checkpoint-7e` (cec277a) on 2026-10-15; no separate 7e deploy (the planner's reply to Checkpoint 7f). **Checkpoint 7f** (the planner's reply to Checkpoint 7e) approved and tagged `checkpoint-7f` (9940b6f) on 2026-10-16, and **deployed to production** the same day after Parker's go (offersheet-5o2i7zpot-parker-daniels.vercel.app, 7e included; `--verify` passes every check). **Checkpoint 7g** (the planner's reply to Checkpoint 7f) is in progress.
 **Last updated:** 2026-10-16
 
 | Phase | State |
@@ -17,12 +17,12 @@
 | 7c: The planner's reply to Checkpoint 7b: the launch candidate | ✅ approved 2026-10-09 (tag `checkpoint-7c`). See `reports/checkpoint-7c.md` and `reports/planner-reply-7c.md`. |
 | 7d: The planner's reply to Checkpoint 7c | ✅ approved 2026-10-14 (tag `checkpoint-7d`). See `reports/checkpoint-7d.md`. |
 | 7e: The planner's reply to Checkpoint 7d: launch-week fixes | ✅ approved 2026-10-15 (tag `checkpoint-7e`; no separate deploy: production gets it with 7f). See `reports/checkpoint-7e.md` and `reports/planner-reply-7e.md`. |
-| 7f: The planner's reply to Checkpoint 7e | ✅ approved 2026-10-16 (tag `checkpoint-7f`; production deploys it, 7e included, after Parker's go). See `reports/checkpoint-7f.md` and `reports/planner-reply-7f.md`. |
-| 7g: The planner's reply to Checkpoint 7f | ⏳ next, after the 7f deploy (aim: Monday, October 19). See `reports/planner-reply-7f.md`. |
-| 7: Production | ✅ live since 2026-10-14: `checkpoint-7d` (offersheet-e50m4rlg3-parker-daniels.vercel.app), `npm run prod:deploy -- --verify --checkpoint checkpoint-7d` all ✅; rollback target the landing page (offersheet-dtgsgk03x-parker-daniels.vercel.app) until the next production deploy |
+| 7f: The planner's reply to Checkpoint 7e | ✅ approved 2026-10-16 (tag `checkpoint-7f`), live since 2026-10-16 (7e included). See `reports/checkpoint-7f.md` and `reports/planner-reply-7f.md`. |
+| 7g: The planner's reply to Checkpoint 7f | 🔨 in progress (aim: Monday, October 19). See `reports/planner-reply-7f.md`. |
+| 7: Production | ✅ live since 2026-10-14; serves `checkpoint-7f` since 2026-10-16 (offersheet-5o2i7zpot-parker-daniels.vercel.app, deployed by Parker), `npm run prod:deploy -- --verify --checkpoint checkpoint-7f` all ✅; Instant Rollback reaches `checkpoint-7d`'s deployment (offersheet-e50m4rlg3-parker-daniels.vercel.app) |
 | 5–6 | ⏸ after the launch (order: 5 → 6) |
 
-## Phase 7g (next, after the 7f deploy)
+## Phase 7g (in progress)
 - [ ] 1. The Jacobs fix ("his first full week back", without 1a)
 - [ ] 2. Merged cards: (a) the Last offer can be a smaller ask, (b) a step prefers a version on the list, (c) a version at least as good on both numbers drops the other
 - [ ] 3. The averaging test leaves questionable players out too
@@ -40,7 +40,7 @@
 - [x] 6. The averaging test leaves kickers and D/STs out (they decide 1 of 12 saved readings; today nothing moves)
 - [x] Five build tracks, merged; a six-way review of the merged build (28 findings: 1 high, 3 medium) and three fix tracks; the final timings on a quiet machine
 - [x] Gate green (290 files, 5,596 tests, typecheck, lint, build, leak check 0 hard hits); `npm run check:browser -- --live --team 3` 180 passed, 0 failed; `npm run prod:deploy -- --ref HEAD` on f148937: all 14 checks ✅
-- [x] Parker's approval, then the tag `checkpoint-7f` (9940b6f); production after his go (7e included, no separate 7e deploy: `reports/planner-reply-7f.md`)
+- [x] Parker's approval, then the tag `checkpoint-7f` (9940b6f); deployed to production on 2026-10-16 after his go (7e included, no separate 7e deploy: `reports/planner-reply-7f.md`); `--verify` all ✅
 
 ## Phase 7e (done; approved 2026-10-15)
 - [x] 1.1: 20,000 seasons for every number a page prints (the top 5's Helps you spread 1–2 across seeds, 3 at 5,000); the search still ranks on 5,000
@@ -105,7 +105,7 @@
 - The shared store's readers, read-only (`READONLY_STORE_URL` and `READONLY_STORE_TOKEN` typed into .env.local by hand; add `--env production` after launch, except for `snapshot:pull`, which reads production by default): `npm run beta:log -- --live`, `npm run usage:report -- --live`, `npm run feedback:report -- --live`, `npm run snapshot:pull -- --live`
 
 ## Waiting on Parker
-- Checkpoint 7f (approved and tagged): your dry run, `npm run prod:deploy -- --checkpoint checkpoint-7f` (every line ✅), then your go; the deploy is `npm run prod:deploy -- --live --checkpoint checkpoint-7f`, then reload any open Offer Sheet tab and check your phone (`reports/beta-infrastructure.md`, "A normal deploy"). Checkpoint 7g starts after the deploy.
+- Checkpoint 7g: in progress; its report is next (`reports/planner-reply-7f.md` lists what it includes).
 - `npm run stable` serves `checkpoint-7f` from its next run. The cron's first production run finished on 2026-10-14 (the planner: DONE, 3.2 s).
 - In Settings for your league: "What does your league reward?" → "Several prizes", with 2000, 1600 and 900.
 - After launch, to read the beta's usage: type the values of Vercel's `KV_REST_API_URL` and `KV_REST_API_READ_ONLY_TOKEN` into .env.local as `READONLY_STORE_URL` and `READONLY_STORE_TOKEN`.
