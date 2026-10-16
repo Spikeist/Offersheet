@@ -333,13 +333,14 @@ first such run).
 
 The planner (reply to Checkpoint 7d): "The one-time launch steps (secrets and firewall rules) are done, so a normal
 deploy is the dry run, Parker's go, the deploy with its checks, and his phone check." PowerShell, one command per line,
-in the project folder, with the approved tag (for Checkpoint 7e, `checkpoint-7e`, once Parker approves it and it's
-tagged):
+in the project folder, with the approved tag: `checkpoint-7f` since the planner's reply to Checkpoint 7f ("Skip a
+separate 7e deploy. Production deploys 7f, which includes 7e, after Parker's go"; `prod:deploy` deploys only the newest
+checkpoint tag anyway):
 
 1. **The dry run** (it uploads nothing; every line must be ✅; it names the rollback target, the deployment production
-   serves until then: `checkpoint-7d`'s, offersheet-e50m4rlg3-parker-daniels.vercel.app, until 7e deploys):
+   serves until then: `checkpoint-7d`'s, offersheet-e50m4rlg3-parker-daniels.vercel.app, until 7f deploys):
    ```
-   npm run prod:deploy -- --checkpoint checkpoint-7e
+   npm run prod:deploy -- --checkpoint checkpoint-7f
    ```
 
 **Parker writes "go."**
@@ -347,8 +348,8 @@ tagged):
 2. **The deploy**, then the checks again only with `--verify`, never a second `--live` (Hobby's Instant Rollback reaches
    only the previous production deployment):
    ```
-   npm run prod:deploy -- --live --checkpoint checkpoint-7e
-   npm run prod:deploy -- --verify --checkpoint checkpoint-7e
+   npm run prod:deploy -- --live --checkpoint checkpoint-7f
+   npm run prod:deploy -- --verify --checkpoint checkpoint-7f
    ```
 3. **The phone:** open https://offersheet.vercel.app, reload any Offer Sheet tab left open from before the deploy, and
    check the League page and a trade card. (⚠️ Until Phase 5 makes the league store keep fields it doesn't know, a tab
@@ -356,6 +357,6 @@ tagged):
    Phase 5.)
 
 **The rollback** is the one above (Vercel → offersheet → Deployments → the deployment the dry run names → ⋯ → Instant
-Rollback → Confirm). ⚠️ After a rollback to 7d, 7d drops 7e's new settings ("Drop from the same position", return weeks)
-the next time it saves a setting in a browser, and a feedback press there drops a 7e step's version (the same Phase 5
-item); a roll forward then starts those settings from their defaults.
+Rollback → Confirm). ⚠️ After a rollback to 7d, 7d drops the new settings 7e brought ("Drop from the same position",
+return weeks) the next time it saves a setting in a browser, and a feedback press there drops a 7e step's version (the same
+Phase 5 item); a roll forward then starts those settings from their defaults.
