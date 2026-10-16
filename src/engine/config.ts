@@ -759,7 +759,9 @@ export const config = {
    * of 4 75%). ⚠️ A question to the planner: on the planner's example (Parker's league 1, Oct 15, as Checkpoint 7f's lists
    * showed it), "idea 3" keeps 75.2% of "idea 2"'s Overall under his prizes and 79.1% under "Only the champion" (unrounded;
    * printed 18 of 24 and 19 of 24), so at 80% it doesn't fit and the pair keeps its label; the planner most likely read
-   * Overall as Helps you × the chance (27 × 65% against 54 × 35%: 93%). Keep 80%, or use 75%. The throw-in Last offer keeps
+   * Overall as Helps you × the chance (27 × 65% against 54 × 35%: 93%). With Checkpoint 7g's items 1 and 3 the numbers moved:
+   * 75.9% under "Only the champion" (26 / 60% / 17 against 49 / 35% / 22), and under his prizes the smaller ask is idea 2's
+   * Plan B box, not a card (70.9%). Keep 80%, or use 75%. The throw-in Last offer keeps
    * its own rule (search.steps.minBShare on B, ⚠️ the lead's call): B at least 80% of the card's at a higher chance means EG
    * at least 80% of the card's, and Overall, concave in EG from 0, then keeps at least 80% of the card's too; so every
    * throw-in Last offer meets this bar, and the rule only leaves out throw-ins that keep 80% of the Overall while giving up

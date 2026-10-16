@@ -1450,10 +1450,11 @@ export interface PreferInputs {
  * above it took this round and its list didn't give back, and, when it's on the other list too, that list's cards below it,
  * which could be its offers by the rules on the numbers both print (`feasible`), ⚠️ each a leaf: holding no merged trade
  * (preferring one that holds some would break up that card's plan: on Parker's "Helps both" list, league 1, Oct 15, merges went
- * 5 → 2 and 3 trades came back as cards), and ⚠️ the cross-list guard: while the Overall list is merged, a card that helps both
- * teams (benefit.helpsBoth, as printed) but isn't on the "Helps both" list's first printed ranking prefers none of its list's
- * cards that help both teams (there, it could arrive late and take a version that holds merges by then: at 75% on that
- * league the guard kept 3 trades from coming back as cards). Pure: the caller hands it the lists.
+ * 5 → 2 and 3 trades came back as cards, the design's prototype on 7e9697e), and ⚠️ the cross-list guard: while the Overall
+ * list is merged, a card that helps both teams (benefit.helpsBoth, as printed) but isn't on the "Helps both" list's first
+ * printed ranking prefers none of its list's cards that help both teams (there, it could arrive late and take a version that
+ * holds merges by then: at 75% on that league the guard kept 3 trades from coming back as cards, the same prototype). Pure:
+ * the caller hands it the lists.
  */
 export function preferredOf(x: PreferInputs): Set<string> {
   const { card, holders } = x;
