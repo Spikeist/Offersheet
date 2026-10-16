@@ -3,7 +3,8 @@
  * can be another card of its list, and then says so, "Also shown as trade idea 2.": TradeCard's `places`): the same map for
  * each card, every card's key with its place in the sort shown (1 = first), so a re-sort moves the numbers with the cards;
  * since Checkpoint 7f never a trade merged into a card (TradeSearchResult.merged: no card, so its offer reads like any). And
- * the card's offers are asked for by the result's id, its key and its trade, with no keys barred (finderOffersSource). TradeCard
+ * the card's offers are asked for by the result's id, its key and its trade, with no keys barred, and since Checkpoint 7g the
+ * versions its ladder prefers as the result records them (finderOffersSource). TradeCard
  * is stood in for, to hold the props the list gives it (TradeCard.offers.test.ts renders the line). A made-up league.
  */
 import { createElement } from "react";
@@ -58,5 +59,12 @@ describe("the Trade Finder's cards get the list's places (the lead's call, wave 
     const source = finderOffersSource(7, card);
     expect(source).toEqual({ kind: "search", resultId: 7, key: card.key, proposal: card.evaluation.proposal });
     expect("barred" in source).toBe(false);
+    // Checkpoint 7g: the card's preference as its result records it (TradeSearchResult.offerPrefer), a copy; none without one.
+    const prefer = ["6|give:105|get:200"];
+    const withPrefer = finderOffersSource(7, card, { offerPrefer: { [card.key]: prefer, other: ["x"] } });
+    expect(withPrefer).toEqual({ kind: "search", resultId: 7, key: card.key, proposal: card.evaluation.proposal, prefer });
+    expect(withPrefer.kind === "search" && withPrefer.prefer).not.toBe(prefer);
+    expect("prefer" in finderOffersSource(7, card, { offerPrefer: { other: ["x"] } })).toBe(false);
+    expect("prefer" in finderOffersSource(7, card, result)).toBe(false);
   });
 });

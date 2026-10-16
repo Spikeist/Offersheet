@@ -6,7 +6,8 @@
  * least max(15%, the minimum chance) and at least 5 points under the card, each later offer at least 5 points likelier,
  * Helps you never rising from Open to the card nor under the card's, B falling at every step (the final review of Checkpoint
  * 7e, ENG-7E-1: on equal printed Helps you),
- * the Last offer the card plus a throw-in at least 5 points likelier keeping 80% of B, every offer helping me and passing the
+ * the Last offer the card plus a throw-in at least 5 points likelier keeping 80% of B or since Checkpoint 7g a smaller ask
+ * keeping 80% of its Overall (offers.smaller.test.ts has that rule's own tests), every offer helping me and passing the
  * market guard, helping both under a card tagged "Helps both"), the places (ladderRoom), the messages, the Trade Analyzer's
  * card and a card whose search isn't kept (offerLadderOfProposal), the cases that get the suggested trade alone, and
  * determinism; and Checkpoint 7f's parts for the merge (ladderNeighbors, offerFeasible, ladderChoiceSteps). Synthetic
@@ -30,10 +31,11 @@ import {
   offerLadderOfProposal,
   offerLadderOfSearch,
   openBar,
+  overallOf,
   preScreened,
   proposalFromKey,
 } from "./offers";
-import { planBCandidates, planBConfig } from "./planB";
+import { planBCandidates, planBConfig, smallerAskOf } from "./planB";
 import { compareOverall } from "./rank";
 import { mulberry32 } from "./rng";
 import { runRefilter, runTradeSearch, searchStateOf, type SearchState } from "./search";
@@ -123,12 +125,17 @@ function expectRules(ladder: OfferLadder, card: TradeEvaluation, settings: Trade
       // nor a B as high (ENG-7E-1, above).
       expect(e.tradeScore as number, w).toBeLessThanOrEqual(card.tradeScore as number);
       expect(e.b as number, w).toBeLessThan((card.b as number) - 1e-9);
-      // The card plus one player of mine, keeping 80% of its B.
-      expect(ids(e.proposal.get).sort(), w).toEqual(ids(card.proposal.get).sort());
-      const added = ids(e.proposal.give).filter((id) => !ids(card.proposal.give).includes(id));
-      expect(added, w).toHaveLength(1);
-      expect(ids(e.proposal.give), w).toHaveLength(ids(card.proposal.give).length + 1);
-      expect(e.b as number, w).toBeGreaterThanOrEqual(config.search.steps.minBShare * (card.b as number) - 1e-9);
+      if (smallerAskOf(card.proposal, e.proposal)) {
+        // Checkpoint 7g: a smaller ask (the card's players of mine for part of theirs), keeping 80% of its Overall, unrounded.
+        expect(overallOf(e) as number, w).toBeGreaterThanOrEqual(config.offers.lastMinOverallShare * (overallOf(card) as number) - 1e-9);
+      } else {
+        // The card plus one player of mine, keeping 80% of its B.
+        expect(ids(e.proposal.get).sort(), w).toEqual(ids(card.proposal.get).sort());
+        const added = ids(e.proposal.give).filter((id) => !ids(card.proposal.give).includes(id));
+        expect(added, w).toHaveLength(1);
+        expect(ids(e.proposal.give), w).toHaveLength(ids(card.proposal.give).length + 1);
+        expect(e.b as number, w).toBeGreaterThanOrEqual(config.search.steps.minBShare * (card.b as number) - 1e-9);
+      }
     }
   });
 }
@@ -257,7 +264,8 @@ describe("⚠️ on equal printed Helps you, B decides (the final review of Chec
   it("smallLeague(32) at Any, the context's own scenarios: a card and its version without a throw-in that costs me nothing print the same Helps you at the same B; neither is the other's offer (on HEAD 24e244b the bigger one opened with the smaller, and the smaller ended with the bigger)", () => {
     const league = smallLeague(32);
     const ctx = buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW });
-    const r = runTradeSearch(ctx, { settings: at(0) });
+    // Without Checkpoint 7g's dropped versions, which take the lean card off its list (below): this pins the ladders' rule.
+    const r = runTradeSearch(ctx, { settings: at(0), dropDominated: false });
     const cards = new Map(cardsOf(r).map((t) => [t.key, t]));
     // Facts of the synthetic data: both are cards of the list, the same partner, the throw-in (1002) costing me nothing.
     const lean = cards.get("4|give:1003|get:1039");
@@ -271,6 +279,14 @@ describe("⚠️ on equal printed Helps you, B decides (the final review of Chec
     expect(keysOf(lean)).toEqual([lean.key]);
     // Every rule, the B order among them, on every card of the search.
     for (const card of cards.values()) expectRules(offerLadderOfSearch(r, card.key) as OfferLadder, card, at(0), "smallLeague(32) at Any");
+    // Checkpoint 7g (planner reply to Checkpoint 7f, answer 3(c)): the full version is at least as good on both printed numbers
+    // (the same Helps you, likelier), so with the app's rules the lean card is dropped for it on the list both are on (the
+    // "Helps both" list: a fact of the synthetic data).
+    const app = runTradeSearch(ctx, { settings: at(0) });
+    const both = (app.helpsBoth?.trades ?? []).map((t) => t.key);
+    expect(both).toContain(full.key);
+    expect(both).not.toContain(lean.key);
+    expect(app.merged?.dominated).toContainEqual({ key: lean.key, by: full.key, list: "helpsBoth" });
   });
 });
 
@@ -485,16 +501,18 @@ describe("Checkpoint 7f: which ladders the merge works out (ladderNeighbors, off
       for (const list of [r.trades, r.helpsBoth?.trades ?? []]) {
         const byKey = new Map(list.map((t) => [t.key, t]));
         for (const card of list) {
-          const near = new Map(ladderNeighbors(st, card, list).map((n) => [n.key, n.kind]));
+          // Each kind a neighbor can be (Checkpoint 7g: a smaller ask is a variant too, so it comes as "smaller" and "earlier").
+          const near = new Map<string, Set<string>>();
+          for (const n of ladderNeighbors(st, card, list)) near.set(n.key, new Set([...(near.get(n.key) ?? []), n.kind]));
           expect(near.has(card.key)).toBe(false);
           neighbors += near.size;
           for (const s of (offerLadderOfSearch(r, card.key) as OfferLadder).steps) {
             const other = byKey.get(s.evaluation.key);
             if (s.kind === "suggested" || !other) continue;
             held++;
-            const kind = s.kind === "last" ? "last" : "earlier";
+            const kind = s.kind !== "last" ? "earlier" : smallerAskOf(card.proposal, other.proposal) ? "smaller" : "last";
             const w = `${seed} ${card.key} ${s.kind} ${other.key}`;
-            expect(near.get(other.key), w).toBe(kind);
+            expect(near.get(other.key)?.has(kind), w).toBe(true);
             expect(offerFeasible(card, other, kind, at(0.1).minChance), w).toBe(true);
           }
         }

@@ -73,7 +73,9 @@
  * second open is instant, and since Checkpoint 7f hands back the very ladder the search's merge read when it did), and
  * worded for the card (tradeView.ts buildLadderView; TradeCard.tsx shows them). An offer that is another card of the list
  * says so with that card's place in the sort shown, "Also shown as trade idea 2." (the lead's call, wave D: the list's
- * places, Results' `places`); a trade merged into the card (Checkpoint 7f) is no card, so it has no place.
+ * places, Results' `places`); a trade merged into the card (Checkpoint 7f) is no card, so it has no place. Since Checkpoint 7g
+ * the request carries the versions the card's ladder prefers (TradeSearchResult.offerPrefer), so a worker that no longer keeps
+ * the result still gives the offers the search kept.
  *
  * "Now or after this week" (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.2): once the search answers, the engine worker
  * works out what each card's Helps you would be if done after this week's games, and each card shows "Helps you 37 now · 41 if
@@ -233,10 +235,13 @@ export function runShown(progress: RunProgress | null, runTag: string | null, re
  * result holds it (`resultId`: engineClient.ts searchResultIdOf, -1 when the worker no longer knows it), its key, and its trade
  * in its own order, which the worker works the card out from when it no longer keeps the result (the review of wave D,
  * D-ENG-3). Since Checkpoint 7f no keys barred (until then its Plan B's: a Plan B can't be an offer by the rules, so the
- * engine bars nothing, offers.ts "The candidates").
+ * engine bars nothing, offers.ts "The candidates"). Since Checkpoint 7g the versions its ladder prefers, as the result records
+ * them (TradeSearchResult.offerPrefer; none when it has none), which the worker works the card out with in that case too, so
+ * the offers are the ones its search kept.
  */
-export function finderOffersSource(resultId: number, card: Pick<TradeCardView, "key" | "evaluation">): OffersSource {
-  return { kind: "search", resultId, key: card.key, proposal: card.evaluation.proposal };
+export function finderOffersSource(resultId: number, card: Pick<TradeCardView, "key" | "evaluation">, result?: Pick<TradeSearchResult, "offerPrefer"> | null): OffersSource {
+  const prefer = result?.offerPrefer?.[card.key];
+  return { kind: "search", resultId, key: card.key, proposal: card.evaluation.proposal, ...(prefer && prefer.length ? { prefer: [...prefer] } : {}) };
 }
 
 type FocusTo = "status" | "stop" | "again";
@@ -569,7 +574,7 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
     (card: TradeCardView): Promise<LadderView> => {
       if (!pair || !myTeamId || !shownOutcome || !league) return Promise.reject(new Error("The trade ideas aren't loaded."));
       const client = tradeEngine(leagueId);
-      const source = finderOffersSource(searchResultIdOf(client, shownOutcome.result), card);
+      const source = finderOffersSource(searchResultIdOf(client, shownOutcome.result), card, shownOutcome.result);
       return client
         .offers({ snapshot: pair.snapshot, model: pair.inputs, myTeamId, nowIso: shownOutcome.nowIso, settings: shownOutcome.settings, source })
         .then((ladder) => buildLadderView(ladder, card, { snapshot: league, lastNflWeek, goal: shownOutcome.goal }));

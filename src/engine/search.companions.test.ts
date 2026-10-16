@@ -96,15 +96,23 @@ describe("the lean companions (search.ts)", { timeout: 60_000 }, () => {
     expect(final(FULL) && final(LEAN)).toBeTruthy();
     expect(final(LEAN)?.b as number).toBeGreaterThan(final(FULL)?.b as number);
     expect(eg(LEAN)).toBeGreaterThan(eg(FULL));
-    // Every other card stays, with the same numbers, in the same order; one more comes in (#13, Team 6's 1006 + 1007 →
-    // 1063 + 1066): without the full trade, 1006 is given in two cards of the top 20, under the given-player cap.
+    // Every other card stays, with the same numbers, in the same order. One more comes in (Team 6's 1006 + 1007 → 1063 +
+    // 1066): without the full trade, 1006 is given in two cards of the top 20, under the given-player cap; since Checkpoint 7g
+    // (planner reply to Checkpoint 7f, answer 3(c)) it leaves again, dropped for a better version of the same trade on the
+    // list, Team 6's 1006 → 1066 (at least as good on both Helps you and the chance); with that rule off it shows, #13.
     const rest = (r: TradeSearchResult, k: string) => r.trades.filter((t) => t.key !== k).map((t) => `${t.key}:${t.b}:${t.pComplete}`);
     const shownWithout = rest(without, FULL);
     const shownWith = rest(withCompanions, LEAN);
     expect(shownWith.filter((x) => shownWithout.includes(x))).toEqual(shownWithout);
-    expect(shownWith.length).toBe(shownWithout.length + 1);
-    const extra = withCompanions.trades.find((t) => !without.trades.some((u) => u.key === t.key) && t.key !== LEAN);
-    expect(extra?.key).toBe(keyOf("6", ["1006", "1007"], ["1063", "1066"]));
+    expect(shownWith.length).toBe(shownWithout.length);
+    const extra = keyOf("6", ["1006", "1007"], ["1063", "1066"]);
+    const better = keyOf("6", ["1006"], ["1066"]);
+    expect(withCompanions.merged?.dominated).toEqual([{ key: extra, by: better, list: "overall" }]);
+    expect(withCompanions.trades.map((t) => t.key)).toContain(better);
+    expect(without.merged?.dominated).toEqual([]);
+    const sevenF = runTradeSearch(ctx6, { settings, dropDominated: false });
+    expect(sevenF.trades.find((t) => !without.trades.some((u) => u.key === t.key) && t.key !== LEAN)?.key).toBe(extra);
+    expect(sevenF.trades.map((t) => t.key).indexOf(extra)).toBe(12);
     expect(without.trades.filter((t) => ids(t.proposal, "give").includes("1006"))).toHaveLength(config.ranking.perGivenPlayerInTop20);
   });
 

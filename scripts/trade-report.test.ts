@@ -17,6 +17,7 @@ import type { ModelInputs } from "@/engine/inputs";
 import { buildLeagueModel } from "@/engine/league";
 import { neutralThrowIns } from "@/engine/market";
 import { ladderChoice, ladderJobOfSearch, offerLadderOfSearch } from "@/engine/offers";
+import { smallerAskOf } from "@/engine/planB";
 import type { LeagueSnapshot, Pos } from "@/engine/model";
 import { compareOverall } from "@/engine/rank";
 import { prizeOddsOf, prizePercents, prizePeriods, rewardWith } from "@/engine/reward";
@@ -70,6 +71,8 @@ import {
   laneShown,
   ladderSummary,
   measuredRunsText,
+  LABEL_SHAPE_WORDS,
+  labelShape,
   mergeLines,
   mergeSection,
   oddsByOrder,
@@ -601,7 +604,7 @@ describe("trade report: what Helps both costs a search (section 10)", () => {
     // A ladder the search's merge kept reads "kept"; the merges close the line.
     const merge = { merged: { overall: [{ key: "x", into: "k", kind: "open" }], helpsBoth: [{ key: "y", into: "k", kind: "then" }, { key: "z", into: "k", kind: "last" }], rounds: { overall: 2, helpsBoth: 3 }, ladders: 2, released: 0 } } as unknown as LadderSection["other"]["merge"];
     expect(ladderSummary(section([row(2, [0.01], true), row(1, [251])], [better(0)], merge), "Several prizes")).toBe(
-      "How to offer it (Several prizes): the top 2 cards hold 2 / 1 offers, built in kept / 251 ms (first opens, medians); 0 of the top 1 have a candidate printing a higher Helps you and a higher chance; the pre-screen picks every candidate's offers on 1 of 1; 3 merged into another card (1 on the Overall list)",
+      "How to offer it (Several prizes): the top 2 cards hold 2 / 1 offers, built in kept / 251 ms (first opens, medians); 0 of the top 1 have a candidate printing a higher Helps you and a higher chance; the pre-screen picks every candidate's offers on 1 of 1; 3 merged into another card (1 on the Overall list), 0 dropped for a better version of the same trade",
     );
     // An offer's mark: another card by its place, else a merged trade by its place without the merge.
     const fake = { trades: [{ key: "p" }, { key: "q" }], helpsBoth: { trades: [{ key: "q" }] } } as unknown as Pick<TradeSearchResult, "trades" | "helpsBoth">;
@@ -621,30 +624,65 @@ describe("trade report: what Helps both costs a search (section 10)", () => {
     const into = ev([ids.wilson as string], [ids.hubbard as string]);
     const folded = ev([ids.wilson as string], [ids.hubbard as string, ids.evans as string]);
     const other = ev([ids.wilson as string], [ids.evans as string], "4");
+    const why = "neither a smaller ask, its lean version nor a throw-in added, and not in the Open's or a Then's window as printed";
     const section7f: MergeSection = {
       merged: { overall: [{ key: folded.key, into: into.key, kind: "open" }], helpsBoth: [], rounds: { overall: 2, helpsBoth: 1 }, ladders: 3, released: 1 },
       rows: [{ list: "overall", trade: folded, was: 2, into, intoPlace: 1, kind: "open" }],
       cameIn: [{ list: "overall", card: other, place: 6 }],
       left: [{ list: "helpsBoth", card: other, was: 3 }],
-      labels: [{ list: "overall", holder: other, holderPlace: 6, held: into, heldPlace: 1, kind: "last" }],
+      labels: [{ list: "overall", holder: other, holderPlace: 6, held: into, heldPlace: 1, kind: "last", shape: "other", why }],
+      smallerLast: [],
+      dropped: [],
+      preferred: [],
       cards: { overall: { without: 6, with: 6 }, helpsBoth: { without: 3, with: 2 } },
       ms: 178.4,
     };
     const team = (id: string) => `Team ${id}`;
     const n = (t: TradeEvaluation) => threeNumbers(t);
+    const opening = `**Merged cards** (planner reply to Checkpoint 7e, decision 3: a card whose "How to offer it" holds a card of its list below it on Overall takes it among its offers, and the next idea takes its place; since Checkpoint 7g, planner reply to Checkpoint 7f, answer 3: (a) a Last offer can ask for fewer of their players, keeping at least ${Math.round(100 * config.offers.lastMinOverallShare)}% of the card's Overall; (b) a ladder prefers the versions on its lists; (c) a version at least as good on both Helps you and the chance as another version of the same trade drops it): `;
     expect(mergeLines(snapshot, section7f, team)).toEqual([
-      `**Merged cards** (planner reply to Checkpoint 7e, decision 3: a card whose "How to offer it" holds a card of its list below it on Overall takes it among its offers, and the next idea takes its place): 1 merged on the Overall list (2 rounds), 0 on "Helps both" (1 round); 3 ladders read by the merge, worked out during the search in 178 ms (its "offers" timing); 1 given back (in no offers of a card above it). The lists' cards without the merge → with it: Overall 6 → 6, "Helps both" 3 → 2.`,
+      `${opening}1 merged on the Overall list (2 rounds), 0 on "Helps both" (1 round); 0 dropped for a better version of the same trade; 3 ladders read by the merge, worked out during the search in 178 ms (its "offers" timing); 1 given back (in no offers of a card above it). The lists' cards without the merge → with it: Overall 6 → 6, "Helps both" 3 → 2.`,
       "",
       `- Overall: Team 2: Garrett Wilson → Chuba Hubbard + Mike Evans (${n(folded)}), idea 2 without the merge, is now among the offers of idea 1 (“Open with”), Team 2: Garrett Wilson → Chuba Hubbard (${n(into)}).`,
       `- Came in: Overall idea 6, Team 4: Garrett Wilson → Mike Evans (${n(other)}).`,
-      `- Left, not merged (the usual rules after a merge): “Helps both” idea 3 without the merge, Team 4: Garrett Wilson → Mike Evans (${n(other)}).`,
-      `- Kept with a label (⚠️ the lead's call: an idea whose offers hold an idea above it on Overall, whose own offers don't include this one, so both stay and that offer says "Also shown as trade idea N."): Overall idea 6, Team 4: Garrett Wilson → Mike Evans (${n(other)}), offers idea 1 (“Last offer”).`,
+      `- Left, neither merged nor dropped (the usual rules after a merge): “Helps both” idea 3 without the merge, Team 4: Garrett Wilson → Mike Evans (${n(other)}).`,
+      `- Kept with a label (⚠️ the lead's call: an idea whose offers hold an idea above it on Overall, whose own offers don't include this one, so both stay and that offer says "Also shown as trade idea N."): Overall idea 6, Team 4: Garrett Wilson → Mike Evans (${n(other)}), offers idea 1 (“Last offer”; another version: ${why}).`,
       "",
     ]);
     const quiet = mergeLines(snapshot, { ...section7f, merged: null, rows: [], cameIn: [], left: [], labels: [], ms: null }, team);
     expect(quiet[0]).toContain(': off. The lists\' cards without the merge → with it: ');
     expect(quiet).toContain("- No card's offers hold another card of its list.");
     expect(mergeLines(snapshot, null, team)).toEqual(["**Merged cards**: the search stopped before ranking.", ""]);
+    // Checkpoint 7g (answer 3): a version dropped for a better one (among the offers of the idea it merged into), a card whose
+    // Last offer asks for fewer of their players, a ladder a preference changed, and the label's shape words.
+    const smallerAsk = ev([ids.wilson as string], [ids.evans as string]);
+    const section7g: MergeSection = {
+      ...section7f,
+      merged: { ...(section7f.merged as NonNullable<MergeSection["merged"]>), dominated: [{ key: other.key, by: folded.key, list: "overall" }] },
+      cameIn: [],
+      left: [],
+      labels: [{ list: "overall", holder: smallerAsk, holderPlace: 3, held: folded, heldPlace: 2, kind: "open", shape: "smaller", why: "it keeps 70.9% of the higher card's Overall (unrounded), under 80%" }],
+      dropped: [{ list: "overall", trade: other, was: 4, by: folded, byWhere: "among the offers of idea 1" }],
+      smallerLast: [{ list: "overall", card: folded, place: 2, offer: smallerAsk, share: 0.8123, merged: true }],
+      preferred: [{ list: "overall", card: into, place: 1, usual: [{ kind: "open", printed: other }], preferring: [{ kind: "open", printed: folded }], held: [folded.key] }],
+    };
+    const lines = mergeLines(snapshot, section7g, team);
+    expect(lines[0]).toContain("; 1 dropped for a better version of the same trade; 3 ladders read by the merge");
+    expect(lines).toContain(`- Dropped (Overall; answer 3(c)): Team 4: Garrett Wilson → Mike Evans (${n(other)}), idea 4 without the merge, for Team 2: Garrett Wilson → Chuba Hubbard + Mike Evans (${n(folded)}) (among the offers of idea 1), at least as good on both Helps you and the chance as printed.`);
+    expect(lines).toContain(`- Last offers that ask for fewer of their players (answer 3(a)): Overall idea 2, Team 2: Garrett Wilson → Chuba Hubbard + Mike Evans (${n(folded)}): Team 2: Garrett Wilson → Mike Evans (${n(smallerAsk)}), 81.2% of its Overall (a card without the merge).`);
+    expect(lines).toContain(`- Ladders a preference changed (answer 3(b): a version on the list preferred where more than one meets a step's rules): Overall idea 1, Team 2: Garrett Wilson → Chuba Hubbard (${n(into)}): Open with Garrett Wilson → Mike Evans (${n(other)}) → Open with Garrett Wilson → Chuba Hubbard + Mike Evans (${n(folded)}) (1 preferred version held).`);
+    expect(lines.find((x) => x.startsWith("- Kept with a label"))).toContain(`offers idea 2 (“Open with”; it asks for fewer of their players: it keeps 70.9% of the higher card's Overall (unrounded), under 80%).`);
+    // An offer that is a dropped version is marked so, by its place without the merge (offerMarkText).
+    const dropMark = { rows: [], dropped: [{ list: "overall", trade: { key: "d1" }, was: 5 }, { list: "helpsBoth", trade: { key: "d2" }, was: null }] } as unknown as Pick<MergeSection, "rows" | "dropped">;
+    expect([offerMarkText(fake, dropMark, step("open", "d1")), offerMarkText(fake, dropMark, step("then", "d2")), offerMarkText(fake, dropMark, step("then", "q"))]).toEqual(["dropped for a better version: was trade idea 5", "dropped for a better version", "also trade idea 2"]);
+    // The shape of a pair: a smaller ask (same players of mine, fewer of theirs), the higher idea's lean version (one player of
+    // mine fewer, the same of theirs), or another version.
+    expect(labelShape(folded.proposal, into.proposal)).toBe("smaller");
+    expect(labelShape(ev([ids.wilson as string, ids.hubbard as string], [ids.evans as string]).proposal, ev([ids.wilson as string], [ids.evans as string]).proposal)).toBe("lean");
+    expect(labelShape(ev([ids.wilson as string], [ids.evans as string]).proposal, ev([ids.wilson as string, ids.hubbard as string], [ids.evans as string]).proposal)).toBe("throwIn");
+    expect(labelShape(into.proposal, other.proposal)).toBe("other");
+    expect(labelShape(into.proposal, folded.proposal)).toBe("other");
+    expect(LABEL_SHAPE_WORDS).toEqual({ smaller: "it asks for fewer of their players", lean: "it's the higher idea's lean version", throwIn: "it adds a player of yours to the higher idea", other: "another version" });
   });
 
   it("the search without Helps them (withoutHelpsThem): every partner's calibration run is none, so no partner's scale is known", () => {
@@ -674,7 +712,7 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     expect(trades.length).toBeGreaterThan(0);
     expect(report.result.myTeamId).toBe("1");
     expect([...doc.matchAll(/^## (\d+)\./gm)].map((m) => Number(m[1]))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
-    expect(doc).toContain("# Trade search: Parker's ESPN league (Checkpoint 7f)");
+    expect(doc).toContain("# Trade search: Parker's ESPN league (Checkpoint 7g)");
     expect(doc).toContain("Generated by `npm run trade:report -- --offline data-local/synthetic --team 1 --prizes 2000,1600,900,0` on ");
     expect(doc).toContain("- Synthetic test league.");
     expect(doc).toContain(
@@ -1466,9 +1504,15 @@ describe("trade report: the whole offline report on a synthetic league", () => {
     }
     const offered = l.title.rows.flatMap((row) => row.ladder.steps.filter((x) => x.kind !== "suggested"));
     const marked = offered.filter((x) => alsoCardText(report.result, x) !== null).length;
-    // Checkpoint 7f: the offers that are merged trades counted apart.
-    const folded = offered.filter((x) => alsoCardText(report.result, x) === null && offerMarkText(report.result, l.title.merge, x) !== null).length;
-    expect(s).toContain(`Of these ${offered.length} offer${offered.length === 1 ? "" : "s"} besides the cards themselves, ${marked} ${marked === 1 ? "is" : "are"} another card of the list${folded ? ` and ${folded} ${folded === 1 ? "is a trade" : "are trades"} merged into ${folded === 1 ? "its card" : "their cards"}` : ""}.`);
+    // Checkpoint 7f: the offers that are merged trades counted apart; Checkpoint 7g: those dropped for a better version, and
+    // the cards whose Last offer asks for fewer of their players.
+    const markOf = (x: OfferStep) => (alsoCardText(report.result, x) === null ? (offerMarkText(report.result, l.title.merge, x) ?? "") : "");
+    const folded = offered.filter((x) => markOf(x).startsWith("merged")).length;
+    const droppedOffers = offered.filter((x) => markOf(x).startsWith("dropped")).length;
+    const smallerCards = l.title.rows.filter((row) => row.ladder.steps.some((x) => x.kind === "last" && smallerAskOf(row.card.proposal, x.evaluation.proposal))).length;
+    expect(s).toContain(
+      `Of these ${offered.length} offer${offered.length === 1 ? "" : "s"} besides the cards themselves, ${marked} ${marked === 1 ? "is" : "are"} another card of the list${folded ? ` and ${folded} ${folded === 1 ? "is a trade" : "are trades"} merged into ${folded === 1 ? "its card" : "their cards"}` : ""}${droppedOffers ? `; ${droppedOffers} ${droppedOffers === 1 ? "is a version" : "are versions"} dropped for a better version of the same trade` : ""}. ${smallerCards} of these ${l.title.rows.length} cards' Last offers ask${smallerCards === 1 ? "s" : ""} for fewer of their players (Checkpoint 7g).`,
+    );
     // alsoCardText on made-up keys: the Overall list's place, else the "Helps both" list's; none for the suggested trade.
     const fake = { trades: [{ key: "p" }, { key: "q" }], helpsBoth: { trades: [{ key: "q" }, { key: "z" }] } } as unknown as Pick<TradeSearchResult, "trades" | "helpsBoth">;
     const step = (kind: OfferStep["kind"], key: string) => ({ kind, evaluation: { key } }) as unknown as OfferStep;
@@ -1507,7 +1551,7 @@ describe("trade report: the whole offline report on a synthetic league", () => {
       }
       for (const name of ["overall", "helpsBoth"] as const) {
         const of = <T extends { list: string }>(xs: readonly T[]) => xs.filter((x) => x.list === name).length;
-        expect(m.cards[name].with).toBe(m.cards[name].without - m.rows.filter((x) => x.list === name && x.was !== null).length - of(m.left) + of(m.cameIn));
+        expect(m.cards[name].with).toBe(m.cards[name].without - m.rows.filter((x) => x.list === name && x.was !== null).length - m.dropped.filter((x) => x.list === name && x.was !== null).length - of(m.left) + of(m.cameIn));
       }
       expect(s).toContain(`The lists' cards without the merge → with it: Overall ${m.cards.overall.without} → ${m.cards.overall.with}, "Helps both" ${m.cards.helpsBoth.without} → ${m.cards.helpsBoth.with}.`);
     }

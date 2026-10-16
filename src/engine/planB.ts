@@ -48,7 +48,12 @@
  * the highest Overall (EG = B × P_complete: the planner's "best") first, then the key. Until then (PlanBConfig.
  * otherTargetOnly false, a report switch) a different package for the same players of theirs first ("samePlayers": the very
  * same set of players I'd get), then a different target, each tier in that order. A key counts once (its first entry in
- * the pool).
+ * the pool). ⚠️ Since Checkpoint 7g (planner reply to Checkpoint 7f, answer 3(a): the Last offer can ask for fewer of their
+ * players; offers.ts) a box is never a smaller ask of its card (smallerAskOf: the card's players of mine for part of its
+ * players of theirs) that the card's Last offer could take by its rules on both printed numbers (offers.ts offerFeasible
+ * "smaller"): the search skips such a candidate once its printed numbers are known (search.ts finish; the narrow rule, the
+ * lead's call D5), so the box and the Last offer never show one trade twice, and a box is still never an offer. One the Last
+ * offer couldn't take (it keeps less than config.offers.lastMinOverallShare of the card's Overall, say) can still be a box.
  *
  * The choice (choosePlanB): the first candidate, in that order, that isn't passed over (`skip`, below) and whose numbers
  * on the final block of seasons (the card's basis) still pass the rules: a finalist's are its own (stage "final"); any
@@ -166,6 +171,17 @@ export function givenPlayers(p: Pick<TradeProposal, "give">): string[] {
 export function addedGiven(card: Pick<TradeProposal, "give">, candidate: Pick<TradeProposal, "give">): string[] {
   const own = new Set(givenPlayers(card));
   return givenPlayers(candidate).filter((id) => !own.has(id));
+}
+
+/**
+ * Whether `candidate` is a smaller ask of `card` (Checkpoint 7g; the file header, "Which"; offers.ts smallerAsks): the same
+ * partner, the same players of mine, and a proper, non-empty part of its players of theirs.
+ */
+export function smallerAskOf(card: Pick<TradeProposal, "partnerId" | "give" | "get">, candidate: Pick<TradeProposal, "partnerId" | "give" | "get">): boolean {
+  if (card.partnerId !== candidate.partnerId || sideKey(card.give) !== sideKey(candidate.give)) return false;
+  const theirs = new Set(card.get.map((a) => sideKey([a])));
+  const asked = candidate.get.map((a) => sideKey([a]));
+  return asked.length > 0 && asked.length < theirs.size && new Set(asked).size === asked.length && asked.every((id) => theirs.has(id));
 }
 
 /** A Plan B candidate: a trade with its best numbers, and whether it's for the same players of theirs. */

@@ -878,6 +878,83 @@ export function offersMergeProblems(read: Pick<OffersRead, "offers">, places: Re
   return out;
 }
 
+/** A trade key's parts (pure; evaluate.ts proposalKey, "2|give:105,108|get:205"): its partner and its two sides' ids; null when it isn't one. */
+export function tradeKeyParts(key: string | null | undefined): { partner: string; give: string[]; get: string[] } | null {
+  const m = /^([^|]+)\|give:([^|]*)\|get:([^|]*)$/.exec(key ?? "");
+  if (!m) return null;
+  const side = (s: string | undefined) => (s ? s.split(",") : []);
+  return { partner: m[1] as string, give: side(m[2]), get: side(m[3]) };
+}
+
+/** Whether every id of `small` is in `big` (pure; sides read as sets). */
+const within = (small: readonly string[], big: readonly string[]): boolean => small.every((id) => big.includes(id));
+
+/**
+ * The Last offer's shape (pure; Checkpoint 7g, planner reply to Checkpoint 7f, answer 3(a): "The Last offer can be either the
+ * throw-in or a smaller ask"): the idea (`cardKey`) plus one player of mine, the same players of theirs; or the idea's own
+ * players of mine for fewer of theirs (at least one). Read from the keys (the offer's data-offer-key and the idea's
+ * data-trade-key). No Last offer: nothing to check. Each that breaks it, in words.
+ */
+export function lastOfferShapeProblems(read: Pick<OffersRead, "offers">, cardKey: string): string[] {
+  const out: string[] = [];
+  const card = tradeKeyParts(cardKey);
+  read.offers.forEach((o, i) => {
+    if (o.label !== "Last offer") return;
+    const name = `offer ${i + 1} (“Last offer”)`;
+    const last = tradeKeyParts(o.key);
+    if (!card || !last) {
+      out.push(`${name} or the idea carries no trade key to compare`);
+      return;
+    }
+    const sameGet = last.get.length === card.get.length && within(last.get, card.get);
+    const sameGive = last.give.length === card.give.length && within(last.give, card.give);
+    const throwIn = last.partner === card.partner && sameGet && last.give.length === card.give.length + 1 && within(card.give, last.give);
+    const smaller = last.partner === card.partner && sameGive && last.get.length > 0 && last.get.length < card.get.length && within(last.get, card.get);
+    if (!throwIn && !smaller) out.push(`${name} is neither the idea plus one player of yours nor the idea asking for fewer of their players`);
+  });
+  return out;
+}
+
+/** One idea of the list shown, as the dropped-versions contract reads it (inPage.ts listIdeas): its key and the numbers it prints. */
+export interface IdeaRead {
+  key: string | null;
+  /** Helps you as printed ("39", "—"). */
+  helps: string | null;
+  /** The chance the rules read, as printed: "about N% it goes through" when its veto note shows one ("20%", "<5%"), else the chance they accept. */
+  chance: string | null;
+}
+
+/**
+ * Dropped versions (pure; Checkpoint 7g, planner reply to Checkpoint 7f, answer 3(c): "Drop a version when another version of
+ * the same trade is at least as good on both Helps you and the chance."): no idea of the list is another version of the same
+ * trade as another idea of it (rank.ts versionsOfSameTrade: the same team, one's players side by side a proper part of the
+ * other's, read from their keys) that's at least as good on both numbers as printed (Helps you; the chance the rules read,
+ * `chance`: "<5%" counts under 5%). Ideas whose key or numbers can't be read are left out. Each pair that breaks it, in words.
+ */
+export function dominatedIdeasProblems(ideas: readonly IdeaRead[]): string[] {
+  const out: string[] = [];
+  const read = ideas.map((x, i) => ({ i, parts: tradeKeyParts(x.key), helps: x.helps !== null && /^\d+$/.test(x.helps) ? Number(x.helps) : null, chance: printedChancePoints(x.chance) }));
+  const assets = (p: { give: string[]; get: string[] }) => [...p.give.map((id) => `give:${id}`), ...p.get.map((id) => `get:${id}`)];
+  const smallerVersion = (a: { partner: string; give: string[]; get: string[] }, b: { partner: string; give: string[]; get: string[] }) => {
+    const sa = assets(a);
+    const sb = assets(b);
+    return a.partner === b.partner && sa.length < sb.length && within(sa, sb);
+  };
+  for (const a of read) {
+    for (const b of read) {
+      if (a.i >= b.i || !a.parts || !b.parts || a.helps === null || b.helps === null || a.chance === null || b.chance === null) continue;
+      if (!smallerVersion(a.parts, b.parts) && !smallerVersion(b.parts, a.parts)) continue;
+      const aBeats = a.helps >= b.helps && a.chance >= b.chance;
+      const bBeats = b.helps >= a.helps && b.chance >= a.chance;
+      if (aBeats || bBeats) {
+        const [k, c] = aBeats ? [a, b] : [b, a];
+        out.push(`ideas ${a.i + 1} and ${b.i + 1} are versions of the same trade, and idea ${k.i + 1} (Helps you ${k.helps}, ${ideas[k.i]?.chance}) is at least as good on both as idea ${c.i + 1} (Helps you ${c.helps}, ${ideas[c.i]?.chance}), which shouldn't show`);
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * My odds' lines on the League page (pure; leagueView.ts myOddsOf: "Your odds: 60% playoffs · 30% top 3 · 10.5% title"):
  * a top-N part exactly when `places`, the one it names, once a line; each line that reads otherwise, in words.

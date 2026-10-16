@@ -11,7 +11,11 @@
  * ladder the search kept for a card is the one worked out on demand from its state and from its trade on a fresh context, its
  * offers' versions evaluated in the key's order or in another (the review of the merge, MERGE-4), deep-equal; and the "rank"
  * stage's progress ends at its own count, every unit done, reading part "offers" while the merge works a ladder out.
- * search.merge.release.test.ts drives the release rule (a merged trade given back), which no search here takes.
+ * search.merge.release.test.ts drives the release rule (a merged trade given back) through a made-up plan. Since Checkpoint 7g
+ * (planner reply to Checkpoint 7f, answer 3) the lists by hand leave out the versions dropped for a better one too, as filler
+ * references (search.dominated.test.ts has that rule's own tests), the kept ladders are worked out with the preference the
+ * search recorded (SearchState.prefers: search.prefer.test.ts), and smallLeague 48 gives one trade back: a dropped card held
+ * it (the lead's D18).
  */
 import { describe, expect, it } from "vitest";
 import { helpsBoth } from "./benefit";
@@ -30,10 +34,10 @@ const keysOf = (ts: readonly { key: string }[]) => ts.map((t) => t.key);
 
 /** The leagues that merge (smallLeague seed, teams, the minimum chance), 8 availability scenarios. */
 const LEAGUES = [
-  { seed: 48, teams: 6, minChance: 0.1 },
-  { seed: 57, teams: 6, minChance: 0.1 },
-  { seed: 59, teams: 6, minChance: 0.1 },
-  { seed: 8, teams: 12, minChance: 0 },
+  { seed: 48, teams: 6, minChance: 0.1, released: 1 },
+  { seed: 57, teams: 6, minChance: 0.1, released: 0 },
+  { seed: 59, teams: 6, minChance: 0.1, released: 0 },
+  { seed: 8, teams: 12, minChance: 0, released: 0 },
 ];
 
 const contexts = new Map<string, TradeContext>();
@@ -77,6 +81,7 @@ function expectNoneBelowHeld(r: TradeSearchResult, where: string): number {
  * trades, which the filler rule reads as kept, then ranked again on the numbers the cards print.
  */
 function byHand(st: SearchState, minChance: number, merged: { overall: readonly string[]; helpsBoth: readonly string[] }): { overall: string[]; helpsBoth: string[] } {
+  // `merged`: each list's trades out of its rankings (merged into a card, or since Checkpoint 7g dropped for a better version).
   const value = assetValue(st.I);
   const caps = rankCaps({ relaxed: false, onePartner: st.onePartner });
   const extras = new Set(st.helpsBothExtras);
@@ -129,9 +134,10 @@ describe("merged cards (Checkpoint 7f; planner reply to Checkpoint 7e, decision 
       expect(last.part).toBe("shown");
       for (const p of rank.slice(1)) expect(["shown", "offers"]).toContain(p.part);
       expect(rank.some((p) => p.part === "offers"), `${lg.seed}: a ladder worked out`).toBe(true); // a fact of the synthetic data
-      // Something merged (a fact of the synthetic data) and nothing given back; the counts.
+      // Something merged (a fact of the synthetic data) and, but on smallLeague 48 (a dropped card held a merged trade, which
+      // comes back: Checkpoint 7g, the lead's D18), nothing given back; the counts.
       expect(merged.overall.length + merged.helpsBoth.length).toBeGreaterThan(0);
-      expect(merged.released).toBe(0);
+      expect(merged.released).toBe(lg.released);
       expect(r.dropped?.merged).toBe(merged.overall.length);
       expect(r.helpsBoth?.dropped.merged).toBe(merged.helpsBoth.length);
       expect(st.ladders?.size).toBeLessThanOrEqual(merged.ladders);
@@ -162,7 +168,8 @@ describe("merged cards (Checkpoint 7f; planner reply to Checkpoint 7e, decision 
       // 2. No card's offers hold a card of its list below it.
       expectNoneBelowHeld(r, `${lg.seed}`);
       // 3. Each list by hand: the finalists without the merged trades (filler references), ranked again as printed.
-      const hand = byHand(st, lg.minChance, { overall: keysOf(merged.overall), helpsBoth: keysOf(merged.helpsBoth) });
+      const dropped = (list: string) => keysOf((merged.dominated ?? []).filter((d) => d.list === list));
+      const hand = byHand(st, lg.minChance, { overall: [...keysOf(merged.overall), ...dropped("overall")], helpsBoth: [...keysOf(merged.helpsBoth), ...dropped("helpsBoth")] });
       expect(keysOf(r.trades)).toEqual(hand.overall);
       expect(keysOf(r.helpsBoth?.trades ?? [])).toEqual(hand.helpsBoth);
       // The merged trades qualified (each was a card), so they count among the qualifying ones, as without the merge.
@@ -196,10 +203,11 @@ describe("merged cards (Checkpoint 7f; planner reply to Checkpoint 7e, decision 
       let reordered = 0;
       for (const [key, kept] of st.ladders ?? new Map<string, OfferLadder>()) {
         const card = cards.find((t) => t.key === key) as TradeEvaluation;
-        expect(buildOfferLadder(ladderJobOfSearch(st, card)), key).toEqual(kept);
-        expect(offerLadderOfProposal(fresh, card.proposal, { settings, page: "finder" }), key).toEqual(kept);
+        const prefer = st.prefers?.get(key);
+        expect(buildOfferLadder(ladderJobOfSearch(st, card, prefer)), key).toEqual(kept);
+        expect(offerLadderOfProposal(fresh, card.proposal, { settings, page: "finder", ...(prefer ? { prefer } : {}) }), key).toEqual(kept);
         const other = buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 8 });
-        const job = ladderJobOfProposal(other, card.proposal, { settings, page: "finder" }) as LadderJob;
+        const job = ladderJobOfProposal(other, card.proposal, { settings, page: "finder", ...(prefer ? { prefer } : {}) }) as LadderJob;
         const I = tradeInternals(other);
         for (const s of kept.steps) {
           if (s.kind === "suggested") continue;
@@ -216,9 +224,10 @@ describe("merged cards (Checkpoint 7f; planner reply to Checkpoint 7e, decision 
     });
   }
 
-  it("on leagues the folding of Checkpoint 4c's steps was measured on (smallLeague 30 and 67, at Any and 10%), no card holds a card of its list below it, and offers above a card still occur (the holder below keeps its label)", () => {
+  it("on leagues the folding of Checkpoint 4c's steps was measured on (smallLeague 30 and 67, at Any and 10%), no card holds a card of its list below it, and offers above a card still occur (the holder below keeps its label: smallLeague 3 and 12 at 10% since Checkpoint 7g, whose rules settle 30's and 67's)", () => {
+    for (const seed of [30, 67]) for (const minChance of [0, 0.1]) expectNoneBelowHeld(runTradeSearch(contextOf(seed, 6), { settings: at(minChance) }), `${seed} at ${minChance}`);
     let above = 0;
-    for (const seed of [30, 67]) for (const minChance of [0, 0.1]) above += expectNoneBelowHeld(runTradeSearch(contextOf(seed, 6), { settings: at(minChance) }), `${seed} at ${minChance}`);
+    for (const seed of [3, 12]) above += expectNoneBelowHeld(runTradeSearch(contextOf(seed, 6), { settings: at(0.1) }), `${seed} at 10%`);
     expect(above).toBeGreaterThan(0);
   });
 });

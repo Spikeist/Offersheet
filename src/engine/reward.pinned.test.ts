@@ -5,7 +5,8 @@
  * existed, by running these very builds: the League model's automatic playoff weight ω and its B per point in each run, its
  * "Helps you" calibration run, my headline odds, the search's B₃ and every card it shows (key, B, Helps you, P_complete,
  * Overall, in order; since Checkpoint 7d the cards of the search without the helps-both lane, TradeSearchOptions
- * .helpsBothLane false: the lane changes which trades are cards, not the reward's numbers). They are values, not formulas:
+ * .helpsBothLane false: the lane changes which trades are cards, not the reward's numbers; since Checkpoint 7g likewise
+ * without the merged cards' three new rules, smallerAsks, preferListed and dropDominated false). They are values, not formulas:
  * a change that moves any of them, by however little, fails here.
  * Synthetic leagues (trade.testing.ts: made-up players, placeholder teams), EV lineups, the app's default seasons as they were
  * at HEAD: one block of config.simulation.finalSims (5,000) seasons for the League model, the search's final simulation and the
@@ -142,7 +143,7 @@ describe("“Only the champion” and “Making the playoffs”: HEAD's numbers 
         // Without Checkpoint 7d's helps-both lane (search.ts), which came after HEAD: its trades go through the same finalist
         // rules as every exact trade, so it moves the cards (smallLeague(11): 10 cards with it under "Only the champion" and 11
         // under "Making the playoffs", 7 without), not the reward's numbers.
-        const result = runTradeSearch(ctx, { settings, helpsBothLane: false });
+        const result = runTradeSearch(ctx, { settings, helpsBothLane: false, smallerAsks: false, preferListed: false, dropDominated: false });
         expect(result.helpsScale?.b3).toBe(want.b3);
         expect(result.trades.map((t): Card => [t.key, t.b as number, t.tradeScore as number, t.pComplete, t.overall as number])).toEqual(want.cards);
       });

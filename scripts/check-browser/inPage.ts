@@ -474,6 +474,18 @@ function cardPlaces(a) {
   });
   return out;
 }
+// Checkpoint 7g (contracts.ts dominatedIdeasProblems): the ideas of the list the card is on, in order, each its key and the
+// numbers it prints (Helps you; the chance the rules read: the "about N% it goes through" of its veto note, else the chance
+// they accept); [] for a card outside such a list (the Analyzer's).
+function listIdeas(a) {
+  const item = a.closest("li[data-trade-key]");
+  const list = item ? item.parentElement : null;
+  if (!list) return [];
+  return [...list.children].filter((li) => li.matches("li[data-trade-key]")).map((li) => {
+    const c = li.querySelector("article");
+    return { key: li.dataset.tradeKey || null, helps: c ? scoreOf(c, "Helps you") : null, chance: c ? acceptThrough(c) || scoreOf(c, "Chance they accept") : null };
+  });
+}
 function partnerLine(a, skip) {
   for (const p of a.querySelectorAll("p")) {
     if (skip && skip.contains(p)) continue;

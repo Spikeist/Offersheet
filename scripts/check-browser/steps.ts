@@ -27,7 +27,10 @@
  *    before by config.search.steps.minAcceptGain, Helps you above 0 and never rising), an offer that is another idea shown
  *    saying so with that idea's place ("Also shown as trade idea N.": contracts.ts offersAlsoProblems; the lead's call, wave
  *    D), since Checkpoint 7f none of its offers an idea below it on Overall (contracts.ts offersMergeProblems: the merge shows
- *    those among its offers only), each offer's Copy putting its own message on the clipboard (offersChecks).
+ *    those among its offers only), since Checkpoint 7g its Last offer the idea plus one player of mine or the idea asking for
+ *    fewer of their players (contracts.ts lastOfferShapeProblems) and no idea of the list a version of another's trade at
+ *    least as good on both printed numbers (contracts.ts dominatedIdeasProblems), each offer's Copy putting its own message on
+ *    the clipboard (offersChecks).
  * 6. Analyzer (the card's "Open in Analyzer"): it evaluates the same trade with the same three numbers as the card;
  *    both sides shown, no tag on mine; the layout; "Back to the Trade Finder" shows the ideas again. Then step "Waivers"
  *    (Phase 7b, below).
@@ -189,11 +192,13 @@ import {
   DYNASTYPROCESS_DATA_URL,
   dynastyProcessLinkIssues,
   dynastyProcessLinksInHtml,
+  dominatedIdeasProblems,
   finderPartnerLineProblems,
   helpsBothListProblems,
   helpsBothStatusOk,
   helpsBothTagProblems,
   invalidPrizeProblems,
+  lastOfferShapeProblems,
   MENTIONS_MARKET,
   NAV_HREFS,
   noticeCount,
@@ -212,6 +217,7 @@ import {
   releaseLineProblems,
   requestNamesAddress,
   rowCount,
+  tradeKeyParts,
   valueLeaks,
   VALUES_CREDIT,
   waiverFoldProblems,
@@ -222,6 +228,7 @@ import {
   waiverTotalProblems,
   type CreditRead,
   type FantasyCalcLink,
+  type IdeaRead,
   type NowOrLaterRead,
   type OffersRead,
   type PrizeGroupRead,
@@ -1497,7 +1504,11 @@ export async function cardStep(ctx: StepContext): Promise<void> {
  * rising, each with its own Copy); an offer that is another idea of the list says so with that idea's place, "Also shown as
  * trade idea N." (contracts.ts offersAlsoProblems, the places from the list's data-trade-key: the lead's call, wave D), and no
  * other offer does; since Checkpoint 7f, in the Overall sort (the card step's sorts end on it), none is an idea below the first
- * one (contracts.ts offersMergeProblems: merged ideas); each offer's Copy puts its own message on the clipboard; and every Plan B box the list
+ * one (contracts.ts offersMergeProblems: merged ideas); since Checkpoint 7g (planner reply to Checkpoint 7f, answer 3), in the
+ * Overall sort, its Last offer is the idea plus one player of mine or the idea asking for fewer of their players
+ * (contracts.ts lastOfferShapeProblems) and no idea of the list is a version of another's trade at least as good on both Helps
+ * you and the chance as printed (contracts.ts dominatedIdeasProblems, inPage.ts listIdeas); each offer's Copy puts its own
+ * message on the clipboard; and every Plan B box the list
  * shows reads the planner's heading, "If they won't move: try …". Runs last in the card step: once open, the offers' messages
  * come before the card's own on the card. The tab's minimum chance is the default (a fresh browser: the Settings step runs
  * after this one).
@@ -1541,6 +1552,8 @@ async function offersChecks(ctx: StepContext, step: string, first: string): Prom
   );
   // An offer that is another idea shown says so with that idea's place (the lead's call for Checkpoint 7e's wave D:
   // contracts.ts offersAlsoProblems, the list's places read from its items' data-trade-key).
+  // The sort shown and the first idea's key (the merge's and Checkpoint 7g's checks read the Overall sort).
+  const shown = await page.run<{ sort: string; key: string | null }>(`const s = document.getElementById("finder-sort"); const li = ${first}.closest("li[data-trade-key]"); return { sort: s ? s.value : "", key: li ? li.getAttribute("data-trade-key") : null };`, { cards: true });
   if (read.offers.length) {
     const places = await page.run<Record<string, number>>(`return cardPlaces(${first});`, { cards: true });
     const alsoProblems = offersAlsoProblems(read, places, suggested);
@@ -1556,12 +1569,38 @@ async function offersChecks(ctx: StepContext, step: string, first: string): Prom
     );
     // Checkpoint 7f (planner reply to Checkpoint 7e, decision 3: merged ideas): in the Overall sort, the first idea's offers
     // include no idea below it, which the merge shows among its offers only (contracts.ts offersMergeProblems).
-    const shown = await page.run<{ sort: string; key: string | null }>(`const s = document.getElementById("finder-sort"); const li = ${first}.closest("li[data-trade-key]"); return { sort: s ? s.value : "", key: li ? li.getAttribute("data-trade-key") : null };`, { cards: true });
     if (shown.sort !== "overall" || !shown.key) report.skip(step, `the merge's check needs the Overall sort and the idea's key (the sort reads “${shown.sort}”)`);
     else {
       const mergeProblems = offersMergeProblems(read, places, shown.key, suggested);
       report.check(step, mergeProblems.length === 0, "the first idea's offers include no idea below it on Overall (the merge shows those among its offers only)", "the first idea's offers include an idea below it on Overall", mergeProblems);
+      // Checkpoint 7g (planner reply to Checkpoint 7f, answer 3(a)): its Last offer is the idea plus one player of yours or the
+      // idea asking for fewer of their players (contracts.ts lastOfferShapeProblems, from the offer's key and the idea's).
+      const last = read.offers.find((o) => o.label === "Last offer");
+      const shapeProblems = lastOfferShapeProblems(read, shown.key);
+      const fewer = last ? (tradeKeyParts(last.key)?.get.length ?? 0) < (tradeKeyParts(shown.key)?.get.length ?? 0) : false;
+      report.check(
+        step,
+        shapeProblems.length === 0,
+        last ? `the first idea's Last offer is the idea ${fewer ? "asking for fewer of their players" : "plus one player of yours"}` : "the first idea has no Last offer (nothing to check on its shape)",
+        "the first idea's Last offer is neither the idea plus one player of yours nor the idea asking for fewer of theirs",
+        shapeProblems,
+      );
     }
+  }
+  // Checkpoint 7g (planner reply to Checkpoint 7f, answer 3(c)): in the Overall sort, no idea of the list is a version of
+  // another's trade at least as good on both Helps you and the chance as printed (contracts.ts dominatedIdeasProblems, the
+  // list read by inPage.ts listIdeas).
+  if (shown.sort !== "overall") report.skip(step, `the dropped versions' check needs the Overall sort (the sort reads “${shown.sort}”)`);
+  else {
+    const ideas = await page.run<IdeaRead[]>(`return listIdeas(${first});`, { cards: true });
+    const dropProblems = dominatedIdeasProblems(ideas);
+    report.check(
+      step,
+      dropProblems.length === 0,
+      `no idea of the list is a version of another's trade at least as good on both Helps you and the chance (${pl(ideas.length, "idea")} read)`,
+      "an idea shows though another version of the same trade is at least as good on both",
+      dropProblems,
+    );
   }
   // Each offer's own message: opened, then Copy (a trusted tap) puts it on the clipboard.
   const copies: string[] = [];
