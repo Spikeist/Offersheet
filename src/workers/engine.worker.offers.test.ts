@@ -6,7 +6,8 @@
  * or one that can't give it) worked out the Analyzer's way from the trade its key names, on the context for the request with
  * its settings; the Analyzer's card by its proposal; each ladder kept per result (or context and settings) and card, so a
  * second open answers at once; the engine's clock passed only when the handler has one; and the failures: a key that names
- * no trade, a ladder that throws, a source that isn't one. The real engine's ladders: engine.worker.offers.engine.test.ts.
+ * no trade, a ladder that throws, a source that isn't one; since Checkpoint 7g the preference a card's search recorded, passed
+ * to that fallback and in its ladder's key. The real engine's ladders: engine.worker.offers.engine.test.ts.
  */
 import { describe, expect, it, vi } from "vitest";
 
@@ -283,6 +284,32 @@ describe("the worker's 'How to offer it' (Checkpoint 7e, item 4.1)", () => {
     // A source whose barred keys aren't strings still isn't one.
     h.handle(offers(6, { kind: "search", resultId: -1, key: KEY_A, barred: [7] } as unknown as OffersSource));
     expect(h.reply(6)).toMatchObject({ type: "error", id: 6, detail: "Not an engine request." });
+  });
+
+  it("Checkpoint 7g: a card whose result isn't kept is worked out with the preference its search recorded (the source's `prefer`), which keys its ladder; a request without it (an older page's) still answers, without one; one whose `prefer` isn't strings isn't a source", () => {
+    const h = harness();
+    answer(h, 1);
+    const prefer = ["6|give:101|get:202", "6|give:101|get:203"];
+    h.handle(offers(2, { kind: "search", resultId: -1, key: KEY_A, proposal, prefer: [prefer[1] as string, prefer[0] as string] }));
+    expect(h.reply(2)).toMatchObject({ type: "offers", id: 2 });
+    // Passed on sorted, each once.
+    expect(h.byProposal[0]?.opts?.prefer).toEqual(prefer);
+    // The same preference in another order: the ladder kept; none, or another: worked out again, each its own.
+    h.handle(offers(3, { kind: "search", resultId: -1, key: KEY_A, proposal, prefer }));
+    expect(h.byProposal).toHaveLength(1);
+    h.handle(offers(4, { kind: "search", resultId: -1, key: KEY_A, proposal }));
+    expect(h.reply(4)).toMatchObject({ type: "offers", id: 4 });
+    expect(h.byProposal).toHaveLength(2);
+    expect(h.byProposal[1]?.opts?.prefer).toBeUndefined();
+    h.handle(offers(5, { kind: "search", resultId: -1, key: KEY_A, proposal, prefer: [prefer[0] as string] }));
+    expect(h.byProposal).toHaveLength(3);
+    expect(h.byProposal[2]?.opts?.prefer).toEqual([prefer[0]]);
+    // The Analyzer's card has no list, so no preference.
+    h.handle(offers(6, { kind: "analysis", proposal }));
+    expect(h.byProposal[3]?.opts?.prefer).toBeUndefined();
+    // Not strings: not a source.
+    h.handle(offers(7, { kind: "search", resultId: -1, key: KEY_A, prefer: [7] } as unknown as OffersSource));
+    expect(h.reply(7)).toMatchObject({ type: "error", id: 7, detail: "Not an engine request." });
   });
 
   it("⚠️ an offers request never replaces the context the searches use nor forgets the kept results: its own context waits aside (the review of wave D, D-ENG-8 and UI-D-4)", () => {

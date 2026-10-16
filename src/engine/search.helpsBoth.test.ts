@@ -238,8 +238,19 @@ describe("the “Helps both” list (TradeSearchResult.helpsBoth)", { timeout: 1
       const plain = runTradeSearch(ctx, { settings: at(0.1) });
       expect(listOf(plain), `seed ${seed}`).toEqual([]);
       expect(stateOf(plain).helpsBothExtras, `seed ${seed}`).toEqual([]);
-      // The final runs, and the shown pass's count (the second list's cards are shown too), are the second list's own.
-      const strip = (x: TradeSearchResult) => ({ ...x, trades: x.trades.map(({ them: _them, ...t }) => (void _them, t)), counts: { ...x.counts, simFinal: 0, simShown: 0 }, helpsBoth: undefined });
+      // The final runs, and the shown pass's count (the second list's cards are shown too), are the second list's own, and so
+      // (Checkpoint 7g) are its merge's own parts: its merged and dropped versions and rounds, and its cards' preferences.
+      // ⚠️ A card on both lists prefers from both (the lead's D12), so an Overall card's ladder could read the second list:
+      // on these leagues none does.
+      const overallKeys = (x: TradeSearchResult) => new Set(x.trades.map((t) => t.key));
+      const strip = (x: TradeSearchResult) => ({
+        ...x,
+        trades: x.trades.map(({ them: _them, ...t }) => (void _them, t)),
+        counts: { ...x.counts, simFinal: 0, simShown: 0 },
+        helpsBoth: undefined,
+        merged: x.merged && { ...x.merged, helpsBoth: [], rounds: { ...x.merged.rounds, helpsBoth: 0 }, dominated: x.merged.dominated?.filter((d) => d.list === "overall") },
+        offerPrefer: Object.fromEntries(Object.entries(x.offerPrefer ?? {}).filter(([k]) => overallKeys(x).has(k))),
+      });
       expect(strip(r), `seed ${seed}`).toEqual(strip(plain));
     }
     expect(wouldEnter).toBeGreaterThan(0);
@@ -372,8 +383,9 @@ describe("the “Helps both” list (TradeSearchResult.helpsBoth)", { timeout: 1
   });
 
   it("an empty list is still a list (smallLeague(41): no trade helps both); a search stopped before ranking has none", () => {
-    // Checkpoint 7f: `merged` counts the trades merged into another card (none here).
-    expect(search(41, 0.1).helpsBoth).toEqual({ trades: [], qualifying: 0, byChance: 0, lowerWouldAdd: false, dropped: { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0, merged: 0 } });
+    // Checkpoint 7f: `merged` counts the trades merged into another card (none here); Checkpoint 7g: `dominated`, the versions
+    // dropped for a better one (none here).
+    expect(search(41, 0.1).helpsBoth).toEqual({ trades: [], qualifying: 0, byChance: 0, lowerWouldAdd: false, dropped: { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0, merged: 0, dominated: 0 } });
     const league = smallLeague(23);
     const none = runTradeSearch(buildTradeContext({ ...league.snapshot, myTeamId: null }, league.inputs, { now: TEST_NOW, scenarios: 0 }), { settings: at(0.1) });
     expect(none.helpsBoth).toBeUndefined();

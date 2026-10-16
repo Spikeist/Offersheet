@@ -706,9 +706,19 @@ export function expectedGain(b: number | null, pComplete: number): number | null
 
 /** "Overall": round(100 × (1 − e^(−B × P_complete / B₃))) when B > 0 and B₃ is known; null otherwise. P_complete is clamped to [0, 1]. */
 export function overallScore(b: number | null, pComplete: number, b3: number | null): number | null {
+  const unrounded = overallUnrounded(b, pComplete, b3);
+  return unrounded === null ? null : Math.round(unrounded);
+}
+
+/**
+ * "Overall" before it's rounded, 100 × (1 − e^(−B × P_complete / B₃)) (overallScore's number; null when it has none). Since
+ * Checkpoint 7g a smaller ask's Last offer keeps a share of its card's on it (offers.ts overallOf; config.offers.
+ * lastMinOverallShare).
+ */
+export function overallUnrounded(b: number | null, pComplete: number, b3: number | null): number | null {
   if (!isFiniteNumber(b) || !(b > 0) || !isFiniteNumber(pComplete) || !isFiniteNumber(b3) || !(b3 > 0)) return null;
   const p = Math.min(1, Math.max(0, pComplete));
-  return Math.round(100 * (1 - Math.exp(-(b * p) / b3)));
+  return 100 * (1 - Math.exp(-(b * p) / b3));
 }
 
 /**

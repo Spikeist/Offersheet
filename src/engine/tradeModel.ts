@@ -652,7 +652,9 @@ export interface TradeSteps {
  * A step's place in "How to offer it" (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1: "one ordered list of up to 4
  * offers to the same team"): "open", the version best for me that still prints a fair chance; "then", a little less good
  * for me, each likelier than the step before; "suggested", the card's own trade; "last", the suggested trade plus a
- * throw-in.
+ * throw-in, or since Checkpoint 7g (planner reply to Checkpoint 7f, answer 3(a)) the suggested trade asking for fewer of their
+ * players (a smaller ask: offers.ts), whichever has the higher Overall (the feedback records either as "last", its trade key
+ * saying which).
  */
 export type OfferStepKind = "open" | "then" | "suggested" | "last";
 
@@ -709,6 +711,24 @@ export interface MergedCards {
   ladders: number;
   /** ⚠️ The trades folded and then given back, in no offers of a card above them on their list (the release rule; ours). */
   released: number;
+  /**
+   * Checkpoint 7g (planner reply to Checkpoint 7f, answer 3(c): "Drop a version when another version of the same trade is at
+   * least as good on both Helps you and the chance."; search.ts, "Merged cards, Checkpoint 7g"): each list's versions dropped
+   * for a better one, in the order they were dropped, for reports and tests. Absent with the rule off
+   * (TradeSearchOptions.dropDominated, a report switch).
+   */
+  dominated?: DominatedTrade[];
+}
+
+/**
+ * A card dropped for another version of the same trade at least as good on both Helps you and the chance as printed
+ * (Checkpoint 7g; MergedCards.dominated): its key, the version it was dropped for (`by`: a card of the list then, or a trade
+ * merged into one), and the list.
+ */
+export interface DominatedTrade {
+  key: string;
+  by: string;
+  list: "overall" | "helpsBoth";
 }
 
 /** The star premium on one player the partner would give (§1 of the addendum), for the explanations and the tags. */
@@ -841,9 +861,11 @@ export interface TradeSearchResult {
    * final review of Phase 4c until Checkpoint 7e: search.ts foldedCards), and over Phase 4b's given-player cap in the top 20),
    * counted so a page can say so. The search always sets it (every key, 0 when it stops before ranking); optional only
    * so that fakes needn't (end-of-Phase-4 review, finding 5). Checkpoint 7f: `merged`, the trades folded into another card's
-   * "How to offer it" (MergedCards.overall), whenever the search ranks with the merge on.
+   * "How to offer it" (MergedCards.overall), whenever the search ranks with the merge on. Checkpoint 7g: `dominated`, the
+   * versions dropped for a better one of the same trade (MergedCards.dominated's on this list), whenever the search ranks with
+   * that rule on.
    */
-  dropped?: { partnerCap: number; core: number; filler: number; givenPlayer: number; merged?: number };
+  dropped?: { partnerCap: number; core: number; filler: number; givenPlayer: number; merged?: number; dominated?: number };
   /**
    * Counts per stage: candidates screened, exactly evaluated, simulated on the screening block (config.simulation.
    * screeningSims) and on the ranking block (finalSims: the finalists and "Helps both" extras); and since Checkpoint 7e
@@ -894,6 +916,13 @@ export interface TradeSearchResult {
    * (TradeSearchOptions.mergeCards, a report switch); absent otherwise, and on fakes.
    */
   merged?: MergedCards;
+  /**
+   * Checkpoint 7g (planner reply to Checkpoint 7f, answer 3(b); search.ts, "Merged cards, Checkpoint 7g"): the versions each
+   * card's ladder prefers (card key → their keys, sorted), for the cards of the lists whose ladder the merge worked out with a
+   * preference. The page sends a card's with its "How to offer it" request (engine.worker.ts OffersSource.prefer), so a card
+   * whose search the worker no longer keeps gets the very ladder its search kept. Absent when no card has one.
+   */
+  offerPrefer?: Record<string, string[]>;
 }
 
 /**
@@ -923,9 +952,10 @@ export interface HelpsBothList {
   lowerWouldAdd: boolean;
   /**
    * Dropped by the diversity rules, as TradeSearchResult.dropped counts the Overall list's (until Checkpoint 7e the folded
-   * cards as filler; since Checkpoint 7f `merged`, the trades merged into another card of this list, with the merge on).
+   * cards as filler; since Checkpoint 7f `merged`, the trades merged into another card of this list, with the merge on; since
+   * Checkpoint 7g `dominated`, the versions dropped for a better one of the same trade, with that rule on).
    */
-  dropped: { partnerCap: number; core: number; filler: number; givenPlayer: number; merged?: number };
+  dropped: { partnerCap: number; core: number; filler: number; givenPlayer: number; merged?: number; dominated?: number };
 }
 
 /**

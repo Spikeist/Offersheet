@@ -49,8 +49,10 @@
  * Finder card goes by the id of the request whose result holds it and its key: searchResultIdOf(client, result) gives that
  * id for a result this client handed out (-1 for any other: the worker then works the card out from its trade, the
  * Analyzer's way, the same offers; nothing barred since Checkpoint 7f, so the page sends no keys to bar; another card of its
- * list can be an offer either way, the lead's call, wave D); the Analyzer's card by its proposal. The worker keeps each
- * ladder (since Checkpoint 7f a search's own for the cards its merge read), so a second open answers at once.
+ * list can be an offer either way, the lead's call, wave D; since Checkpoint 7g the page sends the versions the card's ladder
+ * prefers, TradeSearchResult.offerPrefer, which the worker reads that way so the offers stay the search's); the Analyzer's card
+ * by its proposal. The worker keeps each ladder (since Checkpoint 7f a search's own for the cards its merge read), so a second
+ * open answers at once.
  */
 import type { LeagueModel, WaiverUpgrades } from "@/engine/leagueModel";
 import type { LaterNumbers, OfferLadder, TradeSearchProgress, TradeSearchResult } from "@/engine/tradeModel";

@@ -119,6 +119,27 @@ describe("FeedbackEventSchema: every copy the browser builds, and nothing else",
     }
   });
 
+  it("Checkpoint 7g: a Last offer that asks for fewer of their players records kind “last” with its key, and its copy names the shorter get side and passes the schema", () => {
+    // The card: 106 and 108 for 204 and 205. Its Last offer since Checkpoint 7g can be a smaller ask (offers.ts smallerAsks):
+    // the same players of mine for 205 alone. The page records it as any Last offer (FEEDBACK_VERSIONS has no new kind).
+    const snapshot = tradeSnapshot();
+    const card = evaluation("2|give:106,108|get:204,205", { proposal: { partnerId: "2", give: [{ kind: "player", id: "106" }, { kind: "player", id: "108" }], get: [{ kind: "player", id: "204" }, { kind: "player", id: "205" }] } });
+    const smaller = "2|give:106,108|get:205";
+    const record = applyFeedback([], {
+      leagueKey: "sleeper:12345678",
+      evaluation: card,
+      change: { outcome: "sent", sent: { version: "last", key: smaller, pAccept: 0.55, pComplete: 0.55, inputs: { features: FEATURES, gPartner: 0.05, b: 2.4, goal: "title", b3: 6.1, helpsReason: null } }, rid: newShareId() },
+      at: "2026-10-04T12:00:00.000Z",
+    })[0] as FeedbackRecord;
+    expect(record).toMatchObject({ version: "last", versionKey: smaller });
+    const e = feedbackEventOf({ record, kind: "outcome", context: feedbackShareContext(snapshot, "title") }) as FeedbackEvent;
+    expect(e.trade.get.map((p) => p.id)).toEqual(["204", "205"]);
+    expect(e.versionTrade).toEqual({ give: [{ id: "106", pos: "WR" }, { id: "108", pos: "TE" }], get: [{ id: "205", pos: "WR" }] });
+    const parsed = FeedbackEventSchema.safeParse(JSON.parse(JSON.stringify(e)));
+    expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
+    expect(parsed.data).toEqual(e);
+  });
+
   it("accepts a copy made under an older version's “Top finishers too” (“balanced”), its goal kept, at the top and in the version's inputs (Checkpoint 7c: feedbackEvent.ts FEEDBACK_GOALS); “Several prizes” with its split too", () => {
     const e = events().find((x) => x.versionInputs && x.goal !== "prizes" && x.versionInputs.goal !== "prizes") as FeedbackEvent;
     for (const [goal, split] of [

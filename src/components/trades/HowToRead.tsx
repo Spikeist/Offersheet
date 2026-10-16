@@ -107,7 +107,11 @@ const offersCountWords = (n: number): string => `${n} ${n === 1 ? "offer" : "off
  * how a trade opened from Plan B is shown; the Finder, that since Checkpoint 7f an idea another idea above it on Overall
  * offers is among that idea's offers only (search.ts, "Merged cards"), that an offer which is another idea of the list (one
  * above it on Overall whose own offers don't include this one) says so with its place ("Also shown as trade idea 2.":
- * TradeCard.tsx) and that none is its Plan B (offers.ts).
+ * TradeCard.tsx) and that none is its Plan B (offers.ts). Checkpoint 7g (planner reply to Checkpoint 7f, answer 3; the lead's
+ * D19): the Last offer is the trade plus a player I can spare or the trade asking for fewer of their players, whichever has the
+ * higher Overall (the throw-in keeping config.search.steps.minBShare of B, the smaller ask config.offers.lastMinOverallShare
+ * of the Overall: offers.ts, "4. Last offer"), on both pages; and the Finder says a version of the same trade at least as good
+ * on both Helps you and the chance shows alone (search.ts, "Merged cards, Checkpoint 7g").
  */
 export function offersWords(page: HowToReadPage): string {
   const analyzer = page === "analyzer";
@@ -117,14 +121,15 @@ export function offersWords(page: HowToReadPage): string {
     `“Open with” the version that helps you most while it still has at least a ${percentWords(config.offers.openMinChance)} chance they accept (or ${analyzer ? "the minimum chance you set on the Trade Finder" : "your minimum chance"}, ` +
     `when that's higher); “Then”, versions that help you a little less, each at least ${gain} likelier than the one before; ` +
     `“${analyzer ? "The trade you built" : "The suggested trade"}”${analyzer ? "" : `, ${own}`}; and “Last offer”, ${analyzer ? "the trade you built" : "the suggested trade"} plus a player you can spare ` +
-    `(losing him costs your lineup little), when that makes it at least ${gain} likelier while it still does at least ${percentWords(config.search.steps.minBShare)} as much for you.`;
+    `(losing him costs your lineup little) or asking for fewer of their players, whichever has the higher Overall, when it's at least ${gain} likelier; ` +
+    `with a player added it still does at least ${percentWords(config.search.steps.minBShare)} as much for you, and asking for fewer it keeps at least ${percentWords(config.offers.lastMinOverallShare)} of ${analyzer ? "the Overall of the trade you built" : "the idea's Overall"}.`;
   const each = `Each offer shows Helps you, the chance they accept, the roster moves its numbers assume when they aren't ${analyzer ? "this card's" : "the idea's"}, and its own message to send them.`;
   const lead = analyzer
     ? `works out, when you open it, up to ${offersCountWords(config.offers.maxSteps)} of this trade to the same team, in order:`
     : `works out, when you open it on an idea that helps you, up to ${offersCountWords(config.offers.maxSteps)} to the same team, in order:`;
   const tail = analyzer
     ? `When no other version makes a better first offer, it says to offer the trade as it is. A trade opened from a trade idea's “${PLAN_B_HEADING}” is shown as one offer instead: they've just turned down a trade with the same team.`
-    : `When an idea's offers include another idea below it on Overall, the list shows only the higher one, and the other is among its offers. An offer can still be an idea above it on Overall whose own offers don't include this one; it then says so, with that idea's place (“${planBAlsoText(2)}”). The idea's own “${PLAN_B_HEADING}” trade is never one of its offers. When no other version makes a better first offer, it says to offer the trade as it is.`;
+    : `When an idea's offers include another idea below it on Overall, the list shows only the higher one, and the other is among its offers. When two ideas are versions of the same trade and one is at least as good on both Helps you and the chance, only that one shows. An offer can still be an idea above it on Overall whose own offers don't include this one; it then says so, with that idea's place (“${planBAlsoText(2)}”). The idea's own “${PLAN_B_HEADING}” trade is never one of its offers. When no other version makes a better first offer, it says to offer the trade as it is.`;
   return `${lead} ${steps} ${each} ${tail}`;
 }
 

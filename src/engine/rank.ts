@@ -69,7 +69,8 @@
  *       trade the other rules leave out stays. Checkpoint 7f (merged cards; search.ts, "Merged cards"): the trades
  *       RankOptions.shownElsewhere names, folded into another card's "How to offer it", count as kept trades for this rule
  *       alone (a variant of one that only adds a filler player leaves, as it would beside the card it was), never for a
- *       place or a cap;
+ *       place or a cap; since Checkpoint 7g so do the versions a better one of the same trade dropped (search.ts, "Merged
+ *       cards, Checkpoint 7g"), which read this rule's relation (smallerVersion: versionsOfSameTrade);
  *    b. core: perCore kept trades already share its core, the highest-value asset on each side (`value`: the
  *       perception value; ties and unknown values: the smaller asset id; an empty side has no core asset);
  *    c. partner cap: while fewer than partnerCapTop (20, §13's "top 20") trades are kept, its partner already has
@@ -285,15 +286,40 @@ function properSubset(small: ReadonlySet<string>, big: ReadonlySet<string>): boo
   return true;
 }
 
+/** A trade's side-tagged asset ids ("give:…", "get:…"): what the filler rule and the versions of a trade compare. */
+function tradeAssets(proposal: Pick<TradeEvaluation["proposal"], "give" | "get">): Set<string> {
+  return new Set([...proposal.give.map((a) => `give:${assetId(a)}`), ...proposal.get.map((a) => `get:${assetId(a)}`)]);
+}
+
 /**
- * Whether `c` is a filler variant of `k` (the file header, rule a): the same partner, `k`'s assets plus more, B within
- * fillerCutoffFraction × B_k (or ⚠️ R5: no more helpful and less likely), and ranked below `k` in Overall order (⚠️ HB-3:
- * judged in that order whatever order the list goes in, so the same pairs are filler in every list).
+ * Whether `small` is a smaller version of `big`: the same partner, and `small`'s assets (side by side) a proper subset of
+ * `big`'s. One relation for the filler rule (rule a: a filler variant is a bigger version of a kept trade) and, since
+ * Checkpoint 7g, the dropped versions (versionsOfSameTrade; search.ts, "Merged cards, Checkpoint 7g").
+ */
+function smallerVersion(small: Pick<Candidate, "partnerId" | "assets">, big: Pick<Candidate, "partnerId" | "assets">): boolean {
+  return small.partnerId === big.partnerId && properSubset(small.assets, big.assets);
+}
+
+/**
+ * Whether two trades are versions of the same trade (Checkpoint 7g; planner reply to Checkpoint 7f, answer 3(c): "Drop a
+ * version when another version of the same trade is at least as good on both Helps you and the chance."; search.ts drops
+ * them): either is a smaller version of the other (smallerVersion, the filler rule's relation).
+ */
+export function versionsOfSameTrade(a: Pick<TradeEvaluation, "proposal">, b: Pick<TradeEvaluation, "proposal">): boolean {
+  const va = { partnerId: a.proposal.partnerId, assets: tradeAssets(a.proposal) };
+  const vb = { partnerId: b.proposal.partnerId, assets: tradeAssets(b.proposal) };
+  return smallerVersion(va, vb) || smallerVersion(vb, va);
+}
+
+/**
+ * Whether `c` is a filler variant of `k` (the file header, rule a): a bigger version of `k` (smallerVersion: the same partner,
+ * `k`'s assets plus more), B within fillerCutoffFraction × B_k (or ⚠️ R5: no more helpful and less likely), and ranked below
+ * `k` in Overall order (⚠️ HB-3: judged in that order whatever order the list goes in, so the same pairs are filler in every
+ * list).
  */
 function fillerOf(c: Candidate, k: Candidate, cutoff: number): boolean {
   return (
-    k.partnerId === c.partnerId &&
-    properSubset(k.assets, c.assets) &&
+    smallerVersion(k, c) &&
     (Math.abs(c.b - k.b) < cutoff * k.b || (c.b <= k.b && c.trade.pComplete < k.trade.pComplete)) &&
     byGainThenKey(c.trade, k.trade) > 0
   );
@@ -382,7 +408,7 @@ export function rankTrades(evaluations: readonly TradeEvaluation[], value: (asse
     return {
       trade,
       partnerId: trade.proposal.partnerId,
-      assets: new Set([...give.map((a) => `give:${assetId(a)}`), ...get.map((a) => `get:${assetId(a)}`)]),
+      assets: tradeAssets(trade.proposal),
       core: `${coreAsset(give, value)}|${coreAsset(get, value)}`,
       given: [...new Set(give.flatMap((a) => (a.kind === "player" && !exempt.has(a.id) ? [a.id] : [])))],
       b: trade.b as number,
