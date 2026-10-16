@@ -4,7 +4,7 @@
  * Pure types only. Arrays marked "per week" are aligned with LeagueModel.weeks.
  */
 import type { FantasyCalcFormat } from "./inputs";
-import type { Pos } from "./model";
+import type { InjuryStatus, Pos } from "./model";
 import type { PrizeDeltas, Reward } from "./reward";
 import type { Goal } from "./settings";
 
@@ -830,15 +830,18 @@ export interface MarketSummary {
 export interface ProjectionSummary {
   /**
    * ESPN leagues: whether ESPN's and Sleeper's projections were averaged (§6: only when they agree within 10% on average,
-   * kickers and D/STs aside since Checkpoint 7f).
+   * kickers and D/STs aside since Checkpoint 7f, and players tagged questionable, doubtful or probable since Checkpoint 7g).
    */
   espnAveraged: boolean;
   /**
    * The agreement measure over rostered players, when both sources exist. leftOut: the positions left out of its sums
    * (config.projections.espnSleeperAgreementExcluded: K and DEF; planner reply to Checkpoint 7e, item 6) that had a player
    * both sources project, in the config's order; absent when none was (and in a model built before Checkpoint 7f).
+   * leftOutStatuses: the injury statuses left out the same way (config.projections.espnSleeperAgreementExcludedStatuses:
+   * QUESTIONABLE, DOUBTFUL and PROBABLE; planner reply to Checkpoint 7f, answer 4); absent when none was (and in a model
+   * built before Checkpoint 7g).
    */
-  agreement: { meanRelDiff: number; players: number; week: number; leftOut?: Pos[] } | null;
+  agreement: { meanRelDiff: number; players: number; week: number; leftOut?: Pos[]; leftOutStatuses?: InjuryStatus[] } | null;
   /** Players whose two sources disagree by more than config.projections.sourceDisagreementLog (§6: "log"). */
   disagreements: { playerId: string; espn: number; sleeper: number; week: number }[];
   /** Players by base-rate source. */

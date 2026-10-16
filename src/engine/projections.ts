@@ -12,8 +12,8 @@
  *   where it is > 0 (PlayerInputs.sleeper carries lookbackWeeks past weeks for this), else in the
  *   nearest later remaining week. A null or 0 week is a stub (bye, injured, unprojected), never a base
  *   rate: an injured star keeps his last healthy projection. In ESPN leagues, when the two sources agree
- *   league-wide (espnSleeperAgreement, kickers and D/STs aside) and ESPN projects him in that same week,
- *   proj_now is the average of ESPN's league-scored value and Sleeper's (a kicker's or a D/ST's too).
+ *   league-wide (espnSleeperAgreement, kickers, D/STs and Q/D/P-tagged players aside) and ESPN projects him in that same
+ *   week, proj_now is the average of ESPN's league-scored value and Sleeper's (a kicker's or a D/ST's too).
  *   Fallbacks, in order: ESPN alone (no Sleeper week at all), Sleeper's season projection per game,
  *   actual points per game, nothing (b = 0). b is never < 0.
  * - Step 2, week shape m_w = clamp(S_w / mean S, weekShapeClamp), the mean taken over the REMAINING
@@ -34,6 +34,12 @@
  * note). On every saved day of Parker's two leagues ESPN projected nearly every kicker above Sleeper's line and most D/STs
  * below it: a difference in how the two sources project those positions, not about players' roles, which the test is meant
  * to measure. They're still logged, and averaged like every other player once the test passes.
+ * Since the planner's reply to Checkpoint 7f (answer 4: "yes, leave questionable players out of the test, since their ESPN
+ * numbers never reach a base rate") the sums also leave out the players whose injury status
+ * config.projections.espnSleeperAgreementExcludedStatuses names, QUESTIONABLE, DOUBTFUL and PROBABLE (the callers' players
+ * carry it): their base rate is the Q/D/P one below, which leaves this week's projections out and reads his nearest later
+ * healthy week first, a week ESPN doesn't project (it projects only this week and last), so this week's ESPN line, the one
+ * the test compares, never reaches it. A tagged kicker or D/ST is left out as his position. They're still logged.
  *
  * Conflicting ESPN signals (§6 step 3; planner reply to Checkpoint 2, answer 6): a PROBABLE, QUESTIONABLE
  * or DOUBTFUL player whose ESPN return date is 2+ weeks away gets Sleeper as the tiebreaker
@@ -97,6 +103,12 @@ export interface ProjectionConfig {
    * reply to Checkpoint 7e, item 6). Absent (a test's own config): none.
    */
   espnSleeperAgreementExcluded?: readonly Pos[];
+  /**
+   * Injury statuses the averaging test leaves out of its sums too, when it's given the players' info (config: QUESTIONABLE,
+   * DOUBTFUL and PROBABLE, the statuses the Q/D/P base rate takes; planner reply to Checkpoint 7f, answer 4). Absent (a test's
+   * own config): none.
+   */
+  espnSleeperAgreementExcludedStatuses?: readonly InjuryStatus[];
   sourceDisagreementLog: number;
   /** §6 step 3 "Conflicting ESPN signals": Sleeper's projection this week at this share of the healthy base rate or more makes an ESPN return date stale. */
   staleReturnShare: number;
@@ -460,27 +472,43 @@ export interface SourceAgreement {
    * (agreement null), so "no rostered player has both" can say whom it leaves aside.
    */
   leftOut?: Pos[];
+  /**
+   * The injury statuses left out of the sums (cfg.espnSleeperAgreementExcludedStatuses) that had a player both sources project,
+   * in the config's order; absent when none was. agreement.leftOutStatuses repeats it, as agreement.leftOut does leftOut. A
+   * player at a left-out position is left out as that position, never under his status.
+   */
+  leftOutStatuses?: InjuryStatus[];
   /** Players whose sources differ by more than sourceDisagreementLog of the larger value, largest gap first (§6 "log"). */
   disagreements: ProjectionSummary["disagreements"];
+}
+
+/** What the averaging test reads of a player beside his projections (the snapshot's PlayerInfo): his position and status. */
+export interface AgreementPlayerInfo {
+  readonly pos: Pos;
+  readonly injury?: InjuryStatus;
 }
 
 /**
  * §6 step 1, ESPN leagues: do ESPN's league-scored projections and Sleeper's (× league scoring) agree
  * within config.projections.espnSleeperAgreement on average? Measured in `week` (currentWeek) over the
  * rostered players both sources project (> 0) that week, as the ratio of sums Σ|E − S| / Σ S.
- * With `positions` (the snapshot's players), a player whose position cfg.espnSleeperAgreementExcluded names (K and DEF:
- * planner reply to Checkpoint 7e, item 6) is left out of the sums and the count, never out of the disagreement log; a
- * player `positions` doesn't know counts. Without it every player counts, as before Checkpoint 7f.
+ * With `info` (the snapshot's players), a player whose position cfg.espnSleeperAgreementExcluded names (K and DEF:
+ * planner reply to Checkpoint 7e, item 6), or whose injury status cfg.espnSleeperAgreementExcludedStatuses names
+ * (QUESTIONABLE, DOUBTFUL and PROBABLE: planner reply to Checkpoint 7f, answer 4), is left out of the sums and the count,
+ * never out of the disagreement log; a player `info` doesn't know counts. Without it every player counts, as before
+ * Checkpoint 7f.
  */
 export function espnSleeperAgreement(
   rosteredIds: Iterable<string>,
   players: Readonly<Record<string, PlayerInputs>>,
   week: number,
   cfg: ProjectionConfig = config.projections,
-  positions?: Readonly<Record<string, { readonly pos: Pos } | undefined>>,
+  info?: Readonly<Record<string, AgreementPlayerInfo | undefined>>,
 ): SourceAgreement {
-  const excluded = new Set(positions ? (cfg.espnSleeperAgreementExcluded ?? []) : []);
+  const excluded = new Set(info ? (cfg.espnSleeperAgreementExcluded ?? []) : []);
+  const excludedStatuses = new Set(info ? (cfg.espnSleeperAgreementExcludedStatuses ?? []) : []);
   const leftOutSeen = new Set<Pos>();
+  const statusesSeen = new Set<InjuryStatus>();
   let absDiff = 0;
   let sleeperSum = 0;
   let n = 0;
@@ -495,9 +523,13 @@ export function espnSleeperAgreement(
     if (!isProjected(e) || !isProjected(s)) continue;
     const gap = Math.abs(e - s) / Math.max(e, s);
     if (gap > cfg.sourceDisagreementLog) gaps.push({ gap, row: { playerId: id, espn: e, sleeper: s, week } });
-    const pos = positions?.[id]?.pos;
-    if (pos !== undefined && excluded.has(pos)) {
-      leftOutSeen.add(pos);
+    const who = info?.[id];
+    if (who !== undefined && excluded.has(who.pos)) {
+      leftOutSeen.add(who.pos);
+      continue;
+    }
+    if (who?.injury !== undefined && excludedStatuses.has(who.injury)) {
+      statusesSeen.add(who.injury);
       continue;
     }
     n++;
@@ -507,27 +539,52 @@ export function espnSleeperAgreement(
   gaps.sort((a, b) => b.gap - a.gap || (a.row.playerId < b.row.playerId ? -1 : a.row.playerId > b.row.playerId ? 1 : 0));
   const disagreements = gaps.map((g) => g.row);
   const leftOut = [...excluded].filter((pos) => leftOutSeen.has(pos));
-  const aside = leftOut.length ? { leftOut } : {};
+  const leftOutStatuses = [...excludedStatuses].filter((status) => statusesSeen.has(status));
+  const aside = { ...(leftOut.length ? { leftOut } : {}), ...(leftOutStatuses.length ? { leftOutStatuses } : {}) };
   if (n === 0) return { agree: false, agreement: null, ...aside, disagreements };
   const meanRelDiff = absDiff / sleeperSum;
-  const agreement = { meanRelDiff, players: n, week, ...(leftOut.length ? { leftOut: [...leftOut] } : {}) };
+  const agreement = {
+    meanRelDiff,
+    players: n,
+    week,
+    ...(leftOut.length ? { leftOut: [...leftOut] } : {}),
+    ...(leftOutStatuses.length ? { leftOutStatuses: [...leftOutStatuses] } : {}),
+  };
   return { agree: meanRelDiff <= cfg.espnSleeperAgreement, agreement, ...aside, disagreements };
 }
 
 /** The averaging test's left-out positions as a sentence names them: only ESPN leagues compare, so a team defense is a "D/ST". */
 const LEFT_OUT_WORDS: Readonly<Partial<Record<Pos, string>>> = { K: "kickers", P: "punters", DEF: "D/STs" };
 
+/** Its left-out injury statuses as an adjective before "players" ("questionable players"). */
+const LEFT_OUT_STATUS_WORDS: Readonly<Partial<Record<InjuryStatus, string>>> = { QUESTIONABLE: "questionable", DOUBTFUL: "doubtful", PROBABLE: "probable" };
+
+/** "a", "a and b", "a, b and c" (`last` "or": "a, b or c"). */
+function listText(words: readonly string[], last: "and" | "or"): string {
+  return words.length > 1 ? `${words.slice(0, -1).join(", ")} ${last} ${words.at(-1)}` : (words[0] ?? "");
+}
+
 /**
- * ", kickers and D/STs aside" (", kickers aside" when no D/ST had both projections): the positions the averaging test left
- * out of its sums (SourceAgreement.leftOut, ProjectionSummary.agreement.leftOut), for every text that states its result: the
- * League model's warning, the Import Report's projection note, the League page's explainer and league-report's line. ""
+ * Whom the averaging test left out of its sums, as a list: "kickers, D/STs and questionable players" (positions first, then
+ * the statuses as one group: "questionable or doubtful players"), only those that had a player both sources project
+ * (SourceAgreement.leftOut and .leftOutStatuses, ProjectionSummary.agreement's); "" when it left none out.
+ */
+export function agreementLeftOutText(leftOut: readonly Pos[] | undefined, leftOutStatuses?: readonly InjuryStatus[] | undefined): string {
+  const words = (leftOut ?? []).map((pos) => LEFT_OUT_WORDS[pos] ?? `${pos}s`);
+  const statuses = (leftOutStatuses ?? []).map((status) => LEFT_OUT_STATUS_WORDS[status] ?? status.toLowerCase());
+  if (statuses.length) words.push(`${listText(statuses, "or")} players`);
+  return listText(words, "and");
+}
+
+/**
+ * ", kickers, D/STs and questionable players aside" (", kickers aside" when no D/ST and no tagged player had both
+ * projections): whom the averaging test left out of its sums (agreementLeftOutText), for every text that states its result:
+ * the League model's warning, the Import Report's projection note, the League page's explainer and league-report's line. ""
  * when it left none out.
  */
-export function agreementAside(leftOut: readonly Pos[] | undefined): string {
-  const words = (leftOut ?? []).map((pos) => LEFT_OUT_WORDS[pos] ?? `${pos}s`);
-  if (!words.length) return "";
-  const list = words.length > 1 ? `${words.slice(0, -1).join(", ")} and ${words.at(-1)}` : words[0];
-  return `, ${list} aside`;
+export function agreementAside(leftOut: readonly Pos[] | undefined, leftOutStatuses?: readonly InjuryStatus[] | undefined): string {
+  const list = agreementLeftOutText(leftOut, leftOutStatuses);
+  return list ? `, ${list} aside` : "";
 }
 
 /**

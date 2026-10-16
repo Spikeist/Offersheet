@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { config } from "./config";
 import type { PlayerInputs } from "./inputs";
-import { POSITIONS, type Pos } from "./model";
+import { POSITIONS, type InjuryStatus, type Pos } from "./model";
 import {
   actualWeightFor,
   agreementAside,
+  agreementLeftOutText,
   agreementPercent,
   baseRate,
   baseRateSourceCounts,
@@ -24,6 +25,10 @@ import {
 } from "./projections";
 
 const range = (from: number, to: number): number[] => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+
+/** Every injury status (a Record, so a status added to the type must be listed here). */
+const STATUS_SET: Record<InjuryStatus, true> = { ACTIVE: true, PROBABLE: true, QUESTIONABLE: true, DOUBTFUL: true, OUT: true, IR: true, PUP: true, SUSPENDED: true, NA: true };
+const INJURY_STATUSES = Object.keys(STATUS_SET) as InjuryStatus[];
 
 // A Parker-like league (Checkpoint 1): ESPN, NFL week 4, regular season weeks 1–14, playoffs weeks 15–17.
 const CURRENT = 4;
@@ -766,6 +771,96 @@ describe("espnSleeperAgreement (§6 step 1, ESPN leagues)", () => {
       });
     });
   });
+
+  describe("questionable, doubtful and probable players aside (planner reply to Checkpoint 7f, answer 4: config.projections.espnSleeperAgreementExcludedStatuses)", () => {
+    const tagged = (pos: Pos, injury: InjuryStatus) => ({ pos, injury });
+
+    it("reads them from config: exactly the statuses the Q/D/P base rate takes (usesHealthyBaseRate), so a player is left out of the test exactly when his base rate leaves this week out", () => {
+      const statuses = config.projections.espnSleeperAgreementExcludedStatuses;
+      expect(statuses).toEqual(["QUESTIONABLE", "DOUBTFUL", "PROBABLE"]);
+      for (const status of INJURY_STATUSES) expect(statuses.includes(status), status).toBe(usesHealthyBaseRate(status));
+    });
+
+    it("this week's ESPN line, the one the test compares, never reaches a tagged player's base rate, averaged or not (the planner's “their ESPN numbers never reach a base rate”)", () => {
+      // Sleeper cuts him this week (6) and projects him healthy from next week (15); ESPN projects only this week and last.
+      const sleeper = { 1: 14, 2: 15, 3: 16, ...flat(range(4, 17), 15), 4: 6 };
+      for (const injury of config.projections.espnSleeperAgreementExcludedStatuses) {
+        for (const espnAveraged of [true, false]) {
+          const at = (espnNow: number) => projectPlayer("q", "RB", player(sleeper, { espn: { 3: 17, 4: espnNow } }), ones(WEEKS.length), ctx({ injury, espnAveraged }));
+          const low = at(3);
+          const high = at(60);
+          expect(high.base, `${injury}, averaged ${espnAveraged}`).toStrictEqual(low.base);
+          expect(high.weekly, `${injury}, averaged ${espnAveraged}`).toStrictEqual(low.weekly);
+          // His nearest later healthy week, week 5: Sleeper's (ESPN doesn't project it), with this week's shape 1.
+          expect(low.base).toMatchObject({ projWeek: 5, projNow: 15, source: "sleeper" });
+        }
+      }
+      // An untagged player's base rate does read it, once the sources are averaged: that's what the test is for.
+      const untagged = (espnNow: number) => projectPlayer("a", "RB", player(sleeper, { espn: { 3: 17, 4: espnNow } }), ones(WEEKS.length), ctx({ espnAveraged: true }));
+      expect(untagged(3).base.b).not.toBe(untagged(60).base.b);
+    });
+
+    it("leaves them out of its sums and count, never out of the disagreement log, and a tagged kicker as a kicker", () => {
+      // Sleeper cuts the questionable RB this week and ESPN doesn't: he alone would sink the test.
+      const players = { qb: both(20, 21), wr: both(10, 10), rb: both(14, 7), k: both(12, 6) };
+      const ids = ["qb", "wr", "rb", "k"];
+      const info = { qb: tagged("QB", "ACTIVE"), wr: tagged("WR", "ACTIVE"), rb: tagged("RB", "QUESTIONABLE"), k: tagged("K", "QUESTIONABLE") };
+      // 7 / 14 = 0.5 and 6 / 12 = 0.5: both still logged (> sourceDisagreementLog), by id on the tie.
+      const logged = [
+        { playerId: "k", espn: 12, sleeper: 6, week: 4 },
+        { playerId: "rb", espn: 14, sleeper: 7, week: 4 },
+      ];
+      expect(espnSleeperAgreement(ids, players, 4)).toStrictEqual({ agree: false, agreement: { meanRelDiff: 14 / 44, players: 4, week: 4 }, disagreements: logged });
+      expect(espnSleeperAgreement(ids, players, 4, config.projections, info)).toStrictEqual({
+        agree: true,
+        agreement: { meanRelDiff: 1 / 31, players: 2, week: 4, leftOut: ["K"], leftOutStatuses: ["QUESTIONABLE"] },
+        leftOut: ["K"],
+        leftOutStatuses: ["QUESTIONABLE"],
+        disagreements: logged,
+      });
+      // The kicker alone tagged: left out as a kicker, so no status is named.
+      const kickerOnly = { ...info, rb: tagged("RB", "ACTIVE") };
+      expect(espnSleeperAgreement(["qb", "wr", "k"], players, 4, config.projections, kickerOnly)).toStrictEqual({
+        agree: true,
+        agreement: { meanRelDiff: 1 / 31, players: 2, week: 4, leftOut: ["K"] },
+        leftOut: ["K"],
+        disagreements: [{ playerId: "k", espn: 12, sleeper: 6, week: 4 }],
+      });
+    });
+
+    it("counts every other status (ACTIVE, OUT, IR, PUP, SUSPENDED, NA) and a player without one; lists the statuses left out in the config's order", () => {
+      const others = INJURY_STATUSES.filter((s) => !usesHealthyBaseRate(s));
+      expect(others).toEqual(["ACTIVE", "OUT", "IR", "PUP", "SUSPENDED", "NA"]);
+      const players = Object.fromEntries([...others, "none"].map((s) => [s, both(11, 10)]));
+      const info = Object.fromEntries(others.map((s) => [s, tagged("WR", s)]));
+      const all = espnSleeperAgreement(Object.keys(players), players, 4, config.projections, { ...info, none: { pos: "WR" } });
+      expect(all).toStrictEqual(espnSleeperAgreement(Object.keys(players), players, 4));
+      expect(all.agreement?.players).toBe(others.length + 1);
+      // Probable before doubtful in the roster, the config's order in the result.
+      const mixed = { p: both(20, 10), d: both(9, 18), a: both(10, 10) };
+      expect(espnSleeperAgreement(["p", "d", "a"], mixed, 4, config.projections, { p: tagged("WR", "PROBABLE"), d: tagged("TE", "DOUBTFUL"), a: tagged("QB", "ACTIVE") })).toMatchObject({
+        agree: true,
+        agreement: { meanRelDiff: 0, players: 1, week: 4, leftOutStatuses: ["DOUBTFUL", "PROBABLE"] },
+        leftOutStatuses: ["DOUBTFUL", "PROBABLE"],
+      });
+    });
+
+    it("compares nobody when only left-out players have both, and is the test of Checkpoint 7f with no or an empty status list", () => {
+      const players = { q: both(14, 7), k: both(12, 6), out: both(null, 20) };
+      const info = { q: tagged("RB", "QUESTIONABLE"), k: tagged("K", "ACTIVE"), out: tagged("WR", "OUT") };
+      const logged = [
+        { playerId: "k", espn: 12, sleeper: 6, week: 4 },
+        { playerId: "q", espn: 14, sleeper: 7, week: 4 },
+      ];
+      expect(espnSleeperAgreement(["q", "k", "out"], players, 4, config.projections, info)).toStrictEqual({ agree: false, agreement: null, leftOut: ["K"], leftOutStatuses: ["QUESTIONABLE"], disagreements: logged });
+      // Checkpoint 7f's test: the questionable RB counts (7 / 7 = 100%).
+      const before = { agree: false, agreement: { meanRelDiff: 1, players: 1, week: 4, leftOut: ["K"] }, leftOut: ["K"], disagreements: logged };
+      for (const list of [[], undefined]) {
+        const cfg: ProjectionConfig = { ...config.projections, espnSleeperAgreementExcludedStatuses: list };
+        expect(espnSleeperAgreement(["q", "k", "out"], players, 4, cfg, info)).toStrictEqual(before);
+      }
+    });
+  });
 });
 
 describe("agreementAside and agreementPercent: the averaging test in words (Checkpoint 7f)", () => {
@@ -777,6 +872,20 @@ describe("agreementAside and agreementPercent: the averaging test in words (Chec
     expect(agreementAside(["K", "DEF"])).toBe(", kickers and D/STs aside");
     expect(agreementAside(["P", "K", "DEF"])).toBe(", punters, kickers and D/STs aside");
     expect(agreementAside(["QB"])).toBe(", QBs aside");
+  });
+
+  it("names the injury tags left aside after the positions, as one group of players (Checkpoint 7g; planner reply to Checkpoint 7f, answer 4)", () => {
+    expect(agreementAside(["K", "DEF"], ["QUESTIONABLE"])).toBe(", kickers, D/STs and questionable players aside");
+    expect(agreementAside(["K", "DEF"], ["QUESTIONABLE", "DOUBTFUL"])).toBe(", kickers, D/STs and questionable or doubtful players aside");
+    expect(agreementAside(["K"], ["QUESTIONABLE", "DOUBTFUL", "PROBABLE"])).toBe(", kickers and questionable, doubtful or probable players aside");
+    expect(agreementAside([], ["DOUBTFUL"])).toBe(", doubtful players aside");
+    expect(agreementAside(undefined, ["PROBABLE"])).toBe(", probable players aside");
+    expect(agreementAside(["K", "DEF"], [])).toBe(", kickers and D/STs aside");
+    expect(agreementAside(undefined, undefined)).toBe("");
+    // The list alone (the League page's "though kickers and D/STs are averaged too").
+    expect(agreementLeftOutText(["K", "DEF"])).toBe("kickers and D/STs");
+    expect(agreementLeftOutText(["K", "DEF"], ["QUESTIONABLE"])).toBe("kickers, D/STs and questionable players");
+    expect(agreementLeftOutText([], [])).toBe("");
   });
 
   it("prints a whole percent, or one decimal when that whole percent is the bar's, so a gap beside the bar never reads as the bar", () => {

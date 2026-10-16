@@ -11,7 +11,7 @@ import { titleOnlyReward } from "@/engine/benefit";
 import { config } from "@/engine/config";
 import type { BaseRateSource, PlayoffWeightAuto, SeasonOdds, TeamModel, WeekOdds } from "@/engine/leagueModel";
 import { fantasyCalcFallbackText, fantasyCalcFormat } from "@/engine/market";
-import type { LeagueSettings } from "@/engine/model";
+import type { InjuryStatus, LeagueSettings, Pos } from "@/engine/model";
 import { TITLE_ONLY, type Reward } from "@/engine/reward";
 import { weekUnderWayNote } from "@/engine/season";
 import { fmtNum } from "./format";
@@ -206,6 +206,27 @@ describe("buildLeagueView: header (§14 item 3)", () => {
     expect(explainer(false, { meanRelDiff: 0.10026, players: 22, week: 12, leftOut: ["K", "DEF"] }, { sleeper: 33 })).toContain("differ from Sleeper's by 10.03% on average this week (22 rostered players, kickers and D/STs aside), more than the 10% we allow");
     // Nothing left aside: no parentheses (the text before Checkpoint 7f but for "ESPN's").
     expect(explainer(true, { meanRelDiff: 0.04, players: 22, week: 12 }, averaged)).toContain("averaged with ESPN's own projection (they agree within 4% on average this week)");
+  });
+
+  it("names the injury tags the averaging test left aside after the positions, and averaged, whose projections are averaged too (Checkpoint 7g; planner reply to Checkpoint 7f, answer 4)", () => {
+    const explainer = (espnAveraged: boolean, agreement: LeagueFixture["model"]["projection"]["agreement"], sources: Partial<Record<BaseRateSource, number>>) => {
+      const f = leagueFixture();
+      f.model.projection = { ...f.model.projection, espnAveraged, agreement, sources: { ...SOURCES, ...sources } };
+      return of(f).explain[0]?.text ?? "";
+    };
+    const averaged = { "espn+sleeper": 25, sleeper: 8 };
+    const both = { leftOut: ["K", "DEF"] as Pos[], leftOutStatuses: ["QUESTIONABLE"] as InjuryStatus[] };
+    // Averaged: the tagged players' base rates read a later week, so "theirs" would say it of them too: the positions are named.
+    expect(explainer(true, { meanRelDiff: 0.0991, players: 98, week: 6, ...both }, averaged)).toContain(
+      "averaged with ESPN's own projection (they agree within 9.9% on average this week over 98 rostered players, kickers, D/STs and questionable players aside, though kickers and D/STs are averaged too)",
+    );
+    expect(explainer(false, { meanRelDiff: 0.11, players: 98, week: 6, ...both }, { sleeper: 33 })).toContain(
+      "ESPN's own projections differ from Sleeper's by 11% on average this week (98 rostered players, kickers, D/STs and questionable players aside), more than the 10% we allow, so we don't average ESPN's in.",
+    );
+    // Tagged players alone aside: nobody to say is averaged too.
+    expect(explainer(true, { meanRelDiff: 0.04, players: 22, week: 6, leftOutStatuses: ["QUESTIONABLE", "DOUBTFUL"] }, averaged)).toContain(
+      "averaged with ESPN's own projection (they agree within 4% on average this week over 22 rostered players, questionable or doubtful players aside)",
+    );
   });
 
   it("labels a keeper league's values as the redraft (perception) list it shows (§9)", () => {

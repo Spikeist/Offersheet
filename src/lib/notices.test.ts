@@ -497,6 +497,9 @@ describe("the League model's warnings", () => {
     expect(modelWarningRule("ESPN's projections differ from Sleeper's by 11% on average this week, kickers and D/STs aside (more than 10%), so projections use Sleeper's alone.")).toEqual({ rule: "technical" });
     expect(modelWarningRule("ESPN's projections differ from Sleeper's by 10.3% on average this week, kickers aside (more than 10%), so projections use Sleeper's alone.")).toEqual({ rule: "technical" });
     expect(modelWarningRule("ESPN's and Sleeper's projections couldn't be compared this week (no rostered player has both, kickers and D/STs aside), so projections use Sleeper's alone.")).toEqual({ rule: "technical" });
+    // Since Checkpoint 7g the players tagged questionable, doubtful or probable are aside too: still technical.
+    expect(modelWarningRule("ESPN's projections differ from Sleeper's by 11% on average this week, kickers, D/STs and questionable players aside (more than 10%), so projections use Sleeper's alone.")).toEqual({ rule: "technical" });
+    expect(modelWarningRule("ESPN's and Sleeper's projections couldn't be compared this week (no rostered player has both, questionable or doubtful players aside), so projections use Sleeper's alone.")).toEqual({ rule: "technical" });
     expect(modelWarningRule(BLEND_OFF_WARNING)).toEqual({ rule: "notice", text: "FantasyCalc's values for this season didn't load, so projections aren't adjusted toward the trade market. Refresh later to try again." });
     expect(modelWarningRule(ODDS_REFUSED_WARNING)).toEqual({ rule: "notice", text: ODDS_REFUSED_WARNING });
     const m = model({}, { warnings: ["No projections for 12 free agents, so they are left out.", ODDS_REFUSED_WARNING, "Sleeper's projections are missing, so projections use ESPN's alone."] });

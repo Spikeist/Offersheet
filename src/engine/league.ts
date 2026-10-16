@@ -13,8 +13,10 @@
  *    inputs have him; the others are left out and counted in a warning.
  * 2. ESPN leagues: ESPN's league-scored projections are averaged with Sleeper's only when the two agree
  *    within espnSleeperAgreement at currentWeek over the rostered players (§6 step 1), kickers and D/STs aside
- *    (config.projections.espnSleeperAgreementExcluded; planner reply to Checkpoint 7e, item 6). Once they agree, kickers
- *    and D/STs are averaged too.
+ *    (config.projections.espnSleeperAgreementExcluded; planner reply to Checkpoint 7e, item 6), and players tagged
+ *    QUESTIONABLE, DOUBTFUL or PROBABLE too (config.projections.espnSleeperAgreementExcludedStatuses; planner reply to
+ *    Checkpoint 7f, answer 4: their Q/D/P base rate never reads this week's ESPN line). Once they agree, kickers and D/STs
+ *    are averaged too.
  * 3. Per player: availability (§6 step 3; his currentWeek game "started" once its kickoff in
  *    inputs.nfl.kickoffs is at or before `now`, so it is no longer a game left; a known return week after
  *    inputs.nfl.lastWeek, the NFL's last week, means "not back this season"), the projection (§6 steps 1,
@@ -945,7 +947,8 @@ export function projectLeaguePlayers(
 
   let agreement: SourceAgreement | null = null;
   if (snapshot.platform === "espn" && inputs.espnProjections) {
-    // The players' positions, so the test leaves kickers and D/STs out of its sums (step 2).
+    // The players' positions and statuses (the ones the Q/D/P base rate reads: info.injury), so the test leaves kickers,
+    // D/STs and Q/D/P-tagged players out of its sums (step 2).
     agreement = espnSleeperAgreement(
       [...relevant.rostered].filter((id) => inputPlayers[id]),
       inputPlayers,
@@ -1307,8 +1310,8 @@ function nameList(ids: readonly string[], snapshot: LeagueSnapshot, max = 5): st
 /**
  * Plain-English notes about gaps, worded from what actually loaded. The ESPN/Sleeper note (ESPN leagues
  * whose projections weren't averaged) follows the base-rate sources (`sources`): which projections the
- * numbers use, and it says the two were compared only when they were, with the positions the test left aside
- * (projections.ts agreementAside) and its gap as agreementPercent prints it ("10.0%" beside the bar). Nothing about
+ * numbers use, and it says the two were compared only when they were, with the positions and injury tags the test left
+ * aside (projections.ts agreementAside) and its gap as agreementPercent prints it ("10.0%" beside the bar). Nothing about
  * projections once no week is left to project. Missing trade values are the model inputs' own warning (nothing here needs
  * them: trade chips and partners are lineup points); values that loaded without this season's list the
  * market blend needs (step 3b) get BLEND_OFF_WARNING, while some player is projected (a league renewed for
@@ -1328,7 +1331,7 @@ function modelWarnings(snapshot: LeagueSnapshot, inputs: ModelInputs, lp: League
     const pct = (x: number) => `${Math.round(x * 100)}%`;
     const bar = cfg.projections.espnSleeperAgreement;
     const a = lp.agreement?.agreement;
-    const aside = agreementAside(lp.agreement?.leftOut);
+    const aside = agreementAside(lp.agreement?.leftOut, lp.agreement?.leftOutStatuses);
     const fromSleeper = sources.sleeper + sources["espn+sleeper"];
     // Players Sleeper doesn't project fall back to ESPN's own projection (projections.ts).
     const espnOnly = sources.espn > 0 ? ` (ESPN's for the ${plural(sources.espn, "player")} Sleeper doesn't project)` : "";

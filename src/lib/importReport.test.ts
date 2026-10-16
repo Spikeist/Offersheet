@@ -1068,6 +1068,29 @@ describe("buildImportReport: the League page's projection source (§6)", () => {
     expect(notesFor(only)).toEqual(["Projection source: Sleeper's projections, scored with your league's rules. No rostered player had both ESPN's and Sleeper's projection in week 4, kickers aside, so they aren't averaged."]);
   });
 
+  it("leaves players tagged questionable, doubtful or probable out of the test too, as the League model does, and says so (planner reply to Checkpoint 7f, answer 4)", () => {
+    // Team 1's TE questionable: Sleeper cuts him this week and ESPN doesn't, which alone would sink the test ((1 + 6 + 0.5) / 36 ≈ 21%).
+    const tagged = (injury: PlayerInfo["injury"]) => snapshot({ players: { ...snapshot().players, "9002": { ...player("9002", "Glimmer Oddfellow", "TE"), injury } } });
+    const agree = inputs({
+      "9001": { sleeper: { 4: 20 }, espn: { 4: 21 }, actual: {} },
+      "9002": { sleeper: { 4: 6, 5: 12 }, espn: { 4: 12 }, actual: {} },
+      "9004": { sleeper: { 4: 10 }, espn: { 4: 10.5 }, actual: {} },
+      "espn:31337": { sleeper: { 4: 6 }, espn: { 4: 12 }, actual: {} },
+    });
+    expect(notesFor(agree, tagged("QUESTIONABLE"))).toEqual([
+      "Projection source: ESPN's and Sleeper's projections, averaged. They differ by 5% on average in week 4 (2 rostered players, kickers and questionable players aside), within the 10% we allow.",
+    ]);
+    expect(notesFor(agree, tagged("DOUBTFUL"))[0]).toContain("(2 rostered players, kickers and doubtful players aside), within the 10% we allow.");
+    // The very numbers the League model reads (both callers pass the same snapshot players).
+    const now = new Date("2026-09-30T02:00:00.000Z");
+    expect(projectLeaguePlayers(tagged("QUESTIONABLE"), agree, now).agreement?.agreement).toStrictEqual({ meanRelDiff: 0.05, players: 2, week: 4, leftOut: ["K"], leftOutStatuses: ["QUESTIONABLE"] });
+    // Untagged, he counts: 7.5 / 36 ≈ 21%, more than the bar.
+    expect(notesFor(agree, tagged("ACTIVE"))).toEqual([
+      "Projection source: Sleeper's projections, scored with your league's rules. ESPN's own projections differ from them by 21% on average in week 4 (3 rostered players, kickers aside), more than the 10% we allow, so we don't average them in.",
+    ]);
+    expect(projectLeaguePlayers(tagged("ACTIVE"), agree, now).agreement?.agreement).toStrictEqual({ meanRelDiff: 7.5 / 36, players: 3, week: 4, leftOut: ["K"] });
+  });
+
   it("states a gap beside the bar to one decimal, so it never reads as the bar itself", () => {
     const under = inputs({ "9001": { sleeper: { 4: 20 }, espn: { 4: 22.9 }, actual: {} }, "9004": { sleeper: { 4: 10 }, espn: { 4: 10.06 }, actual: {} } });
     expect(notesFor(under)).toEqual(["Projection source: ESPN's and Sleeper's projections, averaged. They differ by 9.9% on average in week 4 (2 rostered players), within the 10% we allow."]);

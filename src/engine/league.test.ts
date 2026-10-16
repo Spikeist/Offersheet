@@ -1574,6 +1574,35 @@ describe("players, projections and warnings (§6; the League page's rosters)", (
     expect(buildLeagueModel(only.snapshot, only.inputs, opts, NO_RISK).warnings).toEqual(["ESPN's and Sleeper's projections couldn't be compared this week (no rostered player has both, kickers aside), so projections use Sleeper's alone."]);
   });
 
+  it("leaves players tagged questionable, doubtful or probable out of the averaging test, whose base rates never read this week's ESPN line (planner reply to Checkpoint 7f, answer 4)", () => {
+    const opts = { now: TEST_NOW, scenarios: 0, sims: 0 };
+    const close = (id: string, pts: number, espn: number) => p(id, "QB", pts, { espn: { 4: espn } });
+    // Sleeper cuts the questionable RB to 6 this week (15 every other week); ESPN doesn't, and projects only this week and last.
+    const questionable = p("q", "RB", 15, { injury: "QUESTIONABLE", points: { ...Object.fromEntries(Array.from({ length: 17 }, (_, i) => [i + 1, 15])), 4: 6 }, espn: { 3: 16, 4: 12 } });
+    const league = buildTestLeague({ platform: "espn", espnProjections: true, teams: [team("1", [close("a", 20, 21), close("b", 10, 10), questionable])] });
+    // With him the gap would be (1 + 0 + 6) / 36 ≈ 19%: Checkpoint 7f's test, Sleeper's alone.
+    const before: LeagueModelConfig = { ...NO_RISK, projections: { ...NO_RISK.projections, espnSleeperAgreementExcludedStatuses: [] } };
+    const m7f = buildLeagueModel(league.snapshot, league.inputs, opts, before);
+    expect(m7f.projection).toMatchObject({ espnAveraged: false, agreement: { meanRelDiff: 7 / 36, players: 3, week: 4 } });
+    const m = buildLeagueModel(league.snapshot, league.inputs, opts, NO_RISK);
+    expect(m.projection.espnAveraged).toBe(true);
+    expect(m.projection.agreement).toStrictEqual({ meanRelDiff: 1 / 30, players: 2, week: 4, leftOutStatuses: ["QUESTIONABLE"] });
+    expect(m.players.a?.base.source).toBe("espn+sleeper");
+    // His base rate is the Q/D/P one: next week's Sleeper projection, which ESPN doesn't project, whatever the test says.
+    expect(m.players.q?.base).toMatchObject({ source: "sleeper", projWeek: 5, b: 15 });
+    expect(m.players.q?.base).toStrictEqual(m7f.players.q?.base);
+    // Still logged (6 / 12 = 0.5), and no warning: the sources are averaged.
+    expect(m.projection.disagreements.map((d) => d.playerId)).toEqual(["q"]);
+    expect(m.warnings).toEqual([]);
+    // Apart, the warning names whom the test left aside: the tagged players after the positions.
+    const apart = buildTestLeague({ platform: "espn", espnProjections: true, teams: [team("1", [close("a", 20, 30), close("b", 10, 10), questionable])] });
+    expect(buildLeagueModel(apart.snapshot, apart.inputs, opts, NO_RISK).warnings).toEqual(["ESPN's projections differ from Sleeper's by 33% on average this week, questionable players aside (more than 10%), so projections use Sleeper's alone."]);
+    const withKicker = buildTestLeague({ platform: "espn", espnProjections: true, teams: [team("1", [close("a", 20, 30), close("b", 10, 10), questionable, p("k", "K", 6, { espn: { 4: 12 } })])] });
+    expect(buildLeagueModel(withKicker.snapshot, withKicker.inputs, opts, NO_RISK).warnings).toEqual([
+      "ESPN's projections differ from Sleeper's by 33% on average this week, kickers and questionable players aside (more than 10%), so projections use Sleeper's alone.",
+    ]);
+  });
+
   it("words the ESPN/Sleeper note from what loaded: no comparison claimed without Sleeper's projections, and no note once the season is over", () => {
     // No season simulation: these one-team leagues have no schedule (it would add its own warning).
     const opts = { now: TEST_NOW, scenarios: 0, sims: 0 };
