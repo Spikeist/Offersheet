@@ -100,6 +100,13 @@ export const config = {
      */
     actualWeightByPos: { K: 0, DEF: 0 } as Readonly<Partial<Record<Pos, number>>>,
     actualFullGames: 6,
+    /**
+     * The week shape m_w = clamp(S_w / his mean, weekShapeClamp) (§6 step 2). Since Checkpoint 7g its lower bound is also the
+     * bar of "his first full week back" (planner reply to Checkpoint 7f, answer 2; projections.ts returnHedgeWeeks): from a
+     * player's expected return week on, his projected weeks below this share of their median, before his first one at or
+     * above it, are read as Sleeper easing him back in, not as his rate. No tunable of its own: below this bound the clamp
+     * stops reading a low week as a matchup, and that's where such a week starts to bias his base rate.
+     */
     weekShapeClamp: [0.8, 1.2] as const,
     /** Average ESPN with Sleeper × rules only if they agree within this on average (planner reply 14). */
     espnSleeperAgreement: 0.1,

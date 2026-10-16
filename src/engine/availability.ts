@@ -58,7 +58,9 @@
  * An IR player's expected return week R (expectedReturnWeek; planner reply to Checkpoint 4, change 5): the first
  * remaining week whose chance he's back, the return-week distribution's cumulative probability (step 1, before future
  * injury risk), reaches config.projections.returnWeekQuantile. From R he needs an active roster spot again (league.ts
- * step 5b: returners and the displacement they cause).
+ * step 5b: returners and the displacement they cause). Since Checkpoint 7g his projection reads it too, for any player whose
+ * availability follows a known return week (followsReturnWeek): his base rate comes from his first full week back
+ * (projections.ts's header; league.ts step 3).
  *
  * Common random numbers: scenario s of a player uses streamFor(seed, playerId, s) and always draws its
  * uniforms in the same order: u0 picks T; then, for each listed week in order, one uniform for the chain
@@ -287,6 +289,16 @@ export function followsKnownReturnWeek(injury: InjuryStatus, injuryReturnWeek: n
       return true;
   }
   return false;
+}
+
+/**
+ * Whether his availability follows a known return week (Checkpoint 7g; projections.ts's header, "His first full week back"):
+ * the user's own week (AvailabilityPlayer.userReturnWeek), or the platform's date where returnWeekDistribution follows it
+ * (followsKnownReturnWeek). Callers pass what availability reads (league.ts PlayerContext.avail), so a date Sleeper found stale,
+ * which league.ts drops, never counts.
+ */
+export function followsReturnWeek(player: AvailabilityPlayer, currentWeek: number, cfg: Pick<AvailabilityConfig, "returnConflictWeeks"> = config.projections): boolean {
+  return knownWeek(player.userReturnWeek) !== undefined || followsKnownReturnWeek(player.injury, player.injuryReturnWeek, currentWeek, cfg);
 }
 
 /** The return-week distribution availability reads: the user's own week when he set one (userReturnWeekDistribution), else his status's (returnWeekDistribution). */

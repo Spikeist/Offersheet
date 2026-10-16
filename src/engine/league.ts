@@ -36,11 +36,23 @@
  *    set for this season, returnWeeksSeason):
  *    his availability and his scenarios follow the user's week R whatever his tag says (availability.ts
  *    userReturnWeekDistribution: 75% back at R, fully from R + 1), with no conflict note (he follows neither ESPN signal);
- *    his base rate, the Q/D/P one included, is unchanged. Everything else reads him from there: his ROS points, the IR
- *    returners' return weeks (step 5b), every lineup, the odds and every trade context (the settings go with each). For my
- *    players the model has out now, PlayerModel.expectedReturn says when he's expected back and whose week that is (the
- *    platform's date, our guess, the user's), with the week without the user's (expectedReturnOf). Without a user's week
- *    every number is as before.
+ *    his base rate is made as for anyone (the Q/D/P one included), his first full week back counted from the user's week
+ *    (below). Everything else reads him from there: his ROS points, the IR returners' return weeks (step 5b), every
+ *    lineup, the odds and every trade context (the settings go with each). For my players the model has out now,
+ *    PlayerModel.expectedReturn says when he's expected back and whose week that is (the platform's date, our guess, the
+ *    user's), with the week without the user's (expectedReturnOf). Without a user's week every number is as before.
+ *    His first full week back (Checkpoint 7g; planner reply to Checkpoint 7f, answer 2; projections.ts's header): for every
+ *    player whose availability follows a known return week (availability.followsReturnWeek on what his availability reads:
+ *    the platform's date, a stale one dropped, or the user's week), his projection gets R = his expected return week
+ *    (returnWeekBack: availability.expectedReturnWeek, as step 5b reads it), and the weeks Sleeper eases him back in with
+ *    (projections.returnHedgeWeeks: every week before R, and from R on the ones before his first projected week at or above
+ *    config.projections.weekShapeClamp[0] × the median of his projected weeks from R on) count neither in his base rate nor
+ *    in his week shape's mean. The stale-date tiebreaker's healthy rate leaves out the same weeks for the date it tests
+ *    (availabilityNoteFor gets that date's expected return week), so a hedge no longer makes a far date look stale: the
+ *    note's healthy rate can move, and with it the verdict. Only those players' base rates and week shapes (and those
+ *    notes) move; none of them shapes a market curve (they're all injured), so nobody else's blend factor does.
+ *    BuildLeagueModelOptions.firstFullWeekBack false is Checkpoint 7f's rule (every week's projection counts), for tests
+ *    and the Checkpoint 7g report: the app never sets it.
  * 3b. The market blend (§6 step 8; planner reply to Checkpoint 4, change 1; blend.ts): every QB, RB, WR and TE with a
  *    real FantasyCalc value in this season's list for the league's format (blend.blendValues: redraft values; a dynasty
  *    league's redraft list, MarketInputs.seasonValues) has his projection scaled by f = b′ / b, b′ = (1 − w)·b +
@@ -408,7 +420,17 @@
  */
 import { config } from "./config";
 import { inactiveTeams, tradeDeadlinePassed, transactionWeek } from "./acceptance";
-import { expectedAvailability, expectedReturnWeek, followsKnownReturnWeek, returnDateConflict, scenarioAvailability, type AvailabilityConfig, type AvailabilityContext, type AvailabilityPlayer } from "./availability";
+import {
+  expectedAvailability,
+  expectedReturnWeek,
+  followsKnownReturnWeek,
+  followsReturnWeek,
+  returnDateConflict,
+  scenarioAvailability,
+  type AvailabilityConfig,
+  type AvailabilityContext,
+  type AvailabilityPlayer,
+} from "./availability";
 import { benefit, benefitWin, futureValuesLoaded, helpsScale, protectValueWeight, rosterValue, tradePackage, type BenefitConfig } from "./benefit";
 import { applyBlend, blendValues, marketBlend, noBlend, type MarketBlend, type MarketBlendConfig } from "./blend";
 import type { ModelInputs, NflScheduleInputs, PlayerInputs } from "./inputs";
@@ -616,6 +638,13 @@ export interface BuildLeagueModelOptions {
    */
   irReturners?: boolean;
   /**
+   * His first full week back (step 3; Checkpoint 7g, planner reply to Checkpoint 7f, answer 2; projections.ts's header): true
+   * (the default) leaves out of an injured player's base rate and week shape the weeks before his expected return week, and
+   * the hedged ones after it, when his availability follows a known return week; false is Checkpoint 7f's rule (every
+   * week's projection counts), for tests and the Checkpoint 7g report that compare the two: the app never sets it.
+   */
+  firstFullWeekBack?: boolean;
+  /**
    * "Waiver upgrades" (step 10; planner reply to Checkpoint 7a, §6.2): true (the default) lists my team's free agents worth
    * picking up (LeagueModel.waiverUpgrades); false skips them (null), for a caller that never shows them (the trade search's
    * context, evaluate.ts buildTradeContext, could: it reads nothing of them).
@@ -785,7 +814,9 @@ function relevantIds(snapshot: LeagueSnapshot): Relevant {
  * undefined for everyone else. `sleeperWeekLoaded` false (sleeperWeekLoaded, below: Sleeper's projections for this
  * week didn't load) leaves no tiebreaker: he follows the date, and the note says the projections were missing rather
  * than that Sleeper doesn't project him. His healthy base rate is at his position's season-to-date weight, as his own b
- * (projections.actualWeightFor; planner reply to Checkpoint 7d, item 1.2: K and DEF 0).
+ * (projections.actualWeightFor; planner reply to Checkpoint 7d, item 1.2: K and DEF 0), and leaves out the weeks his first
+ * full week back would for the date under test when ctx.returnWeek gives that date's expected return week (Checkpoint 7g;
+ * projectLeaguePlayers passes it: returnWeekBack on his info).
  */
 export function availabilityNoteFor(
   info: Pick<PlayerInfo, "injury" | "injuryReturnWeek" | "pos">,
@@ -923,12 +954,26 @@ function expectedReturnOf(
 }
 
 /**
+ * R for his first full week back (the file header, step 3; Checkpoint 7g, planner reply to Checkpoint 7f, answer 2;
+ * projections.ts's header): his expected return week (availability.expectedReturnWeek over the remaining weeks, as step 5b
+ * reads it) when `avail` follows a known return week (availability.followsReturnWeek: the user's own week, or the platform's
+ * date; a date Sleeper found stale is no longer in what his availability reads). Undefined otherwise, and when he isn't
+ * back within the remaining weeks (out for the season, or not by the last week): no week from R on to read.
+ */
+export function returnWeekBack(avail: AvailabilityPlayer, ctx: AvailabilityContext, cfg: Pick<LeagueModelConfig, "projections"> = config): number | undefined {
+  if (!followsReturnWeek(avail, ctx.currentWeek, cfg.projections)) return undefined;
+  return expectedReturnWeek(avail, ctx, cfg.projections, cfg.projections.returnWeekQuantile) ?? undefined;
+}
+
+/**
  * Steps 1–3b without the scenarios: weeks, the ESPN/Sleeper agreement, availability, projections and the market blend.
  * The blend's factors are this build's own (buildMarketBlend, over every modeled player), unless `blend` gives them: a
  * rebuild that models fewer players (preKickoffTable: the streamed positions' free agents only) applies the build's.
  * `returnWeeks` (TradeSettings.returnWeeks with returnWeeksSeason; Checkpoint 7e, item 3.5): the user's own return weeks,
  * followed for the entries that count (returnWeeks.ts userReturnWeeks: my injured players, a week not yet passed, this
  * season's) in place of the platform's (the file header, step 3); absent or empty, every number as without the setting.
+ * `firstFullWeekBack` (BuildLeagueModelOptions.firstFullWeekBack; Checkpoint 7g): false is Checkpoint 7f's rule, every
+ * week's projection counting in an injured player's base rate and week shape.
  */
 export function projectLeaguePlayers(
   snapshot: LeagueSnapshot,
@@ -937,6 +982,7 @@ export function projectLeaguePlayers(
   cfg: LeagueModelConfig = config,
   blend?: MarketBlend,
   returnWeeks?: ReturnWeekSettings,
+  firstFullWeekBack = true,
 ): LeaguePlayers {
   const currentWeek = snapshot.currentWeek;
   const weeks = leagueWeeks(snapshot.settings, currentWeek, inputs.lastWeek);
@@ -977,16 +1023,27 @@ export function projectLeaguePlayers(
     const byeWeek = team ? inputs.nfl?.byeWeek?.[team] : undefined;
     const started = gameStarted(team, inputs.nfl, currentWeek, nowMs);
     const ctx: AvailabilityContext = { weeks: weeks.weeks, currentWeek, byeWeek, started, hasTeam: team !== null, ...(lastNflWeek !== undefined ? { lastNflWeek } : {}) };
-    // Conflicting ESPN signals: a stale return date is dropped, for his expected availability and his scenarios alike.
-    const note = availabilityNoteFor(info, pin, baseCtx, cfg.projections, sleeperNowLoaded);
+    // Conflicting ESPN signals: a stale return date is dropped, for his expected availability and his scenarios alike. The
+    // tiebreaker's healthy rate leaves out the weeks his first full week back would under the date it tests (Checkpoint 7g).
+    const dateBack = firstFullWeekBack ? returnWeekBack(info, ctx, cfg) : undefined;
+    const note = availabilityNoteFor(info, pin, dateBack === undefined ? baseCtx : { ...baseCtx, returnWeek: dateBack }, cfg.projections, sleeperNowLoaded);
     const platform: AvailabilityPlayer = note?.used === "sleeper" ? { injury: info.injury } : info;
     // The user's own return week, when one of his counts, in place of both ESPN signals (Checkpoint 7e, item 3.5): followed
     // whatever his tag says, so no conflict note goes with him (⚠️ ours: his numbers follow neither signal).
     const user = userWeeks.get(id);
     const avail: AvailabilityPlayer = user === undefined ? platform : { injury: info.injury, userReturnWeek: user };
     const availability = expectedAvailability(avail, info.pos, ctx, cfg.projections);
+    // His first full week back (Checkpoint 7g): R when what his availability reads follows a known return week.
+    const back = firstFullWeekBack ? returnWeekBack(avail, ctx, cfg) : undefined;
     // A PROBABLE, QUESTIONABLE or DOUBTFUL player gets the Q/D/P base rate (projections.ts): this week's cut projections count nowhere.
-    const pm = projectPlayer(id, info.pos, pin, availability, { ...baseCtx, regularWeeks: weeks.regularWeeks, playoffWeeks: weeks.playoffWeeks, byeWeek, started, hasTeam: team !== null, injury: info.injury }, cfg.projections);
+    const pm = projectPlayer(
+      id,
+      info.pos,
+      pin,
+      availability,
+      { ...baseCtx, regularWeeks: weeks.regularWeeks, playoffWeeks: weeks.playoffWeeks, byeWeek, started, hasTeam: team !== null, injury: info.injury, ...(back !== undefined ? { returnWeek: back } : {}) },
+      cfg.projections,
+    );
     let model: PlayerModel = note && user === undefined ? { ...pm, availabilityNote: note } : pm;
     const expected = mine.has(id) ? expectedReturnOf(info, ctx, platform, user, note, weeks.lastWeek, cfg) : null;
     if (expected) model = { ...model, expectedReturn: expected };
@@ -1046,8 +1103,9 @@ export function buildProjectionTable(
   cfg: LeagueModelConfig = config,
   blend?: MarketBlend,
 ): { players: LeaguePlayers; table: ProjectionTable } {
-  // The user's own return weeks for his injured players (Checkpoint 7e, item 3.5), as the League model reads them.
-  const players = projectLeaguePlayers(snapshot, inputs, opts.now, cfg, blend, modelSettings(opts.settings));
+  // The user's own return weeks for his injured players (Checkpoint 7e, item 3.5), as the League model reads them, and his
+  // first full week back (Checkpoint 7g) unless the options turn it off.
+  const players = projectLeaguePlayers(snapshot, inputs, opts.now, cfg, blend, modelSettings(opts.settings), opts.firstFullWeekBack !== false);
   return { players, table: projectionTable(players, scenarioCount(opts.scenarios ?? cfg.lineups.scenarios), opts.seed ?? cfg.lineups.scenarioSeed, cfg, opts.irReturners !== false) };
 }
 
@@ -1097,11 +1155,13 @@ export function preKickoffTable(
     const pos = snapshot.players[id]?.pos;
     return pos !== undefined && freeAgentPositions.has(pos);
   });
-  // The user's own return weeks for his injured players (Checkpoint 7e, item 3.5), as the build reads them (the blend's
-  // factors don't depend on them: base rates and tags).
+  // The user's own return weeks for his injured players (Checkpoint 7e, item 3.5) and his first full week back (Checkpoint
+  // 7g), as the build reads them: since 7g a week of the user's moves that player's own base rate, and with it his blend
+  // factor (no curve: injured players don't shape one), so the factors computed here read them too.
   const returnWeeks = modelSettings(opts.settings);
-  const factors = blend ?? projectLeaguePlayers(snapshot, inputs, now, cfg, undefined, returnWeeks).blend;
-  const players = projectLeaguePlayers({ ...snapshot, freeAgents }, inputs, now, cfg, factors, returnWeeks);
+  const weekBack = opts.firstFullWeekBack !== false;
+  const factors = blend ?? projectLeaguePlayers(snapshot, inputs, now, cfg, undefined, returnWeeks, weekBack).blend;
+  const players = projectLeaguePlayers({ ...snapshot, freeAgents }, inputs, now, cfg, factors, returnWeeks, weekBack);
   return { now, table: projectionTable(players, scenarioCount(opts.scenarios ?? cfg.lineups.scenarios), opts.seed ?? cfg.lineups.scenarioSeed, cfg, opts.irReturners !== false) };
 }
 
@@ -1705,8 +1765,9 @@ function prepareLeague(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: Buil
 
   // 1–3b. Weeks, players, projections and the market blend (its factors computed once, here), then the scenarios; the
   // weeks team numbers count (game days: the file header). Everything from the table on reads blended points, and my
-  // injured players' own return weeks (Checkpoint 7e, item 3.5) where the user set them.
-  const lp = projectLeaguePlayers(snapshot, inputs, opts.now, cfg, undefined, settings);
+  // injured players' own return weeks (Checkpoint 7e, item 3.5) where the user set them, and injured players' base rates
+  // from their first full week back (Checkpoint 7g) unless a test or report turns it off.
+  const lp = projectLeaguePlayers(snapshot, inputs, opts.now, cfg, undefined, settings, opts.firstFullWeekBack !== false);
   const { weeks } = lp;
   const W = weeks.weeks.length;
   const inProgressWeek = weekKickedOff(inputs.nfl, snapshot.currentWeek, opts.now.getTime()) ? snapshot.currentWeek : null;

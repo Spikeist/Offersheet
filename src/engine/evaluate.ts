@@ -524,6 +524,12 @@ export interface TradeContextOptions {
    */
   irReturners?: boolean;
   /**
+   * His first full week back (league.ts BuildLeagueModelOptions.firstFullWeekBack; Checkpoint 7g): true (the default) reads
+   * an injured player's base rate from his first full week back when his availability follows a known return week; false is
+   * Checkpoint 7f's rule, for tests and the Checkpoint 7g report that compare the two: the app never sets it.
+   */
+  firstFullWeekBack?: boolean;
+  /**
    * The automatic playoff weight's seasons (league.ts BuildLeagueModelOptions.playoffWeightSims; step 5c): default this
    * context's shown block (simCounts().shown; Checkpoint 7e), the seasons the League page's model measures ω on. 0 = ω isn't measured: the
    * fallback config.lineups.playoffWeight (1.25, every ROS(T)'s weight before the planner's reply to Checkpoint 7a, §6.1),
@@ -1037,6 +1043,7 @@ export function buildTradeContext(snapshot: LeagueSnapshot, inputs: ModelInputs,
     ...(opts.seed !== undefined ? { seed: opts.seed } : {}),
     ...(opts.faAllocation !== undefined ? { faAllocation: opts.faAllocation } : {}),
     ...(opts.irReturners !== undefined ? { irReturners: opts.irReturners } : {}),
+    ...(opts.firstFullWeekBack !== undefined ? { firstFullWeekBack: opts.firstFullWeekBack } : {}),
   });
   const { model, context: league, bases, pickups } = built;
   mark("league model");

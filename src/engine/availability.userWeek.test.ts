@@ -2,13 +2,15 @@
  * The user's own return week (Checkpoint 7e; planner reply to Checkpoint 7d, item 3.5; availability.ts, the file header's
  * step 1): AvailabilityPlayer.userReturnWeek is followed whatever his status says, with returnWeekSpread around it but never
  * before it (75% back at R, all of it from R + 1), "out for the season" after the NFL's last week, and nothing else changes:
- * a player without one reads exactly as before. Also followsKnownReturnWeek, the rule behind the "ESPN" mark.
+ * a player without one reads exactly as before. Also followsKnownReturnWeek, the rule behind the "ESPN" mark, and
+ * followsReturnWeek (Checkpoint 7g), whom "his first full week back" applies to.
  */
 import { describe, expect, it } from "vitest";
 import {
   expectedAvailability,
   expectedReturnWeek,
   followsKnownReturnWeek,
+  followsReturnWeek,
   injuryRisk,
   pOut,
   returnWeekDistribution,
@@ -163,5 +165,19 @@ describe("followsKnownReturnWeek: whether the platform's date is what his number
         if (!followsKnownReturnWeek(injury, R, W0)) expect(withDate, `${injury} ${R}`).toEqual(without);
       }
     }
+  });
+});
+
+describe("followsReturnWeek: whether his availability follows a known return week (Checkpoint 7g, his first full week back)", () => {
+  it("the user's own week whatever his status; else the platform's date where followsKnownReturnWeek says so", () => {
+    for (const injury of STATUSES) {
+      expect(followsReturnWeek({ injury, userReturnWeek: 9 }, W0), injury).toBe(true);
+      for (const R of [3, 6, 7, 8, 11]) expect(followsReturnWeek({ injury, injuryReturnWeek: R }, W0), `${injury} ${R}`).toBe(followsKnownReturnWeek(injury, R, W0));
+    }
+    // What availability reads once Sleeper found a far date stale: the tag alone (league.ts drops the date).
+    expect(followsReturnWeek({ injury: "QUESTIONABLE" }, W0)).toBe(false);
+    expect(followsReturnWeek({ injury: "QUESTIONABLE", injuryReturnWeek: 8 }, W0)).toBe(true);
+    // A user's week that isn't a number is none.
+    expect(followsReturnWeek({ injury: "OUT", userReturnWeek: Number.NaN }, W0)).toBe(false);
   });
 });

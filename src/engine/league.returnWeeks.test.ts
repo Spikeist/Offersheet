@@ -132,8 +132,10 @@ describe("a return week of the user's", () => {
     expect(q?.availabilityNote).toBeUndefined();
     expect(q?.expectedReturn).toEqual({ week: 5, source: "user", fallback: { week: 7, source: "platform" } });
     expect(q?.weekly.map((w) => w.a)).toEqual(weeks.map((w) => (w < 5 ? 0 : w === 5 ? 0.75 : 1)));
-    // His base rate stays the Q/D/P one (this week's injury-cut projection left out).
-    expect(q?.base).toEqual(base.players["my-q"]?.base);
+    // His base rate stays the Q/D/P one (this week's injury-cut projection left out), read since Checkpoint 7g from his
+    // first full week back: the user's week 5 rather than ESPN's week 7 (12 a game either way).
+    expect(base.players["my-q"]?.base.projWeek).toBe(7);
+    expect(q?.base).toEqual({ ...base.players["my-q"]?.base, projWeek: 5 });
   });
 
   it("is ignored when it doesn't count: another team's player, a healthy one, a week that has passed", () => {
