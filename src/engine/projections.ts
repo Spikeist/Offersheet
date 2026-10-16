@@ -434,7 +434,8 @@ export interface StaleReturnCheck {
  * Whether ESPN's return date for a PROBABLE, QUESTIONABLE or DOUBTFUL player 2+ weeks out is stale (the
  * file header): Sleeper still projects him this week at config.projections.staleReturnShare or more of
  * his healthy base rate (at ctx.pos's season-to-date weight, as his own b: league.ts availabilityNoteFor passes his
- * position). The caller decides who it applies to (availability.returnDateConflict).
+ * position; since Checkpoint 7g without the weeks his first full week back leaves out when ctx.returnWeek gives the date's
+ * expected return week). The caller decides who it applies to (availability.returnDateConflict).
  */
 export function staleReturnCheck(inputs: PlayerInputs, ctx: BaseRateContext, cfg: ProjectionConfig = config.projections): StaleReturnCheck {
   const now = inputs.sleeper[ctx.currentWeek];
