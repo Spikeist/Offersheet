@@ -15,7 +15,8 @@
  *   league-wide (espnSleeperAgreement, kickers and D/STs aside) and ESPN projects him in that same week,
  *   proj_now is the average of ESPN's league-scored value and Sleeper's (a kicker's or a D/ST's too).
  *   Fallbacks, in order: ESPN alone (no Sleeper week at all), Sleeper's season projection per game,
- *   actual points per game, nothing (b = 0). b is never < 0.
+ *   actual points per game, nothing (b = 0). b is never < 0. For a player whose availability follows a known
+ *   return week, the weeks his first full week back leaves out (below) count nowhere.
  * - Step 2, week shape m_w = clamp(S_w / mean S, weekShapeClamp), the mean taken over the REMAINING
  *   weeks with S > 0. Past weeks get a shape too, so m_now can take the matchup out of proj_now. A week
  *   without a positive Sleeper value has m = 1, and so does every week when no remaining week has one.
@@ -39,9 +40,11 @@
  * or DOUBTFUL player whose ESPN return date is 2+ weeks away gets Sleeper as the tiebreaker
  * (staleReturnCheck). His healthy base rate H is step 1's base rate as if neither source had projected
  * him this week (priorHealthyBaseRate): this week's numbers, which his tag may have cut and which H is
- * compared with, count neither as proj_now nor in the week shape's mean. So proj_now is the latest week
- * before currentWeek that Sleeper projected him healthy (averaged with ESPN's value for that week when
- * the sources are averaged), else his nearest later healthy week (hurt all season so far: Sleeper's
+ * compared with, count neither as proj_now nor in the week shape's mean, and since Checkpoint 7g neither do
+ * the weeks his first full week back (below) leaves out for the date it tests (league.ts passes that date's
+ * expected return week as ctx.returnWeek), so a hedged week never stands in for his healthy rate. So proj_now
+ * is the latest week before currentWeek that Sleeper projected him healthy (averaged with ESPN's value for that
+ * week when the sources are averaged), else his nearest later healthy week (hurt all season so far: Sleeper's
  * projection once he's back, where the season line ÷ 17 counts the games he's expected to miss), else
  * ESPN's the same way, else Sleeper's season line per game, else his points per game so far, with the
  * same α blend. The date is stale when H > 0 and Sleeper's projection this week, S_now, is at least
@@ -66,11 +69,33 @@
  * (RB, questionable) went from 3.2 in week 3 to 7.3 this week and about 6.9 a week after it, and his b was
  * 4.2 instead of 6.9 (7.0 untagged; projections.test.ts). In ESPN leagues whose sources are averaged, a
  * later week has no ESPN value (the import carries ESPN's previous and current weeks only), so such a b is
- * Sleeper's alone. ⚠️ A reduced next week that isn't a stub (a return eased in) lowers b; none of the 8
- * questionable or doubtful players projected at 5+ points a week in Sleeper's 2026-09-30 data had one. The
+ * Sleeper's alone. ⚠️ A reduced next week that isn't a stub (a return eased in) lowers b, unless his
+ * availability follows a known return week: since Checkpoint 7g his first full week back (below) leaves such
+ * weeks out (Josh Jacobs's week 7, Checkpoint 7f's case). A tagged player whose availability follows his
+ * tag's one-week table (no far date, or one Sleeper found stale) still reads his next week as it is. The
  * stale-date tiebreaker's healthy base rate H (priorHealthyBaseRate, above) keeps the latest earlier week
  * first. Every other status keeps step 1 as above (an OUT or IR player's stub this week is never a base rate
  * anyway).
+ *
+ * His first full week back (CLAUDE.md §6 step 3; Checkpoint 7g, planner reply to Checkpoint 7f, answer 2: "build the
+ * fix ("his first full week back"), without 1a. The rate bug is the real problem: it takes him from about 80 points down
+ * to 41.6."): for a player whose availability follows a known return week (availability.followsReturnWeek: the platform's
+ * date, unless Sleeper found it stale, or a week the user set), R = his expected return week (BaseRateContext.returnWeek;
+ * league.ts passes availability.expectedReturnWeek on what his availability reads). Sleeper's and ESPN's weekly
+ * projections count neither as proj_now nor in the week shape's mean, and those weeks get shape 1, for every remaining
+ * week before R and, from R on, for the weeks Sleeper projects him in before his first one at or above
+ * weekShapeClamp[0] (0.8) × the median of his projected weeks from R on (returnHedgeWeeks). Sleeper's projection for a
+ * week he'll probably miss, or play only part of, is its own expectation of a fraction of a game, a hedge, not his rate:
+ * Josh Jacobs (Parker's second league, Oct 14 and 15; Questionable, ESPN back week 8) had 2.89 points in week 7 against
+ * about 9.8 a game from week 8 on; the nearest-later-week rule read it, the week-shape clamp took out only a factor of
+ * 0.8, so b was 3.61 instead of 9.78, and his availability then discounted the weeks he misses a second time. The bar is
+ * the week-shape clamp's own lower bound, not a tunable of its own: below it the clamp stops reading a low week as a
+ * matchup (it takes out at most a factor of 0.8), and that is where such a week starts to bias b. ⚠️ So a genuinely bad
+ * matchup in his first week back reads as a hedge too (shape 1 that week). The guard: when no week from R on is projected
+ * by either source, nothing is left out. A lookback week (before this week) is never left out, so an OUT or IR player
+ * who played keeps his last healthy week as proj_now, as before. His availability is unchanged, and so is the market
+ * blend (without the planner's 1a: the market's own discount for injured players is kept on purpose). The stale-date
+ * tiebreaker's healthy rate leaves out the same weeks (above). Without ctx.returnWeek every number is as before.
  */
 import { config } from "./config";
 import type { PlayerInputs } from "./inputs";
@@ -177,6 +202,13 @@ export interface BaseRateContext {
    * `pos` argument instead.
    */
   pos?: Pos;
+  /**
+   * R, his expected return week, when his availability follows a known return week (Checkpoint 7g; the file header, "His
+   * first full week back"; league.ts: availability.expectedReturnWeek on what his availability reads, or for the stale-date
+   * tiebreaker the week the date it tests brings him back). Every base rate here (projectPlayer's, baseRate,
+   * gameTimeBaseRate, priorHealthyBaseRate) then leaves out the weeks returnHedgeWeeks names. Absent: none left out.
+   */
+  returnWeek?: number;
 }
 
 /**
@@ -253,9 +285,13 @@ function blendBaseRate(proj: BaseProjection | null, inputs: PlayerInputs, shape:
   return { b: 0, projNow: null, projWeek: null, mNow: 1, actualPpg: null, games: 0, alpha: 0, source: "none" };
 }
 
-/** §6 step 1: the base rate b and how it was made, at ctx.pos's season-to-date weight. */
+/**
+ * §6 step 1: the base rate b and how it was made, at ctx.pos's season-to-date weight, without the weeks his first full week
+ * back leaves out when ctx.returnWeek is given (returnHedgeWeeks).
+ */
 export function baseRate(inputs: PlayerInputs, ctx: BaseRateContext, cfg: ProjectionConfig = config.projections): PlayerBase {
-  return baseRateWithShape(inputs, ctx, weekShape(inputs, ctx.weeks, cfg), cfg, ctx.pos);
+  const source = withoutReturnHedges(inputs, ctx, cfg);
+  return baseRateWithShape(source, ctx, weekShape(source, ctx.weeks, cfg), cfg, ctx.pos);
 }
 
 /** A weekly series without week `week` (the same object when it has no such week). */
@@ -271,6 +307,48 @@ function withoutWeekInputs(inputs: PlayerInputs, week: number): PlayerInputs {
   return { ...inputs, sleeper: withoutWeek(inputs.sleeper, week), ...(inputs.espn ? { espn: withoutWeek(inputs.espn, week) } : {}) };
 }
 
+/** The median of a list that isn't empty (the mean of its two middle values when its length is even). */
+function median(xs: readonly number[]): number {
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? (s[mid] as number) : ((s[mid - 1] as number) + (s[mid] as number)) / 2;
+}
+
+/**
+ * His first full week back (the file header; Checkpoint 7g): the weeks of ctx.weeks whose projections, Sleeper's and ESPN's,
+ * count neither as proj_now nor in the week shape's mean, with R = ctx.returnWeek, in week order: every week before R that a
+ * source projects him in, then, from R on, the weeks Sleeper projects him in before his first one at or above
+ * cfg.weekShapeClamp[0] × the median of his Sleeper projections from R on (the week shape's series; the clamp's lower bound,
+ * below which the clamp stops reading a low week as a matchup: the file header). None without R, or when no week from R on
+ * is projected by either source (the guard). ctx.weeks are the remaining weeks, so a lookback week is never one. The
+ * inputs as given: projectPlayer and gameTimeBaseRate pass a Q/D/P player's without this week's cut lines.
+ */
+export function returnHedgeWeeks(inputs: PlayerInputs, ctx: Pick<BaseRateContext, "weeks" | "returnWeek">, cfg: Pick<ProjectionConfig, "weekShapeClamp"> = config.projections): number[] {
+  const R = ctx.returnWeek;
+  if (R === undefined || !Number.isFinite(R)) return [];
+  const projected = (w: number): boolean => isProjected(inputs.sleeper[w]) || isProjected(inputs.espn?.[w]);
+  const fromR = ctx.weeks.filter((w) => w >= R);
+  if (!fromR.some(projected)) return [];
+  const out = ctx.weeks.filter((w) => w < R && projected(w));
+  const sleeperFromR = fromR.map((w) => inputs.sleeper[w]).filter(isProjected);
+  if (sleeperFromR.length === 0) return out;
+  const bar = cfg.weekShapeClamp[0] * median(sleeperFromR);
+  for (const w of fromR) {
+    const s = inputs.sleeper[w];
+    if (!isProjected(s)) continue;
+    if (s >= bar) break;
+    out.push(w);
+  }
+  return out;
+}
+
+/** His inputs without the weeks his first full week back leaves out (returnHedgeWeeks); the same object when there are none. */
+function withoutReturnHedges(inputs: PlayerInputs, ctx: Pick<BaseRateContext, "weeks" | "returnWeek">, cfg: Pick<ProjectionConfig, "weekShapeClamp">): PlayerInputs {
+  let out = inputs;
+  for (const week of returnHedgeWeeks(inputs, ctx, cfg)) out = withoutWeekInputs(out, week);
+  return out;
+}
+
 /**
  * His healthy base rate H (§6 step 3 "Conflicting ESPN signals"; the file header), what the stale-date
  * tiebreaker compares Sleeper's projection this week with: step 1's base rate as if neither source had
@@ -281,6 +359,9 @@ function withoutWeekInputs(inputs: PlayerInputs, week: number): PlayerInputs {
  * Sleeper's projection once he's back is his healthy rate, where the season line ÷ 17 counts the games he's
  * expected to miss), else ESPN's the same way, else Sleeper's season line per game, else his points per game
  * (b 0, source "none", without any). The Q/D/P base rate (gameTimeBaseRate) takes the later week first instead.
+ * Since Checkpoint 7g (planner reply to Checkpoint 7f, answer 2; the lead's ruling: "the same skip") the weeks his first
+ * full week back leaves out count nowhere either, with R = ctx.returnWeek (baseRate leaves them out): league.ts passes the
+ * week the date under test brings him back, so a hedged later week never stands in for his healthy rate.
  */
 export function priorHealthyBaseRate(inputs: PlayerInputs, ctx: BaseRateContext, cfg: ProjectionConfig = config.projections): PlayerBase {
   return baseRate(withoutWeekInputs(inputs, ctx.currentWeek), ctx, cfg);
@@ -312,10 +393,11 @@ export function nearestHealthyProjection(values: WeeklyValues | undefined, curre
  * The Q/D/P base rate (the file header): step 1's base rate as if neither source had projected him this week,
  * proj_now from his nearest later healthy week first (nearestHealthyProjection), averaged with ESPN's value for
  * that week when the sources are averaged and ESPN has one, the week shape's mean without this week, the same α
- * blend. projectPlayer uses it for every PROBABLE, QUESTIONABLE and DOUBTFUL player.
+ * blend. projectPlayer uses it for every PROBABLE, QUESTIONABLE and DOUBTFUL player. With ctx.returnWeek (Checkpoint 7g)
+ * the weeks his first full week back leaves out count nowhere either, so the nearest later week is his first full one back.
  */
 export function gameTimeBaseRate(inputs: PlayerInputs, ctx: BaseRateContext, cfg: ProjectionConfig = config.projections): PlayerBase {
-  const source = withoutWeekInputs(inputs, ctx.currentWeek);
+  const source = withoutReturnHedges(withoutWeekInputs(inputs, ctx.currentWeek), ctx, cfg);
   return gameTimeBase(source, ctx, weekShape(source, ctx.weeks, cfg), cfg, ctx.pos);
 }
 
@@ -392,16 +474,18 @@ export interface ProjectPlayerContext extends BaseRateContext {
  * `value` is null here; the market layer (§9) fills it in. A PROBABLE, QUESTIONABLE or DOUBTFUL player
  * (ctx.injury) is projected as if neither source had projected him this week (the Q/D/P base rate in the
  * file header): b = gameTimeBaseRate's (his nearest later healthy week first), and this week's shape is 1.
- * His season-to-date weight is `pos`'s (actualWeightFor; ctx.pos isn't read).
+ * With ctx.returnWeek (Checkpoint 7g) the weeks his first full week back leaves out (returnHedgeWeeks) count nowhere
+ * either, and their shape is 1. His season-to-date weight is `pos`'s (actualWeightFor; ctx.pos isn't read).
  */
 export function projectPlayer(id: string, pos: Pos, inputs: PlayerInputs, availability: ArrayLike<number>, ctx: ProjectPlayerContext, cfg: ProjectionConfig = config.projections): PlayerModel {
   if (availability.length !== ctx.weeks.length) {
     throw new Error(`projectPlayer: ${availability.length} availability values for ${ctx.weeks.length} weeks (player ${id})`);
   }
   // The Q/D/P base rate: this week's injury-cut projections count neither in b nor in the week shape (its
-  // mean, and this week's own shape, which is then 1: weekShape gives 1 to a week without a projection).
+  // mean, and this week's own shape, which is then 1: weekShape gives 1 to a week without a projection). His first full
+  // week back (ctx.returnWeek): the same for the weeks it leaves out (returnHedgeWeeks).
   const gameTime = usesHealthyBaseRate(ctx.injury);
-  const source = gameTime ? withoutWeekInputs(inputs, ctx.currentWeek) : inputs;
+  const source = withoutReturnHedges(gameTime ? withoutWeekInputs(inputs, ctx.currentWeek) : inputs, ctx, cfg);
   const shape = weekShape(source, ctx.weeks, cfg);
   const base = gameTime ? gameTimeBase(source, ctx, shape, cfg, pos) : baseRateWithShape(source, ctx, shape, cfg, pos);
   const weekly: WeekProjection[] = ctx.weeks.map((w, i) => {

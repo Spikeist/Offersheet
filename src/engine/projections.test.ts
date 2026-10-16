@@ -14,6 +14,7 @@ import {
   nearestHealthyProjection,
   priorHealthyBaseRate,
   projectPlayer,
+  returnHedgeWeeks,
   rosSummary,
   staleReturnCheck,
   usesHealthyBaseRate,
@@ -505,6 +506,159 @@ describe("staleReturnCheck (§6 step 3: Sleeper breaks the tie between ESPN's ta
     // Hurt all season (no healthy week before this one): H is his healthy weekly rate once back, not the season line ÷ 17.
     const late = player({ 1: null, 2: null, 3: null, 4: 4, 5: 10, 6: 10 }, { sleeperSeasonPerGame: 7.5 });
     expect(staleReturnCheck(late, c)).toEqual({ sleeperNow: 4, healthyRate: 10, stale: false }); // 4 < 5; against 7.5 ÷ 2 it was stale
+  });
+});
+
+describe("his first full week back (§6 step 3; Checkpoint 7g, planner reply to Checkpoint 7f, answer 2): Sleeper's hedges around a known return week count nowhere", () => {
+  // Josh Jacobs's live line (Parker's second league, week 6 of 2026, league points): hurt all season (stubs), Sleeper's
+  // week 7 a hedge (2.76 carries and 0.54 catches: a fraction of a game), about 9.8 a game from week 8 on, a bye in week 11.
+  const NOW = 6;
+  const W = range(6, 17);
+  const JACOBS: PlayerInputs["sleeper"] = { 3: null, 4: null, 5: null, 6: null, 7: 2.89, 8: 10.82, 9: 9.63, 10: 8.39, 11: null, 12: 9.04, 13: 9.69, 14: 9.93, 15: 10.39, 16: 10.68, 17: 9.47 };
+  const jacobs = player(JACOBS);
+  /** His mean from week 8 on: 88.04 ÷ 9 = 9.78. */
+  const FROM8 = 88.04 / 9;
+  /** His mean from week 7 on, the hedge included (Checkpoint 7f's rule): 90.93 ÷ 10 = 9.09. */
+  const FROM7 = 90.93 / 10;
+  const c6 = (over: Partial<ProjectPlayerContext> = {}): ProjectPlayerContext => ctx({ currentWeek: NOW, weeks: W, byeWeek: 11, ...over });
+  const flat6 = ones(W.length);
+  // Jonah Coleman's shape (IR, back week 7): hedges at his return week and the week after, a low week later on.
+  const COLEMAN: PlayerInputs["sleeper"] = { 6: null, 7: 1.73, 8: 2.6, 9: 3.5, 10: 3.4, 11: null, 12: 3.6, 13: 2.0, 14: 3.5, 15: 3.3, 16: 3.6, 17: 3.4 };
+
+  it("returnHedgeWeeks: the weeks before R a source projects him in, then the leading weeks from R on under weekShapeClamp[0] × their median", () => {
+    expect(config.projections.weekShapeClamp[0]).toBe(0.8);
+    // ESPN's week 8 as R: week 7 goes; week 8's 10.82 clears 0.8 × 9.69, the median from week 8 on.
+    expect(returnHedgeWeeks(jacobs, { weeks: W, returnWeek: 8 })).toEqual([7]);
+    // R at the hedge itself (a week the user set): the leading test catches it, 2.89 under 0.8 × 9.66.
+    expect(returnHedgeWeeks(jacobs, { weeks: W, returnWeek: 7 })).toEqual([7]);
+    // R later: every week before it that a source projects him in (week 6 is a stub: nothing to leave out).
+    expect(returnHedgeWeeks(jacobs, { weeks: W, returnWeek: 9 })).toEqual([7, 8]);
+    // Coleman: the median from week 7 is 3.4, so the bar is 2.72: weeks 7 and 8 go, week 9's 3.5 is his first full one, and
+    // week 13's 2.0, after it, stays (a matchup, clamped).
+    expect(returnHedgeWeeks(player(COLEMAN), { weeks: W, returnWeek: 7 })).toEqual([7, 8]);
+    // No R, or one that isn't a number: nothing.
+    expect(returnHedgeWeeks(jacobs, { weeks: W })).toEqual([]);
+    expect(returnHedgeWeeks(jacobs, { weeks: W, returnWeek: Number.NaN })).toEqual([]);
+  });
+
+  it("Josh Jacobs (Questionable, ESPN back week 8): the Q/D/P rule's nearest later week is now his first full week back, so b is week 8's, not week 7's hedge", () => {
+    // His availability: out this week, 25% in week 7, 75% in week 8, then back (no future injury risk here); bye week 11.
+    const a = [0, 0.25, 0.75, 1, 1, 0, 1, 1, 1, 1, 1, 1];
+    const m = projectPlayer("jacobs", "RB", jacobs, a, c6({ injury: "QUESTIONABLE", returnWeek: 8 }));
+    expect(m.base).toMatchObject({ projNow: 10.82, projWeek: 8, alpha: 0, source: "sleeper" });
+    expect(m.base.mNow).toBeCloseTo(10.82 / FROM8, 12);
+    expect(m.base.b).toBeCloseTo(FROM8, 12); // 9.78
+    // Week 7 is out of the shape's mean, and its own shape is 1: p = b × his chance of playing.
+    expect(m.weekly[1]?.m).toBe(1);
+    expect(m.weekly[1]?.p).toBeCloseTo(FROM8 * 0.25, 12);
+    expect(m.weekly[3]?.m).toBeCloseTo(9.63 / FROM8, 12);
+    // From week 8 on every week reads Sleeper's own number × his availability.
+    for (const i of [2, 3, 4, 6, 7, 8, 9, 10, 11]) expect(m.weekly[i]?.p).toBeCloseTo((JACOBS[W[i] as number] as number) * (a[i] as number), 10);
+    // Checkpoint 7f's rule (no R): week 7's 2.89 ÷ 0.8 (its shape 0.32, clamped up), with the hedge in the mean too.
+    const before = projectPlayer("jacobs", "RB", jacobs, a, c6({ injury: "QUESTIONABLE" }));
+    expect(before.base).toMatchObject({ projNow: 2.89, projWeek: 7, mNow: 0.8 });
+    expect(before.base.b).toBeCloseTo(2.89 / 0.8, 12);
+    expect(before.weekly[3]?.m).toBeCloseTo(9.63 / FROM7, 12);
+    expect(m.ros.total / before.ros.total).toBeGreaterThan(2.5);
+    // gameTimeBaseRate reads the same weeks.
+    expect(gameTimeBaseRate(jacobs, c6({ returnWeek: 8 }))).toEqual(m.base);
+    // The inputs aren't touched.
+    expect(jacobs).toEqual(player(JACOBS));
+  });
+
+  it("a week the user set works the same way: at the hedge itself the leading test catches it; a later one leaves out every week before it", () => {
+    const q = c6({ injury: "QUESTIONABLE" });
+    const at7 = projectPlayer("jacobs", "RB", jacobs, flat6, { ...q, returnWeek: 7 });
+    expect(at7.base).toEqual(projectPlayer("jacobs", "RB", jacobs, flat6, { ...q, returnWeek: 8 }).base);
+    const at9 = projectPlayer("jacobs", "RB", jacobs, flat6, { ...q, returnWeek: 9 });
+    expect(at9.base).toMatchObject({ projNow: 9.63, projWeek: 9 });
+    expect(at9.base.b).toBeCloseTo(77.22 / 8, 12); // his mean from week 9 on
+    expect([at9.weekly[1]?.m, at9.weekly[2]?.m]).toEqual([1, 1]); // weeks 7 and 8
+  });
+
+  it("hedges at his return week and after it (Jonah Coleman's shape): the leading ones go, a low week after his first full one is a matchup", () => {
+    const coleman = player(COLEMAN);
+    const m = projectPlayer("coleman", "RB", coleman, flat6, c6({ injury: "IR", returnWeek: 7 }));
+    // Hurt all season: proj_now is his first full week back, 9, against his mean without the hedges (26.3 ÷ 8).
+    expect(m.base).toMatchObject({ projNow: 3.5, projWeek: 9 });
+    expect(m.base.b).toBeCloseTo(26.3 / 8, 12);
+    expect([m.weekly[1]?.m, m.weekly[2]?.m]).toEqual([1, 1]); // weeks 7 and 8
+    expect(m.weekly[7]?.m).toBe(0.8); // week 13's 2.0 ÷ 3.29, clamped: still read as his matchup
+    // Checkpoint 7f's rule: week 7's 1.73 ÷ 0.8.
+    expect(projectPlayer("coleman", "RB", coleman, flat6, c6({ injury: "IR" })).base).toMatchObject({ projNow: 1.73, projWeek: 7, mNow: 0.8 });
+  });
+
+  it("a lookback week before his injury stays proj_now (an IR player who played: Jadarian Price's shape); his later weeks' shapes leave the hedges out of the mean", () => {
+    const price = player({ 3: 9.83, 4: null, 5: null, 6: null, 7: 2.0, 8: 3.0, 9: 5.4, 10: 5.4, 11: null, 12: 5.4, 13: 5.4, 14: 5.4, 15: 5.4, 16: 5.4, 17: 5.4 });
+    expect(returnHedgeWeeks(price, { weeks: W, returnWeek: 8 })).toEqual([7, 8]);
+    const m = projectPlayer("price", "RB", price, flat6, c6({ injury: "IR", returnWeek: 8 }));
+    const before = projectPlayer("price", "RB", price, flat6, c6({ injury: "IR" }));
+    // Week 3's 9.83 either way, its shape clamped to 1.2 either way (9.83 ÷ 5.4, or ÷ 4.82 with the hedges).
+    for (const x of [m, before]) expect(x.base).toMatchObject({ projNow: 9.83, projWeek: 3, mNow: 1.2 });
+    expect(m.base.b).toBe(before.base.b);
+    // A later week reads 5.4 against his own mean from week 9 (1), not a mean the hedges pulled down to 4.82 (1.12).
+    expect(m.weekly[3]?.m).toBeCloseTo(1, 12);
+    expect(before.weekly[3]?.m).toBeCloseTo(5.4 / 4.82, 12);
+  });
+
+  it("the guard: when no week from R on is projected, nothing is left out (Dylan Sampson's shape: his only projection is this week)", () => {
+    const sampson = player({ 6: 3.19 });
+    expect(returnHedgeWeeks(sampson, { weeks: W, returnWeek: 7 })).toEqual([]);
+    const m = projectPlayer("sampson", "RB", sampson, flat6, c6({ injury: "IR", returnWeek: 7 }));
+    expect(m).toEqual(projectPlayer("sampson", "RB", sampson, flat6, c6({ injury: "IR" })));
+    expect(m.base).toMatchObject({ projNow: 3.19, projWeek: 6 });
+  });
+
+  it("ESPN's line in a week left out goes too: an OUT player's projection this week isn't averaged in", () => {
+    // OUT now, back in week 6 (R); Sleeper still projects him this week (5) and next (4), 12 a week from week 6 on.
+    const out = player({ 3: null, 4: 5, 5: 4, 6: 12, 7: 12, 8: 12 }, { espn: { 3: null, 4: 5.5 } });
+    const c = ctx({ weeks: range(4, 8), espnAveraged: true, injury: "OUT" });
+    expect(returnHedgeWeeks(out, { weeks: c.weeks, returnWeek: 6 })).toEqual([4, 5]);
+    expect(projectPlayer("o", "WR", out, ones(5), { ...c, returnWeek: 6 }).base).toMatchObject({ projNow: 12, projWeek: 6, mNow: 1, b: 12, source: "sleeper" });
+    // Checkpoint 7f's rule: this week's 5 averaged with ESPN's 5.5, ÷ 0.8 (5 ÷ the mean 9, clamped up).
+    const before = projectPlayer("o", "WR", out, ones(5), c).base;
+    expect(before).toMatchObject({ projNow: 5.25, projWeek: 4, mNow: 0.8, source: "espn+sleeper" });
+    expect(before.b).toBeCloseTo(5.25 / 0.8, 12);
+  });
+
+  it("the bar is config.projections.weekShapeClamp's lower bound (no tunable of its own); a week at the bar is his first full one", () => {
+    const coleman = player(COLEMAN);
+    // 0.5 × 3.4 = 1.7: week 7's 1.73 clears it.
+    expect(returnHedgeWeeks(coleman, { weeks: W, returnWeek: 7 }, { ...config.projections, weekShapeClamp: [0.5, 1.2] })).toEqual([]);
+    // 0.9 × 3.4 = 3.06: weeks 7 and 8 under it, week 9's 3.5 over it.
+    expect(returnHedgeWeeks(coleman, { weeks: W, returnWeek: 7 }, { ...config.projections, weekShapeClamp: [0.9, 1.2] })).toEqual([7, 8]);
+    // The median from week 7 is 10, the bar 8.
+    expect(returnHedgeWeeks(player({ 7: 8, 8: 10, 9: 10, 10: 10 }), { weeks: range(6, 10), returnWeek: 7 })).toEqual([]);
+    expect(returnHedgeWeeks(player({ 7: 7.99, 8: 10, 9: 10, 10: 10 }), { weeks: range(6, 10), returnWeek: 7 })).toEqual([7]);
+  });
+
+  it("a player without R is untouched: his low next week is read as before (a healthy player, or a tagged one whose tag's table he follows)", () => {
+    for (const injury of [undefined, "ACTIVE", "QUESTIONABLE"] as const) {
+      const m = projectPlayer("x", "RB", jacobs, flat6, c6(injury ? { injury } : {}));
+      expect(m.base, String(injury)).toMatchObject({ projNow: 2.89, projWeek: 7, mNow: 0.8 });
+    }
+    expect(baseRate(jacobs, { currentWeek: NOW, weeks: W, espnAveraged: false })).toMatchObject({ projNow: 2.89, projWeek: 7, mNow: 0.8 });
+  });
+
+  it("the stale-date tiebreaker's healthy rate leaves out the same weeks: a hedged week never stands in for it (priorHealthyBaseRate, staleReturnCheck)", () => {
+    // Jacobs's line with Sleeper projecting him a little this week (2.5). Against the hedge (2.89 ÷ 0.8 = 3.61) that read as
+    // stale (2.5 at least half of it), so his far date would have been dropped; against his first full week back (9.78) it
+    // doesn't (2.5 under 4.89), so he follows the date.
+    const little = player({ ...JACOBS, 6: 2.5 });
+    const c = { currentWeek: NOW, weeks: W, espnAveraged: false };
+    expect(priorHealthyBaseRate(little, c)).toMatchObject({ projNow: 2.89, projWeek: 7 });
+    const h = priorHealthyBaseRate(little, { ...c, returnWeek: 8 });
+    expect(h).toMatchObject({ projNow: 10.82, projWeek: 8 });
+    expect(h.b).toBeCloseTo(FROM8, 12);
+    const before = staleReturnCheck(little, c);
+    expect(before).toMatchObject({ sleeperNow: 2.5, stale: true });
+    expect(before.healthyRate).toBeCloseTo(2.89 / 0.8, 12);
+    const after = staleReturnCheck(little, { ...c, returnWeek: 8 });
+    expect(after).toMatchObject({ sleeperNow: 2.5, stale: false });
+    expect(after.healthyRate).toBeCloseTo(FROM8, 12);
+    // A lookback week still comes first, as before: R only takes the hedges out of the mean then.
+    const played = player({ ...JACOBS, 5: 9.5, 6: 2.5 });
+    expect(priorHealthyBaseRate(played, { ...c, returnWeek: 8 })).toMatchObject({ projNow: 9.5, projWeek: 5 });
   });
 });
 
