@@ -839,7 +839,8 @@ export interface ProjectionSummary {
    * both sources project, in the config's order; absent when none was (and in a model built before Checkpoint 7f).
    * leftOutStatuses: the injury statuses left out the same way (config.projections.espnSleeperAgreementExcludedStatuses:
    * QUESTIONABLE, DOUBTFUL and PROBABLE; planner reply to Checkpoint 7f, answer 4); absent when none was (and in a model
-   * built before Checkpoint 7g).
+   * built before Checkpoint 7g). The status comes first: a tagged kicker or D/ST is under leftOutStatuses, so leftOut's
+   * kickers and D/STs are the untagged ones, averaged once the test passes (projections.ts espnSleeperAgreement).
    */
   agreement: { meanRelDiff: number; players: number; week: number; leftOut?: Pos[]; leftOutStatuses?: InjuryStatus[] } | null;
   /** Players whose two sources disagree by more than config.projections.sourceDisagreementLog (§6: "log"). */

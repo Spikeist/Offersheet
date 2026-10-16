@@ -2,15 +2,16 @@
  * His first full week back through the League model (Checkpoint 7g; planner reply to Checkpoint 7f, answer 2: "build the fix
  * ("his first full week back"), without 1a"; projections.ts's header; league.ts step 3): which players get a return week R
  * (league.returnWeekBack: availability.followsReturnWeek on what his availability reads, the platform's date unless Sleeper
- * found it stale, or a week the user set), what their base rates read, that nobody else moves, that a League model without
- * such a player stays bit for bit, that the stale-date tiebreaker's healthy rate leaves out the same weeks, and that every
- * trade context reads it. BuildLeagueModelOptions.firstFullWeekBack false (a switch for tests and reports: the app never sets
- * it) is Checkpoint 7f's rule. Made-up players, placeholder teams.
+ * found it stale, or a week the user set), what their base rates read, that nobody else's projection or blend factor moves
+ * (with the market blend running too: review of Checkpoint 7g, jacobs-rule-test-no-blend), that a League model without such
+ * a player stays bit for bit, that the stale-date tiebreaker's healthy rate leaves out the same weeks, and that every trade
+ * context reads it. BuildLeagueModelOptions.firstFullWeekBack false (a switch for tests and reports: the app never sets it)
+ * is Checkpoint 7f's rule. Made-up players, placeholder teams.
  */
 import { describe, expect, it } from "vitest";
 import { config } from "./config";
 import { buildTradeContext, tradeInternals } from "./evaluate";
-import { buildLeagueModel, buildLeagueModelWithContext, returnWeekBack, type BuildLeagueModelOptions, type LeagueModelConfig } from "./league";
+import { buildLeagueModel, buildLeagueModelWithContext, projectLeaguePlayers, returnWeekBack, type BuildLeagueModelOptions, type LeagueModelConfig } from "./league";
 import type { LeagueModel } from "./leagueModel";
 import type { Pos } from "./model";
 import { defaultTradeSettings, type TradeSettings } from "./settings";
@@ -88,6 +89,34 @@ function league(opts: { hedged?: boolean; stale?: boolean; edit?: (spec: TestLea
   return { snapshot, inputs: built.inputs };
 }
 
+/** What a QB, RB, WR or TE with a line of weeks is worth in blendedLeague (by his id without its team); the others, 100 a point. */
+const SERIES_VALUES: Readonly<Record<string, number>> = { "q-nodate": 1_100, "out-nodate": 1_000, "d-near": 900, "q-stale": 1_000, "my-hedged": 1_300, "my-ir-hedged": 1_100 };
+const BLENDED: ReadonlySet<Pos> = new Set<Pos>(config.marketBlend.positions);
+
+/**
+ * league() with the market blend running at every blended position (review of Checkpoint 7g, jacobs-rule-test-no-blend: the
+ * league above values two free agents only, so it runs no market curve): FantasyCalc values for every QB, RB, WR and TE
+ * (SERIES_VALUES, else 100 a point of his flat line), and seven more healthy free agents at QB and at TE, so each blended
+ * position has config.marketBlend.minPlayers healthy valued players or more. Every RB and WR is valued, so §9's estimate
+ * curve, which fits every valued player's ROS points, injured ones too (market.ts marketValues), has nobody to estimate at
+ * the hedged players' positions.
+ */
+function blendedLeague() {
+  const valued = (pl: TestPlayer): TestPlayer => {
+    if (!BLENDED.has(pl.pos)) return pl;
+    const value = SERIES_VALUES[pl.id.replace(/^\d+-/, "")] ?? (typeof pl.points === "number" ? 100 * pl.points : undefined);
+    if (value === undefined) throw new Error(`blendedLeague: no value for ${pl.id}`);
+    return { ...pl, value };
+  };
+  const more = (pos: "QB" | "TE", from: number): TestPlayer[] => Array.from({ length: 7 }, (_, i) => p(`fa-${pos.toLowerCase()}${i + 1}`, pos, from + i));
+  return league({
+    edit: (spec) => {
+      spec.teams = spec.teams.map((t) => ({ ...t, roster: t.roster.map(valued), ...(t.ir ? { ir: t.ir.map(valued) } : {}) }));
+      spec.freeAgents = [...(spec.freeAgents ?? []), ...more("QB", 8), ...more("TE", 2)].map(valued);
+    },
+  });
+}
+
 const OPTS: BuildLeagueModelOptions = { now: TEST_NOW, scenarios: 0, sims: 0, settings: NO_STREAMING };
 const OFF: BuildLeagueModelOptions = { ...OPTS, firstFullWeekBack: false };
 /** A model's numbers as JSON, its stage timings left out (they're clock readings). */
@@ -149,7 +178,7 @@ describe("what they read, and that nobody else moves", () => {
     expect((a?.ros.total ?? 0) / (b?.ros.total ?? 1)).toBeGreaterThan(3);
   });
 
-  it("an IR player who played keeps his lookback week as proj_now; his later weeks' shapes leave the hedges out of the mean", () => {
+  it("an IR player who played, and whom no source projects this week, keeps his lookback week as proj_now; his later weeks' shapes leave the hedges out of the mean", () => {
     const a = on.players["my-ir-hedged"];
     const b = off.players["my-ir-hedged"];
     // Week 3's 10 either way; the mean from week 9 on is 10 (shape 1), where the hedges had pulled it to 96 ÷ 11 = 8.73 (1.15).
@@ -163,7 +192,7 @@ describe("what they read, and that nobody else moves", () => {
     expect(b?.weekly[5]?.m).toBeCloseTo(10 / hedgedMean, 12);
   });
 
-  it("every other player's PlayerModel is bit for bit Checkpoint 7f's (the players it reads are injured, so no market curve moves); a far date under test moves only its note's healthy rate", () => {
+  it("every other player's PlayerModel is bit for bit Checkpoint 7f's (no market curve runs in this league: the blend's case is below); a far date under test moves only its note's healthy rate", () => {
     const moved = new Set(["my-hedged", "my-ir-hedged"]);
     const tested = new Set(["1-q-stale", "2-q-stale"]);
     expect(Object.keys(on.players).sort()).toEqual(Object.keys(off.players).sort());
@@ -184,6 +213,74 @@ describe("what they read, and that nobody else moves", () => {
 
   it("a stale date's player reads his low next week as before (no R: the tag's table is what his availability follows)", () => {
     expect(on.players["1-q-stale"]?.base).toMatchObject({ projNow: 3, projWeek: 5, mNow: 0.8 });
+  });
+});
+
+describe("with the market blend running, nobody else's blend factor or PlayerModel moves (review of Checkpoint 7g, jacobs-rule-test-no-blend)", () => {
+  const l = blendedLeague();
+  // The blend's factors as each build makes them (steps 1–3b), and the whole League model.
+  const lpOn = projectLeaguePlayers(l.snapshot, l.inputs, TEST_NOW, NO_RISK);
+  const lpOff = projectLeaguePlayers(l.snapshot, l.inputs, TEST_NOW, NO_RISK, undefined, undefined, false);
+  const on = buildLeagueModel(l.snapshot, l.inputs, OPTS, NO_RISK);
+  const off = buildLeagueModel(l.snapshot, l.inputs, OFF, NO_RISK);
+  const moved = new Set(["my-hedged", "my-ir-hedged"]);
+  const tested = new Set(["1-q-stale", "2-q-stale"]);
+
+  it("the blend runs at every blended position, each with config.marketBlend.minPlayers healthy valued players or more", () => {
+    for (const lp of [lpOn, lpOff]) {
+      expect(lp.blend.weight).toBe(config.marketBlend.weight);
+      expect(lp.blend.positions.map((x) => x.pos)).toEqual([...config.marketBlend.positions]);
+      for (const x of lp.blend.positions) {
+        expect(x.blended, x.pos).toBe(true);
+        expect(x.fit, x.pos).toBeGreaterThanOrEqual(config.marketBlend.minPlayers);
+      }
+      expect(lp.blend.factors.size).toBeGreaterThan(0);
+    }
+    expect(on.players["1-rb1"]?.blend).toBeDefined();
+    // Every RB and WR is FantasyCalc's: §9's estimate curve has nobody to estimate at the hedged players' positions.
+    for (const [id, pm] of Object.entries(on.players)) {
+      const pos = l.snapshot.players[id]?.pos;
+      if (pos === "RB" || pos === "WR") expect(pm.value?.source, id).toBe("fantasycalc");
+    }
+  });
+
+  it("the hedged players' factors move: they're read off a curve they never shape (they're injured), at their new base rates", () => {
+    for (const id of moved) {
+      const a = lpOn.blend.factors.get(id);
+      const b = lpOff.blend.factors.get(id);
+      expect(a?.fit, id).toBe(false);
+      expect(a?.market, id).toBe(b?.market); // the same curve, read at the same value
+      expect(a?.f, id).not.toBe(b?.f);
+    }
+    // Jacobs's shape: 3.75 a game before (week 6's hedge ÷ 0.8), so the market's 13 a game (valued 1,300, between the RBs
+    // worth 945 and 1,350) pulled him to the clamp's top; 12 a game now, a little under the market's rate.
+    expect(lpOff.blend.factors.get("my-hedged")).toMatchObject({ ours: 3 / 0.8, f: config.marketBlend.factorClamp[1], clamped: "high" });
+    const hedged = lpOn.blend.factors.get("my-hedged");
+    expect(hedged).toMatchObject({ ours: 12 });
+    expect(hedged?.clamped).toBeUndefined();
+    const w = config.marketBlend.weight;
+    expect(hedged?.f).toBeCloseTo(((1 - w) * 12 + w * 13) / 12, 9);
+    // The IR player: 8.73 a game before (the hedges in his shape's mean), 10 now; the market's 11 a game either way.
+    expect(lpOff.blend.factors.get("my-ir-hedged")?.ours).toBeCloseTo(96 / 11, 12);
+    expect(lpOn.blend.factors.get("my-ir-hedged")).toMatchObject({ ours: 10 });
+    expect(lpOn.blend.factors.get("my-ir-hedged")?.market).toBeCloseTo(11, 9);
+    // So their models move, blend and all.
+    for (const id of moved) expect(on.players[id]?.blend, id).not.toEqual(off.players[id]?.blend);
+  });
+
+  it("every other player's blend factor and PlayerModel are bit for bit Checkpoint 7f's; a far date under test moves only its note's healthy rate", () => {
+    expect([...lpOn.blend.factors.keys()].sort()).toEqual([...lpOff.blend.factors.keys()].sort());
+    for (const [id, factor] of lpOn.blend.factors) if (!moved.has(id)) expect(factor, id).toEqual(lpOff.blend.factors.get(id));
+    expect(Object.keys(on.players).sort()).toEqual(Object.keys(off.players).sort());
+    for (const id of Object.keys(on.players)) {
+      if (moved.has(id)) continue;
+      if (tested.has(id)) expect({ ...on.players[id], availabilityNote: null }, id).toEqual({ ...off.players[id], availabilityNote: null });
+      else expect(on.players[id], id).toEqual(off.players[id]);
+    }
+    // The stale-date WRs are valued and read off the WR curve: blended, the same either way.
+    for (const id of tested) expect(on.players[id]?.blend, id).toBeDefined();
+    // And their teams move: Team 1's lineup reads the hedged players.
+    expect(numbers(on)).not.toBe(numbers(off));
   });
 });
 

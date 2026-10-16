@@ -614,8 +614,10 @@ describe("his first full week back (§6 step 3; Checkpoint 7g, planner reply to 
     expect(m.base).toMatchObject({ projNow: 3.19, projWeek: 6 });
   });
 
-  it("ESPN's line in a week left out goes too: an OUT player's projection this week isn't averaged in", () => {
-    // OUT now, back in week 6 (R); Sleeper still projects him this week (5) and next (4), 12 a week from week 6 on.
+  it("Sleeper's line this week leaves the base rate when he's back later, so nothing from this week is averaged in: an OUT player without a lookback week reads his first full week back (A.J. Brown's shape)", () => {
+    // OUT now, back in week 6 (R); Sleeper still projects him this week (5) and next (4), 12 a week from week 6 on. What this
+    // pins is Sleeper's line: once it goes, proj_now is week 6, where ESPN has no line, so ESPN's week-4 line can't be read
+    // whether or not it goes too (the next test pins ESPN's; review of Checkpoint 7g, jacobs-rule-test-espn-unpinned).
     const out = player({ 3: null, 4: 5, 5: 4, 6: 12, 7: 12, 8: 12 }, { espn: { 3: null, 4: 5.5 } });
     const c = ctx({ weeks: range(4, 8), espnAveraged: true, injury: "OUT" });
     expect(returnHedgeWeeks(out, { weeks: c.weeks, returnWeek: 6 })).toEqual([4, 5]);
@@ -624,6 +626,49 @@ describe("his first full week back (§6 step 3; Checkpoint 7g, planner reply to 
     const before = projectPlayer("o", "WR", out, ones(5), c).base;
     expect(before).toMatchObject({ projNow: 5.25, projWeek: 4, mNow: 0.8, source: "espn+sleeper" });
     expect(before.b).toBeCloseTo(5.25 / 0.8, 12);
+  });
+
+  it("ESPN's line in a week left out goes too: inert while ESPN projects only this week and last, pinned on a made-up ESPN line from R on (review of Checkpoint 7g, jacobs-rule-test-espn-unpinned)", () => {
+    // No Sleeper week at all (only stubs), so pickProjection falls back to ESPN's own weeks; ESPN projects him this week (5)
+    // and, unlike the import today, in week 6, his return week (10). Week 4 is a week before R that a source projects, so
+    // it's left out, ESPN's line with it: his base rate is week 6's 10, never this week's 5.
+    const espnOnly = player({ 3: null, 4: null, 5: null, 6: null, 7: null, 8: null }, { espn: { 3: null, 4: 5, 6: 10 } });
+    const weeks = range(4, 8);
+    expect(returnHedgeWeeks(espnOnly, { weeks, returnWeek: 6 })).toEqual([4]);
+    for (const espnAveraged of [true, false]) {
+      const c = ctx({ weeks, espnAveraged, injury: "OUT" });
+      expect(projectPlayer("e", "WR", espnOnly, ones(5), { ...c, returnWeek: 6 }).base, String(espnAveraged)).toMatchObject({ projNow: 10, projWeek: 6, mNow: 1, b: 10, source: "espn" });
+      expect(baseRate(espnOnly, { ...c, returnWeek: 6 })).toMatchObject({ projNow: 10, projWeek: 6, source: "espn" });
+      // Without R (Checkpoint 7f's rule), this week's ESPN line is his base rate: what a hedge kept in ESPN's line would give.
+      expect(projectPlayer("e", "WR", espnOnly, ones(5), c).base).toMatchObject({ projNow: 5, projWeek: 4, b: 5, source: "espn" });
+    }
+    // The Q/D/P base rate and the stale-date tiebreaker's healthy rate, which leave this week out themselves, leave out ESPN's
+    // line in a later week before R too: next week's 2 (a hedge) goes, and week 6's 10 is his rate.
+    const later = player({}, { espn: { 4: 5, 5: 2, 6: 10 } });
+    const b = { currentWeek: CURRENT, weeks, espnAveraged: false };
+    expect(returnHedgeWeeks(later, { weeks, returnWeek: 6 })).toEqual([4, 5]);
+    for (const rate of [gameTimeBaseRate, priorHealthyBaseRate]) {
+      expect(rate(later, { ...b, returnWeek: 6 }), rate.name).toMatchObject({ projNow: 10, projWeek: 6, source: "espn" });
+      expect(rate(later, b), rate.name).toMatchObject({ projNow: 2, projWeek: 5, source: "espn" });
+    }
+  });
+
+  it("this week is a remaining week before R: an OUT player whom Sleeper still projects this week loses that line, and his proj_now moves to his lookback week (Jalen Hurts's shape: review of Checkpoint 7g, jacobs-rule-doc-lookback-as-before)", () => {
+    // Hurts on Oct 15 (league points rounded): OUT, back week 7; played through week 5, Sleeper projects him this week (14.6),
+    // ESPN doesn't (its week 5 is 16); about 19 a game from week 7 on.
+    const hurts = player({ 3: 17.6, 4: 15.9, 5: 14.2, 6: 14.6, 7: 19.7, 8: 20, 9: 17.8, 10: null, ...flat(range(11, 17), 19) }, { espn: { 5: 16, 6: null } });
+    const c = c6({ injury: "OUT", espnAveraged: true, byeWeek: 10 });
+    expect(returnHedgeWeeks(hurts, { weeks: W, returnWeek: 7 })).toEqual([6]);
+    // Checkpoint 7f's rule: this week's 14.6, Sleeper's alone (ESPN has no line this week).
+    expect(projectPlayer("h", "QB", hurts, flat6, c).base).toMatchObject({ projNow: 14.6, projWeek: 6, source: "sleeper" });
+    // Now week 5, his last lookback week, averaged with ESPN's 16 there.
+    const m = projectPlayer("h", "QB", hurts, flat6, { ...c, returnWeek: 7 }).base;
+    expect(m).toMatchObject({ projWeek: 5, source: "espn+sleeper" });
+    expect(m.projNow).toBeCloseTo((14.2 + 16) / 2, 12);
+    // A lookback week the rule never touches stays proj_now when Sleeper doesn't project him this week (Jadarian Price's shape).
+    const noLineNow = player({ ...hurts.sleeper, 6: null }, { espn: { 5: 16, 6: null } });
+    expect(projectPlayer("h", "QB", noLineNow, flat6, { ...c, returnWeek: 7 }).base).toMatchObject({ projWeek: 5 });
+    expect(projectPlayer("h", "QB", noLineNow, flat6, c).base).toMatchObject({ projWeek: 5 });
   });
 
   it("the bar is config.projections.weekShapeClamp's lower bound (no tunable of its own); a week at the bar is his first full one", () => {
@@ -929,7 +974,10 @@ describe("espnSleeperAgreement (§6 step 1, ESPN leagues)", () => {
   describe("questionable, doubtful and probable players aside (planner reply to Checkpoint 7f, answer 4: config.projections.espnSleeperAgreementExcludedStatuses)", () => {
     const tagged = (pos: Pos, injury: InjuryStatus) => ({ pos, injury });
 
-    it("reads them from config: exactly the statuses the Q/D/P base rate takes (usesHealthyBaseRate), so a player is left out of the test exactly when his base rate leaves this week out", () => {
+    it("reads them from config: exactly the statuses the Q/D/P base rate takes (usesHealthyBaseRate)", () => {
+      // The statuses alone (review of Checkpoint 7g, averaging-test-title-overclaims-after-jacobs-merge): since Checkpoint
+      // 7g's first full week back, a player whose numbers follow a return week after this week never reads this week's line
+      // either, yet he stays in the test (projections.ts's header says why that's harmless).
       const statuses = config.projections.espnSleeperAgreementExcludedStatuses;
       expect(statuses).toEqual(["QUESTIONABLE", "DOUBTFUL", "PROBABLE"]);
       for (const status of INJURY_STATUSES) expect(statuses.includes(status), status).toBe(usesHealthyBaseRate(status));
@@ -954,7 +1002,7 @@ describe("espnSleeperAgreement (§6 step 1, ESPN leagues)", () => {
       expect(untagged(3).base.b).not.toBe(untagged(60).base.b);
     });
 
-    it("leaves them out of its sums and count, never out of the disagreement log, and a tagged kicker as a kicker", () => {
+    it("leaves them out of its sums and count, never out of the disagreement log, and a tagged kicker as a tagged player (the status first)", () => {
       // Sleeper cuts the questionable RB this week and ESPN doesn't: he alone would sink the test.
       const players = { qb: both(20, 21), wr: both(10, 10), rb: both(14, 7), k: both(12, 6) };
       const ids = ["qb", "wr", "rb", "k"];
@@ -965,21 +1013,59 @@ describe("espnSleeperAgreement (§6 step 1, ESPN leagues)", () => {
         { playerId: "rb", espn: 14, sleeper: 7, week: 4 },
       ];
       expect(espnSleeperAgreement(ids, players, 4)).toStrictEqual({ agree: false, agreement: { meanRelDiff: 14 / 44, players: 4, week: 4 }, disagreements: logged });
+      // The questionable kicker is a tagged player, so no kicker is named among the positions left out.
       expect(espnSleeperAgreement(ids, players, 4, config.projections, info)).toStrictEqual({
         agree: true,
-        agreement: { meanRelDiff: 1 / 31, players: 2, week: 4, leftOut: ["K"], leftOutStatuses: ["QUESTIONABLE"] },
-        leftOut: ["K"],
+        agreement: { meanRelDiff: 1 / 31, players: 2, week: 4, leftOutStatuses: ["QUESTIONABLE"] },
         leftOutStatuses: ["QUESTIONABLE"],
         disagreements: logged,
       });
-      // The kicker alone tagged: left out as a kicker, so no status is named.
+      // The kicker alone tagged: left out for his tag, so the status is named and no position is.
       const kickerOnly = { ...info, rb: tagged("RB", "ACTIVE") };
       expect(espnSleeperAgreement(["qb", "wr", "k"], players, 4, config.projections, kickerOnly)).toStrictEqual({
         agree: true,
-        agreement: { meanRelDiff: 1 / 31, players: 2, week: 4, leftOut: ["K"] },
-        leftOut: ["K"],
+        agreement: { meanRelDiff: 1 / 31, players: 2, week: 4, leftOutStatuses: ["QUESTIONABLE"] },
+        leftOutStatuses: ["QUESTIONABLE"],
         disagreements: [{ playerId: "k", espn: 12, sleeper: 6, week: 4 }],
       });
+    });
+
+    it("a tagged kicker or D/ST is named under his status, an untagged one under his position: the gap and the count are the same, only the lists differ (review of Checkpoint 7g, averaging-tagged-kicker-averaged-words)", () => {
+      // A tagged kicker's base rate is the Q/D/P one, never averaged, so he mustn't be among the "kickers and D/STs" the League
+      // page says are averaged too once the test passes; he's out of the sums either way.
+      const players = { qb: both(20, 21), wr: both(10, 11), k: both(12, 6), k2: both(9, 8), d: both(4, 6) };
+      const ids = Object.keys(players);
+      const untagged = { qb: tagged("QB", "ACTIVE"), wr: tagged("WR", "ACTIVE"), k: tagged("K", "ACTIVE"), k2: tagged("K", "ACTIVE"), d: tagged("DEF", "ACTIVE") };
+      const run = (info: Record<string, { pos: Pos; injury: InjuryStatus }>, cfg: ProjectionConfig = config.projections) => espnSleeperAgreement(ids, players, 4, cfg, info);
+      const base = run(untagged);
+      expect(base).toMatchObject({ agree: true, agreement: { meanRelDiff: 2 / 32, players: 2, week: 4, leftOut: ["K", "DEF"] }, leftOut: ["K", "DEF"] });
+      expect(base.leftOutStatuses).toBeUndefined();
+      const cases: [Record<string, { pos: Pos; injury: InjuryStatus }>, Pos[] | undefined, InjuryStatus[]][] = [
+        // One of the two kickers questionable: the other is still a kicker left out.
+        [{ ...untagged, k: tagged("K", "QUESTIONABLE") }, ["K", "DEF"], ["QUESTIONABLE"]],
+        // Both kickers tagged: no kicker named; the D/ST still is.
+        [{ ...untagged, k: tagged("K", "QUESTIONABLE"), k2: tagged("K", "PROBABLE") }, ["DEF"], ["QUESTIONABLE", "PROBABLE"]],
+        // Every kicker and D/ST tagged: no position named at all.
+        [{ ...untagged, k: tagged("K", "DOUBTFUL"), k2: tagged("K", "DOUBTFUL"), d: tagged("DEF", "QUESTIONABLE") }, undefined, ["QUESTIONABLE", "DOUBTFUL"]],
+      ];
+      for (const [info, leftOut, leftOutStatuses] of cases) {
+        const r = run(info);
+        // No number moves: the same gap over the same players, the same verdict and the same log.
+        expect(r.agreement?.meanRelDiff).toBe(base.agreement?.meanRelDiff);
+        expect(r.agreement?.players).toBe(base.agreement?.players);
+        expect(r.agree).toBe(base.agree);
+        expect(r.disagreements).toStrictEqual(base.disagreements);
+        // Only the lists differ.
+        expect(r.leftOut).toStrictEqual(leftOut);
+        expect(r.agreement?.leftOut).toStrictEqual(leftOut);
+        expect(r.leftOutStatuses).toStrictEqual(leftOutStatuses);
+        expect(r.agreement?.leftOutStatuses).toStrictEqual(leftOutStatuses);
+      }
+      // Without a status list (Checkpoint 7f's test) a tagged kicker is a kicker, as before.
+      const noStatuses: ProjectionConfig = { ...config.projections, espnSleeperAgreementExcludedStatuses: [] };
+      const allTagged = cases[2]?.[0] ?? untagged;
+      expect(run(allTagged, noStatuses)).toStrictEqual(run(untagged, noStatuses));
+      expect(run(allTagged, noStatuses)).toMatchObject({ leftOut: ["K", "DEF"], agreement: { leftOut: ["K", "DEF"] } });
     });
 
     it("counts every other status (ACTIVE, OUT, IR, PUP, SUSPENDED, NA) and a player without one; lists the statuses left out in the config's order", () => {

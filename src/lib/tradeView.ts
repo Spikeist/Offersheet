@@ -2102,11 +2102,12 @@ function assumedReleaseText(r: AssumedRelease, snapshot: SnapshotPart): string {
  *   "Week 7, when Alec Pierce returns from IR: this trade leaves room, so keep Kyle Pitts Sr. (TE)." when it releases nobody
  *   ("Keep Kyle Pitts Sr. (TE): without this trade you'd release him in week 7, when Alec Pierce returns from IR." when the
  *   returner goes in the trade); since Checkpoint 7f (planner reply to Checkpoint 7e, answer 4: "keep the rule, but the card
- *   must say why"), a release the trade changes that the near-tie rule decided, with its reason after it (releaseReason,
- *   releaseLine: "Week 7, when Alec Pierce returns from IR: release Kyle Pitts Sr. (TE). He and Marvin Harrison Jr. are nearly
- *   even for your lineup, and Harrison Jr. has more trade value. Lock Pitts Sr. on the League page to keep him instead.";
- *   "… and keep Kyle Pitts Sr. (TE). Pierce and Marvin Harrison Jr. are …"; the lock is on the League page: review of
- *   Checkpoint 7f, INTEGRATION-5);
+ *   must say why"), a release the trade changes that the near-tie rule decided, with its reason after it, since Checkpoint 7g
+ *   in the planner's words of the reply to Checkpoint 7f, answer 5 (releaseReason, releaseLine: "Week 7, when Alec Pierce
+ *   returns from IR: release Kyle Pitts Sr. (TE). From week 7 on, he and Marvin Harrison Jr. add about the same to your
+ *   starting lineup, and Harrison Jr. has more trade value. Lock Pitts Sr. on the League page to keep him instead."; "… and
+ *   keep Kyle Pitts Sr. (TE). From week 7 on, Pierce and Marvin Harrison Jr. add about the same …"; the lock is on the
+ *   League page: review of Checkpoint 7f, INTEGRATION-5; Checkpoint 7f's words are in releaseReason's doc, as history);
  * - "Drop …", "Keep …", "Add …" (a difference the moves above don't explain: a safety net, none on any test league);
  * - last, "Assumed with or without this trade: add Jake Ferguson, drop Romeo Doubs." (MY_MOVES_ASSUMED: the League page's
  *   pickups and the players dropped in both versions, "drop Romeo Doubs"; names only, the sentence's own period kept after a

@@ -21,7 +21,8 @@
  * - The region is measured: the whole page, or an element with SHOT_MARGIN of the page around it (SHOT_LAYOUT).
  * - It's cut into as few parts as fit in SHOT_PART_MAX CSS px each, as even in height as they can be, so the last one is never a
  *   sliver (planShotParts). A cut that would go through a line of text moves to the nearest gap above or below that line, as
- *   long as the part keeps at least SHOT_PART_MIN_SHARE of its even height.
+ *   long as the part keeps at least SHOT_PART_MIN_SHARE of its even height: above it, at most SHOT_LINE_GRACE px into its
+ *   top, where the font leaves room over its letters; below it, at or under its bottom, past its descenders.
  * - Each part is captured at the phone's width, one image pixel per CSS pixel (375 px wide), beyond the screen (Chrome's
  *   captureBeyondViewport). One part is "<name>.png"; several are "<name>-01.png", "<name>-02.png", and so on.
  * - Parts, not one tall image: no page is cut off (the full-page screenshots stop at 8,000 px), and each part reads at its own
@@ -53,7 +54,14 @@ export const CLUTTER_SHOTS = {
 export const SHOT_PART_MAX = 1_500;
 /** A cut moves into a gap between lines only while the part keeps at least this share of its even height (planShotParts). */
 export const SHOT_PART_MIN_SHARE = 0.6;
-/** How far into a line's box a cut may go, in CSS px, without touching its letters (the line's leading). */
+/**
+ * How far into the top of a line of text a cut may go, in CSS px, without touching its letters. A line's span is the font's
+ * content area (a Range's client rect, SHOT_LAYOUT), not its line box: the font leaves room over its letters at its top (2 px
+ * or more at every size the review measured, 12 to 30 px in the app's font stack), but descenders (g, j, p, q, y, commas)
+ * reach right down to its bottom, so only its top gives (blockedSpans). Until the review of Checkpoint 7g
+ * (shots-cut-into-descenders) both ends gave, read as the line's leading, and a cut moved below a line went 2 px into its
+ * descenders: the tail of a "y" landed at the top of the next image.
+ */
 export const SHOT_LINE_GRACE = 2;
 /** How much of the page shows around an element captured on its own, in CSS px. */
 export const SHOT_MARGIN = 12;
@@ -87,14 +95,17 @@ export interface ShotPart {
 }
 
 /**
- * Where a cut can't go (pure): each span shrunk by `grace` at both ends (a cut that close to a line's edge misses its letters),
- * the ones too short for that dropped, then sorted, and overlapping ones merged. Spans that only touch stay apart, so a cut can
- * fall between two lines of the same paragraph.
+ * Where a cut can't go (pure): each span with its top shrunk by `grace` (a cut that close under a line's top misses its letters:
+ * SHOT_LINE_GRACE) and its bottom kept (its descenders reach it), the ones no taller than that dropped, then sorted, and
+ * overlapping ones merged (lines whose spans overlap by more than the grace, as a large font's do, make one block a cut goes
+ * around). Spans that only touch stay apart, so a cut can fall between two lines of the same paragraph. ⚠️ A control's or an
+ * image's span (its box) gives at its top too, so a cut moved above one can leave its top 1–2 px in the image above (none seen
+ * in the live run's seams).
  */
 export function blockedSpans(spans: ReadonlyArray<readonly [number, number]>, grace = SHOT_LINE_GRACE): Array<[number, number]> {
   const inner = spans
     .filter(([a, b]) => Number.isFinite(a) && Number.isFinite(b))
-    .map(([a, b]): [number, number] => [Math.min(a, b) + grace, Math.max(a, b) - grace])
+    .map(([a, b]): [number, number] => [Math.min(a, b) + grace, Math.max(a, b)])
     .filter(([a, b]) => b > a)
     .sort((x, y) => x[0] - y[0] || x[1] - y[1]);
   const merged: Array<[number, number]> = [];
@@ -109,10 +120,10 @@ export function blockedSpans(spans: ReadonlyArray<readonly [number, number]>, gr
 /**
  * The parts a region is captured in (pure): from its top down, as few as fit in `max` CSS px each, as even in height as they can
  * be (so no part is a sliver: each cut aims at what's left divided by the parts it still needs). A cut that would go through a
- * line of text (blockedSpans) moves to the nearest gap, just above or just below that line, as long as the part keeps at least
- * `minShare` of its even height and stays within `max`; else it stays (a block of text taller than that has no gap to use). The
- * parts are in whole CSS px, one right after the other, each at most `max`, and cover the region exactly. None for an empty
- * region.
+ * line of text (blockedSpans) moves to the nearest gap, just above that line (at most SHOT_LINE_GRACE px into its top) or just
+ * below it (at or under its bottom, past its descenders), as long as the part keeps at least `minShare` of its even height and
+ * stays within `max`; else it stays (a block of text taller than that has no gap to use). The parts are in whole CSS px, one
+ * right after the other, each at most `max`, and cover the region exactly. None for an empty region.
  */
 export function planShotParts(layout: Pick<ShotLayout, "top" | "bottom" | "spans">, max = SHOT_PART_MAX, minShare = SHOT_PART_MIN_SHARE): ShotPart[] {
   const top = Math.max(0, Math.floor(layout.top));

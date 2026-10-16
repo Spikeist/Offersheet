@@ -40,7 +40,16 @@
  * config.projections.espnSleeperAgreementExcludedStatuses names, QUESTIONABLE, DOUBTFUL and PROBABLE (the callers' players
  * carry it): their base rate is the Q/D/P one below, which leaves this week's projections out and reads his nearest later
  * healthy week first, a week ESPN doesn't project (it projects only this week and last), so this week's ESPN line, the one
- * the test compares, never reaches it. A tagged kicker or D/ST is left out as his position. They're still logged.
+ * the test compares, never reaches it. They're still logged. The status comes first: a kicker or D/ST tagged so is left out
+ * as a tagged player (his base rate is the Q/D/P one too, never averaged), so the kickers and D/STs the test leaves out, and
+ * its words name (agreementAside), are the untagged ones, whose base rates are averaged once it passes (review of
+ * Checkpoint 7g, averaging-tagged-kicker-averaged-words: a tagged kicker had been left out as a kicker, under the League
+ * page's "though kickers and D/STs are averaged too"). No number moves: he's out of the sums either way.
+ * Since Checkpoint 7g's first full week back (below), a player whose numbers follow a return week after this week also
+ * never reads this week's line (once a week from it on is projected: the guard), yet he stays in the test. ⚠️ Harmless in
+ * practice: ESPN gave OUT and IR players no line this week on every saved reading (none of the 8–19 such rostered players on
+ * any of Parker's 10 saved readings has one), so none is compared; and leaving them out would need the user's own return
+ * weeks, which the Import Report can't read, so its number and the League model's would part.
  *
  * Conflicting ESPN signals (§6 step 3; planner reply to Checkpoint 2, answer 6): a PROBABLE, QUESTIONABLE
  * or DOUBTFUL player whose ESPN return date is 2+ weeks away gets Sleeper as the tiebreaker
@@ -98,8 +107,17 @@
  * the week-shape clamp's own lower bound, not a tunable of its own: below it the clamp stops reading a low week as a
  * matchup (it takes out at most a factor of 0.8), and that is where such a week starts to bias b. ⚠️ So a genuinely bad
  * matchup in his first week back reads as a hedge too (shape 1 that week). The guard: when no week from R on is projected
- * by either source, nothing is left out. A lookback week (before this week) is never left out, so an OUT or IR player
- * who played keeps his last healthy week as proj_now, as before. His availability is unchanged, and so is the market
+ * by either source, nothing is left out. A lookback week (before this week) is never left out, so a player whose proj_now
+ * is one (he played within the lookback, and Sleeper doesn't project him this week) keeps it (Jadarian Price's week 3).
+ * This week is a remaining week before R, though: an OUT or IR player whom a source still projects this week loses that
+ * line, and his proj_now moves to his lookback week (Jalen Hurts, OUT and back week 7, Oct 15: week 6 → week 5), or,
+ * without one, to his nearest later projected week (A.J. Brown, IR and back week 7, Oct 14 and 15: week 6 → week 8;
+ * review of Checkpoint 7g, jacobs-rule-doc-lookback-as-before). A left-out week loses ESPN's line as well as Sleeper's.
+ * That changes nothing today: ESPN projects only this week and last (the import carries its previous and current weeks),
+ * and pickProjection reads ESPN at Sleeper's chosen proj_now week, never a left-out one, or, only when Sleeper projects him
+ * in no week at all, at a week of ESPN's own, which can be a left-out one only when ESPN projects him from R on too. It's
+ * kept so a future reader of ESPN's later weeks can't bring a hedge back (projections.test.ts pins it on a made-up ESPN line
+ * from R on; review of Checkpoint 7g, jacobs-rule-test-espn-unpinned). His availability is unchanged, and so is the market
  * blend (without the planner's 1a: the market's own discount for injured players is kept on purpose). The stale-date
  * tiebreaker's healthy rate leaves out the same weeks (above). Without ctx.returnWeek every number is as before.
  */
@@ -554,13 +572,17 @@ export interface SourceAgreement {
   /**
    * The positions left out of the sums (cfg.espnSleeperAgreementExcluded) that had a player both sources project, in the
    * config's order; absent when none was. agreement.leftOut repeats it; this one also says it when nobody else was compared
-   * (agreement null), so "no rostered player has both" can say whom it leaves aside.
+   * (agreement null), so "no rostered player has both" can say whom it leaves aside. Only players left out for their position
+   * alone: a kicker or D/ST whose status cfg.espnSleeperAgreementExcludedStatuses names is under leftOutStatuses (the status
+   * comes first), so the kickers and D/STs named here are untagged, and averaged once the test passes.
    */
   leftOut?: Pos[];
   /**
    * The injury statuses left out of the sums (cfg.espnSleeperAgreementExcludedStatuses) that had a player both sources project,
    * in the config's order; absent when none was. agreement.leftOutStatuses repeats it, as agreement.leftOut does leftOut. A
-   * player at a left-out position is left out as that position, never under his status.
+   * player the status list names is left out under his status, whatever his position: a tagged kicker or D/ST is here, never
+   * under leftOut (review of Checkpoint 7g, averaging-tagged-kicker-averaged-words; his base rate is the Q/D/P one, never
+   * averaged, so he isn't among the kickers and D/STs the League page says are averaged too).
    */
   leftOutStatuses?: InjuryStatus[];
   /** Players whose sources differ by more than sourceDisagreementLog of the larger value, largest gap first (§6 "log"). */
@@ -577,11 +599,12 @@ export interface AgreementPlayerInfo {
  * §6 step 1, ESPN leagues: do ESPN's league-scored projections and Sleeper's (× league scoring) agree
  * within config.projections.espnSleeperAgreement on average? Measured in `week` (currentWeek) over the
  * rostered players both sources project (> 0) that week, as the ratio of sums Σ|E − S| / Σ S.
- * With `info` (the snapshot's players), a player whose position cfg.espnSleeperAgreementExcluded names (K and DEF:
- * planner reply to Checkpoint 7e, item 6), or whose injury status cfg.espnSleeperAgreementExcludedStatuses names
- * (QUESTIONABLE, DOUBTFUL and PROBABLE: planner reply to Checkpoint 7f, answer 4), is left out of the sums and the count,
- * never out of the disagreement log; a player `info` doesn't know counts. Without it every player counts, as before
- * Checkpoint 7f.
+ * With `info` (the snapshot's players), a player whose injury status cfg.espnSleeperAgreementExcludedStatuses names
+ * (QUESTIONABLE, DOUBTFUL and PROBABLE: planner reply to Checkpoint 7f, answer 4), or whose position
+ * cfg.espnSleeperAgreementExcluded names (K and DEF: planner reply to Checkpoint 7e, item 6), is left out of the sums and the
+ * count, never out of the disagreement log; a player `info` doesn't know counts. Without it every player counts, as before
+ * Checkpoint 7f. The status is checked first, so a tagged kicker or D/ST is left out under his status (leftOutStatuses) and
+ * leftOut names only the untagged ones; which list names him moves no number (he's out of the sums either way).
  */
 export function espnSleeperAgreement(
   rosteredIds: Iterable<string>,
@@ -609,12 +632,14 @@ export function espnSleeperAgreement(
     const gap = Math.abs(e - s) / Math.max(e, s);
     if (gap > cfg.sourceDisagreementLog) gaps.push({ gap, row: { playerId: id, espn: e, sleeper: s, week } });
     const who = info?.[id];
-    if (who !== undefined && excluded.has(who.pos)) {
-      leftOutSeen.add(who.pos);
-      continue;
-    }
+    // The status first: a tagged kicker or D/ST is a tagged player (his base rate is the Q/D/P one, never averaged), so
+    // leftOut names only the kickers and D/STs whose base rates are averaged once the test passes.
     if (who?.injury !== undefined && excludedStatuses.has(who.injury)) {
       statusesSeen.add(who.injury);
+      continue;
+    }
+    if (who !== undefined && excluded.has(who.pos)) {
+      leftOutSeen.add(who.pos);
       continue;
     }
     n++;

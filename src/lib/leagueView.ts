@@ -2350,7 +2350,9 @@ interface ProjectionSource {
  * reply to Checkpoint 7f, answer 4) the players left out for their injury tag join the list ("98 rostered players, kickers,
  * D/STs and questionable players aside"), and the averaged words then name whose projections are averaged too, "though
  * kickers and D/STs are averaged too": a tagged player's base rate reads a later week (the Q/D/P base rate), which ESPN
- * doesn't project, so "theirs" would have said it of him too.
+ * doesn't project, so "theirs" would have said it of him too. A tagged kicker or D/ST is among the tagged players, never
+ * the "kickers and D/STs" (the engine checks the status first: projections.ts espnSleeperAgreement; review of Checkpoint
+ * 7g, averaging-tagged-kicker-averaged-words), so both "averaged too" clauses hold of every player they name.
  */
 function projectionSource(snapshot: LeagueSnapshot, model: LeagueModel): ProjectionSource {
   const s = model.projection.sources;
@@ -2362,7 +2364,8 @@ function projectionSource(snapshot: LeagueSnapshot, model: LeagueModel): Project
   const aside = agreementAside(agreement?.leftOut, agreement?.leftOutStatuses);
   // The players compared, with whom the test left aside (only when it left some: nothing to say otherwise).
   const compared = agreement && aside ? `${plural(agreement.players, "rostered player")}${aside}` : "";
-  // Averaged: the positions left aside are averaged too once the test passes; the tagged players aren't said to be.
+  // Averaged: the positions left aside (untagged: a tagged kicker or D/ST is under leftOutStatuses) are averaged too once the
+  // test passes; the tagged players aren't said to be.
   const positionsAside = agreementLeftOutText(agreement?.leftOut);
   const averagedToo = !positionsAside ? "" : agreement?.leftOutStatuses?.length ? `, though ${positionsAside} are averaged too` : ", though theirs are averaged too";
   if (model.projection.espnAveraged && s["espn+sleeper"] > 0) {

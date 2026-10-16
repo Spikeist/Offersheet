@@ -91,20 +91,54 @@ describe("cutting a region into parts (planShotParts)", () => {
   });
 
   it("a cut through a line of text moves to the nearest gap, above or below that line", () => {
-    // Three even parts of 3,200 px aim the first cut at 1,067. A line whose box less its leading (SHOT_LINE_GRACE) runs from
-    // 1,062.5 to 1,073.5: the gap above (1,062) is nearer than the one below (1,074).
+    // Three even parts of 3,200 px aim the first cut at 1,067. A line whose span less its top grace (SHOT_LINE_GRACE) runs from
+    // 1,062.5 to 1,075.5: the gap above (1,062) is nearer than the one below (1,076).
     const above = planShotParts({ top: 0, bottom: 3_200, spans: [[1_060.5, 1_075.5]] });
     expect(above[0]).toEqual({ y: 0, height: 1_062 });
     expect(covers(above, 0, 3_200)).toBe(true);
-    // From 1,054.5 to 1,067.5: the gap below (1,068) is the nearer one.
+    // From 1,054.5 to 1,069.5: the gap below (1,070, under the span's bottom) is the nearer one.
     const below = planShotParts({ top: 0, bottom: 3_200, spans: [[1_052.5, 1_069.5]] });
-    expect(below[0]).toEqual({ y: 0, height: 1_068 });
+    expect(below[0]).toEqual({ y: 0, height: 1_070 });
     expect(covers(below, 0, 3_200)).toBe(true);
   });
 
+  it("a cut moved below a line lands at or under its span's bottom, never in its descenders (review of Checkpoint 7g, shots-cut-into-descenders)", () => {
+    // A span is the font's content area, whose descenders reach its bottom. The aim, 1,067, falls in the line's bottom 2 px
+    // (it ends at 1,068.25): the cut moves under it, to 1,069. Until the review the bottom 2 px gave too, as if they were the
+    // line's leading, and the cut stayed at 1,067: the tail of a "y" landed at the top of the next image.
+    const tail = planShotParts({ top: 0, bottom: 3_200, spans: [[1_050.25, 1_068.25]] });
+    expect(tail[0]).toEqual({ y: 0, height: 1_069 });
+    // Lines at the app's sizes (spans of 16, 19 and 21 px in line boxes of 16, 20 and 24 px), wherever they fall against the
+    // aims: no cut goes into a line past its top grace. A cut moved above lands at most SHOT_LINE_GRACE px into its top, one
+    // moved below at or under its bottom.
+    const into: string[] = [];
+    for (const [span, box] of [
+      [16, 16],
+      [19, 20],
+      [21, 24],
+    ] as const) {
+      for (let offset = 0; offset < box; offset += 0.25) {
+        for (const bottom of [3_200, 4_600]) {
+          const spans: Array<[number, number]> = [];
+          for (let y = offset + (box - span) / 2; y + span <= bottom; y += box) spans.push([y, y + span]);
+          const parts = planShotParts({ top: 0, bottom, spans });
+          expect(covers(parts, 0, bottom), `${span}/${box} at ${offset}`).toBe(true);
+          for (const { y: cut } of parts.slice(1)) {
+            for (const [a, b] of spans) if (a + SHOT_LINE_GRACE < cut && cut < b) into.push(`${span}/${box} at ${offset}, ${bottom} px: a cut at ${cut} in [${a}, ${b}]`);
+          }
+        }
+      }
+    }
+    expect(into).toEqual([]);
+    // A large font's spans overlap (40 px in 36 px lines): they merge into one block, which the cut goes around.
+    const big: Array<[number, number]> = Array.from({ length: 8 }, (_, k): [number, number] => [998 + 36 * k, 1_038 + 36 * k]);
+    expect(blockedSpans(big)).toEqual([[1_000, 1_290]]);
+    expect(planShotParts({ top: 0, bottom: 3_200, spans: big })[0]).toEqual({ y: 0, height: 1_000 });
+  });
+
   it("a cut moves only while the part keeps SHOT_PART_MIN_SHARE of its even height and stays within SHOT_PART_MAX; a block taller than that is cut", () => {
-    // One block from 800 to 1,705 px (boxes overlapping each other by more than twice the grace, so they merge), and two even
-    // parts of 3,000 px aiming at 1,500: the gap above is too high up (under 60% of 1,500) and the one below past 1,500.
+    // One block from 802 to 1,705 px (spans overlapping each other by more than the grace, so they merge), and two even parts
+    // of 3,000 px aiming at 1,500: the gap above is too high up (under 60% of 1,500) and the one below past 1,500.
     const block: Array<[number, number]> = [];
     for (let y = 800; y < 1_700; y += 15) block.push([y, y + 20]);
     expect(planShotParts({ top: 0, bottom: 3_000, spans: block })[0]).toEqual({ y: 0, height: SHOT_PART_MAX });
@@ -113,15 +147,18 @@ describe("cutting a region into parts (planShotParts)", () => {
     expect(planShotParts({ top: 0, bottom: 3_000, spans: lower })[0]).toEqual({ y: 0, height: 1_002 });
   });
 
-  it("two lines that only touch leave room for a cut between them; a sliver of a line under twice the grace can be cut", () => {
+  it("two lines that only touch leave room for a cut between them; a cut may go into a line's top grace, and a span no taller than the grace never stops one", () => {
     expect(planShotParts({ top: 0, bottom: 3_000, spans: [[1_480, 1_500], [1_500, 1_520]] })[0]).toEqual({ y: 0, height: 1_500 });
-    expect(planShotParts({ top: 0, bottom: 3_000, spans: [[1_499, 1_502]] })[0]).toEqual({ y: 0, height: 1_500 });
+    // 1 px into the line's top, above its letters.
+    expect(planShotParts({ top: 0, bottom: 3_000, spans: [[1_499, 1_510]] })[0]).toEqual({ y: 0, height: 1_500 });
+    expect(planShotParts({ top: 0, bottom: 3_000, spans: [[1_498.5, 1_500.5]] })[0]).toEqual({ y: 0, height: 1_500 });
   });
 
   it("an element's region starts at its own top, in whole px, and is cut from there (a tie between two gaps goes to the one above)", () => {
     expect(planShotParts({ top: 5_000.4, bottom: 6_200.6, spans: [] })).toEqual([{ y: 5_000, height: 1_201 }]);
-    // Three even parts of 4,000 px aim at 6,333; the line's gaps, 6,327 and 6,339, are as near: the one above.
-    const parts = planShotParts({ top: 5_000, bottom: 9_000, spans: [[6_325.5, 6_340.5]] });
+    // Three even parts of 4,000 px aim at 6,333; the line's gaps, 6,327 (2 px into its top) and 6,339 (under its bottom,
+    // 6,338.5), are as near: the one above.
+    const parts = planShotParts({ top: 5_000, bottom: 9_000, spans: [[6_325.5, 6_338.5]] });
     expect(parts[0]).toEqual({ y: 5_000, height: 1_327 });
     expect(covers(parts, 5_000, 9_000)).toBe(true);
   });
@@ -133,14 +170,15 @@ describe("cutting a region into parts (planShotParts)", () => {
     expect(planShotParts({ top: 0, bottom: 100, spans: [] }, 0)).toEqual([]);
   });
 
-  it("where a cut can't go: lines shrunk by their leading, merged where they overlap, kept apart where they only touch", () => {
-    expect(blockedSpans([[30, 50], [10, 20], [45, 60], [60, 70], [80, 83], [Number.NaN, 5]])).toEqual([
-      [12, 18],
-      [32, 58],
-      [62, 68],
+  it("where a cut can't go: lines with their top grace taken off and their bottoms kept (descenders reach them), merged where they overlap, kept apart where they only touch", () => {
+    expect(blockedSpans([[30, 50], [10, 20], [45, 60], [60, 70], [80, 83], [90, 92], [Number.NaN, 5]])).toEqual([
+      [12, 20],
+      [32, 60],
+      [62, 70],
+      [82, 83],
     ]);
     // A span given bottom first counts the same.
-    expect(blockedSpans([[50, 30]])).toEqual([[32, 48]]);
+    expect(blockedSpans([[50, 30]])).toEqual([[32, 50]]);
   });
 });
 

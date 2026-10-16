@@ -1603,6 +1603,30 @@ describe("players, projections and warnings (§6; the League page's rosters)", (
     ]);
   });
 
+  it("leaves a kicker tagged questionable out as a tagged player: every kicker and D/ST the test names is averaged once it passes (review of Checkpoint 7g, averaging-tagged-kicker-averaged-words)", () => {
+    const opts = { now: TEST_NOW, scenarios: 0, sims: 0 };
+    const close = (id: string, pts: number, espn: number) => p(id, "QB", pts, { espn: { 4: espn } });
+    // The kicker is questionable: his base rate is the Q/D/P one, Sleeper's next week (ESPN doesn't project it), never averaged.
+    const kicker = p("k", "K", 8, { injury: "QUESTIONABLE", points: { ...Object.fromEntries(Array.from({ length: 17 }, (_, i) => [i + 1, 8])), 4: 6 }, espn: { 3: 8, 4: 12 } });
+    const dst = p("d", "DEF", 5, { espn: { 4: 4 } });
+    const league = buildTestLeague({ platform: "espn", espnProjections: true, teams: [team("1", [close("a", 20, 21), close("b", 10, 10), kicker, dst])] });
+    const m = buildLeagueModel(league.snapshot, league.inputs, opts, NO_RISK);
+    expect(m.projection.espnAveraged).toBe(true);
+    // The gap and the count the test gives him untagged (1 / 30 over the two QBs); he's named for his tag, the D/ST for its
+    // position.
+    expect(m.projection.agreement).toStrictEqual({ meanRelDiff: 1 / 30, players: 2, week: 4, leftOut: ["DEF"], leftOutStatuses: ["QUESTIONABLE"] });
+    expect(m.players.k?.base).toMatchObject({ source: "sleeper", projWeek: 5, b: 8 });
+    expect(m.players.d?.base).toMatchObject({ source: "espn+sleeper", b: 4.5 });
+    // Every kicker and D/ST the positions list names is averaged: what the League page's "averaged too" says of them.
+    const named = new Set<string>(m.projection.agreement?.leftOut ?? []);
+    for (const [id, pm] of Object.entries(m.players)) if (named.has(league.snapshot.players[id]?.pos ?? "")) expect(pm.base.source, id).toBe("espn+sleeper");
+    // Untagged, the kicker is one of the kickers left out, and averaged with the rest.
+    const untagged = buildTestLeague({ platform: "espn", espnProjections: true, teams: [team("1", [close("a", 20, 21), close("b", 10, 10), { ...kicker, injury: "ACTIVE" }, dst])] });
+    const u = buildLeagueModel(untagged.snapshot, untagged.inputs, opts, NO_RISK);
+    expect(u.projection.agreement).toStrictEqual({ meanRelDiff: 1 / 30, players: 2, week: 4, leftOut: ["K", "DEF"] });
+    expect(u.players.k?.base).toMatchObject({ source: "espn+sleeper", projWeek: 4 });
+  });
+
   it("words the ESPN/Sleeper note from what loaded: no comparison claimed without Sleeper's projections, and no note once the season is over", () => {
     // No season simulation: these one-team leagues have no schedule (it would add its own warning).
     const opts = { now: TEST_NOW, scenarios: 0, sims: 0 };

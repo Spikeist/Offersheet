@@ -16,7 +16,8 @@
  *    (config.projections.espnSleeperAgreementExcluded; planner reply to Checkpoint 7e, item 6), and players tagged
  *    QUESTIONABLE, DOUBTFUL or PROBABLE too (config.projections.espnSleeperAgreementExcludedStatuses; planner reply to
  *    Checkpoint 7f, answer 4: their Q/D/P base rate never reads this week's ESPN line). Once they agree, kickers and D/STs
- *    are averaged too.
+ *    are averaged too (the untagged ones: a tagged kicker or D/ST is left out of the test for his status, and his base rate
+ *    is the Q/D/P one).
  * 3. Per player: availability (§6 step 3; his currentWeek game "started" once its kickoff in
  *    inputs.nfl.kickoffs is at or before `now`, so it is no longer a game left; a known return week after
  *    inputs.nfl.lastWeek, the NFL's last week, means "not back this season"), the projection (§6 steps 1,
@@ -52,7 +53,11 @@
  *    in his week shape's mean. The stale-date tiebreaker's healthy rate leaves out the same weeks for the date it tests
  *    (availabilityNoteFor gets that date's expected return week), so a hedge no longer makes a far date look stale: the
  *    note's healthy rate can move, and with it the verdict. Only those players' base rates and week shapes (and those
- *    notes) move; none of them shapes a market curve (they're all injured), so nobody else's blend factor does.
+ *    notes) move; none of them shapes the blend's curve (they're all injured), so nobody else's blend factor does
+ *    (league.weekBack.test.ts checks it with the blend running). A valued one is still a point of §9's estimate curve
+ *    (step 4: market.ts marketValues fits every valued player's ROS points, injured ones too), so an unvalued player's
+ *    estimated value at his position can move: on two of Parker's four dumps, four free-agent RBs' estimates each, worth 1
+ *    to 8, far under W and never shown (review of Checkpoint 7g, jacobs-rule-test-no-blend).
  *    BuildLeagueModelOptions.firstFullWeekBack false is Checkpoint 7f's rule (every week's projection counts), for tests
  *    and the Checkpoint 7g report: the app never sets it.
  * 3b. The market blend (§6 step 8; planner reply to Checkpoint 4, change 1; blend.ts): every QB, RB, WR and TE with a

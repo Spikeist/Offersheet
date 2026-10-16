@@ -116,7 +116,8 @@ export const config = {
      * Oct 15) ESPN projected nearly every kicker above Sleeper's line scored by the league's rules (by 0.9–1.7 points a kicker
      * on average) and most D/STs below it, so they raised the league's gap on every reading, and on Oct 9 (week 5) they took
      * it over the bar (10.03% with them, 9.86% without). The test only: once it passes they're averaged like every other
-     * player, and their disagreements are still logged.
+     * player, and their disagreements are still logged. A kicker or D/ST whose status espnSleeperAgreementExcludedStatuses
+     * names is left out for his status instead (the status first), so the ones this list leaves out are the untagged ones.
      */
     espnSleeperAgreementExcluded: ["K", "DEF"] as readonly Pos[],
     /**
@@ -128,8 +129,15 @@ export const config = {
      * tagged players the test compared were all questionable, and in week 6 they disagreed more than the rest (their own gaps
      * 14.8–16.2%, against 9.7–10.4% for everyone else it compares, kickers and D/STs aside): without them Oct 15's readings go
      * under the bar (league 1 9.91%, league 2 9.74%), so ESPN's projections are averaged in; Oct 14's stay over it (10.44%,
-     * 10.28%). The test only: their disagreements are still logged. A player at a position espnSleeperAgreementExcluded names is
-     * left out as that position.
+     * 10.28%). The test only: their disagreements are still logged. The status comes first: a kicker or D/ST tagged so is left
+     * out as a tagged player, not as his position (his base rate is the Q/D/P one, never averaged), so the League page's
+     * "though kickers and D/STs are averaged too" holds of every kicker and D/ST the test names (review of Checkpoint 7g,
+     * averaging-tagged-kicker-averaged-words; no number moves: he's out of the sums either way).
+     * Since Checkpoint 7g's first full week back (projections.ts's header), a player whose numbers follow a return week after
+     * this week also never reads this week's line (once a week from it on is projected), yet he stays in the test.
+     * ⚠️ Harmless in practice: ESPN gave OUT and IR players no line this week on every saved reading (none of the 8–19 such
+     * rostered players on any of Parker's 10 saved readings has one), so none is compared; and leaving them out would need the
+     * user's own return weeks, which the Import Report can't read, so its number and the League model's would part.
      */
     espnSleeperAgreementExcludedStatuses: ["QUESTIONABLE", "DOUBTFUL", "PROBABLE"] as readonly InjuryStatus[],
     /** Log players whose two sources disagree by more than this. */

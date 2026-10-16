@@ -1091,6 +1091,22 @@ describe("buildImportReport: the League page's projection source (§6)", () => {
     expect(projectLeaguePlayers(tagged("ACTIVE"), agree, now).agreement?.agreement).toStrictEqual({ meanRelDiff: 7.5 / 36, players: 3, week: 4, leftOut: ["K"] });
   });
 
+  it("leaves a kicker tagged questionable out as a tagged player, as the League model does: the same number, his words among the questionable players, not the kickers (review of Checkpoint 7g, averaging-tagged-kicker-averaged-words)", () => {
+    // Team 2's kicker: his base rate is the Q/D/P one once he's tagged (Sleeper's next week, never averaged), so he mustn't be
+    // among the kickers the League page says are averaged too.
+    const kicker = (injury: PlayerInfo["injury"]) => snapshot({ players: { ...snapshot().players, "espn:31337": { ...player("espn:31337", "Pip Wobbleton", "K", null), injury } } });
+    const agree = inputs({ "9001": { sleeper: { 4: 20 }, espn: { 4: 21 }, actual: {} }, "9004": { sleeper: { 4: 10 }, espn: { 4: 10.5 }, actual: {} }, "espn:31337": { sleeper: { 4: 6 }, espn: { 4: 12 }, actual: {} } });
+    expect(notesFor(agree, kicker("QUESTIONABLE"))).toEqual([
+      "Projection source: ESPN's and Sleeper's projections, averaged. They differ by 5% on average in week 4 (2 rostered players, questionable players aside), within the 10% we allow.",
+    ]);
+    // The very numbers the League model reads: tagged or not, he's out of the sums (the same gap over the same players); only
+    // the list that names him differs.
+    const now = new Date("2026-09-30T02:00:00.000Z");
+    expect(projectLeaguePlayers(kicker("QUESTIONABLE"), agree, now).agreement?.agreement).toStrictEqual({ meanRelDiff: 0.05, players: 2, week: 4, leftOutStatuses: ["QUESTIONABLE"] });
+    expect(projectLeaguePlayers(kicker("ACTIVE"), agree, now).agreement?.agreement).toStrictEqual({ meanRelDiff: 0.05, players: 2, week: 4, leftOut: ["K"] });
+    expect(notesFor(agree, kicker("ACTIVE"))[0]).toContain("(2 rostered players, kickers aside), within the 10% we allow.");
+  });
+
   it("states a gap beside the bar to one decimal, so it never reads as the bar itself", () => {
     const under = inputs({ "9001": { sleeper: { 4: 20 }, espn: { 4: 22.9 }, actual: {} }, "9004": { sleeper: { 4: 10 }, espn: { 4: 10.06 }, actual: {} } });
     expect(notesFor(under)).toEqual(["Projection source: ESPN's and Sleeper's projections, averaged. They differ by 9.9% on average in week 4 (2 rostered players), within the 10% we allow."]);
