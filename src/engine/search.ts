@@ -314,11 +314,12 @@
  * + Christian Watson, whose Last offer is Marvin Harrison Jr. + Puka Nacua → Drake London + Christian Watson (4 of the 36
  * holder-below pairs the review found were this shape, that pair 3 times). The planner answered both (reply to Checkpoint 7f,
  * answer 3; "Merged cards, Checkpoint 7g" below): since then a shape-(i) pair merges when the higher card's Last offer takes
- * the smaller ask (3(a): at least minAcceptGain likelier and at least config.offers.lastMinOverallShare of its unrounded
- * Overall, the higher Overall of the two kinds), and a shape-(ii) pair when the higher card's ladder, preferring the cards of
- * its list, takes the lower one (3(b): a leaf, below it, not taken this round); any other pair keeps its label (on this tree
- * one of Parker's seven runs keeps one: the planner's own (a) example, idea 3 above, under "Only the champion", under 80% of
- * idea 2's Overall). A merged trade may still be an offer of other cards (ladders don't depend on the list). And the release
+ * the smaller ask (3(a): at least minAcceptGain likelier, keeping at least config.offers.lastMinOverallShare of the higher
+ * card's unrounded Overall, the higher Overall of the two kinds), and a shape-(ii) pair when the higher card's ladder,
+ * preferring the cards of its list, takes the lower one (3(b): a leaf, below it, not taken this round); any other pair keeps
+ * its label (on this tree one of Parker's seven runs keeps one: the planner's own (a) example, idea 3 above, under "Only the
+ * champion", under 80% of idea 2's Overall). A merged trade may still be an offer of other cards (ladders don't depend on the
+ * list). And the release
  * rule (⚠️ ours; at Checkpoint 7f never seen on Parker's dumps or 1,369 synthetic searches, the review of the merge;
  * search.merge.release.test.ts drives it with made-up ladders, MERGE-5; since Checkpoint 7g it acts when rule (c) drops a card
  * that holds merged trades: on smallLeague 48 at 10%, and on Parker's league 1, Oct 15, searched with Team 8 alone): once a
@@ -357,9 +358,9 @@
  *   "smaller"), so a shape-(i) pair merges when the bigger card's Last offer takes the smaller ask (smallLeague 24, 25 and 56 at
  *   10%). On Parker's league 1, Oct 14, his "Helps both" card Marvin Harrison Jr. + Breece Hall → Dallas Goedert + Christian
  *   Watson ends with the same two for Christian Watson alone, a trade no list shows. ⚠️ Plan B's narrow rule (the lead's D5;
- *   planB.ts smallerAskOf; finish's lastCouldTake): a box is
- *   never a smaller ask of its card that the card's Last offer could take by its rules on both printed numbers (offerFeasible
- *   "smaller"), so the box and the Last offer never show one trade twice; such a candidate is passed over, counted as tried.
+ *   planB.ts smallerAskOf; finish's lastCouldTake): a box is never a smaller ask of its card that the card's Last offer could
+ *   take by its rules on both printed numbers (offerFeasible "smaller"), so the box and the Last offer never show one trade
+ *   twice; such a candidate is passed over, counted as tried.
  *   The rule reads only those two printed numbers, never the Last offer the ladder picks (so it doesn't depend on whether the
  *   ladder was worked out, and ladders still don't read Plan B), so a skipped box isn't always the Last offer: when the Last
  *   offer is another version (a throw-in with a higher Overall, another smaller ask, a preferred one), the skipped ask shows
@@ -382,10 +383,10 @@
  *   than at Checkpoint 7f). On Parker's league 1, Oct 14, his prizes, idea 1, Marvin Harrison Jr. + Puka Nacua → Tetairoa
  *   McMillan + Nico Collins, whose usual ladder offers nothing, prefers idea 2, Puka Nacua → the same two, as its Open; on his
  *   league 2, Oct 14, idea 1, Patrick Mahomes + Breece Hall → Kyle Monangai + Parker Washington, takes the same with David
- *   Montgomery in place of Monangai as its Open the same way. ⚠️ The preference is fixed
- *   per card, so a version that comes onto the list below it in a later round isn't seen (the lead's D11: one missed merge in
- *   889 cards, smallLeague 24). The worker's fallback carries the card's preference (TradeSearchResult.offerPrefer, the page's
- *   OffersSource.prefer, offers.ts ProposalLadderOptions.prefer); the Trade Analyzer's card has no list and no preference, so
+ *   Montgomery in place of Monangai as its Open the same way. ⚠️ The preference is fixed per card, so a version that comes onto
+ *   the list below it in a later round isn't seen (the lead's D11: one missed merge in 889 cards, smallLeague 24). The worker's
+ *   fallback carries the card's preference (TradeSearchResult.offerPrefer, the page's OffersSource.prefer, offers.ts
+ *   ProposalLadderOptions.prefer); the Trade Analyzer's card has no list and no preference, so
  *   its ladder for a Finder card's trade can differ through it (offers.ts, "The pre-screen"). preferListed false works the
  *   ladders out as at Checkpoint 7f (takenAsBefore).
  * - (c) Dropped versions (dominatedOf; settle): once a round merges none, each card of the list that another version of the
