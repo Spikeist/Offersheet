@@ -304,22 +304,30 @@
  * places mostly couldn't be filled), until a round merges none. ⚠️ The lead's calls: a card whose offers hold a card ABOVE it
  * (the holder below) merges nothing, both stay and that offer keeps its label ("Also shown as trade idea N."); what holds is
  * that the higher card's own offers don't include this one (the review of the merge, MERGE-1: these words had said it "can't
- * offer it back", true of the first shape only). Two shapes: (i) a likelier variant, a smaller ask that opens with a bigger
- * one, which the higher card's ladder can't hold (before its suggested trade a ladder offers only versions less likely than
- * the card, and its Last offer is itself plus a player of mine): on Parker's league, Oct 15, idea 3, Breece Hall + Marvin
- * Harrison Jr. → Mike Evans (65%), opens with idea 2, the same two for Mike Evans + Ollie Gordon II (35%); (ii) the higher
- * card's lean version, when the higher card is the lower one plus a player of mine (the lower card's Last offer), which the
- * higher card's ladder could hold as its Open or a Then by the rules but passed over, since it picks its Open and Thens by
- * Helps you on the screening block's 1,000 seasons: his "Helps both" list, Oct 15, Puka Nacua → Drake London + Christian
- * Watson, whose Last offer is Marvin Harrison Jr. + Puka Nacua → Drake London + Christian Watson (4 of the 36 holder-below
- * pairs the review found are this shape, that pair 3 times; option (d) of the merge's design, letting a ladder hold a
- * smaller ask after the suggested trade, is a planner question, and so is this shape); a merged trade may still be an offer
- * of other cards (ladders don't depend on the list); and the release rule (⚠️ ours; never seen on Parker's dumps or 1,369
- * synthetic searches, the review of the merge; search.merge.release.test.ts drives it with made-up ladders, MERGE-5): once a
- * round merges none, a merged trade no card of the list above it offers (its card merged in turn, or pushed off by the
- * rules) comes back for good, never merged again, and the rounds go on, while one whose card left but that another card
- * above it offers is that card's from then on (MergedTrade.into is a card of the list). A trade merges at most once and
- * comes back at most once, so the rounds end. A card's ladder is worked out once per minimum chance (offers.ts
+ * offer it back", true of the first shape only). Checkpoint 7f's two shapes: (i) a likelier variant, a smaller ask that opens
+ * with a bigger one, which the higher card's ladder couldn't hold then (before its suggested trade a ladder offers only
+ * versions less likely than the card, and its Last offer was itself plus a player of mine): on Parker's league, Oct 15, idea
+ * 3, Breece Hall + Marvin Harrison Jr. → Mike Evans (65%), opens with idea 2, the same two for Mike Evans + Ollie Gordon II
+ * (35%); (ii) the higher card's lean version, when the higher card is the lower one plus a player of mine (the lower card's
+ * Last offer), which the higher card's ladder could hold as its Open or a Then by the rules but passed over, since it picks its
+ * Open and Thens by Helps you on the screening block's 1,000 seasons: his "Helps both" list, Oct 15, Puka Nacua → Drake London
+ * + Christian Watson, whose Last offer is Marvin Harrison Jr. + Puka Nacua → Drake London + Christian Watson (4 of the 36
+ * holder-below pairs the review found were this shape, that pair 3 times). The planner answered both (reply to Checkpoint 7f,
+ * answer 3; "Merged cards, Checkpoint 7g" below): since then a shape-(i) pair merges when the higher card's Last offer takes
+ * the smaller ask (3(a): at least minAcceptGain likelier and at least config.offers.lastMinOverallShare of its unrounded
+ * Overall, the higher Overall of the two kinds), and a shape-(ii) pair when the higher card's ladder, preferring the cards of
+ * its list, takes the lower one (3(b): a leaf, below it, not taken this round); any other pair keeps its label (on this tree
+ * one of Parker's seven runs keeps one: the planner's own (a) example, idea 3 above, under "Only the champion", under 80% of
+ * idea 2's Overall). A merged trade may still be an offer of other cards (ladders don't depend on the list). And the release
+ * rule (⚠️ ours; at Checkpoint 7f never seen on Parker's dumps or 1,369 synthetic searches, the review of the merge;
+ * search.merge.release.test.ts drives it with made-up ladders, MERGE-5; since Checkpoint 7g it acts when rule (c) drops a card
+ * that holds merged trades: on smallLeague 48 at 10%, and on Parker's league 1, Oct 15, searched with Team 8 alone): once a
+ * round merges none and (Checkpoint 7g) drops none, and at once in a round that drops a card holding merged trades (the final
+ * review's E2: "Merged cards, Checkpoint 7g"), a merged trade no card of the list above it offers (its card merged in turn,
+ * dropped for a better version, or pushed off by the rules) comes back for good, never merged again, and the rounds go on,
+ * while one whose card left but that another card above it offers is that card's from then on (MergedTrade.into is a card of
+ * the list). A trade merges at most once and comes back at most once, so the rounds end (with the dropped versions: "Merged
+ * cards, Checkpoint 7g"). A card's ladder is worked out once per minimum chance (offers.ts
  * searchLadderChoiceSteps, in the search's store, which its re-filters share: a re-filter back to a minimum seen reads it
  * there), in steps of one exact evaluation or one run on the shown block (offers.ts ladderChoiceSteps), each a progress
  * unit and a yield, so the search's slices stay short (a ladder takes up to about 100 ms on Parker's leagues, about 200 ms
@@ -327,13 +335,80 @@
  * the card is opened (offers.ts offerLadderOfSearch: the ladder worked out on demand, or from the card's trade on a fresh
  * context, is the same, deep-equal since the review of the merge, MERGE-4: evaluate.ts coreInOrder puts every offer's
  * per-player facts in its own order). Plan B reads a list's merged trades as its cards (barredFromBoxes, dominatedByCard:
- * the lead's call), so no box is
- * one or one they match or beat. The counts: dropped.merged (both lists') counts them, filter.qualifying and
- * HelpsBothList.qualifying count them among the qualifying (Phase 4c counted its folded cards so); "Left out on purpose"
+ * the lead's call), and since Checkpoint 7g its dropped versions too, so no box is one or one they match or beat. The counts:
+ * dropped.merged (both lists') counts them, filter.qualifying and HelpsBothList.qualifying count them among the qualifying
+ * (Phase 4c counted its folded cards so), as they count the dropped versions (dropped.dominated); "Left out on purpose"
  * (hidden) and counts.exact don't (a ladder's evaluations aren't counted, as an opened card's aren't); simShown counts cards
- * and boxes as before. `few`, lowerWouldAdd and the pattern note rank without the merged trades, as filler references, ⚠️ at
- * Any too (Any's own merges could differ: Phase 4c's approximation). TradeSearchOptions.mergeCards false (a report and test
- * switch the app never sets) gives Checkpoint 7e's lists. Its time is the "offers" timing.
+ * and boxes as before. `few`, lowerWouldAdd and the pattern note rank without the merged trades (and the dropped versions),
+ * as filler references, ⚠️ at Any too (Any's own merges could differ: Phase 4c's approximation). TradeSearchOptions.mergeCards
+ * false (a report and test switch the app never sets) gives Checkpoint 7e's lists. Its time is the "offers" timing.
+ *
+ * Merged cards, Checkpoint 7g (planner reply to Checkpoint 7f, answer 3: "(a) Yes. The Last offer can be either the throw-in or a
+ * smaller ask, whichever has the higher Overall. It must be at least 5 points likelier and keep at least 80% of the suggested
+ * trade's Overall. … (b) Yes. When more than one version meets a step's rules, prefer the one that's on the list, so it merges.
+ * (c) Yes. Drop a version when another version of the same trade is at least as good on both Helps you and the chance."; the
+ * lead's calls D1–D21 and the final review's E1–E3). Three switches, each a report and test switch the app never sets
+ * (TradeSearchOptions.smallerAsks, preferListed, dropDominated: SearchState keeps them); with all three off, Checkpoint 7f's
+ * search, bit for bit (search.merge7g.test.ts).
+ * - (a) The smaller ask (offers.ts, "The candidates" and "4. Last offer"): a card's Last offer is the throw-in or a smaller ask
+ *   (the card's players of mine for part of its players of theirs), whichever prints the higher Overall, a smaller ask held to
+ *   at least config.offers.lastMinOverallShare (80%) of the card's unrounded Overall besides the Last offer's other rules. The
+ *   merge reads a card's smaller asks among the cards of its list (offers.ts ladderNeighbors kind "smaller", offerFeasible
+ *   "smaller"), so a shape-(i) pair merges when the bigger card's Last offer takes the smaller ask (smallLeague 24, 25 and 56 at
+ *   10%). On Parker's league 1, Oct 14, his "Helps both" card Marvin Harrison Jr. + Breece Hall → Dallas Goedert + Christian
+ *   Watson ends with the same two for Christian Watson alone, a trade no list shows. ⚠️ Plan B's narrow rule (the lead's D5;
+ *   planB.ts smallerAskOf; finish's lastCouldTake): a box is
+ *   never a smaller ask of its card that the card's Last offer could take by its rules on both printed numbers (offerFeasible
+ *   "smaller"), so the box and the Last offer never show one trade twice; such a candidate is passed over, counted as tried.
+ *   The rule reads only those two printed numbers, never the Last offer the ladder picks (so it doesn't depend on whether the
+ *   ladder was worked out, and ladders still don't read Plan B), so a skipped box isn't always the Last offer: when the Last
+ *   offer is another version (a throw-in with a higher Overall, another smaller ask, a preferred one), the skipped ask shows
+ *   nowhere on the card, and its box is the next candidate that passes, or none (smallLeague 32 at 10%: card 5|give:1005|get:
+ *   1049,1053, 36 / 65% / 25, ends with the throw-in 5|give:1002,1005|get:1049,1053, Overall 25.11, over the smaller ask
+ *   5|give:1005|get:1053, 23.81, which the rule keeps out of its box, and it has no box). smallerAsks false gives Checkpoint
+ *   7f's Last offer, the throw-in alone, and turns the narrow rule off with it (a box can then be a smaller ask, as at 7f).
+ * - (b) Preferring the cards of the list (offers.ts, "Preferring the cards of its lists"; preferredOf, takenTopDown): each
+ *   list's rounds go top-down. Going down the cards by Overall as printed, a card not taken this round whose ladder isn't
+ *   known yet and one of whose cards of the list below it can be an offer (feasibleOf) gets its ladder worked out just then,
+ *   with its preference fixed from then on (SearchState.prefers; one ladder per card and minimum chance): the cards of its
+ *   lists below it that are leaves (holding no merged trade), that no card above it took this round and its list didn't give
+ *   back (both lists' since the final review, E3, merge-b-theirs-ignores-taken), and that could be its offers on both printed
+ *   numbers, with the cross-list guard (while the Overall list is merged, a card that helps both teams but isn't on the "Helps
+ *   both" list's first printed ranking prefers none of its list's cards that help both); its ladder prefers them at each step
+ *   and is kept only when it holds more of them than the usual one. Then each card not taken this round takes every card of
+ *   the list below it that its offers hold. The "Helps both" list's first printed ranking is made before the Overall list's
+ *   rounds (the guard reads it, and a card on it prefers from it too); the "Helps both" list's cards prefer from the Overall
+ *   list's final cards, its holders no leaves. A card taken in a round never gets a ladder (MergedCards.ladders reads fewer
+ *   than at Checkpoint 7f). On Parker's league 1, Oct 14, his prizes, idea 1, Marvin Harrison Jr. + Puka Nacua → Tetairoa
+ *   McMillan + Nico Collins, whose usual ladder offers nothing, prefers idea 2, Puka Nacua → the same two, as its Open; on his
+ *   league 2, Oct 14, idea 1, Patrick Mahomes + Breece Hall → Kyle Monangai + Parker Washington, takes the same with David
+ *   Montgomery in place of Monangai as its Open the same way. ⚠️ The preference is fixed
+ *   per card, so a version that comes onto the list below it in a later round isn't seen (the lead's D11: one missed merge in
+ *   889 cards, smallLeague 24). The worker's fallback carries the card's preference (TradeSearchResult.offerPrefer, the page's
+ *   OffersSource.prefer, offers.ts ProposalLadderOptions.prefer); the Trade Analyzer's card has no list and no preference, so
+ *   its ladder for a Finder card's trade can differ through it (offers.ts, "The pre-screen"). preferListed false works the
+ *   ladders out as at Checkpoint 7f (takenAsBefore).
+ * - (c) Dropped versions (dominatedOf; settle): once a round merges none, each card of the list that another version of the
+ *   same trade (rank.ts versionsOfSameTrade, the filler rule's relation) beats on the printed numbers leaves (beatsVersion: at
+ *   least as good on both Helps you as printed and the chance P_complete as printed, its nearest 5% and "<5%" under every step,
+ *   acceptance.printedAcceptance, the final review's E1: read as the nearest 5%, "<5%" tied with "5%", so at "Any" a card
+ *   printing "5%" left for its version printing "<5%", smallLeague 72; and, when each is at least as good as the other, the one
+ *   higher in Overall order). A card that stays or a trade merged into one of its cards can beat one; a merged trade is never
+ *   dropped. On Parker's league 1 Puka Nacua → Tetairoa McMillan + Nico Collins leaves for Marvin Harrison Jr. + Puka Nacua →
+ *   the same two on Oct 15 under both settings and on Oct 14 under "Only the champion" (on Oct 14 under his prizes (b) merges it
+ *   instead). The dropped versions leave like merged trades: out of the later rankings, read by the filler rule as kept (rank.ts
+ *   RankOptions.shownElsewhere), Plan B reads them as their list's cards, `few`, lowerWouldAdd and the pattern note rank
+ *   without them, and the rounds go on (the next idea takes the freed place). ⚠️ The final review's E2 (merge-c-by-can-leave):
+ *   when a dropped card held merged trades, the release rule runs at once, on the list without the dropped cards, so the
+ *   trades it gives back are ranked in the next round before (c) reads the list again (on smallLeague 48 searched with Team 2
+ *   they came back rounds later, took the given-player cap's places and pushed off the version a third card had been dropped
+ *   for, so neither showed); and once a round merges none, drops none and gives no merged trade back, each dropped version
+ *   whose `by` is no longer a card of the list or a trade merged into one is re-pointed to another that beats it (beaterOf:
+ *   the cards in Overall order, then the merged trades; smallLeague 29 searched with Team 5 at "Any": its `by` dropped in turn
+ *   for a version that beats both), else given back for good, never dropped again (MergedCards.restored). The rounds end: a
+ *   trade is merged, given back from a merge, dropped and given back from a drop at most once each, and every round but the
+ *   last does one of the four. Counts: dropped.dominated on both lists, qualifying counting them (each was a card),
+ *   MergedCards.dominated (each with its `by` and list) and restored.
  *
  * Re-filtering (planner reply to Checkpoint 4b, change 10: "re-filter instantly from the finalists, without re-running the
  * search"): a finished search keeps its finalists and caches (searchStateOf: the result object → its state; null when the
@@ -402,7 +477,7 @@
  * words) and "total"; a re-filter's: "rank", "steps", "shown" (when the pass has a block of its own), "offers" (when the merge
  * read a ladder) and "total".
  */
-import { displayAcceptance } from "./acceptance";
+import { printedAcceptance } from "./acceptance";
 import { benefit, benefitNotes, helpsBoth, helpsScaleNotes } from "./benefit";
 import { config } from "./config";
 import {
@@ -499,8 +574,9 @@ export interface TradeSearchOptions {
   mergeCards?: boolean;
   /**
    * Report and test switch (the app never sets it): false leaves out Checkpoint 7g's smaller asks (planner reply to Checkpoint
-   * 7f, answer 3(a); the file header, "Merged cards, Checkpoint 7g"): every Last offer is the throw-in, as at Checkpoint 7f, and
-   * Plan B reads no smaller ask (offers.ts LadderJob.smallerAsks). Default true.
+   * 7f, answer 3(a); the file header, "Merged cards, Checkpoint 7g"): every Last offer is the throw-in, as at Checkpoint 7f
+   * (offers.ts LadderJob.smallerAsks), and Plan B's narrow rule is off with them (a box can then be a smaller ask, as at
+   * Checkpoint 7f). Default true.
    */
   smallerAsks?: boolean;
   /**
@@ -1434,7 +1510,7 @@ export interface PreferInputs {
   other: readonly TradeEvaluation[];
   /** Cards that hold merged trades (this list's and, merging "Helps both", the Overall list's), and those that took one this round. */
   holders: ReadonlySet<string>;
-  /** The cards of its list a card above it took this round, and the trades its list gave back (released). */
+  /** The cards of its list a card above it took this round, and the trades its list gave back (released): neither is preferred, from either list. */
   taken: ReadonlySet<string>;
   released: ReadonlySet<string>;
   /** Whether the Overall list is being merged (the cross-list guard's time). */
@@ -1446,9 +1522,11 @@ export interface PreferInputs {
 /**
  * The versions a card's ladder prefers (Checkpoint 7g; planner reply to Checkpoint 7f, answer 3(b): "When more than one
  * version meets a step's rules, prefer the one that's on the list, so it merges."; the lead's calls D7–D12; the file header,
- * "Merged cards, Checkpoint 7g"): the cards of its list below it on Overall as printed (rank.ts compareOverall) that no card
- * above it took this round and its list didn't give back, and, when it's on the other list too, that list's cards below it,
- * which could be its offers by the rules on the numbers both print (`feasible`), ⚠️ each a leaf: holding no merged trade
+ * "Merged cards, Checkpoint 7g"): the cards of its list below it on Overall as printed (rank.ts compareOverall) and, when it's
+ * on the other list too, that list's cards below it, each that no card above it took this round and its list didn't give back
+ * (the other list's too since the final review, E3, merge-b-theirs-ignores-taken: the design's "weren't taken by a card above
+ * it in this round", for a trade on both lists), which could be its offers by the rules on the numbers both print
+ * (`feasible`), ⚠️ each a leaf: holding no merged trade
  * (preferring one that holds some would break up that card's plan: on Parker's "Helps both" list, league 1, Oct 15, merges went
  * 5 → 2 and 3 trades came back as cards, the design's prototype on 7e9697e), and ⚠️ the cross-list guard: while the Overall
  * list is merged, a card that helps both teams (benefit.helpsBoth, as printed) but isn't on the "Helps both" list's first
@@ -1459,6 +1537,7 @@ export interface PreferInputs {
 export function preferredOf(x: PreferInputs): Set<string> {
   const { card, holders } = x;
   const below = (n: TradeEvaluation) => n.key !== card.key && compareOverall(card, n) < 0;
+  const free = (n: TradeEvaluation) => !x.taken.has(n.key) && !x.released.has(n.key);
   const leaf = (k: string) => !holders.has(k);
   const byKey = new Map(x.cards.map((n) => [n.key, n]));
   const onOther = x.other.some((t) => t.key === card.key);
@@ -1466,53 +1545,76 @@ export function preferredOf(x: PreferInputs): Set<string> {
   const mine = x
     .feasible(
       card,
-      x.cards.filter((n) => below(n) && !x.taken.has(n.key) && !x.released.has(n.key)),
+      x.cards.filter((n) => below(n) && free(n)),
     )
     .filter(leaf)
     .filter((k) => {
       const n = byKey.get(k);
       return !guard || !(n && helpsBoth(n));
     });
-  const theirs = onOther ? x.feasible(card, x.other.filter(below)).filter(leaf) : [];
+  const theirs = onOther ? x.feasible(card, x.other.filter((n) => below(n) && free(n))).filter(leaf) : [];
   return new Set([...mine, ...theirs]);
 }
 
-/** Whether `k` is at least as good as `c` on both Helps you and the chance as printed (Checkpoint 7g, answer 3(c); dominatedOf). */
+/**
+ * Whether `k` is at least as good as `c` on both Helps you and the chance as printed (Checkpoint 7g, answer 3(c); dominatedOf):
+ * Helps you as the card prints it, and the chance P_complete as it prints, its nearest 5% and "<5%" under every step
+ * (acceptance.printedAcceptance: 0 for "<5%"; ⚠️ the final review, merge-c-under5-reads-as-5: read as displayAcceptance, "<5%"
+ * tied with "5%", so at "Any" a version printing "<5%" dropped one printing "5%", the likelier one).
+ */
 function atLeastAsGood(k: TradeEvaluation, c: TradeEvaluation): boolean {
   const hk = k.tradeScore;
   const hc = c.tradeScore;
   if (typeof hk !== "number" || typeof hc !== "number" || !Number.isFinite(hk) || !Number.isFinite(hc)) return false;
-  return hk >= hc && displayAcceptance(k.pComplete) >= displayAcceptance(c.pComplete) - EPS;
+  return hk >= hc && printedAcceptance(k.pComplete) >= printedAcceptance(c.pComplete) - EPS;
+}
+
+/**
+ * Whether `k` beats `c` for rule (c) (Checkpoint 7g, answer 3(c); dominatedOf): another version of the same trade (rank.ts
+ * versionsOfSameTrade) at least as good on both Helps you and the chance as printed (atLeastAsGood), and, when each is at least
+ * as good as the other (both print the same), the one higher in Overall order (rank.ts compareOverall).
+ */
+export function beatsVersion(k: TradeEvaluation, c: TradeEvaluation): boolean {
+  return k.key !== c.key && versionsOfSameTrade(k, c) && atLeastAsGood(k, c) && !(atLeastAsGood(c, k) && compareOverall(c, k) < 0);
+}
+
+/**
+ * The first version that beats `c` (beatsVersion) among `cards`, in Overall order, then `merged` in their order (dominatedOf's
+ * `by`, and the give-back's re-pointing: the file header, "Merged cards, Checkpoint 7g"); undefined for none.
+ */
+function beaterOf(c: TradeEvaluation, cards: readonly TradeEvaluation[], merged: readonly TradeEvaluation[]): TradeEvaluation | undefined {
+  return [...[...cards].sort(compareOverall), ...merged].find((k) => beatsVersion(k, c));
 }
 
 /**
  * The cards of one list (as printed, `cards`) to drop (Checkpoint 7g; planner reply to Checkpoint 7f, answer 3(c): "Drop a
  * version when another version of the same trade is at least as good on both Helps you and the chance."; the file header,
  * "Merged cards, Checkpoint 7g"): each card another version of the same trade (rank.ts versionsOfSameTrade, the filler rule's
- * relation: the same partner, one's players side by side a proper part of the other's) beats: at least as good on both Helps
- * you and the chance as they print them (the chance the ladders and the minimum read, P_complete), and, when each is at least
- * as good as the other (both print the same), the one higher in Overall order. Beaten by a card of the list that stays, or by
- * a trade merged into one of its cards (`merged`: shown among that card's offers, never dropped). ⚠️ Ours: decided in an
- * order that puts every card that can beat one before it (Helps you, then the chance, then Overall order), each card dropped
- * only for one that stays, so no dropped card's version is dropped too; `by`: the first such version in Overall order, the
- * cards before the merged trades. In Overall order the drops' order.
+ * relation: the same partner, one's players side by side a proper part of the other's) beats (beatsVersion): at least as good
+ * on both Helps you and the chance as they print them (P_complete as it prints, "<5%" under every step: atLeastAsGood), and,
+ * when each is at least as good as the other (both print the same), the one higher in Overall order. Beaten by a card of the
+ * list that stays, or by a trade merged into one of its cards (`merged`: shown among that card's offers, never dropped). ⚠️
+ * Ours: decided in an order that puts every card that can beat one before it (Helps you, then the chance as printed, then
+ * Overall order), each card dropped only for one that stays, so no dropped card's version is dropped too; `by`: the first such
+ * version in Overall order, the cards before the merged trades. `exempt`: cards never dropped, though they can beat others
+ * (the versions given back once, the final review's E2: each version is dropped at most once). In Overall order the drops'
+ * order.
  */
-export function dominatedOf(cards: readonly TradeEvaluation[], merged: readonly TradeEvaluation[]): { key: string; by: string }[] {
+export function dominatedOf(cards: readonly TradeEvaluation[], merged: readonly TradeEvaluation[], exempt: ReadonlySet<string> = new Set()): { key: string; by: string }[] {
   const helpsOf = (t: TradeEvaluation) => (typeof t.tradeScore === "number" && Number.isFinite(t.tradeScore) ? t.tradeScore : Number.NEGATIVE_INFINITY);
-  const beats = (k: TradeEvaluation, c: TradeEvaluation) => k.key !== c.key && versionsOfSameTrade(k, c) && atLeastAsGood(k, c) && !(atLeastAsGood(c, k) && compareOverall(c, k) < 0);
   const order = [...cards].sort((a, b) => {
     const ha = helpsOf(a);
     const hb = helpsOf(b);
     if (ha !== hb) return hb > ha ? 1 : -1;
-    const ca = displayAcceptance(a.pComplete);
-    const cb = displayAcceptance(b.pComplete);
+    const ca = printedAcceptance(a.pComplete);
+    const cb = printedAcceptance(b.pComplete);
     if (Math.abs(cb - ca) > EPS) return cb > ca ? 1 : -1;
     return compareOverall(a, b);
   });
   const stays: TradeEvaluation[] = [];
   const out = new Map<string, string>();
   for (const c of order) {
-    const by = [...[...stays].sort(compareOverall), ...merged].find((k) => beats(k, c));
+    const by = exempt.has(c.key) ? undefined : beaterOf(c, stays, merged);
     if (by) out.set(c.key, by.key);
     else stays.push(c);
   }
@@ -1665,7 +1767,8 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
 
   /**
    * One list's cards (settle): its ranking on the ranking block, again on the printed numbers, its merges, its versions dropped
-   * for a better one (Checkpoint 7g; DominatedTrade) and how many rounds.
+   * for a better one (Checkpoint 7g; DominatedTrade), the merged trades given back (released), the dropped versions given back
+   * (restored: the final review's E2) and how many rounds.
    */
   interface Settled {
     ranking: RankedTrades;
@@ -1673,6 +1776,7 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
     merged: Map<string, MergedTrade>;
     dominated: Map<string, DominatedTrade>;
     released: Set<string>;
+    restored: Set<string>;
     rounds: number;
   }
   // The keys of `pool` that could be `card`'s offers by the rules on the numbers both print (offers.ts ladderNeighbors, each
@@ -1768,7 +1872,11 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
   // card above it on the list comes back for good and the rounds go on. Checkpoint 7g (the file header, "Merged cards,
   // Checkpoint 7g"): the ladders worked out top-down with each card's preference (takenTopDown; takenAsBefore with the
   // preference off), and once a round merges none, the versions a better one of the same trade beats on the printed numbers
-  // leave (dominatedOf), like merged trades: out of the later rankings, read by the filler rule as kept, and the rounds go on.
+  // leave (dominatedOf), like merged trades: out of the later rankings, read by the filler rule as kept, and the rounds go on;
+  // ⚠️ when one of them held merged trades, the release rule runs at once, on the list without them, so the next round ranks
+  // the trades given back before (c) reads the list again; and once a round merges none, drops none and gives no merged
+  // trade back, a dropped version whose `by` is no longer a card of the list or a trade merged into one is re-pointed to
+  // another that beats it, else given back for good (the final review's E2, merge-c-by-can-leave).
   function* settle(
     first: RankedTrades,
     rank: (out: ReadonlyMap<string, unknown>) => RankedTrades,
@@ -1780,8 +1888,51 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
     const merged = new Map<string, MergedTrade>();
     const dominated = new Map<string, DominatedTrade>();
     const released = new Set<string>();
+    const restored = new Set<string>();
     // The trades out of the list's rankings (the filler rule's references): the merged ones and the dropped versions.
     const outOf = (): ReadonlyMap<string, unknown> => (dominated.size ? new Map<string, unknown>([...merged, ...dominated]) : merged);
+    // The release rule on `cards` (the list as it stands): each merged trade's card is one on the list above it (a card merged
+    // or dropped later hands its own on to the one holding them: holderAbove), the others come back for good. Their keys.
+    function* release(cards: readonly TradeEvaluation[]): Generator<TradeSearchProgress, string[], void> {
+      const back: string[] = [];
+      for (const m of [...merged.values()]) {
+        const holder = yield* holderAbove(m, cards);
+        if (holder) merged.set(m.key, holder);
+        else back.push(m.key);
+      }
+      for (const key of back) {
+        merged.delete(key);
+        released.add(key);
+      }
+      return back;
+    }
+    // ⚠️ The give-back (the final review's E2): each dropped version whose `by` is no longer a card of the list (`cards`) or a
+    // trade merged into one, the release rule having just placed every merged trade with a card of the list, is re-pointed to
+    // the first other version that beats it on the printed numbers (beaterOf: the cards in Overall order, then the merged
+    // trades), else given back for good (`restored`: never dropped again). Whether any came back.
+    const giveBack = (cards: readonly TradeEvaluation[]): boolean => {
+      const shown = mergedTrades(merged, printed);
+      const here = new Set([...cards, ...shown].map((t) => t.key));
+      let back = false;
+      for (const d of [...dominated.values()]) {
+        if (here.has(d.by)) continue;
+        const self = finalOfKey.get(d.key);
+        const by = self ? beaterOf(printed(self), cards, shown) : undefined;
+        if (by) {
+          dominated.set(d.key, { ...d, by: by.key });
+          continue;
+        }
+        dominated.delete(d.key);
+        restored.add(d.key);
+        back = true;
+      }
+      return back;
+    };
+    // ⚠️ The rounds end (ours, as the release rule's): every round but the last merges a trade, drops a version, gives a merged
+    // trade back or gives a dropped version back, and each of the four happens to a trade at most once (a merged trade given
+    // back is never merged again, `released`; a dropped version given back is never dropped again, `restored`; a merged or
+    // dropped trade is out of the list, so nothing merges or drops it again meanwhile), so a list takes at most four rounds a
+    // trade, plus its last.
     let ranking = first;
     for (let rounds = 1; ; rounds++) {
       if (rounds > 1) {
@@ -1795,7 +1946,8 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
       }
       const printedList = rankTrades(ranking.trades.map(printed), value, caps, options(mergedTrades(outOf(), printed)));
       mark("rank");
-      if (!state.mergeCards) return { ranking, printed: printedList, merged, dominated, released, rounds };
+      const settled = (): Settled => ({ ranking, printed: printedList, merged, dominated, released, restored, rounds });
+      if (!state.mergeCards) return settled();
       const cards = printedList.trades;
       const listed = new Map(cards.map((c) => [c.key, c]));
       const now = state.preferListed
@@ -1805,26 +1957,24 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
         for (const [key, m] of now) merged.set(key, m);
         continue;
       }
-      // Checkpoint 7g (answer 3(c)): once a round merges none, the versions of a trade a better one beats on the printed numbers.
+      // Checkpoint 7g (answer 3(c)): once a round merges none, the versions of a trade a better one beats on the printed numbers
+      // (none given back before: `restored`).
       if (state.dropDominated) {
-        const drops = dominatedOf(cards, mergedTrades(merged, printed));
+        const drops = dominatedOf(cards, mergedTrades(merged, printed), restored);
         if (drops.length) {
+          const holders = new Set([...merged.values()].map((m) => m.into));
           for (const d of drops) dominated.set(d.key, { key: d.key, by: d.by, list });
+          // ⚠️ A dropped card held merged trades: the release rule at once, on the list without the dropped cards, so the trades
+          // it gives back are ranked in the next round before (c) reads the list again (the final review, merge-c-by-can-leave:
+          // on smallLeague 48, a one-partner search of Team 2, two trades came back only rounds later, took the given-player
+          // cap's places and pushed the version a third card was dropped for off the list, so neither showed).
+          if (drops.some((d) => holders.has(d.key))) yield* release(cards.filter((c) => !dominated.has(c.key)));
           continue;
         }
       }
-      // Each merged trade's card is one on the list above it (a card merged later hands its own on to the one holding them).
-      const back: string[] = [];
-      for (const m of [...merged.values()]) {
-        const holder = yield* holderAbove(m, cards);
-        if (holder) merged.set(m.key, holder);
-        else back.push(m.key);
-      }
-      if (!back.length) return { ranking, printed: printedList, merged, dominated, released, rounds };
-      for (const key of back) {
-        merged.delete(key);
-        released.add(key);
-      }
+      if ((yield* release(cards)).length) continue;
+      if (state.dropDominated && giveBack(cards)) continue;
+      return settled();
     }
   }
   // The Overall list first, then the "Helps both" list (each its own merges; a card on both lists has one ladder). Checkpoint
@@ -2040,7 +2190,7 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
         rounds: { overall: so.rounds, helpsBoth: sb.rounds },
         ladders: choices.size,
         released: so.released.size + sb.released.size,
-        ...(dropping ? { dominated: [...so.dominated.values(), ...sb.dominated.values()] } : {}),
+        ...(dropping ? { dominated: [...so.dominated.values(), ...sb.dominated.values()], restored: so.restored.size + sb.restored.size } : {}),
       }
     : null;
   // The last event is the count itself: every unit planned is done by now (above), so it reads done = total (with nothing

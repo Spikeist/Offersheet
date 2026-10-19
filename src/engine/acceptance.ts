@@ -869,6 +869,26 @@ export function displayAcceptance(p: number, cfg: Pick<AcceptanceConfig, "displa
   return Math.round(k * step * 1e6) / 1e6;
 }
 
+/**
+ * Whether a probability prints under the display's step (displayStep, 5%): a card prints it "<5%", never rounded up to the
+ * step (planner reply to Checkpoint 4b, answer 5). The one rule for it: src/lib/printed.ts underStep, which the cards and the
+ * feedback export print with, reads it, and so does printedAcceptance.
+ */
+export function underDisplayStep(p: number, cfg: Pick<AcceptanceConfig, "displayStep"> = config.acceptance): boolean {
+  return isFiniteNumber(p) && p < cfg.displayStep - EPS;
+}
+
+/**
+ * A probability as a card prints it, as a number (Checkpoint 7g's final review: search.ts rule (c), "at least as good on …
+ * the chance", reads the chance as printed): 0 for one the card prints "<5%" (underDisplayStep: under every step it prints, so
+ * "<5%" ties only with "<5%", as check:browser's page contract reads it), else displayAcceptance's nearest step.
+ * displayAcceptance, which the minimum chance, the labels and the ladders read, still reads "<5%" as 5%: there it only ever
+ * makes a rule stricter (a minimum of 10% or more, an Open of 15% or more, a Last offer 5 points above its card).
+ */
+export function printedAcceptance(p: number, cfg: Pick<AcceptanceConfig, "displayStep"> = config.acceptance): number {
+  return underDisplayStep(p, cfg) ? 0 : displayAcceptance(p, cfg);
+}
+
 /** The label for a probability (config.acceptance.labels), judged on its shown value. */
 export function acceptanceLabel(p: number, cfg: Pick<AcceptanceConfig, "displayStep" | "labels"> = config.acceptance): string {
   const shown = displayAcceptance(p, cfg);

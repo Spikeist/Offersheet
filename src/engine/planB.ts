@@ -54,6 +54,9 @@
  * "smaller"): the search skips such a candidate once its printed numbers are known (search.ts finish; the narrow rule, the
  * lead's call D5), so the box and the Last offer never show one trade twice, and a box is still never an offer. One the Last
  * offer couldn't take (it keeps less than config.offers.lastMinOverallShare of the card's Overall, say) can still be a box.
+ * ⚠️ The rule reads the two printed numbers only, not the Last offer the ladder picks, so a skipped candidate isn't always the
+ * Last offer: when the ladder picks another version (a throw-in with a higher Overall, say), the skipped ask shows nowhere on
+ * the card, and the box is the next candidate or none (search.ts, "Merged cards, Checkpoint 7g": smallLeague 32's card).
  *
  * The choice (choosePlanB): the first candidate, in that order, that isn't passed over (`skip`, below) and whose numbers
  * on the final block of seasons (the card's basis) still pass the rules: a finalist's are its own (stage "final"); any

@@ -2,12 +2,13 @@
  * The Last offer's smaller ask (Checkpoint 7g; planner reply to Checkpoint 7f, answer 3(a): "The Last offer can be either the
  * throw-in or a smaller ask, whichever has the higher Overall. It must be at least 5 points likelier and keep at least 80% of the
  * suggested trade's Overall."; offers.ts, "The candidates" and "4. Last offer"): the smaller asks (offers.ts smallerAsks), the
- * rule on made-up numbers (offerFeasible "smaller" at the bar, higherOverall's tie), every card's Last offer on whole searches
- * (its shape, its rules on the numbers it prints, the higher Overall of the two kinds), ladderNeighbors' "smaller" kind, and
- * Plan B's narrow rule (a box is never a smaller ask its card's Last offer could take; one it can't take can stay a box).
- * Synthetic leagues (trade.testing.ts smallLeague: made-up players, placeholder teams); which seeds show what is a fact of the
- * synthetic data, said where a test leans on it (found on this tree: smallLeague 24, 25 and 56 at 10% merge through a
- * smaller-ask Last offer, 12-team 1 at Any too).
+ * rule on made-up numbers (offerFeasible "smaller" at the bar, each other rule failing alone, higherOverall's tie), every card's
+ * Last offer on whole searches (its shape, its rules on the numbers it prints, the higher Overall of the two kinds, both ways),
+ * ladderNeighbors' "smaller" kind, and Plan B's narrow rule (a box is never a smaller ask its card's Last offer could take; one
+ * it can't take can stay a box). Synthetic leagues (trade.testing.ts smallLeague: made-up players, placeholder teams); which
+ * seeds show what is a fact of the synthetic data, said where a test leans on it (found on this tree: smallLeague 24, 25 and 56
+ * at 10% merge through a smaller-ask Last offer, 12-team 1 at Any too; since the final review, 48, whose idea 3 takes its smaller
+ * ask over a passing throw-in, and 41, where the narrow rule acts).
  */
 import { describe, expect, it } from "vitest";
 import { displayAcceptance } from "./acceptance";
@@ -117,8 +118,15 @@ describe("the rule on made-up numbers", { timeout: 300_000 }, () => {
     expect(offerFeasible(k, version(SHARE - 0.0001), "smaller", 0.1)).toBe(false);
     expect(overallShareOk(version(0.7999), k)).toBe(false);
     expect(overallShareOk(version(0.75), k, 0.75)).toBe(true);
-    // The other rules: not likelier enough, a B as high as the card's, a higher Helps you.
-    expect(offerFeasible(k, { ...version(0.9), pComplete: k.pComplete }, "smaller", 0.1)).toBe(false);
+    // The other rules, each failing alone. Not likelier enough: the card's own chance, with B made for 90% of its Overall at that
+    // chance, so the share, B and Helps you rules pass and only the chance fails (the final review, merge-a-test-higher-overall-
+    // unpinned: the version at its old chance and B kept 73% of the Overall, under the share too). A B as high as the card's. A
+    // higher Helps you.
+    const sameChance: TradeEvaluation = { ...k, b: (-Math.log(1 - (0.9 * kOverall) / 100) * (k.b3 as number)) / k.pComplete, pComplete: k.pComplete, tradeScore: 1 };
+    expect(overallShareOk(sameChance, k)).toBe(true);
+    expect((sameChance.b as number) < (k.b as number)).toBe(true);
+    expect(offerFeasible(k, sameChance, "smaller", 0.1)).toBe(false);
+    expect(offerFeasible(k, { ...sameChance, pComplete: p }, "smaller", 0.1)).toBe(true);
     expect(offerFeasible(k, { ...version(0.9), b: k.b }, "smaller", 0.1)).toBe(false);
     expect(offerFeasible(k, { ...version(0.9), tradeScore: (k.tradeScore as number) + 1 }, "smaller", 0.1)).toBe(false);
     // The throw-in's rule is B's, not the Overall's: a version at 81% of the Overall with B under 80% of the card's isn't one.
@@ -143,18 +151,28 @@ describe("the rule on made-up numbers", { timeout: 300_000 }, () => {
   });
 });
 
-/** The leagues whose Last offers include smaller asks (found on this tree), at their minimum chance. */
+/**
+ * The leagues whose Last offers include smaller asks (found on this tree), at their minimum chance; since the final review also
+ * smallLeague 48, whose idea 3 takes a smaller ask over a passing throw-in with a lower Overall (merge-a-test-higher-overall-
+ * unpinned), and 41, where Plan B's narrow rule acts (merge-a-test-narrow-rule-unpinned).
+ */
 const LEAGUES = [
   { seed: 24, teams: 6, minChance: 0.1 },
   { seed: 25, teams: 6, minChance: 0.1 },
   { seed: 56, teams: 6, minChance: 0.1 },
   { seed: 1, teams: 12, minChance: 0 },
+  { seed: 48, teams: 6, minChance: 0.1 },
+  { seed: 41, teams: 6, minChance: 0.1 },
 ] as const;
 
+/** EG (B × P_complete): the order of the printed Overall on one block. */
+const egOf = (e: { b: number | null; pComplete: number }) => (e.b as number) * e.pComplete;
+
 describe("every card's Last offer on whole searches", { timeout: 900_000 }, () => {
-  it("is the card plus one player of mine or a smaller ask, holding its kind's rules on the numbers it prints; a smaller ask's beats the throw-in-only ladder's on Overall, and a throw-in's is that ladder's own (smallLeague 24, 25, 56 at 10%, 12-team 1 at Any)", () => {
+  it("is the card plus one player of mine or a smaller ask, holding its kind's rules on the numbers it prints; whichever kind has the higher Overall (smallLeague 24, 25, 56, 48 and 41 at 10%, 12-team 1 at Any)", () => {
     let smaller = 0;
     let throwIn = 0;
+    let bothKinds = 0;
     for (const lg of LEAGUES) {
       const r = search(lg.seed, lg.teams, lg.minChance);
       const st = searchStateOf(r) as SearchState;
@@ -175,20 +193,34 @@ describe("every card's Last offer on whole searches", { timeout: 900_000 }, () =
         if (smallerAskOf(card.proposal, e.proposal)) {
           smaller++;
           expect(overallOf(e) as number, w).toBeGreaterThanOrEqual(SHARE * (overallOf(card) as number) - 1e-9);
-          if (alone) expect((e.b as number) * e.pComplete, w).toBeGreaterThan((alone.printed.b as number) * alone.printed.pComplete);
+          if (alone) {
+            bothKinds++;
+            expect(egOf(e), w).toBeGreaterThan(egOf(alone.printed));
+          }
         } else {
           throwIn++;
           expect(ids(e.proposal.get).sort(), w).toEqual(ids(card.proposal.get).sort());
           expect(ids(e.proposal.give).length, w).toBe(ids(card.proposal.give).length + 1);
           expect(e.b as number, w).toBeGreaterThanOrEqual(config.search.steps.minBShare * (card.b as number) - 1e-9);
-          // A throw-in is the Last offer only when no smaller ask has a higher Overall: the throw-in alone's.
-          if (alone !== undefined) expect(alone?.printed.key, w).toBe(e.key);
+          // A throw-in is the Last offer only when no smaller ask has a higher Overall: the throw-in alone's, and the smaller
+          // asks' own pick (the same job with no room for a throw-in, my side held to the card's: at 2 a side a throw-in card
+          // gives one player, so its smaller asks stay legal) prints an Overall at most its own (a tie goes to the throw-in).
+          if (alone !== undefined) {
+            expect(alone?.printed.key, w).toBe(e.key);
+            const ask = ladderChoice({ ...job, legalMax: ids(card.proposal.give).length })?.last ?? null;
+            if (ask?.kind === "smaller") {
+              bothKinds++;
+              expect(egOf(ask.printed), w).toBeLessThanOrEqual(egOf(e) + 1e-9);
+            }
+          }
         }
       }
     }
-    // Both kinds occur (facts of the synthetic data).
+    // Both kinds occur, and cards where both pass, each way (facts of the synthetic data: smallLeague 48's idea 3, whose smaller
+    // ask beats its throw-in, and smallLeague 24's 2|give:1002|get:1015,1018, whose throw-in beats its smaller ask).
     expect(smaller).toBeGreaterThan(0);
     expect(throwIn).toBeGreaterThan(0);
+    expect(bothKinds).toBeGreaterThanOrEqual(2);
   });
 
   it("with the switch off (TradeSearchOptions.smallerAsks false) every Last offer is a throw-in, as at Checkpoint 7f", () => {
@@ -231,7 +263,7 @@ describe("every card's Last offer on whole searches", { timeout: 900_000 }, () =
 });
 
 describe("Plan B's narrow rule (the lead's D5)", { timeout: 900_000 }, () => {
-  it("no box is a smaller ask its card's Last offer could take, on the numbers both print; smallLeague 24 keeps one it can't take (Team 6: about 73% of its card's Overall)", () => {
+  it("no box is a smaller ask its card's Last offer could take, on the numbers both print; smallLeague 41 shows the rule act, 24 keeps a box it can't take (Team 6: about 73% of its card's Overall)", () => {
     let boxes = 0;
     let smallerBoxes = 0;
     for (const lg of LEAGUES) {
@@ -254,16 +286,23 @@ describe("Plan B's narrow rule (the lead's D5)", { timeout: 900_000 }, () => {
     expect(card?.planB?.key).toBe("6|give:1011|get:1065");
     const box = (searchStateOf(r) as SearchState).shownByKey.get("6|give:1011|get:1065") as TradeEvaluationCore;
     expect((overallOf(box) as number) / (overallOf(card) as number)).toBeLessThan(SHARE);
+    // smallLeague 41 (10%), where the rule acts (the final review, merge-a-test-narrow-rule-unpinned; a fact of the synthetic
+    // data): card 4|give:1001,1004|get:1039,1040's best Plan B candidate is its smaller ask 4|give:1001,1004|get:1040, its Last
+    // offer, so without the rule the card would show that one trade twice, as its Last offer and as its box.
+    const r41 = search(41, 6, 0.1);
+    const card41 = cardsOf(r41).find((t) => t.key === "4|give:1001,1004|get:1039,1040") as TradeEvaluation;
+    expect(card41).toBeDefined();
+    const last41 = (offerLadderOfSearch(r41, card41.key) as OfferLadder).steps.find((s) => s.kind === "last");
+    expect(last41?.evaluation.key).toBe("4|give:1001,1004|get:1040");
+    expect(card41.planB?.key).not.toBe(last41?.evaluation.key);
   });
 
-  it("with the switch off a box can be a smaller ask the Last offer could take (the rule acts: smallLeague 24 at 10%, 12-team 1 at Any)", () => {
+  it("with smaller asks off (TradeSearchOptions.smallerAsks false, which turns the narrow rule off with them, as at Checkpoint 7f) a box can be a smaller ask that a Last offer could take on the numbers both print (smallLeague 24 at 10%)", () => {
     let barred = 0;
-    for (const lg of [LEAGUES[0], LEAGUES[3]] as const) {
-      const off = search(lg.seed, lg.teams, lg.minChance, { smallerAsks: false });
-      for (const card of cardsOf(off)) {
-        const box = card.planB && (searchStateOf(off) as SearchState).shownByKey.get(card.planB.key);
-        if (box && smallerAskOf(card.proposal, box.proposal) && offerFeasible(card, box, "smaller", lg.minChance)) barred++;
-      }
+    const off = search(24, 6, 0.1, { smallerAsks: false });
+    for (const card of cardsOf(off)) {
+      const box = card.planB && (searchStateOf(off) as SearchState).shownByKey.get(card.planB.key);
+      if (box && smallerAskOf(card.proposal, box.proposal) && offerFeasible(card, box, "smaller", 0.1)) barred++;
     }
     expect(barred).toBeGreaterThan(0);
   });

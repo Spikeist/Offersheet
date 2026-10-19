@@ -6,12 +6,16 @@
  * which prints a record's own numbers the way its card did. Imports only the engine's display rule and config, so the feedback
  * store needs none of the view.
  */
-import { displayAcceptance } from "@/engine/acceptance";
+import { displayAcceptance, underDisplayStep } from "@/engine/acceptance";
 import { config } from "@/engine/config";
 
-/** Under the display's step (config.acceptance.displayStep, 5%): an estimate the card prints as "<5%" (planner reply to Checkpoint 4b, answer 5). */
+/**
+ * Under the display's step (config.acceptance.displayStep, 5%): an estimate the card prints as "<5%" (planner reply to
+ * Checkpoint 4b, answer 5). The engine's rule, acceptance.underDisplayStep, which the engine's rule (c) reads too (through
+ * acceptance.printedAcceptance; Checkpoint 7g's final review): one rule for what prints "<5%".
+ */
 export function underStep(p: number): boolean {
-  return Number.isFinite(p) && p < config.acceptance.displayStep - 1e-9;
+  return underDisplayStep(p);
 }
 
 /**
