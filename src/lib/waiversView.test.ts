@@ -20,6 +20,7 @@ import { defaultTradeSettings } from "@/engine/settings";
 import { TEST_NOW, buildTestLeague, type TestPlayer } from "@/engine/testLeague";
 import { smallLeague } from "@/engine/trade.testing";
 import { seasonOver } from "./leagueView";
+import { percentText, titleOddsText } from "./tradeView";
 import {
   CANT_ADD_TEXT,
   CANT_FIT_TEXT,
@@ -37,8 +38,11 @@ import {
   WAIVERS_NONE_HELPS,
   WAIVERS_NONE_YOU_CAN_MAKE,
   WAIVERS_SEASON_OVER,
+  ODDS_WHY,
+  ODDS_WHY_HEADLINE,
   buildWaiversView,
   positionPlural,
+  waiverOddsLines,
   waiverStatusText,
   waiversRestText,
   type WaiverListView,
@@ -89,7 +93,10 @@ describe("buildWaiversView", () => {
     expect(v?.underWay).toBeNull();
     expect(v?.ros?.weekLabel).toBe("Wk 4");
     expect(v?.ros?.shown).toBe(config.waivers.rowsShown);
-    expect(v?.ros?.note).toContain("weeks 4–17, each week counted once, with injuries and byes simulated");
+    // Checkpoint 7h (planner reply to Checkpoint 7g, section 1): one line, what the main number is, and the rest behind "Why?".
+    expect(v?.ros?.lead).toBe("Lineup gain: what each move adds to your starting lineup over weeks 4–17.");
+    expect(v?.ros?.note).toContain("It counts each week once, with injuries and byes simulated, after dropping the player named.");
+    expect(v?.week?.lead).toBe("Lineup gain: what each move adds to your starting lineup in week 4.");
     // The positions I stream (K and D/ST by default) wait for the one-week list.
     expect(v?.ros?.note).toContain("Positions you stream weekly (K, D/ST) are under “This week”.");
   });
@@ -146,7 +153,7 @@ describe("buildWaiversView", () => {
     expect(u?.week?.label).toBe("Next week");
     expect(u?.week?.underWay).toBe("Week 4 is under way, so this list is for week 5.");
     expect(u?.week?.weekLabel).toBe("Wk 5");
-    expect(u?.ros?.note).toContain("weeks 5–17");
+    expect(u?.ros?.lead).toContain("weeks 5–17");
     // Review: the note named a "This week" the toggle didn't show.
     expect(u?.ros?.note).toContain("Positions you stream weekly (K, D/ST) are under “Next week”.");
     expect(u?.ros?.note).not.toContain("“This week”");
@@ -165,7 +172,7 @@ describe("buildWaiversView", () => {
       expect(u?.underWay?.underWay).toBe("Week 4 is under way: this list counts only its games still to play.");
       expect(u?.underWay?.weekLabel).toBe("Wk 4");
       expect(u?.underWay?.caption).toBe("Waiver upgrades for week 4's games still to play");
-      expect(u?.underWay?.note).toContain("in the rest of week 4");
+      expect(u?.underWay?.lead).toBe("Lineup gain: what each move adds to your starting lineup in the rest of week 4.");
       expect(u?.underWay?.note).toContain("Players whose games have started are locked");
       expect(u?.week?.underWay).toBe("Week 4 is under way, so this list is for week 5.");
       expect(u?.ros?.note).toContain("Positions you stream weekly (K, D/ST) are under “This week” and “Next week”.");
@@ -448,7 +455,11 @@ describe("Checkpoint 7e: one move per row, Helps you, the switch and the untouch
       const first = rows[0];
       if (first && first.main.text !== NO_GAIN_TEXT)
         expect(first.main.title).toMatch(/^Helps you \d+: about as good as adding (less than 0\.1 points|1 point|[\d.]+ points) a week to your lineup for the rest of the season, on the same scale as trade ideas \(from [\d,]+ simulated seasons\)\.$/);
-      expect(rv?.ros?.note).toContain("Helps you: how much each move raises your chances at what your league rewards over weeks 6–10, from simulated seasons, on the same scale as trade ideas.");
+      // One line (Checkpoint 7h, section 1), the rest behind "Why?".
+      expect(rv?.ros?.lead).toBe("Helps you: how much each move raises your chances over weeks 6–10, on the same scale as trade ideas.");
+      expect(rv?.ros?.note).toContain("It's worked out from seasons simulated with and without each move, weighing your chances at what your league rewards.");
+      // What the odds lines in each move's details are (section 5): the rating's own "before", not the League page's.
+      expect(rv?.ros?.note).toContain(ODDS_WHY);
       // The trade value a move gives up only (the final review of Checkpoint 7e, ENG-7E-2: a gain counts as none).
       expect(rv?.ros?.note).toContain("It counts the trade value you'd give up too, as your “Protect my trade value” setting asks.");
       // No count of the moves played out longest (review of Checkpoint 7f, INTEGRATION-7: "The 6 best moves …" above a list
@@ -520,8 +531,49 @@ describe("Checkpoint 7e: one move per row, Helps you, the switch and the untouch
       if (!ros) throw new Error("no list");
       const none: LeagueModel = { ...model, waiverUpgrades: { ...(model.waiverUpgrades as NonNullable<LeagueModel["waiverUpgrades"]>), ros: { ...ros, rows: ros.rows.map(({ rating: _r, ...r }) => (void _r, r)) } } };
       const noneNote = buildWaiversView({ snapshot: l.snapshot, model: none, inputs, timeZone: NY, now: TEST_NOW.toISOString() })?.ros?.note ?? "";
-      expect(noneNote).toContain("Helps you: how much each move raises your chances");
+      expect(buildWaiversView({ snapshot: l.snapshot, model: none, inputs, timeZone: NY, now: TEST_NOW.toISOString() })?.ros?.lead).toContain("Helps you: how much each move raises your chances");
       expect(noneNote).not.toMatch(/played out/);
+      // No move rated: no odds lines, and the note doesn't speak of them (Checkpoint 7h).
+      expect(noneNote).not.toContain(ODDS_WHY);
+    });
+
+    it("Checkpoint 7h: every rated row's details carry my odds before → after from the runs behind its Helps you, in the cards' forms; the one-week list none", () => {
+      const ros = rv?.ros;
+      const engine = model.waiverUpgrades?.ros;
+      if (!ros || !engine) throw new Error("no list");
+      let seen = 0;
+      for (const r of ros.rows) {
+        const e = engine.rows.find((x) => x.playerId === r.id);
+        if (!e?.rating) {
+          expect(r.odds, r.name).toBeNull();
+          continue;
+        }
+        const odds = e.rating.odds;
+        if (!odds) throw new Error(`no odds for ${r.name}`);
+        seen++;
+        // "Only the champion" (smallLeague's reward): the title, then the playoffs, no top-N line.
+        expect(r.odds?.lines.map((o) => o.label)).toEqual(["Title odds", "Playoff odds"]);
+        // Their frame names the seasons behind them, the row's own (its Helps you's).
+        expect(r.odds?.frame).toBe(`without a pickup → with this one (from ${e.rating.sims === 400 ? "400" : "100"} simulated seasons)`);
+        expect(r.odds?.srFrame).toBe(`without a pickup, then with this one (from ${e.rating.sims === 400 ? "400" : "100"} simulated seasons)`);
+        const [title, playoffs] = r.odds?.lines ?? [];
+        // Each side printed as it is, the title to a tenth, the playoffs whole, the arrow in words for screen readers.
+        const t = (p: number | null) => titleOddsText(p as number);
+        expect(title).toEqual({ label: "Title odds", value: `${t(odds.before.prizes.first)} → ${t(odds.after.prizes.first)}`, srValue: `from ${t(odds.before.prizes.first)} to ${t(odds.after.prizes.first)}` });
+        expect(playoffs).toEqual({ label: "Playoff odds", value: `${percentText(odds.before.pPlayoffs)} → ${percentText(odds.after.pPlayoffs)}`, srValue: `from ${percentText(odds.before.pPlayoffs)} to ${percentText(odds.after.pPlayoffs)}` });
+        expect(title?.value).toMatch(/^(?:\d+\.\d%|<0\.1%|>99\.9%) → (?:\d+\.\d%|<0\.1%|>99\.9%)$/);
+        expect(playoffs?.value).toMatch(/^(?:\d+%|<1%|>99%) → (?:\d+%|<1%|>99%)$/);
+      }
+      expect(seen).toBeGreaterThan(2);
+      // The one-week lists stay in points (the planner: "This week and Next week stay in points"): no odds lines.
+      for (const r of rv?.week?.rows ?? []) expect(r.odds).toBeNull();
+      // Under "Several prizes" paying 3rd place, the top-3 line between them, as on the cards.
+      const prizes: LeagueModel = { ...model, reward: { goal: "prizes", shares: { first: 0.5, second: 0.3, third: 0.2, weeklyHigh: 0, pointsLeader: 0 }, periods: 5, empty: false } };
+      const pv = buildWaiversView({ snapshot: l.snapshot, model: prizes, inputs, timeZone: NY, now: TEST_NOW.toISOString() });
+      const rated = pv?.ros?.rows.find((r) => r.odds !== null);
+      expect(rated?.odds?.lines.map((o) => o.label)).toEqual(["Title odds", "Top 3 odds", "Playoff odds"]);
+      // The rows played out on both blocks: the note says their "before" differs a little, each its own.
+      expect(rv?.ros?.note).toContain(`${ODDS_WHY}, so a move played out 100 times starts from slightly different odds than one played out 400 times. ${ODDS_WHY_HEADLINE}`);
     });
 
     it("shows no trade value: none of FantasyCalc's (distinctive) values, nor W, anywhere in the section", () => {
@@ -579,6 +631,45 @@ describe("Checkpoint 7e: one move per row, Helps you, the switch and the untouch
       }
       expect(ros.rest?.show).toMatch(/^\d+ more pickups? that (doesn't|don't) help you \(show\)$/);
     });
+  });
+});
+
+describe("Checkpoint 7h: the odds lines of a rated row (planner reply to Checkpoint 7g, section 5; waiverOddsLines)", () => {
+  const prizes = (shares: Partial<Reward["shares"]>): Reward => ({ goal: "prizes", shares: { first: 0, second: 0, third: 0, weeklyHigh: 0, pointsLeader: 0, ...shares }, periods: 14, empty: false });
+  const run = (pPlayoffs: number, first: number | null, second: number | null, third: number | null) => ({ pPlayoffs, prizes: { first, second, third, weeklyHigh: 0, pointsLeader: 0 } });
+  const odds = { before: run(0.6057, 0.0893, 0.0805, 0.1022), after: run(0.6123, 0.0917, 0.0811, 0.1031) };
+
+  it("the cards' forms: the title to a tenth, the top-N and the playoffs whole, before → after, “from … to” for screen readers", () => {
+    expect(waiverOddsLines(odds, { goal: "title", shares: TITLE_ONLY })).toEqual([
+      { label: "Title odds", value: "8.9% → 9.2%", srValue: "from 8.9% to 9.2%" },
+      { label: "Playoff odds", value: "61% → 61%", srValue: "from 61% to 61%" },
+    ]);
+    // "Several prizes" paying 3rd place: the top 3 (1st + 2nd + 3rd), 27.2% → 27.6%.
+    expect(waiverOddsLines(odds, prizes({ first: 0.44, second: 0.36, third: 0.2 }))?.map((o) => [o.label, o.value])).toEqual([
+      ["Title odds", "8.9% → 9.2%"],
+      ["Top 3 odds", "27% → 28%"],
+      ["Playoff odds", "61% → 61%"],
+    ]);
+    // Paying 2nd but not 3rd: the top 2; paying neither (the weekly high score alone besides 1st): none.
+    expect(waiverOddsLines(odds, prizes({ first: 0.7, second: 0.3 }))?.map((o) => o.label)).toEqual(["Title odds", "Top 2 odds", "Playoff odds"]);
+    expect(waiverOddsLines(odds, prizes({ first: 0.8, weeklyHigh: 0.2 }))?.map((o) => o.label)).toEqual(["Title odds", "Playoff odds"]);
+    // No reward known (a model built before Checkpoint 7c): the title and the playoffs.
+    expect(waiverOddsLines(odds, null)?.map((o) => o.label)).toEqual(["Title odds", "Playoff odds"]);
+  });
+
+  it("each side as it is, never before + a change; “unknown” for a title either side doesn't know, a top-N with a part unknown left out", () => {
+    // 0.08949… and 0.08950…: a tenth apart as printed, though their difference is 2e-7.
+    expect(waiverOddsLines({ before: run(0.5, 0.0894999, null, null), after: run(0.5, 0.0895001, null, null) }, null)?.[0]?.value).toBe("8.9% → 9.0%");
+    const unknown = waiverOddsLines({ before: run(0.5, null, null, null), after: run(0.52, null, null, null) }, prizes({ first: 0.6, second: 0.3, third: 0.1 }));
+    expect(unknown).toEqual([
+      { label: "Title odds", value: "unknown", srValue: "unknown" },
+      { label: "Playoff odds", value: "50% → 52%", srValue: "from 50% to 52%" },
+    ]);
+    // 3rd unknown on one side: no partial sum.
+    expect(waiverOddsLines({ before: run(0.5, 0.1, 0.1, 0.1), after: run(0.5, 0.1, 0.1, null) }, prizes({ first: 0.6, second: 0.3, third: 0.1 }))?.map((o) => o.label)).toEqual(["Title odds", "Playoff odds"]);
+    // The edges as the cards print them.
+    expect(waiverOddsLines({ before: run(0.996, 0.0003, null, null), after: run(0.9999, 0.9996, null, null) }, null)?.map((o) => o.value)).toEqual(["<0.1% → >99.9%", ">99% → >99%"]);
+    expect(waiverOddsLines(undefined, null)).toBeNull();
   });
 });
 

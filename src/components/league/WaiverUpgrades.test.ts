@@ -18,10 +18,16 @@ import { buildLeagueModel, type LeagueModelConfig } from "@/engine/league";
 import type { Pos } from "@/engine/model";
 import { defaultTradeSettings, type TradeSettings } from "@/engine/settings";
 import { TEST_NOW, buildTestLeague, type TestPlayer } from "@/engine/testLeague";
+import { smallLeague } from "@/engine/trade.testing";
 import { buildLeagueView } from "@/lib/leagueView";
 import {
   DEPTH_ONLY_TAG,
   DEPTH_ONLY_WORDS,
+  DETAILS_TEXT,
+  ODDS_FRAME,
+  ODDS_FRAME_SR,
+  ODDS_LABEL,
+  WHY_TEXT,
   RATING_PENDING_TEXT,
   RATING_PENDING_WEEK_TEXT,
   SAME_POSITION_HELP,
@@ -145,6 +151,46 @@ describe("WaiverUpgradesCard", () => {
     expect(hurt?.injury?.long).toBe("Out");
     const depth = view.ros?.rows.slice(0, view.ros.shown).some((r) => r.depthOnly);
     if (depth) expect(text).toContain(DEPTH_ONLY_TAG);
+  });
+
+  it("Checkpoint 7h: each card compact, its move, numbers and pills shown, the rest behind its own 44 px “Details” (aria-expanded, aria-controls naming a panel hidden until it opens)", () => {
+    const first = view.ros?.rows[0];
+    if (!first) throw new Error("no row");
+    const item = /<li class="rounded-xl border[^"]*">([\s\S]*?)<\/li>/.exec(html)?.[1] ?? "";
+    // The button: its words, the player for screen readers (and for focus across a redraw), closed, 44 px.
+    const button = /<button type="button" aria-expanded="(true|false)" aria-controls="([^"]+)" data-waiver-details="([^"]+)" class="([^"]*)">([\s\S]*?)<\/button>/.exec(item);
+    expect(button?.[1]).toBe("false");
+    expect(button?.[3]).toBe(first.id);
+    expect(button?.[4]?.split(" ")).toContain("min-h-11");
+    expect(textOf(button?.[5] ?? "").trim()).toBe(`${DETAILS_TEXT} (${first.name}) ▾`);
+    expect(button?.[5]).toMatch(/<span aria-hidden="true" class="[^"]*">▾<\/span>/);
+    // The panel it names: always in the page, hidden until it opens, with Points and Better than; nothing of it before the button.
+    const panel = new RegExp(`<div id="${button?.[2] ?? "?"}" hidden="" class="[^"]*">([\\s\\S]*)</div>$`).exec(item);
+    expect(textOf(panel?.[1] ?? "")).toContain(`Points ${first.rosText} rest of season · Wk 4: ${first.weekText}`);
+    expect(textOf(panel?.[1] ?? "")).toContain(`Better than ${first.betterThan}`);
+    const before = item.slice(0, item.indexOf(button?.[0] ?? "?"));
+    expect(textOf(before)).toContain(`Add ${first.name}`);
+    expect(textOf(before)).toContain(`Lineup gain: ${first.gain.text}`);
+    expect(before).not.toContain("Better than");
+    expect(before).not.toContain("<dl");
+  });
+
+  it("Checkpoint 7h: the list's note is one line with a 44 px “Why?” at its end, the rest hidden until it opens (the toggle closes it again)", () => {
+    const ros = view.ros;
+    if (!ros) throw new Error("no list");
+    expect(ros.lead).toBe("Lineup gain: what each move adds to your starting lineup over weeks 4–17.");
+    const why = /<p>([^<]*)<button type="button" aria-expanded="(true|false)" aria-controls="([^"]+)" class="([^"]*)">([\s\S]*?)<\/button><\/p><p id="([^"]+)"( hidden="")?>([\s\S]*?)<\/p>/.exec(html);
+    expect(textOf(why?.[1] ?? "").trim()).toBe(ros.lead);
+    expect(why?.[2]).toBe("false");
+    expect(why?.[3]).toBe(why?.[6]);
+    expect(why?.[4]?.split(" ")).toContain("min-h-11");
+    expect(textOf(why?.[5] ?? "").trim()).toBe(`${WHY_TEXT} (more on Rest of season's numbers)`);
+    expect(why?.[7]).toBe(' hidden=""');
+    expect(textOf(why?.[8] ?? "").trim()).toBe(ros.note);
+    // Opened: the rest shows.
+    const open = /aria-expanded="(true|false)" aria-controls="([^"]+)" class="[^"]*">Why\?[\s\S]*?<\/button><\/p><p id="[^"]+"( hidden="")?>/.exec(renderToStaticMarkup(createElement(WaiverUpgradesCard, { view, open: { why: true } })));
+    expect(open?.[1]).toBe("true");
+    expect(open?.[3]).toBeUndefined();
   });
 
   it("fits 375 px: cards that wrap (no table), names and lists that break anywhere", () => {
@@ -433,5 +479,48 @@ describe("the season list's rating under way, on every list (the final review of
     // Mounted with nothing in it otherwise, so the change is announced.
     expect(statusOf(renderToStaticMarkup(createElement(WaiverUpgradesCard, { view: week })))).toBe("");
     expect(view.week?.note).toContain("after dropping the player named (the same one as for the rest of the season when he's on that list).");
+  });
+});
+
+describe("Checkpoint 7h: a rated row's odds lines in its details, and the week's opponent on a one-week list (planner reply to Checkpoint 7g, sections 1 and 5)", () => {
+  // A made-up league with its season, its "Rest of season" rated as the League page rates it (400 seasons here).
+  const RATED: LeagueModelConfig = { ...config, waivers: { ...config.waivers, ratingScreenSims: 100, ratingFinishRows: 2 } };
+  const l = smallLeague(11);
+  const model = buildLeagueModel(l.snapshot, l.inputs, { now: TEST_NOW, sims: 400, waiverRating: true }, RATED);
+  const view = buildWaiversView({ snapshot: l.snapshot, model, inputs: l.inputs, timeZone: "America/New_York", now: TEST_NOW.toISOString() });
+  if (!view?.ros?.rated) throw new Error("no rated list");
+  const html = renderToStaticMarkup(createElement(WaiverUpgradesCard, { view }));
+
+  it("in the hidden panel, after the lineup gain: “Your odds: without a pickup → with this one” (the arrow in words for screen readers), then each line before → after", () => {
+    const first = view.ros?.rows[0];
+    if (!first?.odds) throw new Error("no odds");
+    const item = /<li class="rounded-xl border[^"]*">([\s\S]*?)<\/li>/.exec(html)?.[1] ?? "";
+    const panel = /<div id="[^"]+" hidden="" class="[^"]*">([\s\S]*)<\/div>$/.exec(item)?.[1] ?? "";
+    // Their frame names the seasons behind them (the row's own: 400 when finished, 100 when screened only).
+    expect([`${ODDS_FRAME} (from 400 simulated seasons)`, `${ODDS_FRAME} (from 100 simulated seasons)`]).toContain(first.odds.frame);
+    expect(first.odds.srFrame).toBe(first.odds.frame.replace(ODDS_FRAME, ODDS_FRAME_SR));
+    expect(panel).toContain(`<dt class="text-muted">${ODDS_LABEL}</dt><dd class="text-muted"><span aria-hidden="true">${first.odds.frame}</span><span class="sr-only">${first.odds.srFrame}</span></dd>`);
+    for (const o of first.odds.lines) expect(panel).toContain(`<dt class="text-muted">${o.label}</dt><dd class="tabular-nums"><span aria-hidden="true">${o.value}</span><span class="sr-only">${o.srValue}</span></dd>`);
+    // In order: the lineup gain, then the frame, then the lines.
+    const at = (s: string) => textOf(panel).indexOf(s);
+    expect(at("Lineup gain")).toBeGreaterThan(-1);
+    expect(at(ODDS_LABEL)).toBeGreaterThan(at("Lineup gain"));
+    expect(at("Title odds")).toBeGreaterThan(at(ODDS_LABEL));
+    expect(at("Playoff odds")).toBeGreaterThan(at("Title odds"));
+    // The odds show nowhere else: not before the button.
+    expect(item.slice(0, item.indexOf("data-waiver-details"))).not.toContain("odds");
+  });
+
+  it("on a one-week list: the add line names the week's opponent where the season list names the bye, no odds lines", () => {
+    const week = view.week;
+    const r = week?.rows[0];
+    if (!week || !r) throw new Error("no week list");
+    expect(r.odds).toBeNull();
+    const withOpponent: WaiversView = { ...view, first: "week", week: { ...week, rows: [{ ...r, opponent: { short: "@ YYY", long: "away at YYY" } }, ...week.rows.slice(1)] } };
+    const out = renderToStaticMarkup(createElement(WaiverUpgradesCard, { view: withOpponent }));
+    expect(out).toContain(`<span class="text-xs font-semibold whitespace-nowrap text-muted">${r.pos} · ${r.nflTeam} · <span aria-hidden="true">@ YYY</span><span class="sr-only">away at YYY</span></span>`);
+    // Without one (unknown), the bye as before.
+    expect(renderToStaticMarkup(createElement(WaiverUpgradesCard, { view: { ...view, first: "week" } }))).toContain(`${r.pos} · ${r.nflTeam} · ${r.bye}</span>`);
+    expect(out).not.toContain(ODDS_LABEL);
   });
 });

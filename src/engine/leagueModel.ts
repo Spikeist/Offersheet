@@ -5,7 +5,7 @@
  */
 import type { FantasyCalcFormat } from "./inputs";
 import type { InjuryStatus, Pos } from "./model";
-import type { PrizeDeltas, Reward } from "./reward";
+import type { PrizeDeltas, PrizeOdds, Reward } from "./reward";
 import type { Goal } from "./settings";
 
 export type BaseRateSource = "espn+sleeper" | "sleeper" | "espn" | "season" | "actual" | "none";
@@ -248,6 +248,26 @@ export interface WaiverRowRating {
   helps: number | null;
   /** The seasons behind it: WaiverListRating.shownSims for a finished row, screenSims for the rest (⚠️ they keep their screened number). */
   sims: number;
+  /**
+   * Checkpoint 7h (planner reply to Checkpoint 7g, section 5: "each row's details show the odds lines (title, playoffs, and
+   * top-N under the league's prizes), before → after, from the same run as its Helps you"): my odds in the very two runs its B
+   * was read from (waiverRating.ts): `before`, the rating's before run, my roster as it stands with no pickup of mine and
+   * every other team after its modeled pickups; `after`, the same with this move. On the screening seasons for a row not
+   * finished, the shown block for a finished one (`sims` says which), so after − before is the change B weighed. ⚠️ Not the
+   * League page's headline, whose odds count my modeled pickups too (the page words it so). Absent in a list rated before.
+   */
+  odds?: { before: WaiverOdds; after: WaiverOdds };
+}
+
+/**
+ * My odds from one of the waiver rating's season runs (WaiverRowRating.odds; Checkpoint 7h): P(playoffs) and the prize
+ * components (reward.ts PrizeOdds: P(1st) = P(title), P(2nd), P(3rd), each null when the season can't know it, as
+ * season.ts's; the expected weekly high scores, 0 unless the reward pays them and the setup simulated them, and P(points
+ * leader)): what the page's odds lines read, as the cards' baseline reads TradeSearchResult.baseline.prizes.
+ */
+export interface WaiverOdds {
+  pPlayoffs: number;
+  prizes: PrizeOdds;
 }
 
 /** One of my players who scores nothing in a waiver list's terms (WaiverList.idle). */
