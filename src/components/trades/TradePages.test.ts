@@ -35,7 +35,7 @@ import {
 } from "@/lib/tradeView";
 import { AnalysisResult, AnalyzerForm, AnalyzerPage, analysisStatus } from "./AnalyzerPage";
 import { FeedbackControls, VERSION_QUESTION, VersionChooser, chosenVersionChange, outcomeAction } from "./FeedbackControls";
-import { HowToRead, acceptCapWords, helpsScaleWords, helpsThemValueWords, helpsThemWords, nowOrLaterWords, offersWords, planBGainWords, planBShareWords, rosterMovesWords, weeklyLineWords } from "./HowToRead";
+import { HowToRead, PREFER_LISTED_WORDS, acceptCapWords, helpsScaleWords, helpsThemValueWords, helpsThemWords, nowOrLaterWords, offersWords, planBGainWords, planBShareWords, planBWords, rosterMovesWords, weeklyLineWords } from "./HowToRead";
 import { OffersPanel, TradeCard, type OffersState } from "./TradeCard";
 import { FinderControls, FinderFrame, TradeFinderPage, finderStatus, needsRefilter, refilterProgress, runShown, searchKeyFor, type FinderState } from "./TradeFinderPage";
 import { GLOOP_PREMIUM, SNOOT_PREMIUM, TRADE_MARKET, evaluation, searchResult, steppedFull, tradeFantasyCalc, tradeSnapshot } from "./testFixtures";
@@ -1030,13 +1030,27 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
     expect(helpsThemValueWords()).toBe(redraft);
   });
 
-  it("explains Harder to get and How to offer it: its offers in order, by their rules from config (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1), merged ideas (Checkpoint 7f; planner reply to Checkpoint 7e, decision 3), and since Checkpoint 7g the Last offer's smaller ask and the versions of a trade one of which shows alone (planner reply to Checkpoint 7f, answer 3)", () => {
+  it("explains Harder to get and How to offer it: its offers in order, by their rules from config (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1), merged ideas (Checkpoint 7f; planner reply to Checkpoint 7e, decision 3), and since Checkpoint 7g the Last offer's smaller ask, the ladder's preference for an idea of the list and the versions of a trade one of which shows alone (planner reply to Checkpoint 7f, answer 3; the final review's W1)", () => {
     expect(how()).toContain(HARDER);
     expect(how()).toContain(
-      "How to offer it works out, when you open it on an idea that helps you, up to 4 offers to the same team, in order: “Open with” the version that helps you most while it still has at least a 15% chance they accept (or your minimum chance, when that's higher); “Then”, versions that help you a little less, each at least 5 percentage points likelier than the one before; “The suggested trade”, the idea itself; and “Last offer”, the suggested trade plus a player you can spare (losing him costs your lineup little) or asking for fewer of their players, whichever has the higher Overall, when it's at least 5 percentage points likelier; with a player added it still does at least 80% as much for you, and asking for fewer it keeps at least 80% of the idea's Overall. Each offer shows Helps you, the chance they accept, the roster moves its numbers assume when they aren't the idea's, and its own message to send them. When an idea's offers include another idea below it on Overall, the list shows only the higher one, and the other is among its offers. When two ideas are versions of the same trade and one is at least as good on both Helps you and the chance, only that one shows. An offer can still be an idea above it on Overall whose own offers don't include this one; it then says so, with that idea's place (“Also shown as trade idea 2.”). The idea's own “If they won't move: try …” trade is never one of its offers. When no other version makes a better first offer, it says to offer the trade as it is.",
+      "How to offer it works out, when you open it on an idea that helps you, up to 4 offers to the same team, in order: “Open with” the version that helps you most while it still has at least a 15% chance they accept (or your minimum chance, when that's higher); “Then”, versions that help you a little less, each at least 5 percentage points likelier than the one before; “The suggested trade”, the idea itself; and “Last offer”, the suggested trade plus a player you can spare (losing him costs your lineup little) or asking for fewer of their players, whichever has the higher Overall, when it's at least 5 percentage points likelier; with a player added it still does at least 80% as much for you, and asking for fewer it keeps at least 80% of the idea's Overall. Each offer shows Helps you, the chance they accept, the roster moves its numbers assume when they aren't the idea's, and its own message to send them. When an idea's offers include another idea below it on Overall, the list shows only the higher one, and the other is among its offers. When another idea below this one on Overall fits one of these offers, it can be offered there even if another version helps you more or, for the “Last offer”, has a higher Overall, so it shows among this idea's offers rather than as an idea of its own. When two ideas are versions of the same trade and one is at least as good on both Helps you and the chance, only that one shows. An offer can still be an idea above it on Overall whose own offers don't include this one; it then says so, with that idea's place (“Also shown as trade idea 2.”). The idea's own “If they won't move: try …” trade is never one of its offers. When no other version makes a better first offer, it says to offer the trade as it is.",
     );
-    // The Analyzer's card is no idea of a list: nothing on merging there.
+    // The final review of Checkpoint 7g (the lead's ruling W1; merge-b-howtoread-rules-false, merge-ui-howtoread-preference,
+    // merge-a-howtoread-higher-overall-vs-preference): the ladder's preference for an idea of the list below this one, which
+    // can make the Open or a Then help less than the version their rules pick and the Last offer the lower Overall, said
+    // right after the merge sentence it serves. ⚠️ "can", never "is offered there": the preference reads only ideas holding no
+    // merged trade, is fixed per idea and kept only when it holds more of them (the design's §4.1); and "more", never "a little
+    // more": nothing bounds the gap (5 points of Helps you on the 12-team smallLeague 1 at the review).
+    expect(offersWords("finder")).toContain(
+      "When an idea's offers include another idea below it on Overall, the list shows only the higher one, and the other is among its offers. When another idea below this one on Overall fits one of these offers, it can be offered there",
+    );
+    expect(PREFER_LISTED_WORDS).toContain("it can be offered there even if another version helps you more or, for the “Last offer”, has a higher Overall");
+    expect(PREFER_LISTED_WORDS).not.toMatch(/is offered there|a little more|first\b/);
+    // The Analyzer's card is no idea of a list: nothing on merging there, and no preference.
     expect(offersWords("analyzer")).not.toContain("on Overall");
+    expect(offersWords("analyzer")).not.toContain(PREFER_LISTED_WORDS);
+    expect(offersWords("analyzer")).not.toContain("an idea of its own");
+    expect(how(undefined, "analyzer")).not.toContain("rather than as an idea of its own");
     // ⚠️ The review of the merge, MERGE-1: never that the higher idea "can't offer" this one back (it can, when this one is its
     // lean version: it passed it over); only what holds, that its own offers don't include it.
     expect(offersWords("finder")).not.toMatch(/can't (?:offer|ask)/);
@@ -1091,9 +1105,20 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
     // Review of track F: a Plan B is a trade they're likelier to accept (it read "a good fallback", for trades that were
     // often harder to land than their card).
     // Checkpoint 7e: its heading is the planner's, "If they won't move: try …", below an idea (the offers above it).
+    // The final review of Checkpoint 7g (the lead's ruling W2; merge-ui-howtoread-planb): true with Plan B's narrow rule (the
+    // lead's D5: never the idea's own trade asking for fewer of their players that its Last offer could take, so an idea can
+    // show none) and the smaller asks (a box can ask for fewer of their players). Until then it read "It's the best such trade
+    // for a different set of their players (other versions of the idea's own trade are in How to offer it), with …", which the
+    // (c) sentence's "versions of the same trade" contradicted for a box asking for fewer.
     const planB =
-      "If they won't move: try … shows below an idea when the same team has a trade they're likelier to accept: at least 5 percentage points likelier to go through, while still helping you at least half as much. It's the best such trade for a different set of their players (other versions of the idea's own trade are in How to offer it), with its own three numbers and odds, its own message to send them, and a link to open it in the Trade Analyzer, where it's shown as one offer.";
+      "If they won't move: try … shows below an idea when the same team has a trade they're likelier to accept: at least 5 percentage points likelier to go through, while still helping you at least half as much. It's the best such trade for a different set of their players, which can be fewer of them, but never the idea's own trade asking for fewer of their players when that could be its “Last offer”, so an idea can show none. It has its own three numbers and odds, its own message to send them, and a link to open it in the Trade Analyzer, where it's shown as one offer.";
     expect(how()).toContain(planB);
+    expect(how()).not.toContain("other versions of the idea's own trade");
+    // Its numbers are config's (the bar and the share), and the offer it can't be is named as How to offer it names it.
+    expect(planBWords()).toContain(`at least ${planBGainWords()} likelier to go through, while still helping you at least ${planBShareWords()}.`);
+    expect(offersWords("finder")).toContain("and “Last offer”, the suggested trade plus a player you can spare");
+    expect(planBWords()).toContain("never the idea's own trade asking for fewer of their players when that could be its “Last offer”, so an idea can show none.");
+    expect(offersWords("finder")).toContain("or asking for fewer of their players, whichever has the higher Overall");
     expect(how()).not.toContain("good fallback");
     expect(how()).not.toContain("If they say no");
     // The Analyzer shows no Plan B; it only says how a trade opened from one is shown (review of Phase 4b).

@@ -184,7 +184,11 @@
  *    answer 3; mergeSection): the Last offers that ask for fewer of their players, with the share of the card's Overall each
  *    keeps; the versions dropped for a better version of the same trade, with what each gave way to; the ladders a preference
  *    changed, the usual offers against the preferring ones; and each label's shape (a smaller ask, the higher idea's lean
- *    version, or another version) with why the higher idea's offers don't hold it (labelWhy).
+ *    version, a throw-in added, or another version) with why the higher idea's offers don't hold it (labelWhy). The final
+ *    review of Checkpoint 7g (merge-ui-report-after-merge, the lead's ruling W3): a merged or dropped trade that wasn't a card
+ *    without the merge says what let it in, a merge or a dropped version, when its list's records tell, else both (freedByOf,
+ *    freedWords: it read "a card only after another merge" whatever did), the cards that left say the same of what pushed them
+ *    off, and a merged Last offer reads "a card without the merge" only when it was one.
  *
  * Phase 7b (planner reply to Checkpoint 7a, §6.1): the settings line names the playoff weeks' weight ω every ROS(T) of the
  * search reads, set automatically from my odds under my goal (league.ts step 5c; league-report's playoffWeightSummary: the
@@ -2148,14 +2152,50 @@ export interface LadderSetting {
 export type ListName = "overall" | "helpsBoth";
 
 /**
+ * What let a trade onto its list after the first ranking, or pushed a card off it (section 11's merge; the final review of
+ * Checkpoint 7g, merge-ui-report-after-merge, the lead's ruling W3): other trades leaving the list, merged into a card's offers
+ * ("merge") or, since Checkpoint 7g (planner reply to Checkpoint 7f, answer 3(c)), dropped for a better version of the same
+ * trade ("drop"); "either" when both could have, or the records can't tell (freedByOf). Until then section 11 said "a card only
+ * after another merge" whatever let it in: on Parker's league 1, Oct 15, under his prizes, Kyle Monangai → Tony Pollard + Blake
+ * Corum came in only after the (c) drop of Puka Nacua → Nico Collins + Tetairoa McMillan (a replay of the rounds at the review;
+ * ⚠️ the records can't tell it, a merge having been folded before it too, so it reads "either": naming it would take a search
+ * without the drops, or the engine recording each round's events).
+ */
+export type FreedBy = "merge" | "drop" | "either";
+
+/**
+ * FreedBy from a search's merge records (MergedCards: each list's merges in the order they were folded, its dropped versions in
+ * the order they were dropped). A list's places are freed by its own merges and drops (search.ts settle ranks each list again
+ * without its own merged and dropped trades), so a trade that wasn't a card without the merge came onto it after one of those.
+ * `self`, the row's own trade: a merged one reads only the merges folded before it (one folded after it came after it was a
+ * card), a dropped one only the drops before it (likewise); without `self` (a card that left), everything on the list. "merge"
+ * or "drop" when only that kind is left, else "either". ⚠️ The records hold every merge and drop only while nothing was given
+ * back (MergedCards.released: a trade given back is in neither list, though its merge or drop freed a place), so "either" then.
+ */
+export function freedByOf(merged: MergedCards | null, list: ListName, self?: { kind: "merged" | "dropped"; key: string }): FreedBy {
+  if (!merged || merged.released > 0) return "either";
+  const before = (keys: readonly string[], kind: "merged" | "dropped"): readonly string[] => {
+    if (self?.kind !== kind) return keys;
+    const at = keys.indexOf(self.key);
+    return at < 0 ? keys.filter((k) => k !== self.key) : keys.slice(0, at);
+  };
+  const merges = before(merged[list].map((m) => m.key), "merged").length > 0;
+  const drops = before((merged.dominated ?? []).filter((d) => d.list === list).map((d) => d.key), "dropped").length > 0;
+  return merges && !drops ? "merge" : drops && !merges ? "drop" : "either";
+}
+
+/**
  * A trade merged into another card's "How to offer it" (section 11; Checkpoint 7f, planner reply to Checkpoint 7e, decision 3;
  * search.ts, "Merged cards"): its numbers as it printed as a card, its place on its list without the merge (`was`; null: it
- * came in after another merge), the card it went into with that card's place, and its own place among that card's offers.
+ * wasn't a card without the merge, and `freed` says what let it in: the final review of Checkpoint 7g, where this read "it came
+ * in after another merge"), the card it went into with that card's place, and its own place among that card's offers.
  */
 export interface MergeRow {
   list: ListName;
   trade: TradeEvaluationCore;
   was: number | null;
+  /** Null when `was` isn't (freedByOf, the row's own trade read as merged). */
+  freed: FreedBy | null;
   into: TradeEvaluation;
   intoPlace: number;
   kind: MergedTrade["kind"];
@@ -2187,7 +2227,9 @@ export interface LabelPair {
 /**
  * A card whose Last offer asks for fewer of their players (section 11; Checkpoint 7g, planner reply to Checkpoint 7f, answer
  * 3(a)): the card, its place, that offer's printed numbers, the share of the card's Overall it keeps (both unrounded:
- * offers.ts overallOf; the rule's config.offers.lastMinOverallShare), and whether the offer is a trade the search merged.
+ * offers.ts overallOf; the rule's config.offers.lastMinOverallShare), whether the offer is a trade the search merged, and its
+ * place without the merge when it was a card there (`was`, its MergeRow's: the final review of Checkpoint 7g,
+ * merge-ui-report-after-merge, where every merged one read "a card without the merge"); null otherwise.
  */
 export interface SmallerLastRow {
   list: ListName;
@@ -2196,17 +2238,21 @@ export interface SmallerLastRow {
   offer: TradeEvaluationCore;
   share: number | null;
   merged: boolean;
+  was: number | null;
 }
 
 /**
  * A version dropped for a better version of the same trade (section 11; Checkpoint 7g, planner reply to Checkpoint 7f, answer
- * 3(c); TradeSearchResult.merged.dominated): its printed numbers, its place without the merge, and the version it gave way to
- * with where that one is ("idea N", or among the offers of the idea it was merged into).
+ * 3(c); TradeSearchResult.merged.dominated): its printed numbers, its place without the merge (null: it wasn't a card there,
+ * and `freed` says what let it in), and the version it gave way to with where that one is ("idea N", or among the offers of
+ * the idea it was merged into).
  */
 export interface DroppedRow {
   list: ListName;
   trade: TradeEvaluationCore;
   was: number | null;
+  /** Null when `was` isn't (freedByOf, the row's own trade read as dropped). */
+  freed: FreedBy | null;
   by: TradeEvaluationCore | null;
   byWhere: string;
 }
@@ -2236,7 +2282,8 @@ export interface PreferredRow {
  * Section 11's merge under one setting (Checkpoint 7f; mergeSection): the search's merges (TradeSearchResult.merged) with a
  * row each, against the same search without the merge (TradeSearchOptions.mergeCards false, Checkpoint 7e's lists): the cards
  * each list shows that it didn't (`cameIn`) and the ones it showed that it doesn't, neither merged nor dropped (`left`: the
- * usual rules after a merge), the holder-below pairs kept with a label, each list's length both ways, and the merge's ladders'
+ * usual rules after a merge or, since Checkpoint 7g, a drop, `freed` saying which: the final review of Checkpoint 7g,
+ * merge-ui-report-after-merge), the holder-below pairs kept with a label, each list's length both ways, and the merge's ladders'
  * time (`ms`, the search's "offers" timing; null untimed). Checkpoint 7g: the cards whose Last offer asks for fewer of their
  * players (`smallerLast`), the versions dropped for a better version of the same trade (`dropped`), and the ladders a
  * preference changed (`preferred`).
@@ -2245,7 +2292,7 @@ export interface MergeSection {
   merged: MergedCards | null;
   rows: MergeRow[];
   cameIn: { list: ListName; card: TradeEvaluation; place: number }[];
-  left: { list: ListName; card: TradeEvaluation; was: number }[];
+  left: { list: ListName; card: TradeEvaluation; was: number; freed: FreedBy }[];
   labels: LabelPair[];
   smallerLast: SmallerLastRow[];
   dropped: DroppedRow[];
@@ -2367,16 +2414,19 @@ export function mergeSection(result: TradeSearchResult, unmerged: TradeSearchRes
     const merged = new Set(l.merged.map((m) => m.key));
     const dominated = (result.merged?.dominated ?? []).filter((d) => d.list === l.list);
     const dropped = new Set(dominated.map((d) => d.key));
+    // What let a trade in that wasn't a card without the merge, and what pushed the others off (freedByOf: the final review of
+    // Checkpoint 7g, merge-ui-report-after-merge).
     for (const m of l.merged) {
       const into = l.cards.find((t) => t.key === m.into);
       const trade = printedOfKey(m.key);
-      if (into && trade) out.rows.push({ list: l.list, trade, was: placeIn(l.before, m.key), into, intoPlace: placeIn(l.cards, m.into) as number, kind: m.kind });
+      const was = placeIn(l.before, m.key);
+      if (into && trade) out.rows.push({ list: l.list, trade, was, freed: was === null ? freedByOf(out.merged, l.list, { kind: "merged", key: m.key }) : null, into, intoPlace: placeIn(l.cards, m.into) as number, kind: m.kind });
     }
     l.cards.forEach((card, i) => {
       if (placeIn(l.before, card.key) === null) out.cameIn.push({ list: l.list, card, place: i + 1 });
     });
     l.before.forEach((card, i) => {
-      if (placeIn(l.cards, card.key) === null && !merged.has(card.key) && !dropped.has(card.key)) out.left.push({ list: l.list, card, was: i + 1 });
+      if (placeIn(l.cards, card.key) === null && !merged.has(card.key) && !dropped.has(card.key)) out.left.push({ list: l.list, card, was: i + 1, freed: freedByOf(out.merged, l.list) });
     });
     l.cards.forEach((holder, i) => {
       const above = l.cards.filter((x) => compareOverall(x, holder) < 0);
@@ -2395,7 +2445,8 @@ export function mergeSection(result: TradeSearchResult, unmerged: TradeSearchRes
       const at = placeIn(l.cards, d.by);
       const into = l.merged.find((m) => m.key === d.by);
       const byWhere = at !== null ? `idea ${at}` : into ? `among the offers of idea ${placeIn(l.cards, into.into) ?? "–"}` : "not shown";
-      out.dropped.push({ list: l.list, trade, was: placeIn(l.before, d.key), by: printedOfKey(d.by), byWhere });
+      const was = placeIn(l.before, d.key);
+      out.dropped.push({ list: l.list, trade, was, freed: was === null ? freedByOf(out.merged, l.list, { kind: "dropped", key: d.key }) : null, by: printedOfKey(d.by), byWhere });
     }
   }
   // Checkpoint 7g: every card's Last offer and preference (a card on both lists once, under the Overall list).
@@ -2408,7 +2459,10 @@ export function mergeSection(result: TradeSearchResult, unmerged: TradeSearchRes
       if (last && smallerAskOf(card.proposal, last.evaluation.proposal)) {
         const oc = overallOf(card);
         const on = overallOf(last.evaluation);
-        out.smallerLast.push({ list: l.list, card, place: i + 1, offer: last.evaluation, share: oc && on !== null ? on / oc : null, merged: mergedKeys.has(last.evaluation.key) });
+        const key = last.evaluation.key;
+        // Its place without the merge, as its merged row has it (the card's list first: a card on both lists is read under the Overall list's).
+        const row = out.rows.find((r) => r.trade.key === key && r.list === l.list) ?? out.rows.find((r) => r.trade.key === key);
+        out.smallerLast.push({ list: l.list, card, place: i + 1, offer: last.evaluation, share: oc && on !== null ? on / oc : null, merged: mergedKeys.has(key), was: row?.was ?? null });
       }
       const prefer = state.prefers?.get(card.key);
       if (!prefer || prefer.size === 0) return;
@@ -3340,9 +3394,10 @@ export function alsoCardText(result: Pick<TradeSearchResult, "trades" | "helpsBo
 /**
  * An offer's mark in section 11 (the file header): "also trade idea N" when it's another card (alsoCardText), else since
  * Checkpoint 7f "merged: was trade idea N" when the search merged it into a card, by its place on the list without the merge
- * ("merged: was “Helps both” idea N" for one merged on that list alone; "merged" for one that came in only after another
- * merge); since Checkpoint 7g "dropped for a better version: was trade idea N" when the search dropped it for a better
- * version of the same trade (MergeSection.dropped); null for none and for the suggested trade.
+ * ("merged: was “Helps both” idea N" for one merged on that list alone; "merged" for one that wasn't a card without the merge:
+ * it came in after a merge or, since Checkpoint 7g, a drop, MergeRow.freed); since Checkpoint 7g "dropped for a better
+ * version: was trade idea N" when the search dropped it for a better version of the same trade (MergeSection.dropped; "dropped
+ * for a better version" for one that wasn't a card without the merge); null for none and for the suggested trade.
  */
 export function offerMarkText(result: Pick<TradeSearchResult, "trades" | "helpsBoth">, merge: (Pick<MergeSection, "rows"> & Partial<Pick<MergeSection, "dropped">>) | null, step: Pick<OfferStep, "kind" | "evaluation">): string | null {
   const also = alsoCardText(result, step);
@@ -3359,6 +3414,19 @@ export function offerMarkText(result: Pick<TradeSearchResult, "trades" | "helpsB
 
 /** A holder-below pair's shape in words (section 11's labels; LabelShape). */
 export const LABEL_SHAPE_WORDS: Readonly<Record<LabelShape, string>> = { smaller: "it asks for fewer of their players", lean: "it's the higher idea's lean version", throwIn: "it adds a player of yours to the higher idea", other: "another version" };
+
+/**
+ * FreedBy in section 11's words (the final review of Checkpoint 7g, merge-ui-report-after-merge; the lead's ruling W3: "name
+ * what freed the place (a merge or a dropped version) or say both"): after "a card only after" for a merged trade ("another
+ * merge", "a dropped version", "another merge or a dropped version") or a dropped version ("a merge", "another dropped
+ * version", "a merge or another dropped version"), and after "the usual rules after" for the cards that left ("a merge", "a
+ * dropped version", "a merge or a dropped version").
+ */
+export function freedWords(freed: FreedBy, row: "merged" | "dropped" | "left"): string {
+  const merge = row === "merged" ? "another merge" : "a merge";
+  const drop = row === "dropped" ? "another dropped version" : "a dropped version";
+  return freed === "merge" ? merge : freed === "drop" ? drop : `${merge} or ${drop}`;
+}
 
 /**
  * Section 11's merge in words (Checkpoint 7f; mergeSection): the counts, each merged trade with the card it went into, the
@@ -3384,12 +3452,21 @@ export function mergeLines(snapshot: LeagueSnapshot, m: MergeSection | null, tea
     }. The lists' cards without the merge → with it: Overall ${m.cards.overall.without} → ${m.cards.overall.with}, "Helps both" ${m.cards.helpsBoth.without} → ${m.cards.helpsBoth.with}.`,
     "",
   ];
-  for (const r of m.rows) L.push(`- ${list(r.list)}: ${trade(r.trade)}, ${r.was === null ? "a card only after another merge," : `idea ${r.was} without the merge,`} is now among the offers of idea ${r.intoPlace} (“${OFFER_WORDS[r.kind]}”), ${trade(r.into)}.`);
-  for (const d of m.dropped) L.push(`- Dropped (${list(d.list)}; answer 3(c)): ${trade(d.trade)}, ${d.was === null ? "a card only after a merge" : `idea ${d.was} without the merge`}, for ${d.by ? trade(d.by) : "–"} (${d.byWhere}), at least as good on both Helps you and the chance as printed.`);
-  if (m.smallerLast.length) L.push(`- Last offers that ask for fewer of their players (answer 3(a)): ${m.smallerLast.map((x) => `${list(x.list)} idea ${x.place}, ${trade(x.card)}: ${trade(x.offer)}, ${x.share === null ? "–" : `${fmt(100 * x.share, 1)}%`} of its Overall${x.merged ? " (a card without the merge)" : ""}`).join("; ")}.`);
+  // The final review of Checkpoint 7g (merge-ui-report-after-merge): what let a trade in that wasn't a card without the merge, a
+  // merge or a dropped version (freedWords), where these read "a card only after another merge" (or "a merge") whatever did; a
+  // merged Last offer "a card without the merge" only when it was one.
+  for (const r of m.rows) L.push(`- ${list(r.list)}: ${trade(r.trade)}, ${r.was === null ? `a card only after ${freedWords(r.freed ?? "either", "merged")},` : `idea ${r.was} without the merge,`} is now among the offers of idea ${r.intoPlace} (“${OFFER_WORDS[r.kind]}”), ${trade(r.into)}.`);
+  for (const d of m.dropped) L.push(`- Dropped (${list(d.list)}; answer 3(c)): ${trade(d.trade)}, ${d.was === null ? `a card only after ${freedWords(d.freed ?? "either", "dropped")}` : `idea ${d.was} without the merge`}, for ${d.by ? trade(d.by) : "–"} (${d.byWhere}), at least as good on both Helps you and the chance as printed.`);
+  if (m.smallerLast.length) L.push(`- Last offers that ask for fewer of their players (answer 3(a)): ${m.smallerLast.map((x) => `${list(x.list)} idea ${x.place}, ${trade(x.card)}: ${trade(x.offer)}, ${x.share === null ? "–" : `${fmt(100 * x.share, 1)}%`} of its Overall${x.merged ? (x.was !== null ? " (a card without the merge)" : " (merged)") : ""}`).join("; ")}.`);
   if (m.preferred.length) L.push(`- Ladders a preference changed (answer 3(b): a version on the list preferred where more than one meets a step's rules): ${m.preferred.map((x) => `${list(x.list)} idea ${x.place}, ${trade(x.card)}: ${x.usual.length ? x.usual.map(offer).join(", ") : "no offers"} → ${x.preferring.map(offer).join(", ")} (${x.held.length} preferred version${x.held.length === 1 ? "" : "s"} held)`).join("; ")}.`);
   if (m.cameIn.length) L.push(`- Came in: ${m.cameIn.map((x) => `${list(x.list)} idea ${x.place}, ${trade(x.card)}`).join("; ")}.`);
-  if (m.left.length) L.push(`- Left, neither merged nor dropped (the usual rules after a merge): ${m.left.map((x) => `${list(x.list)} idea ${x.was} without the merge, ${trade(x.card)}`).join("; ")}.`);
+  if (m.left.length) {
+    // One cause for them all when they share it, else each card's own after it (its list's records: freedByOf).
+    const kinds = new Set(m.left.map((x) => x.freed));
+    const one = kinds.size === 1;
+    const freed: FreedBy = one ? ([...kinds][0] as FreedBy) : "either";
+    L.push(`- Left, neither merged nor dropped (the usual rules after ${freedWords(freed, "left")}): ${m.left.map((x) => `${list(x.list)} idea ${x.was} without the merge, ${trade(x.card)}${one ? "" : ` (after ${freedWords(x.freed, "left")})`}`).join("; ")}.`);
+  }
   if (m.labels.length) L.push(`- Kept with a label (⚠️ the lead's call: an idea whose offers hold an idea above it on Overall, whose own offers don't include this one, so both stay and that offer says "Also shown as trade idea N."): ${m.labels.map((x) => `${list(x.list)} idea ${x.holderPlace}, ${trade(x.holder)}, offers idea ${x.heldPlace} (“${OFFER_WORDS[x.kind]}”; ${LABEL_SHAPE_WORDS[x.shape]}: ${x.why})`).join("; ")}.`);
   if (!m.rows.length && !m.labels.length && !m.dropped.length) L.push("- No card's offers hold another card of its list.");
   L.push("");

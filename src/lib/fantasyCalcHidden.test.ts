@@ -331,11 +331,16 @@ describe("no trade value shows on the trade pages (planner reply to Checkpoint 7
       for (const s of stringsOf(view)) expectHidden(`the ${leagueType} Finder's view`, s);
     }
     // Every league type's words (Checkpoint 7c: what Helps them counts in each, with long-term values and without them).
+    // The final review of Checkpoint 7g: the Trade Finder's words read here hold the ladder's preference (W1) and Plan B's
+    // paragraph as the narrow rule words it (W2), so those sentences are checked too.
     for (const leagueType of ["redraft", "keeper", "dynasty"] as const)
       for (const page of ["finder", "analyzer"] as const)
         for (const valuesOn of [true, false])
-          for (const longTermOn of [true, false])
-            expectHidden(`How to read (${leagueType}, ${page})`, renderToStaticMarkup(createElement(HowToRead, { leagueType, page, valuesOn, longTermOn, helpsScale: leagueType === "redraft" || !longTermOn ? null : MIX })));
+          for (const longTermOn of [true, false]) {
+            const html = renderToStaticMarkup(createElement(HowToRead, { leagueType, page, valuesOn, longTermOn, helpsScale: leagueType === "redraft" || !longTermOn ? null : MIX }));
+            expectHidden(`How to read (${leagueType}, ${page})`, html);
+            if (page === "finder") for (const words of ["so it shows among this idea", "rather than as an idea of its own", "which can be fewer of them", "so an idea can show none"]) expect(html, `How to read (${leagueType}, ${page})`).toContain(words);
+          }
   });
 
   it("shows none under the “Helps both” sort, on the tag or in the partner's line, the Analyzer's card included (Checkpoint 7c; planner reply to Checkpoint 7b, §7: “No FantasyCalc numbers anywhere in it”)", () => {
