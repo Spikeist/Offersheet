@@ -53,10 +53,14 @@
  * prefers, TradeSearchResult.offerPrefer, which the worker reads that way so the offers stay the search's); the Analyzer's card
  * by its proposal. The worker keeps each ladder (since Checkpoint 7f a search's own for the cards its merge read), so a second
  * open answers at once.
+ *
+ * Checkpoint 7h (planner reply to Checkpoint 7g, section 4, "What if" comparisons; engine.worker.ts `whatif`): whatIf(job) asks
+ * for the Trade Analyzer's what-if, my players taken off and others put on (evaluate.ts analyzeWhatIf), on the worker's
+ * evaluation context, with my odds before any change, as analyzeTrade's answer carries them.
  */
 import type { LeagueModel, WaiverUpgrades } from "@/engine/leagueModel";
 import type { LaterNumbers, OfferLadder, TradeSearchProgress, TradeSearchResult } from "@/engine/tradeModel";
-import type { AnalyzeRequest, AnalyzerResult, EngineRequest, EngineResponse, LeagueRequest, OffersRequest, RefilterRequest, TradesRequest, WaiversRequest } from "@/workers/engine.worker";
+import type { AnalyzeRequest, AnalyzerResult, EngineRequest, EngineResponse, LeagueRequest, OffersRequest, RefilterRequest, TradesRequest, WaiversRequest, WhatIfRequest, WhatIfResult } from "@/workers/engine.worker";
 
 /** The parts of a Worker this client uses (a real Worker, or a fake in tests). */
 export interface WorkerLike {
@@ -76,6 +80,8 @@ export type AnalyzeJob = Omit<AnalyzeRequest, "type" | "id">;
 export type RefilterJob = TradesJob & { result: TradeSearchResult };
 /** A "How to offer it" request without the protocol fields: a League job and the card (OffersRequest.source; the header). */
 export type OffersJob = Omit<OffersRequest, "type" | "id">;
+/** A Trade Analyzer "What if" request without the protocol fields: a League job and the players taken off and put on (Checkpoint 7h). */
+export type WhatIfJob = Omit<WhatIfRequest, "type" | "id">;
 
 /** A search under way: its result, and Stop. */
 export interface TradeSearchHandle {
@@ -97,6 +103,11 @@ export interface EngineClient {
   refilterTrades(job: RefilterJob, onProgress?: (progress: TradeSearchProgress) => void): TradeSearchHandle;
   /** Evaluates one trade (the Trade Analyzer), with my odds before any trade (AnalyzerResult); rejects with an EngineError. */
   analyzeTrade(job: AnalyzeJob): Promise<AnalyzerResult>;
+  /**
+   * The Trade Analyzer's "What if" (Checkpoint 7h; engine.worker.ts `whatif`): my players taken off and others put on, with my
+   * odds before any change (WhatIfResult); rejects with an EngineError.
+   */
+  whatIf(job: WhatIfJob): Promise<WhatIfResult>;
   /**
    * "Waiver upgrades" with the season list rated by Helps you, for the job a League model was built for (the header; null
    * without my team); rejects with an EngineError. waiverRatingFor asks it for a model this client built.
@@ -153,7 +164,7 @@ async function defaultMainThread(post: (response: EngineResponse) => void): Prom
   return createEngineHandler(post, { clock: () => performance.now() });
 }
 
-const RESPONSE_TYPES: ReadonlySet<unknown> = new Set(["league", "progress", "trades", "analysis", "waivers", "later", "offers", "cancelled", "error"]);
+const RESPONSE_TYPES: ReadonlySet<unknown> = new Set(["league", "progress", "trades", "analysis", "waivers", "later", "offers", "whatif", "cancelled", "error"]);
 
 /** Each search result a client handed out, with that client and the id of the request it answered (searchResultIdOf). */
 const resultOwners = new WeakMap<TradeSearchResult, { client: EngineClient; id: number }>();
@@ -469,6 +480,23 @@ export function createEngineClient(opts: EngineClientOptions = {}): EngineClient
           reject,
           onReply(response) {
             if (response.type === "analysis") resolve(response.result);
+            else reject(unexpected(response));
+            return true;
+          },
+        });
+      });
+    },
+
+    whatIf(job) {
+      if (disposed) return Promise.reject(new EngineError(ENGINE_STOPPED));
+      const request: WhatIfRequest = { type: "whatif", id: nextId++, ...job };
+      return new Promise<WhatIfResult>((resolve, reject) => {
+        send({
+          request,
+          where: "worker",
+          reject,
+          onReply(response) {
+            if (response.type === "whatif") resolve(response.result);
             else reject(unexpected(response));
             return true;
           },
