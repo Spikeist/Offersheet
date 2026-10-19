@@ -17,7 +17,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 /** The made-up plan (null: the real relation), set by the test around each search. */
-const plan = vi.hoisted(() => ({ cards: null as { x: string; y: string; z: string } | null, phase: 1 }));
+const plan = vi.hoisted(() => ({ cards: null as { x: string; y: string; z: string } | null, phase: 1, zx: 0 }));
 
 vi.mock("./rank", async (importOriginal) => {
   const real = await importOriginal<typeof import("./rank")>();
@@ -33,6 +33,10 @@ vi.mock("./rank", async (importOriginal) => {
       return true;
     }
     if (pair(p.z, p.y)) return plan.phase >= 2;
+    // Z and X: asked when round 1 decides X (no), when the give-back looks for another version beating X (no, so X comes back),
+    // and from then on yes: only the rule that a version given back is never dropped again (search.ts `restored`) keeps X on
+    // the list, since with it nothing asks again.
+    if (pair(p.z, p.x)) return ++plan.zx > 2;
     return false;
   };
   return { ...real, versionsOfSameTrade };
@@ -55,6 +59,7 @@ const keysOf = (ts: readonly { key: string }[]) => ts.map((t) => t.key);
 function underPlan(cards: { x: string; y: string; z: string }, run: () => TradeSearchResult): TradeSearchResult {
   plan.cards = cards;
   plan.phase = 1;
+  plan.zx = 0;
   try {
     return run();
   } finally {
