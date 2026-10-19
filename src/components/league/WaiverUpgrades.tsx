@@ -478,9 +478,10 @@ function WaiverListBody({
 /**
  * A list's one line and its "Why?" (Checkpoint 7h; planner reply to Checkpoint 7g, section 1: "cut each long explanation
  * paragraph to one line. The rest goes behind a "Why?" control"): the line (WaiverListView.lead) with a 44 px button at its end
- * (aria-expanded, aria-controls naming the rest), then the rest (WaiverListView.note), hidden until it's opened and always in
- * the page, so the button keeps keyboard focus and check:browser's text scans read it. Its words name the list for screen
- * readers ("Why? (more on Rest of season's numbers)").
+ * (aria-expanded, aria-controls naming the rest; its negative margins keep the 44 px target from spreading the line's text
+ * apart), then the rest (WaiverListView.note), hidden until it's opened and always in the page, so the button keeps keyboard
+ * focus and check:browser's text scans read it. Its words name the list for screen readers ("Why? (more on Rest of season's
+ * numbers)").
  */
 function WhyNote({ list, open, onToggle }: { list: WaiverListView; open: boolean; onToggle: () => void }) {
   const id = useId();
@@ -493,7 +494,7 @@ function WhyNote({ list, open, onToggle }: { list: WaiverListView; open: boolean
           aria-expanded={open}
           aria-controls={id}
           onClick={onToggle}
-          className="inline-flex min-h-11 items-center px-1 align-middle font-bold text-foreground underline underline-offset-2"
+          className="-my-3 inline-flex min-h-11 items-center px-1 align-middle font-bold text-foreground underline underline-offset-2"
         >
           {WHY_TEXT}
           <span className="sr-only"> (more on {list.label}&apos;s numbers)</span>
