@@ -2170,10 +2170,11 @@ export type FreedBy = "merge" | "drop" | "either";
  * `self`, the row's own trade: a merged one reads only the merges folded before it (one folded after it came after it was a
  * card), a dropped one only the drops before it (likewise); without `self` (a card that left), everything on the list. "merge"
  * or "drop" when only that kind is left, else "either". ⚠️ The records hold every merge and drop only while nothing was given
- * back (MergedCards.released: a trade given back is in neither list, though its merge or drop freed a place), so "either" then.
+ * back (MergedCards.released, a merged trade given back, and MergedCards.restored, a dropped version given back: the final
+ * review's E2; either is in neither list, though its merge or drop freed a place), so "either" then.
  */
 export function freedByOf(merged: MergedCards | null, list: ListName, self?: { kind: "merged" | "dropped"; key: string }): FreedBy {
-  if (!merged || merged.released > 0) return "either";
+  if (!merged || merged.released > 0 || (merged.restored ?? 0) > 0) return "either";
   const before = (keys: readonly string[], kind: "merged" | "dropped"): readonly string[] => {
     if (self?.kind !== kind) return keys;
     const at = keys.indexOf(self.key);

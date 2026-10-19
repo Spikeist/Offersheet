@@ -727,6 +727,10 @@ describe("trade report: what Helps both costs a search (section 10)", () => {
     expect(freedByOf(rec(["x"], []), "overall", merged("x"))).toBe("either");
     expect(freedByOf(rec(["a", "x"], [], 1), "overall", merged("x"))).toBe("either");
     expect(freedByOf(rec([], [{ key: "d", list: "overall" }], 1), "overall")).toBe("either");
+    // A dropped version given back (MergedCards.restored, the final review's E2) is in neither list either.
+    expect(freedByOf({ ...rec(["a", "x"], []), restored: 1 }, "overall", merged("x"))).toBe("either");
+    expect(freedByOf({ ...rec([], [{ key: "d", list: "overall" }]), restored: 1 }, "overall")).toBe("either");
+    expect(freedByOf({ ...rec(["a", "x"], []), restored: 0 }, "overall", merged("x"))).toBe("merge");
     expect(freedByOf(null, "overall")).toBe("either");
     // The drop rule off (no dominated list): merges only.
     expect(freedByOf({ ...rec(["a", "x"], []), dominated: undefined }, "overall", merged("x"))).toBe("merge");

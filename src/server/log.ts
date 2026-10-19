@@ -175,7 +175,9 @@ export function logEvent(input: LogInput, opts: { now?: number; env?: Env; store
     if (!store) return;
     const entry = JSON.stringify({ ...event, at });
     if (scope && !scope.flushed) scope.pendingLogs.push(entry);
-    else void writeLogEntries(store, [entry], { env });
+    // Retention is judged at the line's own time (the clock that dated it), never the clock read again: that dropped a test
+    // line dated Oct 4 once Oct 18 came (its 14 days past). In production the two are the same moment.
+    else void writeLogEntries(store, [entry], { env, now: at });
   } catch {
     // A log line must never break the request that logs it.
   }
