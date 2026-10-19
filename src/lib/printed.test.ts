@@ -4,6 +4,7 @@
  * length with the card (tradeView.test.ts "small words"); here, the score's, and that the view re-exports these very functions.
  */
 import { describe, expect, it } from "vitest";
+import { printedAcceptance, underDisplayStep } from "@/engine/acceptance";
 import { config } from "@/engine/config";
 import { acceptSrText, acceptText, printedScore, throughText, underStep } from "./printed";
 import * as view from "./tradeView";
@@ -24,6 +25,16 @@ describe("printed numbers", () => {
     expect([acceptSrText(0.03), acceptSrText(0.42)]).toEqual([`under ${step}%`, "40%"]);
     expect([throughText(0.4, 0.2), throughText(0.4, 0.4), throughText(0.08, 0.04), throughText(0.03, 0.02)]).toEqual(["about 20%", null, `under ${step}%`, null]);
     expect([underStep(0.049), underStep(0.05), underStep(Number.NaN)]).toEqual([true, false, false]);
+  });
+
+  it("reads \"<5%\" by the engine's one rule, so the engine's chance as printed (rule (c)) is the text's (Checkpoint 7g's final review, E1)", () => {
+    const under = `<${Math.round(config.acceptance.displayStep * 100)}%`;
+    for (let i = 0; i <= 200; i++) {
+      const p = i / 1000;
+      expect(underStep(p), `${p}`).toBe(underDisplayStep(p));
+      const text = acceptText(p);
+      expect(text === under ? 0 : Number(text.replace("%", "")) / 100, `${p}`).toBeCloseTo(printedAcceptance(p), 12);
+    }
   });
 
   it("is what the Trade Finder's view prints with (tradeView.ts re-exports the same functions)", () => {

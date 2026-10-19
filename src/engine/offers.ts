@@ -38,7 +38,9 @@
  *   keeps a box off one its card's Last offer could take (the narrow rule, the lead's call D5: search.ts finish, planB.ts
  *   smallerAskOf and offerFeasible(card, box, "smaller") on both printed numbers, which don't depend on whether the ladder was
  *   worked out): a box is still never an offer, and ladders still don't read Plan B. A box can be a smaller ask the Last offer
- *   can't take (one that keeps less than lastMinOverallShare of the card's Overall, say).
+ *   can't take (one that keeps less than lastMinOverallShare of the card's Overall, say). ⚠️ Reading only those two numbers,
+ *   the rule can keep out of a box an ask the Last offer could take but doesn't (it picks another version), which then shows
+ *   nowhere on the card (search.ts, "Merged cards, Checkpoint 7g": smallLeague 32's card has no box).
  * - ⚠️ Another card of its list can be an offer (the lead's call, wave D; it replaces the review's barring, D-ENG-2 and
  *   UI-D-2): the rules choose it as they choose any candidate. Since Checkpoint 7f (planner reply to Checkpoint 7e,
  *   decision 3: "When one card's offer list contains another card's trade, merge them") the search folds it into the
@@ -46,13 +48,17 @@
  *   when it has the higher Overall itself (its own offers then don't include the card, or the merge would have folded
  *   the card into it: the review of the merge, MERGE-1), both stay, and the card labels it with that card's place in the
  *   sort the Trade Finder shows ("Also shown as trade idea 2.", Plan B's words: tradeView.ts planBAlsoText,
- *   TradeCard.tsx `places`). Two shapes: (i) the card is a likelier variant of the other, a smaller ask that opens with
- *   the bigger one, which the other's ladder can't hold (its offers before its suggested trade are less likely than it,
- *   and its Last offer is itself plus a player of mine); (ii) the card is the other's lean version, the other being the
- *   card plus a player of mine (the card's Last offer), which the other's ladder could hold as its Open or a Then by the
- *   rules but passed over, picking those by Helps you on the screening block's 1,000 seasons (Parker's "Helps both"
- *   list, Oct 15: Puka Nacua → Drake London + Christian Watson, whose Last offer is Marvin Harrison Jr. + Puka Nacua →
- *   Drake London + Christian Watson). Why not bar it: the card's plan is lost, and "no version of it makes a better
+ *   TradeCard.tsx `places`). Checkpoint 7f's two shapes: (i) the card is a likelier variant of the other, a smaller ask
+ *   that opens with the bigger one, which the other's ladder couldn't hold then (its offers before its suggested trade are
+ *   less likely than it, and its Last offer was itself plus a player of mine); (ii) the card is the other's lean version,
+ *   the other being the card plus a player of mine (the card's Last offer), which the other's ladder could hold as its Open
+ *   or a Then by the rules but passed over, picking those by Helps you on the screening block's 1,000 seasons (Parker's
+ *   "Helps both" list, Oct 15: Puka Nacua → Drake London + Christian Watson, whose Last offer is Marvin Harrison Jr. +
+ *   Puka Nacua → Drake London + Christian Watson). Since Checkpoint 7g (planner reply to Checkpoint 7f, answer 3) a
+ *   shape-(i) pair merges when the other's Last offer takes the card as a smaller ask ("4. Last offer": at least
+ *   lastMinOverallShare of its unrounded Overall, the higher Overall of the two kinds), and a shape-(ii) pair when the
+ *   other's ladder, preferring the cards of its list, takes the card ("Preferring the cards of its lists"); any other pair
+ *   keeps the label. Why not bar it: the card's plan is lost, and "no version of it makes a better
  *   first offer" can be false (barred, on Parker's league, week 6, his top 3 cards each read "Offer this trade as it
  *   is", though #1 opens with #2's trade, #2 ends with #1's as its Last offer and #3 opens with #5's).
  * The pre-screen (preScreened; ⚠️ ours, the review of wave D, D-ENG-1 and D-ENG-7: evaluating every candidate exactly kept
@@ -66,11 +72,15 @@
  * points under its chance lost an Open printing 18% that way; moving the floor by the card's own miss kept that one but
  * let low-chance asks crowd the cap and lost more: config.offers). Every card's candidates go through the same filter
  * whoever evaluated them before, so a ladder doesn't depend on which cards were opened first. The Analyzer's ladder for a
- * Finder card's trade differs only ⚠️ through the Last offer, by the per-side limit (rule 4: the Analyzer's
+ * Finder card's trade differs ⚠️ through the Last offer, by the per-side limit (rule 4: the Analyzer's
  * analyzerMaxPerSide, the steps' case 2 rule there since Phase 4; the final review of Checkpoint 7e, ENG-7E-4: on Parker's two
  * leagues 10 of 25 cards opened in the Analyzer add a Last offer with a third player of mine, which the Trade Finder's
- * maxPerSide of 2 leaves out); until Checkpoint 7f also by what the Finder barred, its Plan B. ⚠️ The pre-screen yields
- * every config.search.yieldEveryScreens quick estimates (ladderChoiceSteps), as the screening does.
+ * maxPerSide of 2 leaves out), and ⚠️ since Checkpoint 7g through the Finder card's preference ("Preferring the cards of its
+ * lists"), which the Analyzer's card, on no list, doesn't have (the merge's design, §4.3, accepted; the final review,
+ * merge-b-analyzer-disagrees: on Parker's league 1, Oct 14, his prizes, idea 1, Marvin Harrison Jr. + Puka Nacua → Tetairoa
+ * McMillan + Nico Collins, opens on the Trade Finder with idea 2's trade, Puka Nacua → the same two, which it prefers, while
+ * the Analyzer, as without the preference, offers it as it is); until Checkpoint 7f also by what the Finder barred, its Plan
+ * B. ⚠️ The pre-screen yields every config.search.yieldEveryScreens quick estimates (ladderChoiceSteps), as the screening does.
  * The candidates that pass are evaluated exactly (legality re-checked, V* on both sides with item 2.1's either-way moves:
  * evaluate.ts tradeVersion) with the screening simulation, the search's own versions reused by key.
  *
@@ -129,8 +139,9 @@
  * Preferring the cards of its lists (Checkpoint 7g; planner reply to Checkpoint 7f, answer 3(b): "When more than one version
  * meets a step's rules, prefer the one that's on the list, so it merges."; the lead's calls D7–D12): a search's card can carry
  * a preference, the cards of its lists the merge could fold into it (LadderJob.prefer: search.ts preferredOf, ⚠️ only cards
- * below it on Overall that hold no merged trade yet and that no card above it took this round, feasible by offerFeasible, and
- * the cross-list guard). Its ladder is then worked out twice (ladderChoiceSteps): as usual, and preferring them: at each step
+ * below it on Overall that hold no merged trade yet and that no card above it took this round or its list gave back, on either
+ * list since the final review, E3, feasible by offerFeasible, and the cross-list guard). Its ladder is then worked out twice
+ * (ladderChoiceSteps): as usual, and preferring them: at each step
  * (the Open, each Then, the Last offer) the preferred versions that meet the step's rules on the numbers they print come
  * first, in the step's own order (the Open and a Then: Helps you on the screening block, then the chance, then the key; the
  * Last offer: each kind's own order, then the higher Overall), every one tried, past the pre-screen and config.offers.tries
@@ -140,8 +151,8 @@
  * Then, dropped two more helpful offers for no merge on Parker's league 1, Oct 15, at 3 players a side, and on smallLeague 4
  * and 42). Every card of its list a preferring ladder can hold is one of ladderNeighbors' (with a preference a Last offer can
  * be any throw-in of mine, past the pre-screen: ladderNeighbors lists them all when the search prefers). The Trade Analyzer's
- * card has no list, so no preference; a Finder card worked out from its trade (the worker's fallback) carries the one its
- * search recorded (ProposalLadderOptions.prefer).
+ * card has no list, so no preference (its ladder for a Finder card's trade can differ through it: "The pre-screen"); a Finder
+ * card worked out from its trade (the worker's fallback) carries the one its search recorded (ProposalLadderOptions.prefer).
  *
  * Each step carries its own evaluation (OfferStep.evaluation: its proposal in its own order, its printed numbers, its roster
  * moves and its words, evaluate.ts withWords), and its message: the first step's pitch (explain.ts: what the partner gains,

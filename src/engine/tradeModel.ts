@@ -718,12 +718,19 @@ export interface MergedCards {
    * (TradeSearchOptions.dropDominated, a report switch).
    */
   dominated?: DominatedTrade[];
+  /**
+   * ⚠️ The versions dropped and then given back, the version they were dropped for no longer shown and no other beating them
+   * (Checkpoint 7g's final review, E2: search.ts, "Merged cards, Checkpoint 7g"; ours, as the release rule's `released`): cards
+   * again, never dropped again. Present with `dominated`.
+   */
+  restored?: number;
 }
 
 /**
  * A card dropped for another version of the same trade at least as good on both Helps you and the chance as printed
- * (Checkpoint 7g; MergedCards.dominated): its key, the version it was dropped for (`by`: a card of the list then, or a trade
- * merged into one), and the list.
+ * (Checkpoint 7g; MergedCards.dominated): its key, the version it was dropped for (`by`: when the merge ends, a card of the list
+ * or a trade merged into one of its cards; ⚠️ re-pointed to another version that beats it when the first one left the list, the
+ * final review's E2: search.ts, "Merged cards, Checkpoint 7g"), and the list.
  */
 export interface DominatedTrade {
   key: string;

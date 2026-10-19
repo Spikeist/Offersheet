@@ -2,8 +2,9 @@
  * Preferring the version on the list (Checkpoint 7g; planner reply to Checkpoint 7f, answer 3(b): "When more than one version
  * meets a step's rules, prefer the one that's on the list, so it merges."; the lead's D7–D13; search.ts preferredOf and the
  * merge's top-down loop, offers.ts "Preferring the cards of its lists"): which versions a card prefers (preferredOf on made-up
- * cards: below it, not taken, not given back, leaves only, the other list's when it's on it, the cross-list guard), the
- * preferring ladder kept only when it holds more of them (smallLeague 24 and 12-team 1, where it does, and smallLeague 4 and 42,
+ * cards: below it, not taken, not given back, on either list since the final review's E3, leaves only, the other list's when
+ * it's on it, the cross-list guard; on whole searches each below its card as printed and a card of a list or merged into one),
+ * the preferring ladder kept only when it holds more of them (smallLeague 24 and 12-team 1, where it does, and smallLeague 4 and 42,
  * where it would only move a listed version up to the Open and is set aside), the step's own order among listed versions
  * (12-team 1's lean "Helps both" pair merges as the Open), the worker's fallback with the preference the search recorded equal to
  * the kept ladder (and not without it), the cache key, the result's offerPrefer, and the switch. Synthetic leagues
@@ -13,6 +14,7 @@
 import { describe, expect, it } from "vitest";
 import { buildTradeContext, type TradeContext } from "./evaluate";
 import { choiceOffers, heldOf, ladderChoicesOf, ladderJobOfSearch, offerLadderOfProposal, offerLadderOfSearch, preferKey } from "./offers";
+import { compareOverall } from "./rank";
 import { preferredOf, runRefilter, runTradeSearch, searchStateOf, type PreferInputs, type SearchState } from "./search";
 import { defaultTradeSettings, type TradeSettings } from "./settings";
 import { TEST_NOW } from "./testLeague";
@@ -87,6 +89,21 @@ describe("preferredOf (made-up cards)", () => {
     expect(of({ other: [x, y] })).toEqual(["c", "d", "e"]);
   });
 
+  it("never a trade a card above it took this round or its list gave back, whichever list it's on (the final review, E3)", () => {
+    // x on both lists (and y on the other only), below b.
+    const x = card("x", 1, 0.25, 20);
+    const y = card("y", 1, 0.15, 20);
+    const both = { cards: [...cards, x], other: [b, x, y] };
+    expect(of(both)).toEqual(["c", "d", "e", "x", "y"]);
+    // A card above b took x this round: x isn't preferred through either list.
+    expect(of({ ...both, taken: new Set(["x"]) })).toEqual(["c", "d", "e", "y"]);
+    // b's list gave x back: likewise.
+    expect(of({ ...both, released: new Set(["x"]) })).toEqual(["c", "d", "e", "y"]);
+    // On the other list only, the same.
+    expect(of({ other: [b, x, y], taken: new Set(["x"]) })).toEqual(["c", "d", "e", "y"]);
+    expect(of({ other: [b, x, y], released: new Set(["y"]) })).toEqual(["c", "d", "e", "x"]);
+  });
+
   it("the cross-list guard: while the Overall list is merged, a card that helps both but isn't on the \"Helps both\" list's first ranking prefers no version that helps both", () => {
     // b helps both (Helps you 50, Helps them 20); d helps both, c and e don't.
     expect(of({ overallList: true, other: [] })).toEqual(["c", "e"]);
@@ -127,16 +144,24 @@ describe("the preferring ladder, kept only when it holds more of the preferred v
           expect(heldOf(both.preferring, prefer), w).toBeLessThanOrEqual(heldOf(both.usual, prefer));
           expect(choiceOffers(kept ?? null)).toEqual(choiceOffers(both.usual));
         }
-        // The preference holds only cards of its lists below it on Overall.
-        const listed = new Map(cardsOf(r).map((t) => [t.key, t]));
+        // The preference holds only versions below the card on Overall as printed (preferredOf's `below`: compareOverall on the
+        // numbers both print), each a card of a list or a trade merged into one by the end (never a Plan B box or a trade no list
+        // holds: a fact of the synthetic data on these searches, since a preferred card the ladder doesn't take can leave later
+        // under the usual rules; the final review, merge-b-test-below-unpinned).
+        const cards = cardsOf(r);
+        const merged = [...(r.merged?.overall ?? []), ...(r.merged?.helpsBoth ?? [])];
         for (const k of prefer) {
-          const n = listed.get(k) ?? (st.shownByKey.get(k) as TradeEvaluation | undefined);
+          const n = st.shownByKey.get(k) as TradeEvaluation | undefined;
           expect(n, `${w} prefers ${k}`).toBeDefined();
+          expect(compareOverall(c, n as TradeEvaluation), `${w} prefers ${k}, below it`).toBeLessThan(0);
+          const held = cards.some((t) => t.key === k) || merged.some((m) => m.key === k && cards.some((t) => t.key === m.into));
+          expect(held, `${w} prefers ${k}: a card or a trade merged into one`).toBe(true);
         }
       }
     }
+    // Both ladders are kept somewhere (facts of the synthetic data): a preferring one, and the usual one beside a preference.
     expect(preferring).toBeGreaterThan(0);
-    expect(usual).toBeGreaterThanOrEqual(0);
+    expect(usual).toBeGreaterThan(0);
   });
 
   it("smallLeague 4 and 42 (10%): the usual ladder holds the listed version as a Then; preferring it would make it the Open and drop the Open before it, holding no more, so the usual ladder stays (the lead's D9)", () => {
