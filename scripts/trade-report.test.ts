@@ -57,6 +57,8 @@ import {
   expectedGain,
   finalRunsText,
   fmt,
+  freedByOf,
+  freedWords,
   goalCompare,
   helpsBothCost,
   helpsBothCounts,
@@ -97,6 +99,7 @@ import {
   weeklyLines,
   weeklyText,
   withoutHelpsThem,
+  type FreedBy,
   type HelpsBothCost,
   type HelpsBothCounts,
   type LaneCounts,
@@ -627,9 +630,10 @@ describe("trade report: what Helps both costs a search (section 10)", () => {
     const why = "neither a smaller ask, its lean version nor a throw-in added, and not in the Open's or a Then's window as printed";
     const section7f: MergeSection = {
       merged: { overall: [{ key: folded.key, into: into.key, kind: "open" }], helpsBoth: [], rounds: { overall: 2, helpsBoth: 1 }, ladders: 3, released: 1 },
-      rows: [{ list: "overall", trade: folded, was: 2, into, intoPlace: 1, kind: "open" }],
+      rows: [{ list: "overall", trade: folded, was: 2, freed: null, into, intoPlace: 1, kind: "open" }],
       cameIn: [{ list: "overall", card: other, place: 6 }],
-      left: [{ list: "helpsBoth", card: other, was: 3 }],
+      // Something was given back (released 1), so the records can't tell what pushed it off (freedByOf).
+      left: [{ list: "helpsBoth", card: other, was: 3, freed: "either" }],
       labels: [{ list: "overall", holder: other, holderPlace: 6, held: into, heldPlace: 1, kind: "last", shape: "other", why }],
       smallerLast: [],
       dropped: [],
@@ -645,7 +649,7 @@ describe("trade report: what Helps both costs a search (section 10)", () => {
       "",
       `- Overall: Team 2: Garrett Wilson → Chuba Hubbard + Mike Evans (${n(folded)}), idea 2 without the merge, is now among the offers of idea 1 (“Open with”), Team 2: Garrett Wilson → Chuba Hubbard (${n(into)}).`,
       `- Came in: Overall idea 6, Team 4: Garrett Wilson → Mike Evans (${n(other)}).`,
-      `- Left, neither merged nor dropped (the usual rules after a merge): “Helps both” idea 3 without the merge, Team 4: Garrett Wilson → Mike Evans (${n(other)}).`,
+      `- Left, neither merged nor dropped (the usual rules after a merge or a dropped version): “Helps both” idea 3 without the merge, Team 4: Garrett Wilson → Mike Evans (${n(other)}).`,
       `- Kept with a label (⚠️ the lead's call: an idea whose offers hold an idea above it on Overall, whose own offers don't include this one, so both stay and that offer says "Also shown as trade idea N."): Overall idea 6, Team 4: Garrett Wilson → Mike Evans (${n(other)}), offers idea 1 (“Last offer”; another version: ${why}).`,
       "",
     ]);
@@ -662,8 +666,8 @@ describe("trade report: what Helps both costs a search (section 10)", () => {
       cameIn: [],
       left: [],
       labels: [{ list: "overall", holder: smallerAsk, holderPlace: 3, held: folded, heldPlace: 2, kind: "open", shape: "smaller", why: "it keeps 70.9% of the higher card's Overall (unrounded), under 80%" }],
-      dropped: [{ list: "overall", trade: other, was: 4, by: folded, byWhere: "among the offers of idea 1" }],
-      smallerLast: [{ list: "overall", card: folded, place: 2, offer: smallerAsk, share: 0.8123, merged: true }],
+      dropped: [{ list: "overall", trade: other, was: 4, freed: null, by: folded, byWhere: "among the offers of idea 1" }],
+      smallerLast: [{ list: "overall", card: folded, place: 2, offer: smallerAsk, share: 0.8123, merged: true, was: 2 }],
       preferred: [{ list: "overall", card: into, place: 1, usual: [{ kind: "open", printed: other }], preferring: [{ kind: "open", printed: folded }], held: [folded.key] }],
     };
     const lines = mergeLines(snapshot, section7g, team);
@@ -684,6 +688,166 @@ describe("trade report: what Helps both costs a search (section 10)", () => {
     expect(labelShape(into.proposal, folded.proposal)).toBe("other");
     expect(LABEL_SHAPE_WORDS).toEqual({ smaller: "it asks for fewer of their players", lean: "it's the higher idea's lean version", throwIn: "it adds a player of yours to the higher idea", other: "another version" });
   });
+
+  it("section 11 says what let a merged or dropped trade in that wasn't a card without the merge, a merge or a dropped version, and what pushed a card off (the final review of Checkpoint 7g, merge-ui-report-after-merge; the lead's ruling W3)", () => {
+    // A search's records (MergedCards): each list's merges in the order they were folded, its dropped versions in order.
+    const rec = (overall: string[], dominated: { key: string; list: "overall" | "helpsBoth" }[], released = 0, helpsBoth: string[] = []): NonNullable<MergeSection["merged"]> => ({
+      overall: overall.map((key) => ({ key, into: "c", kind: "open" as const })),
+      helpsBoth: helpsBoth.map((key) => ({ key, into: "c", kind: "then" as const })),
+      rounds: { overall: 3, helpsBoth: 1 },
+      ladders: 1,
+      released,
+      dominated: dominated.map((d) => ({ ...d, by: "c" })),
+    });
+    const merged = (key: string) => ({ kind: "merged" as const, key });
+    const dropped = (key: string) => ({ kind: "dropped" as const, key });
+    // Parker's league 1, Oct 15, under his prizes, at the review: Hall → Evans + Gordon merged, Nacua → Collins + McMillan was
+    // dropped, then Monangai → Pollard + Corum, a card only after that drop, merged. A merge was folded before it too, so the
+    // records can't tell which let it in: both (it read "a card only after another merge").
+    const parker = rec(["hall", "monangai"], [{ key: "nacua", list: "overall" }]);
+    expect(freedByOf(parker, "overall", merged("monangai"))).toBe("either");
+    // Only merges before it and no drop on its list: a merge. A drop on the other list frees no place on this one.
+    expect(freedByOf(rec(["a", "x"], []), "overall", merged("x"))).toBe("merge");
+    expect(freedByOf(rec(["a", "x"], [{ key: "d", list: "helpsBoth" }]), "overall", merged("x"))).toBe("merge");
+    // No merge folded before it (one folded after it came after it was a card) and a drop on its list: a dropped version.
+    expect(freedByOf(rec(["x", "b"], [{ key: "d", list: "overall" }]), "overall", merged("x"))).toBe("drop");
+    // A dropped version: the drops before it, and every merge on its list.
+    expect(freedByOf(rec([], [{ key: "d1", list: "overall" }, { key: "d2", list: "overall" }]), "overall", dropped("d2"))).toBe("drop");
+    expect(freedByOf(rec(["a"], [{ key: "d1", list: "overall" }]), "overall", dropped("d1"))).toBe("merge");
+    expect(freedByOf(rec(["a"], [{ key: "d1", list: "overall" }, { key: "d2", list: "overall" }]), "overall", dropped("d2"))).toBe("either");
+    // A card that left: everything on its list.
+    expect([freedByOf(rec(["a"], []), "overall"), freedByOf(rec([], [{ key: "d", list: "overall" }]), "overall"), freedByOf(parker, "overall"), freedByOf(rec([], [], 0, ["h"]), "helpsBoth")]).toEqual([
+      "merge",
+      "drop",
+      "either",
+      "merge",
+    ]);
+    // Nothing recorded before it (it can't have come in so), something given back (a trade given back is in neither list,
+    // though its merge or drop freed a place), or no records: both.
+    expect(freedByOf(rec(["x"], []), "overall", merged("x"))).toBe("either");
+    expect(freedByOf(rec(["a", "x"], [], 1), "overall", merged("x"))).toBe("either");
+    expect(freedByOf(rec([], [{ key: "d", list: "overall" }], 1), "overall")).toBe("either");
+    expect(freedByOf(null, "overall")).toBe("either");
+    // The drop rule off (no dominated list): merges only.
+    expect(freedByOf({ ...rec(["a", "x"], []), dominated: undefined }, "overall", merged("x"))).toBe("merge");
+    // In words.
+    const kinds: FreedBy[] = ["merge", "drop", "either"];
+    expect(kinds.map((k) => freedWords(k, "merged"))).toEqual(["another merge", "a dropped version", "another merge or a dropped version"]);
+    expect(kinds.map((k) => freedWords(k, "dropped"))).toEqual(["a merge", "another dropped version", "a merge or another dropped version"]);
+    expect(kinds.map((k) => freedWords(k, "left"))).toEqual(["a merge", "a dropped version", "a merge or a dropped version"]);
+    // The lines: a merged trade and a dropped version that weren't cards without the merge, each as its row says; a merged
+    // Last offer that wasn't one reads "(merged)", never "(a card without the merge)"; the cards that left by what pushed
+    // them off, both when their lists differ.
+    const ev = (give: string[], get: string[], partnerId = "2") => tradeEvaluation({ partnerId, give, get });
+    const into = ev([ids.wilson as string], [ids.hubbard as string]);
+    const folded = ev([ids.wilson as string], [ids.hubbard as string, ids.evans as string]);
+    const smallerAsk = ev([ids.wilson as string], [ids.evans as string]);
+    const other = ev([ids.wilson as string], [ids.evans as string], "4");
+    const team = (id: string) => `Team ${id}`;
+    const n = (t: TradeEvaluation) => threeNumbers(t);
+    const base: MergeSection = {
+      merged: rec([folded.key], [{ key: other.key, list: "overall" }]),
+      rows: [],
+      cameIn: [],
+      left: [],
+      labels: [],
+      smallerLast: [],
+      dropped: [],
+      preferred: [],
+      cards: { overall: { without: 6, with: 6 }, helpsBoth: { without: 3, with: 3 } },
+      ms: null,
+    };
+    for (const freed of kinds) {
+      const lines = mergeLines(
+        snapshot,
+        {
+          ...base,
+          rows: [{ list: "overall", trade: folded, was: null, freed, into, intoPlace: 1, kind: "open" }],
+          dropped: [{ list: "overall", trade: other, was: null, freed, by: folded, byWhere: "among the offers of idea 1" }],
+          smallerLast: [{ list: "overall", card: into, place: 1, offer: smallerAsk, share: 0.85, merged: true, was: null }],
+          left: [{ list: "overall", card: other, was: 5, freed }],
+        },
+        team,
+      );
+      expect(lines).toContain(`- Overall: Team 2: Garrett Wilson → Chuba Hubbard + Mike Evans (${n(folded)}), a card only after ${freedWords(freed, "merged")}, is now among the offers of idea 1 (“Open with”), Team 2: Garrett Wilson → Chuba Hubbard (${n(into)}).`);
+      expect(lines).toContain(`- Dropped (Overall; answer 3(c)): Team 4: Garrett Wilson → Mike Evans (${n(other)}), a card only after ${freedWords(freed, "dropped")}, for Team 2: Garrett Wilson → Chuba Hubbard + Mike Evans (${n(folded)}) (among the offers of idea 1), at least as good on both Helps you and the chance as printed.`);
+      expect(lines).toContain(`- Last offers that ask for fewer of their players (answer 3(a)): Overall idea 1, Team 2: Garrett Wilson → Chuba Hubbard (${n(into)}): Team 2: Garrett Wilson → Mike Evans (${n(smallerAsk)}), 85.0% of its Overall (merged).`);
+      expect(lines).toContain(`- Left, neither merged nor dropped (the usual rules after ${freedWords(freed, "left")}): Overall idea 5 without the merge, Team 4: Garrett Wilson → Mike Evans (${n(other)}).`);
+      expect(lines.join("\n")).not.toContain("(a card without the merge)");
+    }
+    const mixed = mergeLines(
+      snapshot,
+      {
+        ...base,
+        left: [
+          { list: "overall", card: other, was: 5, freed: "merge" },
+          { list: "helpsBoth", card: other, was: 2, freed: "drop" },
+        ],
+      },
+      team,
+    );
+    // Lists whose records differ (Parker's league 1, Oct 14, under his prizes: the Overall list's left after a merge, the
+    // "Helps both" list's after a drop): both up front, each card's own after it.
+    expect(mixed.find((x) => x.startsWith("- Left"))).toBe(
+      `- Left, neither merged nor dropped (the usual rules after a merge or a dropped version): Overall idea 5 without the merge, Team 4: Garrett Wilson → Mike Evans (${n(other)}) (after a merge); “Helps both” idea 2 without the merge, Team 4: Garrett Wilson → Mike Evans (${n(other)}) (after a dropped version).`,
+    );
+    // A merged Last offer that was a card without the merge says so (Checkpoint 7g's words).
+    const was = mergeLines(snapshot, { ...base, smallerLast: [{ list: "overall", card: into, place: 1, offer: smallerAsk, share: 0.85, merged: true, was: 3 }] }, team);
+    expect(was.find((x) => x.startsWith("- Last offers"))).toContain("85.0% of its Overall (a card without the merge).");
+  });
+
+  it("section 11's merge reads what let each trade in off the search's own records, on synthetic leagues at 10% (smallLeague 29: a merged trade a card only after a dropped version; 24 and 25: merged Last offers that weren't and were cards without the merge; 53: a card pushed off after a drop), checked against the search without the drop rule (the final review of Checkpoint 7g, merge-ui-report-after-merge)", () => {
+    const run = (seed: number) => {
+      const settings = { ...defaultTradeSettings(), minChance: 0.1 };
+      const l = smallLeague(seed, {}, 6);
+      const ctx = buildTradeContext(l.snapshot, l.inputs, { now: TEST_NOW, settings, scenarios: 8 });
+      const result = runTradeSearch(ctx, { settings });
+      const m = mergeSection(result, runTradeSearch(ctx, { settings, mergeCards: false }), null) as MergeSection;
+      // Every row as the records read (freedByOf), whatever the league holds; after a give-back everything reads "either".
+      for (const r of m.rows) expect(r.freed).toBe(r.was === null ? freedByOf(m.merged, r.list, { kind: "merged", key: r.trade.key }) : null);
+      for (const d of m.dropped) expect(d.freed).toBe(d.was === null ? freedByOf(m.merged, d.list, { kind: "dropped", key: d.trade.key }) : null);
+      for (const x of m.left) expect(x.freed).toBe(freedByOf(m.merged, x.list));
+      if ((m.merged?.released ?? 0) > 0) for (const x of [...m.rows, ...m.dropped, ...m.left]) expect(x.freed ?? "either").toBe("either");
+      return { ctx, settings, result, m, text: mergeLines(l.snapshot, m, (id) => `Team ${id}`).join("\n") };
+    };
+    // smallLeague 48 at the review: a trade given back (released 1), and a merged trade and a dropped version that weren't
+    // cards without the merge, both "either" (the checks in run(); none asserted to be there, the engine's give-backs moving).
+    run(48);
+    // smallLeague 53: the Overall list dropped a version and merged nothing, and a card it showed without the merge is off it,
+    // so "the usual rules after a dropped version", where it read "after a merge".
+    const pushed = run(53);
+    expect(pushed.m.left.filter((x) => x.list === "overall").map((x) => x.freed)).toContain("drop");
+    expect(pushed.text).toContain("- Left, neither merged nor dropped (the usual rules after a dropped version): ");
+    // smallLeague 29: the Overall list's one merge came in only after its one drop (no merge folded before it), so its line
+    // names the drop, where it read "a card only after another merge". The Overall list's rounds are the same with the drop
+    // rule off until the first round that drops (the merges come first), so a trade the records say came in after a drop
+    // isn't a card or merged there, and one they say came in after a merge is.
+    const a = run(29);
+    const nodrop = runTradeSearch(a.ctx, { settings: a.settings, dropDominated: false });
+    const there = (key: string) => nodrop.trades.some((t) => t.key === key) || (nodrop.merged?.overall ?? []).some((x) => x.key === key);
+    const late = a.m.rows.filter((r) => r.list === "overall" && r.was === null);
+    expect(late.map((r) => r.freed)).toContain("drop");
+    for (const r of late) {
+      expect(r.freed).toBe(freedByOf(a.result.merged ?? null, "overall", { kind: "merged", key: r.trade.key }));
+      if (r.freed === "drop") expect(there(r.trade.key)).toBe(false);
+      if (r.freed === "merge") expect(there(r.trade.key)).toBe(true);
+    }
+    expect(a.text).toContain(", a card only after a dropped version, is now among the offers of idea ");
+    expect(a.text).not.toContain("a card only after another merge,");
+    // smallLeague 24: a card's Last offer asks for fewer of their players and is a trade merged into it that wasn't a card
+    // without the merge, so "(merged)", where every merged one read "(a card without the merge)"; 25: one that was, so it says so.
+    for (const [seed, wasCard] of [
+      [24, false],
+      [25, true],
+    ] as const) {
+      const b = run(seed);
+      const merged = b.m.smallerLast.filter((x) => x.merged);
+      expect(merged.map((x) => x.was !== null)).toContain(wasCard);
+      for (const x of merged) expect(x.was).toBe((b.m.rows.find((r) => r.trade.key === x.offer.key && r.list === x.list) ?? b.m.rows.find((r) => r.trade.key === x.offer.key))?.was ?? null);
+      expect(b.text.match(/of its Overall \(a card without the merge\)/g) ?? []).toHaveLength(merged.filter((x) => x.was !== null).length);
+      expect(b.text.match(/of its Overall \(merged\)/g) ?? []).toHaveLength(merged.filter((x) => x.was === null).length);
+    }
+  }, 180_000);
 
   it("the search without Helps them (withoutHelpsThem): every partner's calibration run is none, so no partner's scale is known", () => {
     const ctx = buildTradeContext(snapshot, inputs, { now: TEST_NOW, settings, scenarios: 0 });
@@ -1543,7 +1707,15 @@ describe("trade report: the whole offline report on a synthetic league", () => {
         expect(step?.kind).toBe(row.kind);
         expect(compareOverall(row.into, row.trade as TradeEvaluation)).toBeLessThan(0);
         expect(s).toContain(`is now among the offers of idea ${row.intoPlace} (“${OFFER_WORDS[row.kind]}”), `);
+        // The final review of Checkpoint 7g (merge-ui-report-after-merge): what let it in when it wasn't a card without the
+        // merge, as its list's records tell (freedByOf), in its line's words.
+        expect(row.freed).toBe(row.was === null ? freedByOf(m.merged, row.list, { kind: "merged", key: row.trade.key }) : null);
+        if (row.was === null) expect(s).toContain(`, a card only after ${freedWords(row.freed as FreedBy, "merged")}, is now among the offers of idea ${row.intoPlace} `);
       }
+      for (const d of m.dropped) expect(d.freed).toBe(d.was === null ? freedByOf(m.merged, d.list, { kind: "dropped", key: d.trade.key }) : null);
+      for (const x of m.left) expect(x.freed).toBe(freedByOf(m.merged, x.list));
+      // A merged Last offer's place without the merge is its merged row's (the card's list first).
+      for (const x of m.smallerLast) expect(x.was).toBe((m.rows.find((r) => r.trade.key === x.offer.key && r.list === x.list) ?? m.rows.find((r) => r.trade.key === x.offer.key))?.was ?? null);
       // A label only for a card above its holder; each list's cards both ways add up.
       for (const x of m.labels) {
         expect(compareOverall(x.held, x.holder)).toBeLessThan(0);

@@ -75,6 +75,12 @@
  * lead's call, policy (a); the review of the merge, MERGE-1 and MERGE-2: the first words stated the rule for every pair and
  * said the higher idea "can't offer this one back", which is false when this one is its lean version), still labeled with
  * its place; the Plan B sentence stays. The Analyzer's words don't change (it shows one card).
+ * Checkpoint 7g (planner reply to Checkpoint 7f, answer 3; the lead's D19): the Last offer is the trade plus a player I can
+ * spare or the trade asking for fewer of their players, whichever has the higher Overall, on both pages, and the Finder says
+ * that of two ideas that are versions of the same trade, one at least as good on both Helps you and the chance shows alone.
+ * The final review of Checkpoint 7g: the Finder says the ladder's preference for an idea of the list below this one (the
+ * lead's ruling W1, PREFER_LISTED_WORDS), and Plan B's paragraph holds with Plan B's narrow rule and the smaller asks (W2,
+ * planBWords).
  * A native <details>, closed at first; its summary is a 44 px target.
  */
 import type { HelpsScale } from "@/engine/benefit";
@@ -98,6 +104,27 @@ const percentWords = (share: number): string => `${Math.round(share * 100)}%`;
 const offersCountWords = (n: number): string => `${n} ${n === 1 ? "offer" : "offers"}`;
 
 /**
+ * The Trade Finder's sentence on the ladder's preference (Checkpoint 7g, planner reply to Checkpoint 7f, answer 3(b): "When more
+ * than one version meets a step's rules, prefer the one that's on the list, so it merges."; search.ts preferredOf, offers.ts
+ * choiceSteps and lastOfferSteps). The final review of Checkpoint 7g (the lead's ruling W1: "keep the rule as the planner worded
+ * it, and say it"; merge-b-howtoread-rules-false, merge-ui-howtoread-preference, merge-a-howtoread-higher-overall-vs-
+ * preference): with a preference the Open and a Then can be an idea of the list that helps less than the version their rules
+ * pick, and the Last offer one with the lower Overall, which the words before didn't say (at the review, on main 3b27e78:
+ * "“Open with” the version that helps you most" read false on the 12-team smallLeague 1 at Any, the "Helps both" idea 2 opening
+ * at 68 / 50% where idea 1, 73 / 70%, fits; "whichever has the higher Overall" on the 12-team smallLeague 8 at Any, idea 17's
+ * Last offer printing Overall 16 where the throw-in's 18 fits).
+ * ⚠️ "can", not "is" (ours): the preference only reads ideas below this one on Overall that hold no merged trade, weren't taken
+ * by an idea above it that round and pass the cross-list guard, it's fixed when the idea's offers are first worked out, and the
+ * ladder that prefers them is kept only when it holds more of them (the design's §4.1, D7–D12), so an idea that fits isn't
+ * always offered there (smallLeague 4 and 42: offered as a Then where it fits the Open). "more", not "a little more" (ours):
+ * nothing bounds how much more the version passed over helps (5 points of Helps you and 20 of the chance on that 12-team
+ * league). "Below this one on Overall" as the merge reads it, on the "Helps both" list too, which goes by Helps you. The
+ * Analyzer's card has no list, so no preference, and its words don't change.
+ */
+export const PREFER_LISTED_WORDS =
+  "When another idea below this one on Overall fits one of these offers, it can be offered there even if another version helps you more or, for the “Last offer”, has a higher Overall, so it shows among this idea's offers rather than as an idea of its own.";
+
+/**
  * "How to offer it" in words, after the paragraph's bold heading (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1):
  * up to config.offers.maxSteps offers to the same team, in order, by the ladder's rules (offers-engine: an opening offer
  * printing at least config.offers.openMinChance, or the minimum chance when that's higher; each later one at least
@@ -111,7 +138,9 @@ const offersCountWords = (n: number): string => `${n} ${n === 1 ? "offer" : "off
  * D19): the Last offer is the trade plus a player I can spare or the trade asking for fewer of their players, whichever has the
  * higher Overall (the throw-in keeping config.search.steps.minBShare of B, the smaller ask config.offers.lastMinOverallShare
  * of the Overall: offers.ts, "4. Last offer"), on both pages; and the Finder says a version of the same trade at least as good
- * on both Helps you and the chance shows alone (search.ts, "Merged cards, Checkpoint 7g").
+ * on both Helps you and the chance shows alone (search.ts, "Merged cards, Checkpoint 7g"). The final review of Checkpoint 7g
+ * (the lead's ruling W1): the Finder says, after its merge sentence, that an idea below this one on Overall can take one of
+ * these offers over a version the rules alone would pick (PREFER_LISTED_WORDS: answer 3(b)'s preference).
  */
 export function offersWords(page: HowToReadPage): string {
   const analyzer = page === "analyzer";
@@ -129,7 +158,7 @@ export function offersWords(page: HowToReadPage): string {
     : `works out, when you open it on an idea that helps you, up to ${offersCountWords(config.offers.maxSteps)} to the same team, in order:`;
   const tail = analyzer
     ? `When no other version makes a better first offer, it says to offer the trade as it is. A trade opened from a trade idea's “${PLAN_B_HEADING}” is shown as one offer instead: they've just turned down a trade with the same team.`
-    : `When an idea's offers include another idea below it on Overall, the list shows only the higher one, and the other is among its offers. When two ideas are versions of the same trade and one is at least as good on both Helps you and the chance, only that one shows. An offer can still be an idea above it on Overall whose own offers don't include this one; it then says so, with that idea's place (“${planBAlsoText(2)}”). The idea's own “${PLAN_B_HEADING}” trade is never one of its offers. When no other version makes a better first offer, it says to offer the trade as it is.`;
+    : `When an idea's offers include another idea below it on Overall, the list shows only the higher one, and the other is among its offers. ${PREFER_LISTED_WORDS} When two ideas are versions of the same trade and one is at least as good on both Helps you and the chance, only that one shows. An offer can still be an idea above it on Overall whose own offers don't include this one; it then says so, with that idea's place (“${planBAlsoText(2)}”). The idea's own “${PLAN_B_HEADING}” trade is never one of its offers. When no other version makes a better first offer, it says to offer the trade as it is.`;
   return `${lead} ${steps} ${each} ${tail}`;
 }
 
@@ -181,6 +210,27 @@ export function rosterMovesWords(page: HowToReadPage): string {
 export function planBGainWords(gain: number = config.search.steps.minAcceptGain): string {
   const n = Math.round(gain * 100);
   return `${n} percentage ${n === 1 ? "point" : "points"}`;
+}
+
+/**
+ * Plan B's paragraph in words, after its bold heading (the Trade Finder's only: the Analyzer gives no Plan B; planB.ts, search.ts
+ * boxOf): when a box shows (at least config.search.steps.minAcceptGain likelier to go through than the idea, Helps you at least
+ * config.search.planB.minHelpsShare of the idea's), which trade it is, and what it shows. The final review of Checkpoint 7g
+ * (the lead's ruling W2; merge-ui-howtoread-planb): the words hold with Plan B's narrow rule (search.ts boxOf's lastCouldTake,
+ * the lead's D5: never the idea's own trade asking for fewer of their players that its Last offer could take by that offer's
+ * rules on both printed numbers, whatever its Last offer turns out to be; the box goes to the next candidate, and an idea can
+ * show none) and with the smaller asks (a box can ask for fewer of their players). Until then the paragraph said the box was
+ * "the best such trade for a different set of their players (other versions of the idea's own trade are in How to offer
+ * it)": the (c) sentence's "versions of the same trade" (offersWords) contradicted it for a box asking for fewer (Parker's
+ * league 1, Oct 15, his prizes, idea 2's box at the review), and a skipped smaller ask its Last offer didn't take is in How
+ * to offer it neither (smallLeague 32 at 10%, idea 8: no box, its Last offer the throw-in).
+ */
+export function planBWords(): string {
+  return (
+    `shows below an idea when the same team has a trade they're likelier to accept: at least ${planBGainWords()} likelier to go through, while still helping you at least ${planBShareWords()}. ` +
+    `It's the best such trade for a different set of their players, which can be fewer of them, but never the idea's own trade asking for fewer of their players when that could be its “Last offer”, so an idea can show none. ` +
+    "It has its own three numbers and odds, its own message to send them, and a link to open it in the Trade Analyzer, where it's shown as one offer."
+  );
 }
 
 /** The most an estimate shows (config.acceptance.pAcceptClamp's top, rounded as estimates are shown): "85%". */
@@ -379,10 +429,7 @@ export function HowToRead({
         </p>
         {analyzer ? null : (
           <p>
-            <span className="font-bold">{PLAN_B_HEADING}</span> shows below an idea when the same team has a trade they&apos;re likelier to accept: at least{" "}
-            {planBGainWords()} likelier to go through, while still helping you at least {planBShareWords()}. It&apos;s the best such trade for a different set of their
-            players (other versions of the idea&apos;s own trade are in {OFFERS_HEADING}), with its own three numbers and odds, its own message to send them, and a link to
-            open it in the Trade Analyzer, where it&apos;s shown as one offer.
+            <span className="font-bold">{PLAN_B_HEADING}</span> {planBWords()}
           </p>
         )}
         <p>
