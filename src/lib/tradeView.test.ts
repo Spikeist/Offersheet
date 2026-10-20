@@ -312,14 +312,16 @@ describe("buildTradeCard (§13: what each card shows)", () => {
 
   it("raises the risk flags apart from the numbers, in words: an injured player, the market check, and a trade normally hidden", () => {
     expect(card({ flags: { marketCheck: false, hiddenByMarket: false, hiddenByBenefit: false, injured: ["107"] } }).flags).toEqual([
-      { kind: "injured", text: "Depends on an injured player: Humbert Fiddlesticks (injured reserve). His projection assumes he returns at full strength, blended with the trade market." },
+      { kind: "injured", text: "Depends on an injured player: Humbert Fiddlesticks (injured reserve). His projection assumes he returns at full strength, blended with the trade market.", pill: "Injured player" },
     ]);
     expect(card({ get: ["107", "206"], flags: { marketCheck: false, hiddenByMarket: false, hiddenByBenefit: false, injured: ["107", "206"] } }).flags[0]?.text).toBe(
       "Depends on injured players: Humbert Fiddlesticks (injured reserve) and Rupert Wimbleton (doubtful). Their projections assume they return at full strength, blended with the trade market.",
     );
+    // Checkpoint 7h: each flag's pill on the closed card, in words, plural for several injured players.
+    expect(card({ get: ["107", "206"], flags: { marketCheck: false, hiddenByMarket: false, hiddenByBenefit: false, injured: ["107", "206"] } }).flags[0]?.pill).toBe("Injured players");
     // The model's trigger (g_mkt(me) under −15%), no number (planner reply to Checkpoint 4b, change 3).
-    expect(card({ gMine: -0.2 }).flags).toEqual([{ kind: "market", text: "Market check: counting roster spots, you'd give up more trade value than you get." }]);
-    expect(card({ gMine: -0.4 }).flags).toEqual([{ kind: "hiddenByMarket", text: "Market check: counting roster spots, you'd give up much more trade value than you get, so trade ideas leave it out." }]);
+    expect(card({ gMine: -0.2 }).flags).toEqual([{ kind: "market", text: "Market check: counting roster spots, you'd give up more trade value than you get.", pill: "Market check" }]);
+    expect(card({ gMine: -0.4 }).flags).toEqual([{ kind: "hiddenByMarket", text: "Market check: counting roster spots, you'd give up much more trade value than you get, so trade ideas leave it out.", pill: "Market check" }]);
     expect(card({ gMine: -0.2 }).flags[0]?.text).not.toMatch(/\d/);
     expect(card().flags).toEqual([]);
   });

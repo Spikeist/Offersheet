@@ -1,8 +1,9 @@
 /**
  * A trade card's "now or after this week" line (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.2): "Helps you 37 now · 41
- * if done after this week's games." right under the three numbers (after the veto note, before the odds), the planner's tooltip
- * on it, and the same words among the card's facts, which a phone shows (no hover there). None when the card has no line. The
- * feedback buttons are stood in for (TradePages.test.ts has them). A made-up league.
+ * if done after this week's games." with the planner's tooltip on it, and the same words right under it, which a phone shows
+ * (no hover there). Since Checkpoint 7h it's in the card's Details (the planner: "the timing line" behind Details), after my odds
+ * and the weekly line; until then right under the three numbers, its words among the card's facts. None when the card has no
+ * line. The feedback buttons are stood in for (TradePages.test.ts has them). A made-up league.
  */
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -20,7 +21,7 @@ const render = (card: ReturnType<typeof buildTradeCard>) => renderToStaticMarkup
 const text = (html: string) => html.replace(/<[^>]+>/g, "").replace(/&#x27;/g, "'").replace(/&amp;/g, "&").replace(/\u00a0/g, " ");
 
 describe("a trade card's 'now or after this week' line (Checkpoint 7e, item 4.2)", () => {
-  it("sits under the three numbers with the planner's tooltip, its words among the facts too", () => {
+  it("sits in the card's Details after my odds, with the planner's tooltip and its words right under it (Checkpoint 7h)", () => {
     const e = { ...evaluation({ b: 3, dCH: 0.013, dPO: 0.04, detail: { vetoRisk: true } }), pComplete: 0.2, later: { b: 4, tradeScore: 49 } };
     const card = buildTradeCard(e, { snapshot: tradeSnapshot({ tradeReview: "league_vote" }), baseline: { pPlayoffs: 0.65, pTitle: 0.121 } });
     expect(card.nowOrLater?.text).toBe("Helps you 39 now · 49 if done after this week's games.");
@@ -29,13 +30,14 @@ describe("a trade card's 'now or after this week' line (Checkpoint 7e, item 4.2)
     expect(html).toContain(titled);
     const line = html.slice(html.indexOf(">", html.indexOf(titled)) + 1);
     expect(text(line.slice(0, line.indexOf("</p>")))).toBe("Helps you 39 now · , 49 if done after this week's games.");
-    // After the numbers and the veto note, before my odds.
+    // In Details: after the two controls and my odds.
     const at = (s: string) => html.indexOf(s);
     expect(at(titled)).toBeGreaterThan(at("</dl>"));
-    expect(at(titled)).toBeGreaterThan(at("it goes through"));
-    expect(at(titled)).toBeLessThan(at("Title odds"));
-    // The tooltip's words where a phone shows them: the card's facts.
-    expect(text(html)).toContain(`${NOW_OR_LATER_LABEL}${NOW_OR_LATER_TITLE}`);
+    expect(at(titled)).toBeGreaterThan(at(">Details<"));
+    expect(at(titled)).toBeGreaterThan(at("Title odds"));
+    // The tooltip's words where a phone shows them: right under the line, never again among the facts.
+    expect(html).toContain(`<p data-now-or-later-words="true" class="text-xs leading-relaxed text-muted">${NOW_OR_LATER_TITLE.replace(/'/g, "&#x27;")}</p>`);
+    expect(text(html)).not.toContain(`${NOW_OR_LATER_LABEL}${NOW_OR_LATER_TITLE}`);
   });
 
   it("shows nothing without a line", () => {

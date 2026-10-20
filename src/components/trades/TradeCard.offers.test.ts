@@ -4,7 +4,7 @@
  * (TradeCard's `loadVersions`, through the page's `onOffers`), so the first outcome pressed asks for the offers and then which
  * one was sent instead of saving "the suggested trade" without a word (UI-D-1; FeedbackControls.tsx pressedOutcome); the
  * offers' state is asked for only while the disclosure is open, or by the feedback (UI-D-10: offersStateFor); and once the
- * offers open with another trade, a line over the card's own message says so (UI-D-6: ownMessageNote); an offer that is another
+ * offers open with another trade, the first offer's message shows open (Checkpoint 7h; the line over the card's own message, UI-D-6, went with it); an offer that is another
  * card the Trade Finder shows says so with that card's place (the lead's call, wave D: OffersPanel's `places`, "Also shown as
  * trade idea 2."). FeedbackControls is stood in for, to hold the props the card gives it. A made-up league.
  */
@@ -13,7 +13,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { OfferLadder } from "@/engine/tradeModel";
 import type { FeedbackChange } from "@/lib/feedbackStore";
-import { OWN_MESSAGE_NOTE, buildLadderView, buildTradeCard, cardVersions, ownMessageNote, type CardFeedback, type LadderView, type TradeCardView, type VersionChoice } from "@/lib/tradeView";
+import { buildLadderView, buildTradeCard, cardVersions, type CardFeedback, type LadderView, type TradeCardView, type VersionChoice } from "@/lib/tradeView";
 
 /** The props the card gave its feedback buttons, at the last render. */
 const given: { versions: readonly VersionChoice[] | null; loadVersions: (() => Promise<readonly VersionChoice[]>) | undefined } = { versions: null, loadVersions: undefined };
@@ -191,14 +191,33 @@ describe("an offer that is another card the Trade Finder shows says so (the lead
   });
 });
 
-describe("the card's own message once the offers open with another trade (the review of wave D, UI-D-6)", () => {
-  it("a line says the card's message proposes the trade as it is, only when the first offer isn't the card's", () => {
-    const card = buildTradeCard(base, { snapshot });
+describe("the messages in “How to offer it” (Checkpoint 7h; planner reply to Checkpoint 7g, §1: “a closed card shows none. Inside “How to offer it,” the first offer's message shows open, and the others stay behind their own steps”)", () => {
+  const card = buildTradeCard(base, { snapshot });
+  /** Each “Message to send them” disclosure in order: whether it's open. */
+  const messages = (h: string) => [...h.matchAll(/<details class="[^"]*"( open="")?><summary[^>]*><span>Message to send them/g)].map((m) => m[1] !== undefined);
+
+  it("opens the first offer's message and leaves the others closed; the line over the card's own message (UI-D-6) is gone", () => {
     const opens = buildLadderView(ladderOf(card), card, { snapshot });
-    const alone = buildLadderView({ cardKey: card.key, steps: [{ kind: "suggested", evaluation: base, message: "x" }] }, card, { snapshot });
     expect(opens.opensElsewhere).toBe(true);
-    expect(ownMessageNote(opens)).toBe(OWN_MESSAGE_NOTE);
-    expect([ownMessageNote(alone), ownMessageNote(null), ownMessageNote(buildLadderView({ cardKey: card.key, steps: [] }, card, { snapshot }))]).toEqual([null, null, null]);
-    expect(OWN_MESSAGE_NOTE).toBe("This message proposes the trade as it is. “How to offer it” opens with another offer: send its message first.");
+    const h = renderToStaticMarkup(createElement(OffersPanel, { state: { kind: "done", ladder: opens }, name: "trade idea 1", pitch: card.pitch }));
+    expect(messages(h)).toEqual([true, false]);
+    expect(h).not.toContain("This message proposes the trade as it is");
+  });
+
+  it("shows the card's own message, open, when the offers hold the trade alone or couldn't be worked out (⚠️ ours), never while they're loading", () => {
+    const alone = buildLadderView({ cardKey: card.key, steps: [{ kind: "suggested", evaluation: base, message: "x" }] }, card, { snapshot });
+    expect(alone.alone).toBe(true);
+    const panel = (state: Parameters<typeof OffersPanel>[0]["state"]) => renderToStaticMarkup(createElement(OffersPanel, { state, name: "trade idea 1", pitch: card.pitch }));
+    expect(messages(panel({ kind: "done", ladder: alone }))).toEqual([true]);
+    expect(messages(panel({ kind: "failed" }))).toEqual([true]);
+    expect(messages(panel({ kind: "loading" }))).toEqual([]);
+    expect(messages(panel({ kind: "idle" }))).toEqual([]);
+  });
+
+  it("a closed card shows no message: its own sits in “How to offer it”, hidden until it opens", () => {
+    const h = renderToStaticMarkup(createElement(TradeCard, { card, rank: 1, feedback: NONE, onFeedback: () => ({ ok: true as const }), onOffers: () => Promise.resolve(buildLadderView(ladderOf(card), card, { snapshot })) }));
+    // Both panels hidden, the two controls closed.
+    expect([...h.matchAll(/aria-expanded="(true|false)"/g)].map((m) => m[1])).toEqual(["false", "false"]);
+    expect([...h.matchAll(/<div id="[^"]+" hidden=""/g)]).toHaveLength(2);
   });
 });

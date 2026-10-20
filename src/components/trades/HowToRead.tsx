@@ -235,7 +235,7 @@ export function rosterMovesWords(page: HowToReadPage): string {
       ? "are named at the end and aren't counted for the trade"
       : `are named once, above the list (“${BASELINE_ASSUMED}”), and on an idea only when its own differ; they aren't counted for the trade`;
   return (
-    `in ${page === "analyzer" ? "the card's" : "an idea's"} Details lists, in order, each move to your roster that the card's numbers count on, with its reason and its week: a player you'd drop to stay within your ` +
+    `(in ${page === "analyzer" ? "the card's" : "an idea's"} Details) lists, in order, each move to your roster that the card's numbers count on, with its reason and its week: a player you'd drop to stay within your ` +
     "league's limits or to make room, a free agent for a roster spot the trade opens, a waiver move the trade makes worthwhile, and who you'd release when a " +
     "player comes back from IR (when the player your lineup would miss least has more trade value than another player nearly as cheap to lose from then on, " +
     "that other player goes instead, and the line says why). " +
@@ -443,9 +443,6 @@ export function HowToRead({
       <summary className="flex min-h-11 items-center px-4 font-extrabold sm:px-5">{HOW_TO_READ_TITLE[page]}</summary>
       <div className="space-y-2 border-t border-line px-4 py-3 text-sm leading-relaxed sm:px-5">
         <p>
-          <span className="font-bold">{DETAILS_HEADING}</span> {detailsWords(page)}
-        </p>
-        <p>
           <span className="font-bold">Helps you</span> (0–100) is how much the trade raises your chances this season: Offer Sheet plays out the rest of your season
           thousands of times with and without it, and weighs {weighedOddsWords(reward, helpsScale)} by your &ldquo;What does your league reward?&rdquo; setting in Settings
           (&ldquo;{GOAL_LABEL[config.benefit.goalDefault]}&rdquo; unless you change it). Each card&apos;s Details show {cardOddsWords(reward, helpsScale)} before and after
@@ -462,6 +459,9 @@ export function HowToRead({
         <p>
           <span className="font-bold">Overall</span> combines the two: how much it helps, discounted by the chance it happens.{" "}
           {analyzer ? "The Trade Finder ranks its trade ideas by it." : "Ideas are sorted by it unless you choose otherwise."}
+        </p>
+        <p>
+          <span className="font-bold">{DETAILS_HEADING}</span> {detailsWords(page)}
         </p>
         <p>
           <span className="font-bold">{HELPS_THEM_LABEL}</span> {helpsThemWords(page, { leagueType, longTermOn })}
