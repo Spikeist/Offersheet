@@ -46,8 +46,9 @@ export const READ_WHAT_IF_CHOICES = String.raw`
 const row = (l, i) => {
   const input = l.querySelector("input[type=checkbox]");
   const detail = l.querySelector("span.block");
+  const name = l.querySelector("span.font-semibold");
   const d = detail ? txt(detail) : "";
-  return { index: i, text: clean(visibleText(l)), pos: d.split(" · ")[0] || null, ir: / · IR slot$/.test(d), checked: !!input && input.checked, disabled: !!input && input.disabled };
+  return { index: i, text: clean((name ? txt(name) : visibleText(l)) + (d ? " (" + d + ")" : "")), pos: d.split(" · ")[0] || null, ir: / · IR slot$/.test(d), checked: !!input && input.checked, disabled: !!input && input.disabled };
 };
 const take = whatIfFieldset("Take off");
 const put = whatIfFieldset("Put on");

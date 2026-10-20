@@ -52,7 +52,7 @@ import {
   type WhatIfRead,
   type WhatIfSwitchRead,
 } from "./contracts7h";
-import { READ_PRIZE_LEAGUE, READ_WAIVERS } from "./inPage";
+import { READ_PRIZE_LEAGUE, READ_WAIVERS, WAIVER_REST } from "./inPage";
 import {
   READ_FINDER_SUMMARY,
   READ_WAIVER_ODDS,
@@ -67,7 +67,7 @@ import {
   waiverDetailsButton,
   whatIfRow,
 } from "./inPage7h";
-import { cleaning, expectedTopPlaces, FINDER_DONE, FINDER_DONE_STATUS, layoutChecks, mark, measurePage, noTopReason, screenshot, sidelessCards, type CardInfo, type StepContext } from "./steps";
+import { cleaning, expectedTopPlaces, FINDER_DONE, FINDER_DONE_STATUS, layoutChecks, mark, measurePage, noTopReason, screenshot, sidelessCards, waiverFoldOpen, type CardInfo, type StepContext } from "./steps";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const seconds = (ms: number) => Math.round(ms / 100) / 10;
@@ -172,13 +172,13 @@ export async function whatIfRun(ctx: StepContext, step: string, opts: { full: bo
   const started = Date.now();
   await page.click(withWhatIf("whatIfEvaluate()"), "Evaluate change");
   const state = await page
-    .waitFor<string>(withWhatIf(`(() => { const s = whatIfStatus() || ""; return /^Evaluated/.test(s) ? "evaluated" : /^This change can't be made/.test(s) ? "illegal" : null; })()`), WHAT_IF_WAIT_MS, "the what-if's evaluation", 50)
+    .waitFor<string>(withWhatIf(`(() => { const s = whatIfStatus() || ""; if (/^Evaluated/.test(s)) return "evaluated"; if (/^This change can't be made/.test(s)) return "illegal"; const p = whatIfPanel(); const al = p ? p.querySelector("[role=alert]") : null; return al ? "error: " + txt(al) : null; })()`), WHAT_IF_WAIT_MS, "the what-if's evaluation", 50)
     .catch(() => "no answer");
   const ms = Date.now() - started;
   await sleep(300);
   const read = await run<WhatIfRead>(ctx, READ_WHAT_IF, true);
-  if (state === "no answer") {
-    report.fail(step, `${lead}the what-if wasn't evaluated within ${seconds(WHAT_IF_WAIT_MS)} s (its status line reads “${read.status ?? ""}”)`);
+  if (state === "no answer" || state.startsWith("error: ")) {
+    report.fail(step, state === "no answer" ? `${lead}the what-if wasn't evaluated within ${seconds(WHAT_IF_WAIT_MS)} s (its status line reads “${read.status ?? ""}”)` : `${lead}the what-if couldn't be evaluated: the page says “${state.slice("error: ".length)}”`);
     return null;
   }
   return { read, took: take.text, put: put.text, ms };
@@ -205,6 +205,15 @@ export async function whatIfStep(ctx: StepContext): Promise<void> {
     return;
   }
   await page.click(FINDER_ANALYZER_LINK, "the Trade Finder's link to the Trade Analyzer");
+  await whatIfChecks(ctx, step);
+}
+
+/**
+ * The "What if" step's checks on the Trade Analyzer as it opens (whatIfStep, after the Trade Finder's link; exported so an
+ * offline harness can run them on the real components).
+ */
+export async function whatIfChecks(ctx: StepContext, step: string): Promise<void> {
+  const { page, report } = ctx;
   const done = await whatIfRun(ctx, step, { full: true });
   if (!done) return;
   const { read } = done;
@@ -276,9 +285,30 @@ interface WaiverOddsRow {
  * open and closed (waiverDetailsProblems) and read for trade values.
  */
 export async function waiverDetailsChecks(ctx: StepContext, step: string, label: string, rated: boolean): Promise<void> {
-  const { page, report } = ctx;
+  const { page } = ctx;
   const name = `“${label}”`;
-  const rows = await page.run<WaiverOddsRow[]>(READ_WAIVER_ODDS);
+  let rows = await page.run<WaiverOddsRow[]>(READ_WAIVER_ODDS);
+  const candidate = (list: WaiverOddsRow[]) => list.find((r) => r.id && r.helps && !r.blocked && r.odds) ?? list.find((r) => r.id && !r.blocked && r.odds) ?? null;
+  // No move above the fold to open (Parker's second league: its one "Rest of season" row is folded): the fold opened for the
+  // reading, and closed again at the end.
+  const fold = rated && !candidate(rows) && (await page.run<boolean>(`const b = ${WAIVER_REST}; return !!b && b.getAttribute("aria-expanded") === "false";`));
+  if (fold) {
+    await page.click(WAIVER_REST, "the list's fold");
+    if (await page.waitFor<boolean>(waiverFoldOpen(true), 5_000, "the fold to open").catch(() => false)) rows = await page.run<WaiverOddsRow[]>(READ_WAIVER_ODDS);
+  }
+  try {
+    await rowDetailsChecks(ctx, step, name, label, rated, rows, candidate(rows));
+  } finally {
+    if (fold) {
+      await page.click(WAIVER_REST, "the list's fold again");
+      await page.waitFor<boolean>(waiverFoldOpen(false), 5_000, "the fold to close").catch(() => false);
+    }
+  }
+}
+
+/** waiverDetailsChecks' checks on the rows read (`row`: the one to tap, null when none can be). */
+async function rowDetailsChecks(ctx: StepContext, step: string, name: string, label: string, rated: boolean, rows: WaiverOddsRow[], row: WaiverOddsRow | null): Promise<void> {
+  const { page, report } = ctx;
   if (!rows.length) {
     report.skip(step, `the odds lines on ${name}: it shows no row`);
     return;
@@ -288,24 +318,24 @@ export async function waiverDetailsChecks(ctx: StepContext, step: string, label:
   report.check(
     step,
     coverage.length === 0,
-    rated ? `${name}: ${pl(withOdds, "row")} of ${rows.length} carry your odds before → after in their details, every move that can be made` : `${name} stays in points: no row carries odds lines`,
+    rated ? `${name}: ${withOdds} of ${pl(rows.length, "row")} ${withOdds === 1 ? "carries" : "carry"} your odds before → after in their details, every move that can be made` : `${name} stays in points: no row carries odds lines`,
     `${pl(coverage.length, "problem")} with ${name}'s odds lines`,
     coverage,
   );
   if (!rated) return;
-  const row = rows.find((r) => r.id && r.helps && !r.blocked && r.odds) ?? rows.find((r) => r.id && !r.blocked && r.odds) ?? null;
   if (!row?.id) {
     report.skip(step, `a row's “Details” on ${name}: no move that can be made`);
     return;
   }
-  const read = () => page.run<WaiverRowRead>(cleaning(ctx) + readWaiverRow(row.id as string));
+  const id = row.id;
+  const read = () => page.run<WaiverRowRead>(cleaning(ctx) + readWaiverRow(id));
   const before = await read();
-  await page.click(waiverDetailsButton(row.id), "a row's “Details”");
-  await page.waitFor<boolean>(`(() => { const b = ${waiverDetailsButton(row.id)}; return !!b && b.getAttribute("aria-expanded") === "true"; })()`, 5_000, "the row's details to open").catch(() => false);
+  await page.click(waiverDetailsButton(id), "a row's “Details”");
+  await page.waitFor<boolean>(`(() => { const b = ${waiverDetailsButton(id)}; return !!b && b.getAttribute("aria-expanded") === "true"; })()`, 5_000, "the row's details to open").catch(() => false);
   await sleep(150);
   const open = await read();
-  await page.click(waiverDetailsButton(row.id), "the row's “Details” again");
-  await page.waitFor<boolean>(`(() => { const b = ${waiverDetailsButton(row.id)}; return !!b && b.getAttribute("aria-expanded") === "false"; })()`, 5_000, "the row's details to fold").catch(() => false);
+  await page.click(waiverDetailsButton(id), "the row's “Details” again");
+  await page.waitFor<boolean>(`(() => { const b = ${waiverDetailsButton(id)}; return !!b && b.getAttribute("aria-expanded") === "false"; })()`, 5_000, "the row's details to fold").catch(() => false);
   await sleep(150);
   const closed = await read();
   const { places, why } = await savedPlaces(ctx);
