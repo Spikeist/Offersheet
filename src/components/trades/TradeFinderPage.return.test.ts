@@ -3,7 +3,9 @@
  * TradeFinderPage.tsx's header):
  * - "Search again" and "Try again" search afresh for the search they were pressed on only (thoroughui#1: the attempt was
  *   page-wide, so after one press no switch flip or partner showed its kept ideas: each searched again, a Thorough search
- *   included).
+ *   included), and how a search ended shows only while the page stays on it (the second review: since that fix, a switch flip
+ *   away and back returned to the tag of a search that had failed or been stopped, and its card showed over the new run of that
+ *   search, with no progress bar and no Stop; checked in Chrome on the real page too, with a fake engine).
  * - The Thorough search switch comes back from the Analyzer as it was left (the first review's (4): as page state it came back
  *   off, the normal search's ideas showed, and the idea to come back to, filed under the Thorough search's key, was lost).
  * - Coming back opens the panel holding the "Open in Analyzer" link used (the first review's (2): a card opens closed since
@@ -42,7 +44,21 @@ import { DETAILS_HEADING, OFFERS_HEADING, buildFinderView, progressView, type La
 import { leagueFixture } from "../league/testFixtures";
 import { rememberOpened, rememberSearchTime, rememberThorough, rememberedThorough, resetFinderMemory, takeReturnTarget } from "./finderMemory";
 import { SearchProgress, searchTimeNote } from "./SearchProgress";
-import { FinderFrame, THOROUGH_LABEL, TradeFinderPage, attemptFor, retryHeld, retryPressed, returnPanelOf, revealIdea, searchKeyFor, type Retry, type RevealTarget } from "./TradeFinderPage";
+import {
+  FinderFrame,
+  THOROUGH_LABEL,
+  TradeFinderPage,
+  attemptFor,
+  currentOutcome,
+  outcomeKept,
+  retryHeld,
+  retryPressed,
+  returnPanelOf,
+  revealIdea,
+  searchKeyFor,
+  type Retry,
+  type RevealTarget,
+} from "./TradeFinderPage";
 import { evaluation, searchResult, tradeSnapshot } from "./testFixtures";
 
 const f = leagueFixture();
@@ -78,25 +94,57 @@ describe("Search again and Try again search afresh for their own search only (th
   const THOROUGH = searchKeyFor({ ...base, thorough: true });
   const PARTNER = searchKeyFor({ ...base, partnerId: "4" });
 
+  /** How a search ends, as the page's search answers: "finish" (its ideas, which this tab keeps for its key), "fail", "stop". */
+  const ENDS = ["finish", "fail", "stop"] as const;
+  const isEnd = (e: string): e is (typeof ENDS)[number] => (ENDS as readonly string[]).includes(e);
+  /** How a search ended, as LoadedFinder keeps it (its Outcome's tag and kind). */
+  type Ended = { tag: string; kind: "done" | "error" | "stopped" };
+  type Step = { tag: string; recall: boolean; shows: Ended["kind"] | "searching" };
+
   /**
-   * The page's renders and presses, as LoadedFinder runs them (retryHeld while rendering, attemptFor for the search's tag,
-   * retryPressed on a press): each render's search tag and whether that search may show the ideas this tab kept (attempt 0:
-   * the page's recallSearchEntry).
+   * The page's renders, presses and searches, as LoadedFinder runs them. A key (the switch, a partner) or "press" (Search again,
+   * Try again) renders: the retry held for its own key (retryHeld while rendering, attemptFor for the search's tag, retryPressed
+   * on a press), and how the last search ended kept only while the tag stays (outcomeKept). A new tag starts its search, which
+   * shows the ideas this tab kept for its key when it may (attempt 0: the page's recallSearchEntry), else runs. "finish",
+   * "fail" and "stop" end the search under way (a finished search's ideas are kept for its key: the page's rememberSearch).
+   * Each step: the search's tag, whether it may show kept ideas, and what the page shows, as its state reads how its search
+   * ended under its tag (currentOutcome: stopped, failed or its ideas), else the search running, with its progress bar and Stop.
    */
-  function run(events: readonly string[]): { tag: string; recall: boolean }[] {
+  function pageRun(events: readonly string[]): Step[] {
     let retry: Retry | null = null;
     let key: string | null = null;
-    const out: { tag: string; recall: boolean }[] = [];
+    let tag: string | null = null;
+    let recall = false;
+    let outcome: Ended | null = null;
+    const kept = new Set<string>();
+    const out: Step[] = [];
     for (const e of events) {
-      if (e === "press") {
-        if (key) retry = retryPressed(retry, key);
-      } else key = e;
-      retry = retryHeld(retry, key);
-      const attempt = attemptFor(retry, key);
-      out.push({ tag: `${key}|${attempt}`, recall: attempt === 0 });
+      if (isEnd(e)) {
+        if (key === null || tag === null) throw new Error("no search under way");
+        if (e === "finish") kept.add(key);
+        outcome = { tag, kind: e === "finish" ? "done" : e === "fail" ? "error" : "stopped" };
+      } else {
+        if (e === "press") {
+          if (key) retry = retryPressed(retry, key);
+        } else key = e;
+        retry = retryHeld(retry, key);
+        const attempt = attemptFor(retry, key);
+        const next = `${key}|${attempt}`;
+        recall = attempt === 0;
+        outcome = outcomeKept(outcome, tag, next);
+        if (next !== tag) {
+          tag = next;
+          if (recall && key !== null && kept.has(key)) outcome = { tag, kind: "done" };
+        }
+      }
+      out.push({ tag: tag ?? "", recall, shows: currentOutcome(outcome, tag)?.kind ?? "searching" });
     }
     return out;
   }
+  /** Each render's search tag and whether that search may show the ideas this tab kept (pageRun's renders and presses). */
+  const run = (events: readonly string[]) => pageRun(events).map(({ tag, recall }) => ({ tag, recall }));
+  /** What the page shows after each event (pageRun). */
+  const shows = (events: readonly string[]) => pageRun(events).map((s) => s.shows);
 
   it("the reviewer's case: Thorough on, Stop, Search again; then the switch off and on again shows each search's kept ideas", () => {
     expect(run([NORMAL, THOROUGH, "press", NORMAL, THOROUGH])).toEqual([
@@ -130,6 +178,52 @@ describe("Search again and Try again search afresh for their own search only (th
     expect(retryHeld(r, THOROUGH)).toBeNull();
     expect(retryHeld(r, null)).toBeNull();
     expect(retryHeld(null, NORMAL)).toBeNull();
+  });
+
+  describe("and how a search ended shows only while the page stays on it (the second review of Checkpoint 7h's page)", () => {
+    it("the second review's cases: a failed or stopped search, left and come back to, shows its search running again, not its old card", () => {
+      // S2: the normal search fails; Try again (it runs); the switch on (it runs); off again: the normal search runs afresh (nothing
+      // kept for it) with its progress bar and Stop, not "The trade search didn't finish" over it.
+      expect(shows([NORMAL, "fail", "press", THOROUGH, NORMAL])).toEqual(["searching", "error", "searching", "searching", "searching"]);
+      // Back to the tag of the run that failed (the |0 the retry left behind), which may show kept ideas but has none.
+      expect(pageRun([NORMAL, "fail", "press", THOROUGH, NORMAL]).at(-1)).toEqual({ tag: `${NORMAL}|0`, recall: true, shows: "searching" });
+      // S2b: Stop; Search again (it runs); the switch on; off again: not "You stopped the search."
+      expect(shows([NORMAL, "stop", "press", THOROUGH, NORMAL])).toEqual(["searching", "stopped", "searching", "searching", "searching"]);
+      // S2c (so before thoroughui#1 too): no retry: a failure, then the switch on and off.
+      expect(shows([NORMAL, "fail", THOROUGH, NORMAL])).toEqual(["searching", "error", "searching", "searching"]);
+      // Another partner and back, likewise.
+      expect(shows([NORMAL, "stop", PARTNER, NORMAL])).toEqual(["searching", "stopped", "searching", "searching"]);
+    });
+
+    it("an end still shows while the page stays on its search, and kept ideas still come back at once", () => {
+      expect(shows([NORMAL, "fail"])).toEqual(["searching", "error"]);
+      expect(shows([NORMAL, "stop"])).toEqual(["searching", "stopped"]);
+      // Try again's ideas come back when the page comes back to its key (thoroughui#1).
+      expect(shows([NORMAL, "fail", "press", "finish", THOROUGH, NORMAL])).toEqual(["searching", "error", "searching", "done", "searching", "done"]);
+      // A failed Thorough search, the switch off (the normal ideas) and on again: the Thorough search runs again.
+      expect(shows([NORMAL, "finish", THOROUGH, "fail", NORMAL, THOROUGH])).toEqual(["searching", "done", "searching", "error", "done", "searching"]);
+      // The switch on and off again before the Thorough search ends: the normal ideas.
+      expect(shows([NORMAL, "finish", THOROUGH, NORMAL])).toEqual(["searching", "done", "searching", "done"]);
+    });
+
+    it("the pure parts: an end is kept while the page's tag stays and goes once it changes, and shows only under its own tag", () => {
+      const K0 = `${NORMAL}|0`;
+      const T0 = `${THOROUGH}|0`;
+      const failed = { tag: K0, kind: "error" as const, message: "Something went wrong while crunching the numbers." };
+      const stopped = { tag: K0, kind: "stopped" as const };
+      expect(outcomeKept(failed, K0, K0)).toBe(failed);
+      expect(outcomeKept(failed, K0, T0)).toBeNull();
+      expect(outcomeKept(failed, K0, `${NORMAL}|1`)).toBeNull();
+      expect(outcomeKept(failed, K0, null)).toBeNull();
+      expect(outcomeKept(failed, null, K0)).toBeNull();
+      expect(outcomeKept(null, K0, T0)).toBeNull();
+      expect(currentOutcome(failed, K0)).toBe(failed);
+      expect(currentOutcome(failed, T0)).toBeNull();
+      expect(currentOutcome(failed, null)).toBeNull();
+      expect(currentOutcome(null, K0)).toBeNull();
+      // The second review's pin: a failure or a stop under K|0, the page off K|0 and back: nothing over K|0's new run.
+      for (const ended of [failed, stopped]) expect(currentOutcome(outcomeKept(outcomeKept(ended, K0, T0), T0, K0), K0)).toBeNull();
+    });
   });
 });
 

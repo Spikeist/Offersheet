@@ -71,7 +71,10 @@
  * page: in a closed panel it took no scroll and no focus, and the results' heading didn't get it either). While "How to offer
  * it" works its offers out above a Plan B box, the link is kept in view (keepInView). "Search again" and "Try again" search
  * afresh for the search they were pressed on only (Retry; the review of Checkpoint 7h's page, thoroughui#1: the attempt was
- * page-wide, so after one press no switch flip or partner showed its kept ideas: each searched again).
+ * page-wide, so after one press no switch flip or partner showed its kept ideas: each searched again). How a search ended
+ * (its ideas, a stop, a failure) shows only while the page stays on that search (outcomeKept): coming back to it later, the
+ * page shows it starting again, or the ideas this tab kept for it, never that earlier end (the second review of Checkpoint
+ * 7h's page: a failed or stopped search's card came back over its new run, with no progress bar and no Stop).
  *
  * "How to offer it" (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1): a card's offers in order are worked out in
  * the engine worker when its disclosure opens (onOffers: engineClient.ts offers, the card by the id of the request whose
@@ -264,6 +267,25 @@ export function retryPressed(retry: Retry | null, key: string): Retry {
 /** The retry the page keeps while its search is for `key`: the same, or none once the search is for another key. */
 export function retryHeld(retry: Retry | null, key: string | null): Retry | null {
   return retry !== null && retry.key !== key ? null : retry;
+}
+
+/**
+ * How the page's search ended (Outcome: the ideas found, a stop, a failure; the header), as the page keeps it when its search's
+ * tag goes from `from` to `to` (searchTagFor's): kept while the tag stays, gone once it changes (the second review of Checkpoint
+ * 7h's page). An end answers the run the page made while it stayed on that tag; coming back to a tag, the page starts its
+ * search again or shows the ideas this tab kept for it (finderMemory.ts). Kept, an earlier run's end showed over that search:
+ * since a retry holds for its own search only (Retry), a switch flip away and back returns to the tag of the run that failed or
+ * was stopped, and its card ("The trade search didn't finish", read out again as an alert, or "You stopped the search.") came
+ * back while the search started for it ran with no progress bar and no Stop, its button starting that search over. It goes as
+ * the page leaves the tag rather than when the search starts again a tick later, so that card never shows for a moment either.
+ */
+export function outcomeKept<O>(outcome: O | null, from: string | null, to: string | null): O | null {
+  return from === to ? outcome : null;
+}
+
+/** How the page's search ended, as it shows for the search under `tag` (searchTagFor's): the end under that tag, else none (the search runs). */
+export function currentOutcome<O extends { tag: string }>(outcome: O | null, tag: string | null): O | null {
+  return outcome !== null && outcome.tag === tag ? outcome : null;
 }
 
 /**
@@ -492,6 +514,15 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
   // `searching`: a re-filter the worker answers with a new search (the header), so the status line says it searches.
   const [progress, setProgress] = useState<RunProgress | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  // The search tag the page was on at its last render: once its search is for another tag (a switch flip, another partner, a
+  // retry, new settings or league data), how the last search ended goes at once (outcomeKept; see the header), so coming back
+  // to that tag shows its search starting again, or its kept ideas, never the earlier run's stop or failure.
+  const [outcomeFor, setOutcomeFor] = useState(searchTag);
+  if (outcomeFor !== searchTag) {
+    setOutcomeFor(searchTag);
+    const kept = outcomeKept(outcome, outcomeFor, searchTag);
+    if (kept !== outcome) setOutcome(kept);
+  }
   // The last ideas found (kept when a later search runs, stops or fails: shown dimmed for the same partner).
   const [lastDone, setLastDone] = useState<Done | null>(null);
 
@@ -568,7 +599,7 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
     return startSearch(searchTag, searchKey);
   }, [searchTag, searchKey]);
 
-  const current = outcome && outcome.tag === searchTag ? outcome : null;
+  const current = currentOutcome(outcome, searchTag);
   const doneResult = current?.kind === "done" ? current : null;
   // The minimum chance changed since these ideas were ranked (the header): the worker ranks them again.
   const minChance = settings?.minChance;
