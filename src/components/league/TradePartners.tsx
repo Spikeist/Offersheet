@@ -16,7 +16,9 @@
  * Checkpoint 7h (planner reply to Checkpoint 7g, §1): the paragraph under the cards is one line (PARTNERS_LINE), the rest behind
  * "Why?" (WhyNote.tsx). The lead's step 5 for the League page ("condense the trade-partner cards"): a card shows its team, its
  * fit, who to aim for (the lead lines) and its Trade Finder link; what else each side could give is behind one 44 px "More
- * players" disclosure (PARTNER_MORE_LABEL; aria-expanded, named for screen readers by the team), in the page while closed.
+ * players" disclosure (PARTNER_MORE_LABEL; aria-expanded, named for screen readers by the team), in the page while closed. ⚠️ Ours:
+ * a card with no lead line (none of their trade chips reaches the floor) shows their trade chips as before, so it never reads as
+ * a team and a fit alone; its disclosure holds mine.
  */
 import Link from "next/link";
 import { useId, useState } from "react";
@@ -63,10 +65,10 @@ function TargetLine({ target }: { target: PartnerTarget }) {
 }
 
 /**
- * What else each side of a fit could give, behind a 44 px disclosure (the file header, Checkpoint 7h): their other trade chips,
- * then mine (or that none of mine would start for them).
+ * What else each side of a fit could give, behind a 44 px disclosure (the file header, Checkpoint 7h): their other trade chips
+ * (unless the card shows them, `theirsShown`: it has no lead line), then mine (or that none of mine would start for them).
  */
-function MorePlayers({ card }: { card: PartnerCard }) {
+function MorePlayers({ card, theirsShown }: { card: PartnerCard; theirsShown: boolean }) {
   const [open, setOpen] = useState(false);
   const id = useId();
   return (
@@ -81,7 +83,7 @@ function MorePlayers({ card }: { card: PartnerCard }) {
         </span>
       </button>
       <div id={id} hidden={!open}>
-        {card.theyCanGive.players.length ? <PlayerList side={card.theyCanGive} /> : null}
+        {!theirsShown && card.theyCanGive.players.length ? <PlayerList side={card.theyCanGive} /> : null}
         {card.youCanGive.players.length ? (
           <PlayerList side={card.youCanGive} />
         ) : (
@@ -126,7 +128,8 @@ export function TradePartners({ view }: { view: LeagueView }) {
                 {c.targets.map((t) => (
                   <TargetLine key={t.id} target={t} />
                 ))}
-                <MorePlayers card={c} />
+                {c.targets.length || !c.theyCanGive.players.length ? null : <PlayerList side={c.theyCanGive} />}
+                <MorePlayers card={c} theirsShown={!c.targets.length} />
                 <Link href={c.ideas.href} prefetch={false} className={cx(buttonClass("secondary", "sm"), "mt-2 h-auto min-h-11 py-2 text-left wrap-anywhere")}>
                   {c.ideas.text}
                   <span aria-hidden> →</span>

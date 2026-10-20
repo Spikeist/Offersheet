@@ -1,7 +1,8 @@
 /**
  * My roster card's lock and "Expected back" control, rendered statically (Checkpoint 7e; planner reply to Checkpoint 7d,
  * items 3.3 and 3.5; PlayerTable.tsx): with the League page's settings edits around the table (LeagueSettingsEditContext)
- * the lock sits beside each of my active and IR players and the return line is a labeled select reading the saved week;
+ * the lock sits beside each of my active and IR players and the return line is a labeled select reading the saved week (in his
+ * breakdown since Checkpoint 7h, the week inline in his button);
  * without them, no lock and the line alone. 44 px targets, words for screen readers, and the conflict note's short line
  * giving way to the return line. From the fictional league in testFixtures.ts.
  */
@@ -66,8 +67,13 @@ describe("my roster card's lock (item 3.3)", () => {
 });
 
 describe("Expected back (item 3.5)", () => {
-  it("is a labeled select under his button, reading the saved week, 44 px with 16 px text", () => {
-    const html = renderToStaticMarkup(withEdits(table(myRows()), SAVED));
+  const detailOf = (id: string, settings: TradeSettings = SAVED) => {
+    const row = myRows().find((p) => p.id === id) as PlayerRow;
+    return renderToStaticMarkup(withEdits(createElement(PlayerDetail, { player: row, showLineupCost: true }), settings));
+  };
+
+  it("is a labeled select in his breakdown, reading the saved week, 44 px with 16 px text (Checkpoint 7h: moved from a row of its own)", () => {
+    const html = detailOf("107");
     const control = /<label for="([^"]+)" class="[^"]*">Expected back<span class="sr-only"> for Humbert Fiddlesticks<\/span>:<\/label><select id="\1" class="([^"]*)">([\s\S]*?)<\/select>/.exec(html);
     expect(control).not.toBeNull();
     expect(control?.[2]).toMatch(/(^|\s)min-h-11(\s|$)/);
@@ -83,43 +89,43 @@ describe("Expected back (item 3.5)", () => {
       ["30", "out for the season", false],
     ]);
     // Crumpet's own control, nothing saved: our guess chosen.
-    expect(html).toMatch(/Expected back<span class="sr-only"> for Bartleby Crumpet<\/span>:<\/label><select id="[^"]+" class="[^"]*"><option value="" selected="">week 13 \(our guess\)<\/option>/);
+    expect(detailOf("103")).toMatch(/Expected back<span class="sr-only"> for Bartleby Crumpet<\/span>:<\/label><select id="[^"]+" class="[^"]*"><option value="" selected="">week 13 \(our guess\)<\/option>/);
+    // A saved week from another season isn't shown as his (review of wave C, UI-C-3).
+    expect(detailOf("107", { ...SAVED, returnWeeksSeason: SEASON - 1 })).toMatch(/for Humbert Fiddlesticks<\/span>:<\/label><select id="[^"]+" class="[^"]*"><option value="" selected="">week 15 \(ESPN\)<\/option>/);
   });
 
-  it("sits in a row of its own under his, so his row header is his button and lock alone (review of wave C, UI-C-10)", () => {
+  it("shows the week inline in his button, his row header his button and lock alone, no select in the table until his breakdown opens (Checkpoint 7h; review of wave C, UI-C-10)", () => {
     const html = renderToStaticMarkup(withEdits(table(myRows()), SAVED));
     const headers = [...html.matchAll(/<th scope="row"[^>]*>([\s\S]*?)<\/th>/g)].map((m) => m[1] ?? "");
     expect(headers.length).toBeGreaterThan(0);
-    for (const h of headers) {
-      expect(h).not.toContain("<select");
-      expect(h).not.toContain("Expected back");
-    }
-    // The select's row spans the table under his, its own cell.
-    expect(html).toMatch(/<tr class="border-b border-line"><td colSpan="5" class="p-0"><span class="flex [^"]*"><label for="[^"]+" class="[^"]*">Expected back<span class="sr-only"> for Humbert Fiddlesticks<\/span>/);
-    // A saved week from another season isn't shown as his (review of wave C, UI-C-3).
-    const old = renderToStaticMarkup(withEdits(table(myRows()), { ...SAVED, returnWeeksSeason: SEASON - 1 }));
-    expect(old).toMatch(/for Humbert Fiddlesticks<\/span>:<\/label><select id="[^"]+" class="[^"]*"><option value="" selected="">week 15 \(ESPN\)<\/option>/);
+    for (const h of headers) expect(h).not.toContain("<select");
+    expect(html).not.toContain("<select");
+    // The week in words in his button, where the conflict note's short line would be.
+    expect(html).toContain('<span class="block pl-4 text-xs break-words text-muted">Expected back: week 15 (ESPN)</span>');
+    // No row of its own under his.
+    expect(html).not.toMatch(/<td colSpan="5" class="p-0"><span class="flex/);
   });
 
   it("is the line alone without the League page's settings edits, and replaces the conflict note's short line in his button", () => {
     const html = renderToStaticMarkup(table(myRows()));
     expect(html).not.toContain("<select");
-    expect(html).toContain('<span class="block text-xs text-muted pr-4 pb-2 pl-8 sm:pr-0 sm:pl-4">Expected back: week 15 (ESPN)</span>');
+    expect(html).toContain('<span class="block pl-4 text-xs break-words text-muted">Expected back: week 15 (ESPN)</span>');
     // Crumpet's button no longer says "ESPN says back wk 15; using Sleeper": his return line follows it.
     expect(html).not.toContain(">ESPN says back wk 15; using Sleeper</span>");
     expect(html).toContain("Expected back: week 13 (our guess)");
+    // His breakdown without the edits: the line, no select.
+    const detail = renderToStaticMarkup(createElement(PlayerDetail, { player: myRows().find((p) => p.id === "103") as PlayerRow, showLineupCost: true }));
+    expect(detail).not.toContain("<select");
+    expect(detail).toContain("Expected back: week 13 (our guess)");
   });
 
-  it("opens at the top of his breakdown as a line, with how a week of the user's counts, and the conflict sentence stays", () => {
-    const rows = myRows();
-    const crumpet = rows.find((p) => p.id === "103") as PlayerRow;
-    const detail = renderToStaticMarkup(withEdits(createElement(PlayerDetail, { player: crumpet, showLineupCost: true }), SAVED));
+  it("opens at the top of his breakdown with its select (one per player: review of wave C, UI-C-5), how a week of the user's counts, and the conflict sentence stays", () => {
+    const detail = detailOf("103");
     expect(detail).toContain("ESPN: questionable, return week 15");
-    // One select per player, on his row (review of wave C, UI-C-5): the breakdown says the line.
-    expect(detail).not.toContain("<select");
-    expect(detail).toContain('<p class="text-xs font-semibold">Expected back: week 13 (our guess)</p>');
+    expect(detail.match(/<select/g)).toHaveLength(1);
     expect(detail).toContain("Pick the week you expect him back if you know better.");
-    const plain = renderToStaticMarkup(createElement(PlayerDetail, { player: rows.find((p) => p.id === "101") as PlayerRow, showLineupCost: true }));
+    expect(detail.indexOf("<select")).toBeLessThan(detail.indexOf("Pick the week you expect him back"));
+    const plain = renderToStaticMarkup(withEdits(createElement(PlayerDetail, { player: myRows().find((p) => p.id === "101") as PlayerRow, showLineupCost: true }), SAVED));
     expect(plain).not.toContain("Expected back");
   });
 });
