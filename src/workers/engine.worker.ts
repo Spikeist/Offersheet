@@ -19,6 +19,9 @@
  *   to Checkpoint 7b, §7): the result carries the "Helps both" list too (TradeSearchResult.helpsBoth, ranked by the
  *   engine) and every evaluation its partner's numbers (TradeEvaluation.them), plain data in the same reply: the page's
  *   sort stays its own (no message for it), and a card on both lists is one object, which the structured clone keeps one.
+ *   Checkpoint 7h (planner reply to Checkpoint 7g, section 3): `thorough: true` runs the Thorough search (search.ts
+ *   TradeSearchOptions.mode "thorough"; about 5–6 times a normal search's work), sliced, stopped and kept like any other;
+ *   a `refilter` carries the flag too, so a new search in its place is a Thorough one.
  * - `refilter` (Phase 4c; planner reply to Checkpoint 4b, change 10: "Re-filter instantly from the finalists, without
  *   re-running the search"): the ideas of a finished search (`of`: its request id, or an earlier re-filter's) ranked again
  *   with the request's minimum chance (TradeSettings.minChance; search.ts refilterSearch: the same finalists, their Plan
@@ -152,6 +155,11 @@ export interface LeagueRequest extends LeagueJobFields {
 export interface TradesRequest extends LeagueJobFields {
   type: "trades";
   partnerId: string | null;
+  /**
+   * Checkpoint 7h (planner reply to Checkpoint 7g, section 3): the Thorough search (search.ts TradeSearchOptions.mode
+   * "thorough": whole rosters, 3 players a side, a bigger funnel). Absent or false: the normal search (an older page's request).
+   */
+  thorough?: boolean;
 }
 
 /**
@@ -163,6 +171,8 @@ export interface RefilterRequest extends LeagueJobFields {
   /** The id of the search, or earlier re-filter, whose ideas to rank again (-1: none known: a new search). */
   of: number;
   partnerId: string | null;
+  /** Checkpoint 7h: the search it ranks again was a Thorough search (TradesRequest.thorough): a new search, when one is needed, is one too. */
+  thorough?: boolean;
 }
 
 /** Evaluate one trade (the Trade Analyzer, §13). */
@@ -352,7 +362,7 @@ function isOffersSource(x: unknown): x is OffersSource {
 
 function isJob(x: unknown): x is LeagueRequest | TradesRequest | RefilterRequest | AnalyzeRequest | WaiversRequest | OffersRequest {
   if (!isRecord(x)) return false;
-  const r = x as Partial<LeagueJobFields> & { type?: unknown; partnerId?: unknown; proposal?: unknown; of?: unknown; source?: unknown };
+  const r = x as Partial<LeagueJobFields> & { type?: unknown; partnerId?: unknown; proposal?: unknown; of?: unknown; source?: unknown; thorough?: unknown };
   const common =
     typeof r.id === "number" &&
     !!r.snapshot &&
@@ -363,9 +373,11 @@ function isJob(x: unknown): x is LeagueRequest | TradesRequest | RefilterRequest
     typeof r.nowIso === "string";
   if (!common) return false;
   const partnerOk = r.partnerId === undefined || r.partnerId === null || typeof r.partnerId === "string";
+  // Checkpoint 7h: the Thorough search's flag, a boolean when there (an older page's request has none).
+  const thoroughOk = r.thorough === undefined || typeof r.thorough === "boolean";
   if (r.type === "league" || r.type === "waivers") return true;
-  if (r.type === "trades") return partnerOk;
-  if (r.type === "refilter") return partnerOk && typeof r.of === "number";
+  if (r.type === "trades") return partnerOk && thoroughOk;
+  if (r.type === "refilter") return partnerOk && thoroughOk && typeof r.of === "number";
   if (r.type === "analyze") return isProposal(r.proposal);
   if (r.type === "offers") return isOffersSource(r.source);
   return false;
@@ -682,8 +694,12 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
     schedule(step);
   }
 
-  /** A search's generator on the context the request names (a new search: kept by its id when it finishes). */
-  const searchOn = (ctx: TradeContext, req: TradesRequest | RefilterRequest, settings: TradeSettings) => search(ctx, { settings, partnerId: req.partnerId ?? null, ...timing });
+  /**
+   * A search's generator on the context the request names (a new search: kept by its id when it finishes); since Checkpoint 7h
+   * the Thorough search when the request asks for it (TradesRequest.thorough).
+   */
+  const searchOn = (ctx: TradeContext, req: TradesRequest | RefilterRequest, settings: TradeSettings) =>
+    search(ctx, { settings, partnerId: req.partnerId ?? null, ...(req.thorough === true ? { mode: "thorough" as const } : {}), ...timing });
 
   function startSearch(req: TradesRequest, now: Date, settings: TradeSettings): void {
     runSliced(

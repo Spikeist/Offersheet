@@ -254,6 +254,17 @@ describe("createEngineClient: the trade search (M12)", () => {
     expect(worker.posted).toHaveLength(1);
   });
 
+  it("sends the Thorough search's flag with the job when the page asks for it (Checkpoint 7h), and none otherwise", () => {
+    const worker = new FakeWorker();
+    const client = createEngineClient({ createWorker: () => worker });
+    // The second search stops the first (one at a time): its promise rejects as cancelled.
+    void client.searchTrades({ ...tradesJob(), thorough: true }).promise.catch(() => undefined);
+    void client.searchTrades(tradesJob()).promise.catch(() => undefined);
+    expect(worker.posted[0]).toMatchObject({ type: "trades", thorough: true });
+    expect(worker.posted.at(-1)).toMatchObject({ type: "trades" });
+    expect("thorough" in (worker.posted.at(-1) as object)).toBe(false);
+  });
+
   it("stops at Stop: rejects as cancelled at once, tells the worker, and ignores what the worker still sends", async () => {
     const worker = new FakeWorker();
     const client = createEngineClient({ createWorker: () => worker });
