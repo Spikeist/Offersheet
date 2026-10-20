@@ -6,8 +6,9 @@
  * Checkpoint 7h (planner reply to Checkpoint 7g, §1: "Cards are closed by default. A closed card shows only: what Parker gives
  * and what he gets; the three numbers; its tags ("Helps both," "Harder to get"); one reason. Everything else goes behind one
  * "Details" control … "How to offer it" stays a separate control."; the lead's rulings for track "clutter", items 1–3 and 6):
- * - Closed: "Trade idea N", the heading and its "Helps both" tag; You give / You get, each player with position, NFL team, an
- *   injury tag in words and "Harder to get"; the three numbers (the veto note right under them when it shows); its risk flags
+ * - Closed: "Trade idea N", the heading and its "Helps both" tag, on one row that wraps when they don't fit (the first
+ *   review's item 3); You give / You get, each player with position, NFL team, an injury tag in words and "Harder to get";
+ *   the three numbers (the veto note right under them when it shows); its risk flags
  *   as small pills in words (FlagView.pill: "Market check", "Injured player"; ⚠️ ours, their sentences behind Details); one
  *   reason, the first of the card's reasons; then two 44 px disclosure buttons side by side, Details and How to offer it
  *   (aria-expanded, aria-controls naming its panel; the panels below them, full width, each kept in the page while closed
@@ -692,19 +693,31 @@ export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedbac
       {card.heading}
     </Heading>
   );
+  // "Helps both" next to the heading, wrapping under it on a narrow phone (Checkpoint 7c); the heading alone names the card.
+  const titled = card.helpsBothTag ? (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      {heading}
+      <HelpsBothBadge tag={card.helpsBothTag} />
+    </div>
+  ) : (
+    heading
+  );
   // The first reason shows on the closed card; the others in Details (Checkpoint 7h: "one reason").
   const [reason, ...moreReasons] = card.reasons;
   return (
     <article aria-labelledby={headingId} className="rounded-2xl border border-line bg-surface p-4 shadow-sm sm:p-5">
-      {rank ? <p className="text-xs font-bold tracking-wider text-brand uppercase">Trade idea {rank}</p> : null}
-      {/* "Helps both" next to the heading, wrapping under it on a narrow phone (Checkpoint 7c); the heading alone names the card. */}
-      {card.helpsBothTag ? (
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          {heading}
-          <HelpsBothBadge tag={card.helpsBothTag} />
+      {/* "Trade idea N" on one row with the heading and its "Helps both" tag, on one baseline, wrapping when they don't fit
+          (Checkpoint 7h, the first review's item 3: the eyebrow's own line saved, toward at least 2 closed ideas a phone
+          screen). ⚠️ Ours: the heading and its tag move down together, as one piece, with no gap above them: a card tagged
+          "Helps both" that can't fit all three on a line (every one at 375 px) is laid out as before, rather than the tag
+          dropping to a line of its own under the heading, 10.5 px taller than before. */}
+      {rank ? (
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <p className="text-xs font-bold tracking-wider text-brand uppercase">Trade idea {rank}</p>
+          {titled}
         </div>
       ) : (
-        heading
+        titled
       )}
 
       <div className="mt-2 grid grid-cols-2 gap-3">

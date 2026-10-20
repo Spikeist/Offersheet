@@ -522,6 +522,27 @@ describe("TradeCard (§13: each trade card shows)", () => {
     expect(textOf(html).match(/Win chance by week/g)).toHaveLength(1);
   });
 
+  it("puts “Trade idea N” on one row with the heading and its “Helps both” tag, wrapping when they don't fit (Checkpoint 7h, the first review's item 3: at least 2 closed ideas a phone screen)", () => {
+    const card = (e: TradeEvaluation, rank?: number) => renderToStaticMarkup(createElement(TradeCard, { card: buildTradeCard(e, { snapshot }), rank, feedback: NONE, onFeedback: saved }));
+    const eyebrow = (n: number) => `<p class="text-xs font-bold tracking-wider text-brand uppercase">Trade idea ${n}</p>`;
+    const h3 = '<h3 id="[^"]+" class="text-lg leading-tight font-extrabold tracking-tight wrap-anywhere">Trade with Gravel Gophers</h3>';
+    const article = '<article aria-labelledby="[^"]+" class="[^"]*">';
+    // A Trade Finder card: the eyebrow and the heading side by side on one baseline (its own line saved: 16 px a card), the
+    // row the card's first child, with no gap between its lines, so a heading too long to fit beside the eyebrow sits under
+    // it as it did when the eyebrow had a line of its own.
+    const row = '<div class="flex flex-wrap items-baseline gap-x-2">';
+    expect(card(evaluation(), 3)).toMatch(new RegExp(`${article}${row}${eyebrow(3)}${h3}</div>`));
+    // Tagged "Helps both": the heading and its tag one piece of the row (Checkpoint 7c's pairing), so on a phone, where the
+    // three don't fit on a line, they move under the eyebrow together and the card is laid out as before.
+    const pair = '<div class="flex flex-wrap items-center gap-x-2 gap-y-1">';
+    const tagged = withThem(evaluation(), 24);
+    expect(card(tagged, 2)).toMatch(new RegExp(`${article}${row}${eyebrow(2)}${pair}${h3}<span title="Helps both: [^"]+" class="shrink-0"><span class="[^"]*">Helps both</span></span></div></div>`));
+    // The Trade Analyzer's card (no place in a list): no eyebrow, the heading (with its tag) first, as before.
+    expect(card(evaluation())).toMatch(new RegExp(`${article}${h3}<div class="mt-2 grid`));
+    expect(card(tagged)).toMatch(new RegExp(`${article}${pair}${h3}<span title="Helps both`));
+    expect(card(tagged)).not.toContain("Trade idea");
+  });
+
   it("keeps the tag to the cards that help both, says “Helps them 0” when the trade costs them, and shows no line without the partner's numbers", () => {
     const render = (e: ReturnType<typeof evaluation>) => renderToStaticMarkup(createElement(TradeCard, { card: buildTradeCard(e, { snapshot }), rank: 1, feedback: NONE, onFeedback: saved }));
     // Helps them under 10, or 0, or a trade that doesn't help me: their line, no tag.
