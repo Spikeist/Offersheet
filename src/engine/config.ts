@@ -738,6 +738,45 @@ export const config = {
      */
     yieldEveryScreens: 100,
     yieldEverySims: 5,
+    /**
+     * Checkpoint 7h (planner reply to Checkpoint 7g, section 2: "screen every 1-for-1, 1-for-2, 2-for-1 and 2-for-2 trade with
+     * every partner. Use whole rosters, not just the pools, and the same screening objective. Then run exact evaluation and the
+     * simulation on the best of them."): the brute force (search.ts, "Whole rosters"; TradeSearchOptions.mode "bruteForce", a
+     * report switch the app never sets), its funnel generous enough that its top 25 is solid (the lead's numbers): each
+     * partner's best keptPerPartner by the screening objective, then the best exactEvaluationMax in all evaluated exactly, and
+     * `finalists` simulated on the ranking block (the normal search: 30, 200 and 60).
+     */
+    bruteForce: { keptPerPartner: 100, exactEvaluationMax: 1000, finalists: 150 },
+    /**
+     * Checkpoint 7h (planner reply to Checkpoint 7g, section 3: "screens every 1- and 2-player trade with every partner, across
+     * whole rosters; adds trades with 3 players on a side, from bigger pools (for example, the top 15 on each side); sends more
+     * trades to the full simulation (for example, 120 instead of 60)"; search.ts, "Whole rosters"): the "Thorough search".
+     * maxPerSide: its players a side, whatever the max-per-side setting (⚠️ ours: the planner's definition holds 3 a side; the
+     * setting's own max when it's higher). threePool: the pools its 3-a-side trades come from, my top this many by surplus score
+     * (with my trade chips and must-include players) and each partner's top this many by what they'd add to my lineup. shapes:
+     * each 3-a-side shape screened in full from the first `top` of each of those pools (⚠️ ours, sized to its time: the larger
+     * shapes from smaller pools). beam: each partner's best this many two-player trades extended by one more player from those
+     * pools, as the beams extend. keptPerPartner and exactEvaluationMax: its funnel for the trades of up to 2 players a side
+     * (the brute force's); `three`, its own for the trades with 3 players on a side, kept apart (⚠️ ours: with one keep their
+     * bigger lineup gains crowded the best 2-player trades out of exact evaluation, so it showed fewer good cards than the
+     * brute force; the caps sized by section 2's test, Checkpoint 7h's report). finalists: simulated on the ranking block.
+     */
+    thorough: {
+      maxPerSide: 3,
+      threePool: 15,
+      shapes: [
+        { give: 3, get: 1, top: 15 },
+        { give: 1, get: 3, top: 15 },
+        { give: 3, get: 2, top: 8 },
+        { give: 2, get: 3, top: 8 },
+        { give: 3, get: 3, top: 6 },
+      ] as readonly { give: number; get: number; top: number }[],
+      beam: 40,
+      keptPerPartner: 100,
+      exactEvaluationMax: 1000,
+      three: { keptPerPartner: 40, exactEvaluationMax: 400 },
+      finalists: 120,
+    },
   },
 
   /**

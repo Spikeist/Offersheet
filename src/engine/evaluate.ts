@@ -2483,15 +2483,37 @@ function holeSlots(I: TradeInternals, before: Float64Array, after: Float64Array,
  * ROS alone, the partner's LV per week with seats in the hole weeks only.
  */
 export function screenTrade(I: TradeInternals, partner: TeamState, give: readonly string[], get: readonly string[], key?: string): Screened | null {
+  const half = screenMyHalf(I, give, get);
+  return half ? screenTheirHalf(I, partner, give, get, half, key) : null;
+}
+
+/**
+ * My half of a screen (Checkpoint 7h, the search track; screenTrade's first half): my side after the trade by the screening's
+ * legality, its EV ROS against V*(me)'s, myDelta. The whole-roster searches (search.ts, "Whole rosters") price it first and
+ * leave the partner's half (screenTheirHalf) for later when the trade can't help me: its objective, myDelta × the quick
+ * chance, is then below every objective of a trade that does. It doesn't read the partner (my side's legality reads only the
+ * players that move).
+ */
+export interface MyScreenHalf {
+  readonly myDelta: number;
+}
+
+/** screenTrade's first half (MyScreenHalf): null when a roster rule makes my side illegal. */
+export function screenMyHalf(I: TradeInternals, give: readonly string[], get: readonly string[]): MyScreenHalf | null {
   const me = I.me as TeamState;
   // Each side's legality adds skip the free agents the other teams claimed (its baseline exclusion excl(T): ⚠️ screening
   // is a filter, so the trade's own allocation order isn't followed here).
   const mine = legalSide(I, me, me.vstar.roster, give, get, "ev", "You", "ros", me.pool);
   if ("illegal" in mine) return null;
+  return { myDelta: (mine.ros as number) - me.baseEv.ros };
+}
+
+/** screenTrade's second half: the partner's side, the quick chance and the objective, from my half; null when the partner's side is illegal. */
+export function screenTheirHalf(I: TradeInternals, partner: TeamState, give: readonly string[], get: readonly string[], half: MyScreenHalf, key?: string): Screened | null {
   const theirs = legalSide(I, partner, partner.vstar.roster, get, give, "ev", teamName(I, partner.id), "look", partner.pool);
   if ("illegal" in theirs) return null;
   const look = theirs.look as EvLook;
-  const myDelta = (mine.ros as number) - me.baseEv.ros;
+  const myDelta = half.myDelta;
   // The partner's open-spot credit follows its own active roster (rule 5 placed the IR players: market.ts's header).
   const theirSpots = spotsOf(theirs, get, give);
   const gPartner = tradePackage({ players: give }, { players: get }, I.values, I.credit, config.market, theirSpots).g;
