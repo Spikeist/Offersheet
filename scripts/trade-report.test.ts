@@ -25,7 +25,7 @@ import { runTradeSearch, searchStateOf, type SearchState } from "@/engine/search
 import { GOALS, defaultTradeSettings } from "@/engine/settings";
 import { TEST_NOW } from "@/engine/testLeague";
 import { smallLeague } from "@/engine/trade.testing";
-import type { OfferStep, TradeEvaluation, TradeEvaluationCore, TradeSearchResult } from "@/engine/tradeModel";
+import type { MergedCards, OfferStep, TradeEvaluation, TradeEvaluationCore, TradeSearchResult } from "@/engine/tradeModel";
 import { tradeEvaluation } from "@/engine/tradeTestFixtures";
 import { acceptText, injuryTagText, knownTagsOf, planBView, seasonEndOf, topChance, topPlacesOf } from "@/lib/tradeView";
 import { GOAL_WORDS, asWeeklyResetData, benefitWin, placeholders, pre4cText, prizesWords, resetWaiverOrder, scaleCheck, thresholdsLine, type Pre4cOrder } from "./league-report";
@@ -40,6 +40,7 @@ import {
   LADDER_CARDS,
   LANE_REST_STAGES,
   NEAR_POINTS,
+  NOT_PROMOTED_WORDS,
   OFFER_WORDS,
   OPEN_SPOT_FINALISTS,
   PREMIUM_ANCHORS,
@@ -86,6 +87,7 @@ import {
   planBOddsText,
   playoffMove,
   premiumAnchorRows,
+  promotedCounts,
   pts,
   rankedFinals,
   reportCommand,
@@ -638,12 +640,15 @@ describe("trade report: what Helps both costs a search (section 10)", () => {
       smallerLast: [],
       dropped: [],
       preferred: [],
+      promoted: [],
+      notPromoted: [],
+      higherEarlier: [],
       cards: { overall: { without: 6, with: 6 }, helpsBoth: { without: 3, with: 2 } },
       ms: 178.4,
     };
     const team = (id: string) => `Team ${id}`;
     const n = (t: TradeEvaluation) => threeNumbers(t);
-    const opening = `**Merged cards** (planner reply to Checkpoint 7e, decision 3: a card whose "How to offer it" holds a card of its list below it on Overall takes it among its offers, and the next idea takes its place; since Checkpoint 7g, planner reply to Checkpoint 7f, answer 3: (a) a Last offer can ask for fewer of their players, keeping at least ${Math.round(100 * config.offers.lastMinOverallShare)}% of the card's Overall; (b) a ladder prefers the versions on its lists; (c) a version at least as good on both Helps you and the chance as another version of the same trade drops it): `;
+    const opening = `**Merged cards** (planner reply to Checkpoint 7e, decision 3: a card whose "How to offer it" holds a card of its list below it on Overall takes it among its offers, and the next idea takes its place; since Checkpoint 7g, planner reply to Checkpoint 7f, answer 3: (a) a Last offer can ask for fewer of their players, keeping at least ${Math.round(100 * config.offers.lastMinOverallShare)}% of the card's Overall; (b) a ladder prefers the versions on its lists; (c) a version at least as good on both Helps you and the chance as another version of the same trade drops it; since Checkpoint 7h, planner reply to Checkpoint 7g, answers 2–4: (a)'s bar ${Math.round(100 * config.offers.lastMinOverallShare)}%, (b) narrowed to a version within ${config.offers.preferWithinHelps} points of the step's usual pick's Helps you, and a Last offer printing a higher Overall than its card promoted to the idea, the original its “Open with”): `;
     expect(mergeLines(snapshot, section7f, team)).toEqual([
       `${opening}1 merged on the Overall list (2 rounds), 0 on "Helps both" (1 round); 0 dropped for a better version of the same trade; 3 ladders read by the merge, worked out during the search in 178 ms (its "offers" timing); 1 given back (in no offers of a card above it). The lists' cards without the merge → with it: Overall 6 → 6, "Helps both" 3 → 2.`,
       "",
@@ -686,6 +691,22 @@ describe("trade report: what Helps both costs a search (section 10)", () => {
     expect(labelShape(ev([ids.wilson as string], [ids.evans as string]).proposal, ev([ids.wilson as string, ids.hubbard as string], [ids.evans as string]).proposal)).toBe("throwIn");
     expect(labelShape(into.proposal, other.proposal)).toBe("other");
     expect(labelShape(into.proposal, folded.proposal)).toBe("other");
+    // Checkpoint 7h (answer 3): a promoted Last offer, one not promoted with why, a higher Open counted, and the counts.
+    const promotedCard = ev([ids.wilson as string, ids.hubbard as string], [ids.evans as string]);
+    const section7h: MergeSection = {
+      ...section7f,
+      merged: { ...(section7f.merged as NonNullable<MergeSection["merged"]>), promoted: [{ key: promotedCard.key, from: other.key, list: "overall", kind: "throwIn" }], notPromoted: [{ card: into.key, offer: folded.key, list: "overall", reason: "rules" }], higherEarlier: [{ card: into.key, offer: other.key, kind: "open" }], superseded: 0 },
+      promoted: [{ list: "overall", card: promotedCard, place: 2, from: other, fromWas: 4, kind: "throwIn" }],
+      notPromoted: [{ list: "overall", card: into, place: 1, offer: folded, reason: "rules" }],
+      higherEarlier: [{ card: into, offer: other, kind: "open" }],
+    };
+    const lines7h = mergeLines(snapshot, section7h, team);
+    expect(lines7h[0]).toContain("; 0 dropped for a better version of the same trade; 1 Last offer promoted, 1 printing a higher Overall not promoted, 1 Open or Then printing a higher Overall (counted, not promoted); 3 ladders read by the merge");
+    expect(lines7h).toContain(`- Promoted (Overall; answer 3): Team 2: Garrett Wilson + Chuba Hubbard → Mike Evans (${n(promotedCard)}), idea 2, the Last offer (a player of yours added) of Team 4: Garrett Wilson → Mike Evans (${n(other)}) (idea 4 without the merge), now its “Open with”.`);
+    expect(lines7h).toContain(`- Last offers printing a higher Overall than their card, not promoted: Overall idea 1, Team 2: Garrett Wilson → Chuba Hubbard (${n(into)}): Team 2: Garrett Wilson → Chuba Hubbard + Mike Evans (${n(folded)}) (${NOT_PROMOTED_WORDS.rules}).`);
+    expect(lines7h).toContain(`- ⚠️ Opens and Thens printing a higher Overall than their card (counted, never promoted: the card is the smaller ask; the lead's ruling): Team 2: Garrett Wilson → Chuba Hubbard (${n(into)}): “Open with” Team 4: Garrett Wilson → Mike Evans (${n(other)}).`);
+    expect(promotedCounts({ ...(section7h.merged as MergedCards), superseded: 2 })).toContain(", 2 left out by a chain of promotions; ");
+    expect(promotedCounts(section7f.merged as MergedCards)).toBe("");
     expect(LABEL_SHAPE_WORDS).toEqual({ smaller: "it asks for fewer of their players", lean: "it's the higher idea's lean version", throwIn: "it adds a player of yours to the higher idea", other: "another version" });
   });
 
@@ -758,6 +779,9 @@ describe("trade report: what Helps both costs a search (section 10)", () => {
       smallerLast: [],
       dropped: [],
       preferred: [],
+      promoted: [],
+      notPromoted: [],
+      higherEarlier: [],
       cards: { overall: { without: 6, with: 6 }, helpsBoth: { without: 3, with: 3 } },
       ms: null,
     };
