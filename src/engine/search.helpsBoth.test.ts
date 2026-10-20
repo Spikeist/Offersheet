@@ -248,13 +248,15 @@ describe("the “Helps both” list (TradeSearchResult.helpsBoth)", { timeout: 1
         trades: x.trades.map(({ them: _them, ...t }) => (void _them, t)),
         counts: { ...x.counts, simFinal: 0, simShown: 0 },
         helpsBoth: undefined,
-        // Since Checkpoint 7h the promotions too (each list's own), and the ladders' count (every card's of both lists).
+        // Since Checkpoint 7h the promotions too (each list's own), the ladders' count (the merge's and the promoted cards' of
+        // both lists) and the Last offers the promotion checked alone (every other card's of both lists).
         merged: x.merged && {
           ...x.merged,
           helpsBoth: [],
           rounds: { ...x.merged.rounds, helpsBoth: 0 },
           dominated: x.merged.dominated?.filter((d) => d.list === "overall"),
           ladders: 0,
+          lastOffers: 0,
           promoted: x.merged.promoted?.filter((p) => p.list === "overall"),
           notPromoted: x.merged.notPromoted?.filter((n) => n.list === "overall"),
           higherEarlier: x.merged.higherEarlier?.filter((h) => overallKeys(x).has(h.card)),

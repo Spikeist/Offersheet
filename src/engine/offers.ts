@@ -232,6 +232,11 @@ export interface LadderStore {
    * shared with its re-filters, which change only the minimum). Absent for a context's store (offerLadderOfProposal).
    */
   choices?: Map<string, LadderChoice | null>;
+  /**
+   * Checkpoint 7h (the promotion's cost; searchLastOfferSteps): a search's Last offers worked out alone, by the key its whole
+   * ladder's choice has (choiceKey), shared with its re-filters like `choices`. Absent for a context's store.
+   */
+  lasts?: Map<string, LastOfferChoice | null>;
 }
 
 /** What a ladder is built from (ladderJobOfSearch, ladderJobOfProposal). */
@@ -1033,7 +1038,7 @@ export function ladderJobOfSearch(state: SearchState, card: TradeEvaluation, pre
   const own = state.shownPass && sim !== null && sim.blocks.shown !== sim.blocks.final;
   let store = searchStores.get(state.versions);
   if (!store) {
-    store = { versions: state.versions, printed: new Map(), known: own ? state.shownByKey : state.finalByKey, choices: new Map() };
+    store = { versions: state.versions, printed: new Map(), known: own ? state.shownByKey : state.finalByKey, choices: new Map(), lasts: new Map() };
     searchStores.set(state.versions, store);
   }
   const pool = state.getPools.get(card.proposal.partnerId);
@@ -1083,6 +1088,31 @@ export function* searchLadderChoiceSteps(job: LadderJob): Generator<void, Ladder
   const choice = yield* ladderChoiceSteps(job);
   choices.set(key, choice);
   return choice;
+}
+
+/**
+ * A search card's Last offer alone (Checkpoint 7h, the promotion's cost: the lead's ruling, "check each card's Last offer alone
+ * (the Last offer doesn't depend on the Open or the Thens) and work out the full ladder only for promoted cards and the cards
+ * the merge reads, so the promotions are the same"; search.ts, "Promoted Last offers"): the Last offer the card's whole ladder
+ * (searchLadderChoiceSteps, the same job) would hold, without its Open and Thens. The same, by construction: ladderChoiceSteps
+ * works the Last offer out first (lastOfferSteps), from the card, its version and the store alone, never from the Open or the
+ * Thens, and its ladder always has room for it (ladderRoom: with config.offers.maxSteps at least 3, the suggested trade, an Open
+ * and the Last offer fit); null when the card gets the suggested trade alone (offersApply), as its ladder is then. Read from
+ * the store's whole choice when it holds one (a re-filter, a card already opened), else worked out once per key and kept
+ * (LadderStore.lasts). ⚠️ Where it couldn't be the same (a ladder of fewer than 3 offers, which could drop the Last offer for
+ * an Open, or a job with a preference, whose ladder is chosen between two), the whole ladder is worked out and its Last offer
+ * read. Its runs on the shown block are the whole ladder's Last offer's, in the same order, so they're the very numbers.
+ */
+export function* searchLastOfferSteps(job: LadderJob): Generator<void, LastOfferChoice | null, void> {
+  const key = choiceKey(job.settings.minChance, job.card.key, job.prefer, job.open);
+  const whole = job.store.choices;
+  if (whole?.has(key)) return whole.get(key)?.last ?? null;
+  if ((job.prefer && job.prefer.size) || !ladderRoom(config.offers.maxSteps, true, true).last) return (yield* searchLadderChoiceSteps(job))?.last ?? null;
+  const lasts = job.store.lasts;
+  if (lasts?.has(key)) return lasts.get(key) ?? null;
+  const last = offersApply(job) ? yield* lastOfferSteps(job, helpsBoth(job.card), null) : null;
+  lasts?.set(key, last);
+  return last;
 }
 
 /** A neighbor's kind of offer (ladderNeighbors): an Open or a Then, the Last offer's throw-in, or (Checkpoint 7g) its smaller ask. */

@@ -464,7 +464,7 @@
  *   printing a higher Overall than its card (its card is then the smaller ask, which the planner's wording doesn't fit) is
  *   counted (MergedCards.higherEarlier, the cards shown) and never promoted.
  * - When: in each list's rounds, once a round merges none, drops none and gives nothing back. Then every card of the list has
- *   its ladder worked out (choiceOf: the one its first open gives, kept, so the first open is instant), and going down the
+ *   its Last offer worked out (lastOf: the cost, below), and going down the
  *   cards by Overall as printed each card whose Last offer prints the higher Overall is a candidate, unless (NotPromoted's
  *   reasons): the card is a merged trade given back ("released"); the Last offer is a card of the list already ("card": both
  *   stay, the offer labeled "Also shown as trade idea N." as before); it's merged, dropped or left out on the list ("shown");
@@ -494,9 +494,22 @@
  * - Counts: MergedCards.promoted, notPromoted (as each list's last pass found them), higherEarlier and superseded; the
  *   qualifying counts stay the first ranking's (every trade the merge took out was a card), ⚠️ so a promoted Last offer,
  *   never a finalist, isn't among them. `few`, lowerWouldAdd and the pattern note rank with each list's promoted Last offers
- *   and without the ideas left out. Plan B reads a promoted card's original as one of its list's merged trades. The cost:
- *   every card's ladder is worked out (Checkpoint 7g worked out only those the merge read), under the "offers" timing.
- *   ⚠️ A card's ladder worked out by the promotion pass carries no preference, and a ladder is fixed once worked out, so a
+ *   and without the ideas left out. Plan B reads a promoted card's original as one of its list's merged trades.
+ * - The cost (the lead's ruling, after the answers track first worked out every card's whole ladder: +1.39 s warm on Parker's
+ *   12-team league, Oct 15, +1.76 s on league 1, Oct 15, "Only the champion", over the 0.4 s bound): "check each card's Last
+ *   offer alone (the Last offer doesn't depend on the Open or the Thens) and work out the full ladder only for promoted cards
+ *   and the cards the merge reads, so the promotions are the same". A card's Last offer (lastOf) is its whole ladder's when the
+ *   merge read it or the card is a promoted one (its forced Open: that ladder is kept, so its first open is instant), else
+ *   offers.ts searchLastOfferSteps: the very Last offer its whole ladder would hold (ladderChoiceSteps works the Last offer out
+ *   first, from the card and the store alone, and always has room for it), its Open and Thens left to the card's first open, as
+ *   at Checkpoint 7g. ⚠️ Such a card counts as having its ladder worked out without a preference (`lastOnly`), as the whole
+ *   ladder would have been: a later round's merge reads it without one (choiceOf), and a Last offer that is such a card is
+ *   "taken" for another card's promotion, so the promotions, the lists, the merge records and the ladders kept for the cards
+ *   both ways keep are the whole-ladder version's (TradeSearchOptions.promoteFullLadders, a report switch;
+ *   search.promote.cost.test.ts, and Parker's six runs). ⚠️ The Opens and Thens printing a higher Overall than their card
+ *   (MergedCards.higherEarlier) are counted only on the cards whose whole ladder the search worked out (trade-report.ts section
+ *   11 counts them on every card it opens). Under the "offers" timing.
+ *   ⚠️ A card's ladder fixed by the promotion pass carries no preference, and a ladder is fixed once worked out, so a
  *   card that a later round would have given a preference keeps its ladder without one.
  *
  * Re-filtering (planner reply to Checkpoint 4b, change 10: "re-filter instantly from the finalists, without re-running the
@@ -599,7 +612,7 @@ import { patternNote, type PatternInputs } from "./pattern";
 import { prizeDeltas } from "./reward";
 import { addGainExact } from "./teamValue";
 import { addedGiven, choosePlanB, givenCapSkip, planBCandidates, planBConfig, smallerAskOf, type PlanBConfig } from "./planB";
-import { choiceOffers, forcedOpenOk, ladderFromChoice, ladderJobOfSearch, ladderNeighbors, offerFeasible, searchLadderChoiceSteps, type LadderChoice } from "./offers";
+import { choiceOffers, forcedOpenOk, ladderFromChoice, ladderJobOfSearch, ladderNeighbors, offerFeasible, searchLadderChoiceSteps, searchLastOfferSteps, type LadderChoice } from "./offers";
 import { compareOverall, rankTrades, versionsOfSameTrade, type RankConfig, type RankedTrades, type RankOptions } from "./rank";
 import { defaultTradeSettings, normalizeTradeSettings, type TradeSettings } from "./settings";
 import { thoroughSettings } from "./thorough";
@@ -698,6 +711,13 @@ export interface TradeSearchOptions {
    * stays its Last offer, as at Checkpoint 7g, and the merge works out only the ladders it reads. Default true.
    */
   promoteLastOffers?: boolean;
+  /**
+   * Report and test switch (the app never sets it): true has the promotion work out every card's whole ladder, as the answers
+   * track first built it (the file header, "Promoted Last offers": the cost), instead of each card's Last offer alone. The same
+   * promotions, lists, merge records and kept ladders of the cards both keep (search.promote.cost.test.ts); every card's ladder
+   * kept, so `MergedCards.higherEarlier` counts every card shown. Default false.
+   */
+  promoteFullLadders?: boolean;
 }
 
 /** The search's mode (TradeSearchOptions.mode; the file header, "Whole rosters"). */
@@ -1867,6 +1887,8 @@ export interface SearchState {
   readonly dropDominated: boolean;
   /** Checkpoint 7h: whether a Last offer printing a higher Overall than its card is promoted (TradeSearchOptions.promoteLastOffers). */
   readonly promoteLastOffers: boolean;
+  /** Checkpoint 7h: whether the promotion works out every card's whole ladder (TradeSearchOptions.promoteFullLadders; absent: false). */
+  readonly promoteFullLadders?: boolean;
   /**
    * Checkpoint 7h (the file header, "Whole rosters"): the search's mode (TradeSearchOptions.mode), its funnel's finalists
    * among what it decided; absent on a state made before (the normal search). A re-filter ranks the same finalists.
@@ -2245,12 +2267,14 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
   // promoted from, set before its ladder is first worked out and fixed from then on (SearchState.opens), both lists'.
   const opens = new Map<string, string>();
   let ladderSteps = 0;
-  function* choiceOf(card: TradeEvaluation, prefer?: ReadonlySet<string>): Generator<TradeSearchProgress, LadderChoice | null, void> {
-    const known = choices.get(card.key);
-    if (known !== undefined) return known;
-    if (prefer && prefer.size) prefers.set(card.key, prefer);
-    mark("steps");
-    const it = searchLadderChoiceSteps(ladderJobOfSearch(state, card, prefers.get(card.key), opens.get(card.key)));
+  // Checkpoint 7h (the promotion's cost; the file header, "Promoted Last offers"): the cards whose Last offer alone the
+  // promotion worked out (lastOf), where the whole ladder would have been fixed then without a preference. Their ladders are
+  // fixed so: a later merge that reads one works it out without a preference (choiceOf), and the promotion reads them as
+  // worked out ("taken"), as it would have read the whole ladders.
+  const lastOnly = new Set<string>();
+  // A ladder's steps (offers.ts ladderChoiceSteps or searchLastOfferSteps) as the search's: a progress unit and a yield each,
+  // `part` "offers" meanwhile, under the "offers" timing.
+  function* ladderRun<T>(it: Generator<void, T, void>): Generator<TradeSearchProgress, T, void> {
     const was = part;
     part = "offers";
     let r = it.next();
@@ -2262,8 +2286,30 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
     }
     part = was;
     mark("offers");
-    choices.set(card.key, r.value);
     return r.value;
+  }
+  function* choiceOf(card: TradeEvaluation, prefer?: ReadonlySet<string>): Generator<TradeSearchProgress, LadderChoice | null, void> {
+    const known = choices.get(card.key);
+    if (known !== undefined) return known;
+    if (prefer && prefer.size && !lastOnly.has(card.key)) prefers.set(card.key, prefer);
+    mark("steps");
+    const choice = yield* ladderRun(searchLadderChoiceSteps(ladderJobOfSearch(state, card, prefers.get(card.key), opens.get(card.key))));
+    choices.set(card.key, choice);
+    return choice;
+  }
+  // ⚠️ A card's Last offer for the promotion (Checkpoint 7h, the lead's ruling on its cost: "check each card's Last offer alone
+  // (the Last offer doesn't depend on the Open or the Thens) and work out the full ladder only for promoted cards and the cards
+  // the merge reads, so the promotions are the same"): its whole ladder's when it's worked out (the merge read it), or when the
+  // card is a promoted one (its forced Open: kept, so its first open is instant and the worker's fallback has it to equal), or
+  // with TradeSearchOptions.promoteFullLadders; else the Last offer alone (offers.ts searchLastOfferSteps: the one its whole
+  // ladder, without a preference, would hold), the card's whole ladder left to its first open, as at Checkpoint 7g.
+  function* lastOf(card: TradeEvaluation): Generator<TradeSearchProgress, LadderChoice["last"], void> {
+    const known = choices.get(card.key);
+    if (known !== undefined) return known?.last ?? null;
+    if (state.promoteFullLadders || opens.has(card.key)) return (yield* choiceOf(card))?.last ?? null;
+    lastOnly.add(card.key);
+    mark("steps");
+    return yield* ladderRun(searchLastOfferSteps(ladderJobOfSearch(state, card, undefined, opens.get(card.key))));
   }
 
   /**
@@ -2461,8 +2507,8 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
     }
     // ⚠️ The promotion pass (Checkpoint 7h; planner reply to Checkpoint 7g, answer 3: "When an offer list finds a version with a
     // higher Overall than the idea it sits under: that version becomes the idea; the original becomes its "Open with" step, the
-    // bigger ask."; the lead's rulings; the file header, "Promoted Last offers"). Every card's ladder first (choiceOf: a card
-    // whose ladder the merge didn't read gets the one its first open would give, with no preference, so its offers are the
+    // bigger ask."; the lead's rulings; the file header, "Promoted Last offers"). Every card's Last offer first (lastOf: a card
+    // whose ladder the merge didn't read gets the Last offer its first open's ladder would hold, with no preference, so its offers are the
     // ones Checkpoint 7g showed when it was opened). Then, going down the cards by Overall as printed, each card whose Last
     // offer prints a higher Overall (EG on the printed numbers) than it does is a candidate, unless (NotPromoted's reasons): the
     // card is a merged trade given back ("released": never merged again); the Last offer is a card of the list already
@@ -2480,13 +2526,15 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
     // merged into it as its "open". Whether any was promoted.
     function* promote(cards: readonly TradeEvaluation[]): Generator<TradeSearchProgress, boolean, void> {
       const order = [...cards].sort(compareOverall);
-      for (const c of order) yield* choiceOf(c);
+      // Every card's Last offer (lastOf: its whole ladder only where it's worked out or the card is a promoted one).
+      const lasts = new Map<string, LadderChoice["last"]>();
+      for (const c of order) lasts.set(c.key, yield* lastOf(c));
       const listed = new Set(cards.map((c) => c.key));
       const misses: NotPromoted[] = [];
       let candidates: { card: TradeEvaluation; last: NonNullable<LadderChoice["last"]>; ranked: TradeEvaluation }[] = [];
       const takenNow = new Set<string>();
       for (const c of order) {
-        const last = choices.get(c.key)?.last;
+        const last = lasts.get(c.key);
         if (!last || !(printedEg(last.printed) > printedEg(c) + EPS)) continue;
         const p = last.printed.key;
         const reason: NotPromoted["reason"] | null = released.has(c.key)
@@ -2495,7 +2543,7 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
             ? "card"
             : merged.has(p) || dominated.has(p) || superseded.has(p)
               ? "shown"
-              : takenNow.has(p) || ((opens.has(p) || choices.has(p)) && opens.get(p) !== c.key)
+              : takenNow.has(p) || ((opens.has(p) || choices.has(p) || lastOnly.has(p)) && opens.get(p) !== c.key)
                 ? "taken"
                 : !forcedOpenOk(last.printed, c, minChance)
                   ? "open"
@@ -2858,6 +2906,7 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
               notPromoted: [...so.notPromoted, ...sb.notPromoted],
               higherEarlier,
               superseded: so.superseded.size + sb.superseded.size,
+              lastOffers: lastOnly.size,
             }
           : {}),
       }
@@ -3153,6 +3202,7 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
     dropDominated: opts.dropDominated !== false,
     ...(mode !== "normal" ? { mode } : {}),
     promoteLastOffers: opts.promoteLastOffers !== false,
+    ...(opts.promoteFullLadders ? { promoteFullLadders: true } : {}),
     versions: new Map<string, TradeVersion>(screened.map((s) => [s.core.key, { x: s.x, screen: s.core }])),
     finalByKey,
     shownByKey: new Map<string, TradeEvaluationCore>(),

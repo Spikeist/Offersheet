@@ -704,8 +704,13 @@ describe("trade report: what Helps both costs a search (section 10)", () => {
     expect(lines7h[0]).toContain("; 0 dropped for a better version of the same trade; 1 Last offer promoted, 1 printing a higher Overall not promoted, 1 Open or Then printing a higher Overall (counted, not promoted); 3 ladders read by the merge");
     expect(lines7h).toContain(`- Promoted (Overall; answer 3): Team 2: Garrett Wilson + Chuba Hubbard → Mike Evans (${n(promotedCard)}), idea 2, the Last offer (a player of yours added) of Team 4: Garrett Wilson → Mike Evans (${n(other)}) (idea 4 without the merge), now its “Open with”.`);
     expect(lines7h).toContain(`- Last offers printing a higher Overall than their card, not promoted: Overall idea 1, Team 2: Garrett Wilson → Chuba Hubbard (${n(into)}): Team 2: Garrett Wilson → Chuba Hubbard + Mike Evans (${n(folded)}) (${NOT_PROMOTED_WORDS.rules}).`);
-    expect(lines7h).toContain(`- ⚠️ Opens and Thens printing a higher Overall than their card (counted, never promoted: the card is the smaller ask; the lead's ruling): Team 2: Garrett Wilson → Chuba Hubbard (${n(into)}): “Open with” Team 4: Garrett Wilson → Mike Evans (${n(other)}).`);
+    expect(lines7h).toContain(`- ⚠️ Opens and Thens printing a higher Overall than their card (counted on the cards shown, each opened; never promoted: the card is the smaller ask; the lead's ruling): Team 2: Garrett Wilson → Chuba Hubbard (${n(into)}): “Open with” Team 4: Garrett Wilson → Mike Evans (${n(other)}).`);
     expect(promotedCounts({ ...(section7h.merged as MergedCards), superseded: 2 })).toContain(", 2 left out by a chain of promotions; ");
+    // The search's lastOffers (the promotion's check of each card's Last offer alone) in the counts; section 11's own count of
+    // the higher Opens and Thens (every card shown, opened) in place of the search's.
+    const lines7hLight = mergeLines(snapshot, { ...section7h, merged: { ...(section7h.merged as MergedCards), lastOffers: 5, higherEarlier: [] } }, team);
+    expect(lines7hLight[0]).toContain("1 Open or Then printing a higher Overall (counted, not promoted); 3 ladders read by the merge or kept for a promoted card, and 5 cards' Last offers alone (the promotion's check), worked out during the search");
+    expect(promotedCounts(section7h.merged as MergedCards, 4)).toContain(", 4 Opens or Thens printing a higher Overall");
     expect(promotedCounts(section7f.merged as MergedCards)).toBe("");
     expect(LABEL_SHAPE_WORDS).toEqual({ smaller: "it asks for fewer of their players", lean: "it's the higher idea's lean version", throwIn: "it adds a player of yours to the higher idea", other: "another version" });
   });
