@@ -522,14 +522,15 @@ describe("TradeCard (§13: each trade card shows)", () => {
     expect(textOf(html).match(/Win chance by week/g)).toHaveLength(1);
   });
 
-  it("puts “Trade idea N” on one row with the heading and its “Helps both” tag, wrapping when they don't fit (Checkpoint 7h, the first review's item 3: at least 2 closed ideas a phone screen)", () => {
+  it("puts “Trade idea N” on one row with the heading and its “Helps both” tag, wrapping when they don't fit (Checkpoint 7h, the first review's item 3: toward at least 2 closed ideas a phone screen)", () => {
     const card = (e: TradeEvaluation, rank?: number) => renderToStaticMarkup(createElement(TradeCard, { card: buildTradeCard(e, { snapshot }), rank, feedback: NONE, onFeedback: saved }));
     const eyebrow = (n: number) => `<p class="text-xs font-bold tracking-wider text-brand uppercase">Trade idea ${n}</p>`;
     const h3 = '<h3 id="[^"]+" class="text-lg leading-tight font-extrabold tracking-tight wrap-anywhere">Trade with Gravel Gophers</h3>';
     const article = '<article aria-labelledby="[^"]+" class="[^"]*">';
-    // A Trade Finder card: the eyebrow and the heading side by side on one baseline (its own line saved: 16 px a card), the
-    // row the card's first child, with no gap between its lines, so a heading too long to fit beside the eyebrow sits under
-    // it as it did when the eyebrow had a line of its own.
+    // A Trade Finder card: the eyebrow and the heading side by side on one baseline (its own line saved, 16 px a card, while
+    // the heading fits beside it: about 11 characters of team name at 375 px), the row the card's first child, with no gap
+    // between its lines, so a heading too long to fit beside the eyebrow sits under it as it did when the eyebrow had a line of
+    // its own.
     const row = '<div class="flex flex-wrap items-baseline gap-x-2">';
     expect(card(evaluation(), 3)).toMatch(new RegExp(`${article}${row}${eyebrow(3)}${h3}</div>`));
     // Tagged "Helps both": the heading and its tag one piece of the row (Checkpoint 7c's pairing), so on a phone, where the

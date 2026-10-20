@@ -140,7 +140,9 @@
  *   "Waivers" each list's odds lines and a "Rest of season" row's "Details" opened and closed with focus kept (section 5:
  *   waiverDetailsChecks, from waiverMoveChecks); step "Thorough search" after Waivers (section 3: the switch off by default with
  *   its estimate, a Thorough search run to the end and timed in an info line, the normal search's ideas back at once); under
- *   "Several prizes" the waiver rows' and the what-if's top-N line too (prizeOddsChecks).
+ *   "Several prizes" the waiver rows' and the what-if's top-N line too (prizeOddsChecks); at the card step's start, before the
+ *   clutter-1 shot replaces the league's names, the closed ideas a phone screen with the league's own team names, against the
+ *   planner's 2 (section 1: closedIdeasChecks; an info line under it, never a failure).
  * After each step: no console errors (page or worker), CSP violations (Part B: enforced or report-only, page or worker),
  * uncaught exceptions, failed requests to the app, or requests to any other site. Screenshots, when on, go to the shots folder after the page's names are replaced with placeholders,
  * put back right after (one that can't be saved is a skip: it's a record to look at, not a check of the app). Checkpoint 7g
@@ -258,7 +260,7 @@ import { finderShot, leagueShots, openedCardShot } from "./shots";
 import { FREE_AGENTS_ALL, MY_ROSTER_SUMMARY, READ_LEAGUE_SECTIONS, leagueDisclosure } from "./inPage";
 import { LEAGUE_DISCLOSURES, leagueDisclosuresText, leagueSectionsProblems, type LeagueSectionsRead } from "./contracts";
 import { PHONE } from "./page";
-import { thoroughStep, waiverDetailsChecks, waiverPrizeOddsChecks, whatIfPrizeOddsChecks, whatIfStep } from "./steps7h";
+import { closedIdeasChecks, thoroughStep, waiverDetailsChecks, waiverPrizeOddsChecks, whatIfPrizeOddsChecks, whatIfStep } from "./steps7h";
 
 export interface CardInfo {
   heading: string;
@@ -1479,6 +1481,10 @@ export async function cardStep(ctx: StepContext): Promise<void> {
   }
   // Checkpoint 7e (item 4.2): the cards' "now or after this week" lines, once they're all in, in the default sort.
   await nowOrLaterChecks(ctx, step, "finder");
+  // Checkpoint 7h (planner reply to Checkpoint 7g, §1: "With cards closed, the Trade Finder shows at least 2 ideas per screen"):
+  // every card still closed, the closed ideas measured with the league's own team names, before the shot below replaces them
+  // with placeholders (steps7h.ts; with --no-shots too).
+  await closedIdeasChecks(ctx, step);
   // Checkpoint 7g (planner reply to Checkpoint 7f, item 5): the clutter check's first screenshot, the whole Trade Finder before
   // anything on a card is pressed or opened (shots.ts; nothing with --no-shots).
   await finderShot(ctx, step);

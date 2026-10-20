@@ -712,7 +712,13 @@ export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedbac
           (Checkpoint 7h, the first review's item 3: the eyebrow's own line saved, toward at least 2 closed ideas a phone
           screen). ⚠️ Ours: the heading and its tag move down together, as one piece, with no gap above them: a card tagged
           "Helps both" that can't fit all three on a line (every one at 375 px) is laid out as before, rather than the tag
-          dropping to a line of its own under the heading, 10.5 px taller than before. */}
+          dropping to a line of its own under the heading, 10.5 px taller than before.
+          ⚠️ The line is saved only while the heading fits beside "Trade idea N": at 375 px about 214 px of heading (207 px from
+          idea 10 on), "Trade with " and about 11 characters of team name. A longer name puts the heading under the eyebrow, as
+          before, so the saving depends on the league's own names (the review of this change: league 1's list, 1.99 ideas a
+          phone screen before it, reads 2.06 with the dumps' "Team N" names and still 1.99 with a 13-character name).
+          `npm run check:browser` measures the closed ideas with the league's own names (scripts/check-browser/steps7h.ts
+          closedIdeasChecks). */}
       {rank ? (
         <div className="flex flex-wrap items-baseline gap-x-2">
           <p className="text-xs font-bold tracking-wider text-brand uppercase">Trade idea {rank}</p>

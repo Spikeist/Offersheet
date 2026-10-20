@@ -11,6 +11,8 @@
  * - readWaiverRow(id) and READ_WAIVER_ODDS: a waiver row's "Details" (its button, its panel, my odds before → after) and every
  *   shown row's odds as the page holds them (the panels are always in the page, hidden until opened).
  * - readThorough(label) and READ_FINDER_SUMMARY: the Trade Finder's "Thorough search" switch and its settings line.
+ * - READ_CLOSED_IDEAS: the Trade Finder's ideas as laid out (each one's box, its "Trade idea N" and heading, whether a panel of
+ *   its card is open), geometry only, so it reads the page with the league's own names on it.
  */
 
 /** Helpers for the what-if readers and taps (after PAGE_HELPERS). */
@@ -234,4 +236,42 @@ export function thoroughSwitch(label: string): string {
 export const READ_FINDER_SUMMARY = String.raw`
 const p = [...document.querySelectorAll("main p")].find((x) => [...x.querySelectorAll("a")].some((a) => txt(a) === "Change in Settings"));
 return p ? txt(p).replace(/\s*Change in Settings$/, "") : null;
+`;
+
+// ---------------------------------------------------------------------------------------------
+// The Trade Finder's closed ideas (TradeFinderPage.tsx Results' list; TradeCard.tsx's closed card)
+
+/**
+ * Each idea of the Trade Finder's list as laid out, in the list's order (contracts7h.ts ClosedIdeaRead): the box of its list item
+ * (which holds its card and nothing else), the boxes of its "Trade idea N" and of its heading (the element its <article> is
+ * labeled by), in page coordinates to a tenth of a px; whether the heading carries the "Helps both" tag (TradeCard.tsx: the two
+ * one piece of the row, the tag the heading's sibling); and whether one of its card's disclosure buttons is open (Details, How
+ * to offer it). Geometry and yes or no only: no text of the page comes back, so it can read the page with the league's own team
+ * names on it (steps7h.ts closedIdeasChecks). Its own scope, so its names can't clash with the helpers'.
+ */
+export const READ_CLOSED_IDEAS = String.raw`
+return (() => {
+  const ideaList = document.querySelector("main ol[data-now-or-later]");
+  const tenth = (v) => Math.round(v * 10) / 10;
+  const boxOf = (e) => {
+    if (!e) return null;
+    const r = e.getBoundingClientRect();
+    return { top: tenth(r.top + window.scrollY), bottom: tenth(r.bottom + window.scrollY), left: tenth(r.left), right: tenth(r.right) };
+  };
+  const ideaItems = ideaList ? [...ideaList.children].filter((li) => li.matches("li[data-trade-key]")) : [];
+  return ideaItems.map((li) => {
+    const a = li.querySelector("article");
+    const labelledBy = a ? a.getAttribute("aria-labelledby") : null;
+    const heading = labelledBy ? document.getElementById(labelledBy) : null;
+    const eyebrow = a ? [...a.querySelectorAll("p")].find((p) => /^Trade idea \d+$/.test((p.textContent || "").trim())) || null : null;
+    const pair = heading ? heading.parentElement : null;
+    return {
+      item: boxOf(li),
+      eyebrow: boxOf(eyebrow),
+      heading: boxOf(heading),
+      tagged: !!pair && [...pair.children].some((c) => c !== heading && (c.textContent || "").trim() === "Helps both"),
+      open: !!a && [...a.querySelectorAll("button[aria-controls]")].some((b) => b.getAttribute("aria-expanded") === "true"),
+    };
+  });
+})();
 `;
