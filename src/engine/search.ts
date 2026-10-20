@@ -449,8 +449,26 @@
  *   above 0; a trade with my ΔROS at or below 0 has an objective at or below 0 (the quick chance is at least the clamp's floor),
  *   so it's deferred (WholeCandidates.deferred) and priced only where screening's rules could read it (wholeRulesOf): when a
  *   keep (each class's own, with SearchFunnel.three) isn't filled by trades above 3 × EPS, and the lean versions of the trades
- *   the dominance pruning could drop with one (objective at most EPS). So the ruled trades a keep reads are the ones screening
- *   every candidate in full gives (search.whole.test.ts); about 60% of the candidates never get their partner's half priced.
+ *   the dominance pruning could drop with one (objective at most EPS), in either class (since Checkpoint 7h's second review,
+ *   search#3, also those of the trades a short keep priced: a 3-for-1's lean is a 2-for-1). So the ruled trades a keep reads
+ *   are the ones screening every candidate in full gives (search.whole.test.ts, with one keep and with the Thorough search's
+ *   two); about 60% of the candidates never get their partner's half priced.
+ * - The normal search's trades too (Checkpoint 7h's second review, search#1; the lead's ruling: "the exact set is the
+ *   whole-roster funnel's choice ∪ the normal search's own choice on its own pools and funnel"): a bigger keep over many more
+ *   candidates left out trades the normal search's keep of 30 from G × H, and its helps-both lane of 40, reach (on Parker's
+ *   league 2, Oct 15, four of its seven "Helps both" cards were never evaluated, and the Thorough list had four), so turning on
+ *   "the most complete search" could drop an idea the normal search shows. So each partner's whole-roster pass is followed by
+ *   the normal search's own candidates (partnerCandidates on its pools and the user's own max per side, reading the pass's
+ *   screens: ScreenReuse, the very Screened objects where the pass screened a trade in full), and the normal search's choice
+ *   (its shortlist, lean companions, helps-both lane and that lane's companions, as mode "normal" makes them) is evaluated
+ *   exactly after the whole-roster funnel's own (SearchState.normalChoice). The "Helps both" extras' room widens for both lanes
+ *   (finalistsOf's `lane`), and ⚠️ (ours: with the widening alone, 4 of those 7 cards had no final run, as more of the
+ *   whole-roster search's own trades help both) every trade the normal search plays out is played out too, ranked on the lists
+ *   the normal search ranks it on (its finalists on both, its extras and displaced finalists on "Helps both" alone), with the
+ *   same numbers: a card of a normal list that the whole-roster list doesn't show is left out by that list's own rules
+ *   (search.whole.normal.test.ts). Parker's Oct 15 dumps (Node, cold, a fresh process each; other work on the machine): 46 and
+ *   28 more exact trades, 44 and 81 more final runs, the Thorough search 44.9 / 43.9 → 47.0 / 45.6 s (league 1, his prizes)
+ *   and 37.3 / 38.7 → 40.7 / 39.8 s (league 2), the final runs most of it; its "Helps both" lists 3 → 6 and 4 → 6 cards.
  * - SearchState.mode records it; a re-filter ranks the same finalists (it equals a fresh search in that mode). The Trade
  *   Finder sends the Thorough search's flag through the worker (engine.worker.ts TradesRequest.thorough).
  * - Memory (Checkpoint 7h's integration, the lead's item: "a Thorough search's result keeps about 640–720 MB of heap after
@@ -502,11 +520,23 @@
  *   (the lead's ruling: "the earlier version goes where the newest card's ladder rules place it, or leaves (counted)") the
  *   earlier idea, merged into the card that was then promoted, stays merged when a card above it offers it (holderAbove, as
  *   any merged trade), else leaves the list for good (MergedCards.superseded) rather than coming back.
+ * - Undone (Checkpoint 7h's second review, offers#3; the lead's ruling: "an undone promotion leaves no trace"): a later round
+ *   can take the promoted card off its list (a card above it takes it among its offers, a better version drops it, or the
+ *   list's rules push it off), and then the release rule gives the idea it came from back (or a card above it holds it), which
+ *   undoes the promotion (settle's undo; not in a chain, above): its record goes (`promoted`, the forced Open in `opens`, its
+ *   place among the list's candidates in `added`), it leaves the merge or drop record it entered as a card (so it's no filler
+ *   reference: a trade the list ranks on its own is one of its candidates again, the rest leave the list), its ladder (worked
+ *   out with the forced Open) goes, and it's never promoted to again ("taken"). On smallLeague 49 at Any the undone trade,
+ *   merged into a card above it as its Open (which it is without promotions too, as an offer), had taken the idea it came
+ *   from and another off the "Helps both" list as their filler; on 12 (Team 4), 16 (Team 5) and 18 (Team 3) the record stayed
+ *   while the idea was counted as not promoted ("released") too.
  * - The rounds end: a promotion merges an idea never merged or given back before, each Last offer is promoted to at most
- *   once (its forced Open fixed then), and each raises the list's printed Overall at that place (the promoted Last offer
- *   prints a higher EG than the idea it replaces), so no chain comes back to a trade; the trades are finite (the finalists and
- *   one version a promotion).
- * - Counts: MergedCards.promoted, notPromoted (as each list's last pass found them), higherEarlier and superseded; the
+ *   once (its forced Open fixed then; one undone never again), and each raises the list's printed Overall at that place (the
+ *   promoted Last offer prints a higher EG than the idea it replaces), so no chain comes back to a trade; the trades are finite
+ *   (the finalists and one version a promotion).
+ * - Counts: MergedCards.promoted (since the second review's offers#3 only the promotions the final lists show: each promoted
+ *   card a card of its list, the idea it came from merged into it as its "open"; ⚠️ ours, so not a chain's earlier ones),
+ *   notPromoted (as each list's last pass found them), higherEarlier and superseded; the
  *   qualifying counts stay the first ranking's (every trade the merge took out was a card), ⚠️ so a promoted Last offer,
  *   never a finalist, isn't among them. `few`, lowerWouldAdd and the pattern note rank with each list's promoted Last offers
  *   and without the ideas left out. Plan B reads a promoted card's original as one of its list's merged trades.
@@ -1010,15 +1040,34 @@ export function sidesOf(forced: readonly string[], free: readonly string[], size
  * the pairExtensionTop best of each side paired) and the exhaustive candidates (unless opts.exhaustive is false), and
  * with maxPerSide ≥ 3 the best beamThird of those two-player trades (the beams' and the exhaustive ones alike) extended
  * once more. Every candidate holds the forced players. `tally.screened` counts the screens (a trade reached twice is
- * screened once). It yields after every SCREEN_BATCH screens (the search's progress).
+ * screened once). It yields after every SCREEN_BATCH screens (the search's progress). Checkpoint 7h (the second review,
+ * search#1; the file header, "Whole rosters"): `opts.reuse`, the screens a whole-roster pass made of the same partner's
+ * trades (ScreenReuse), read where it made them, so the whole-roster modes work out the normal search's own candidates
+ * without screening a trade twice.
  */
-export function* partnerCandidates(I: TradeInternals, partner: TeamState, pool: PartnerPool, maxPerSide: number, tally: { screened: number }, opts: { exhaustive?: boolean } = {}): Generator<void, Screened[], void> {
+export function* partnerCandidates(
+  I: TradeInternals,
+  partner: TeamState,
+  pool: PartnerPool,
+  maxPerSide: number,
+  tally: { screened: number },
+  opts: { exhaustive?: boolean; reuse?: ScreenReuse } = {},
+): Generator<void, Screened[], void> {
   const seen = new Map<string, Screened | null>();
   let sinceYield = 0;
+  const reuse = opts.reuse;
   const screen = (give: readonly string[], get: readonly string[]): Screened | null => {
     const key = proposalKey({ partnerId: partner.id, give: players(give), get: players(get) });
     if (seen.has(key)) return seen.get(key) ?? null;
-    tally.screened++;
+    // A trade the whole-roster pass screened in full (the very Screened object) or found illegal: read, not screened again,
+    // and not counted again (that pass counted it among its candidates).
+    const known = reuse?.known.get(key);
+    if (known !== undefined) {
+      seen.set(key, known);
+      return known;
+    }
+    // A trade it reached but left deferred (its half only) is screened here in full, counted there already.
+    if (!reuse?.reached.has(key)) tally.screened++;
     sinceYield++;
     const s = screenTrade(I, partner, give, get, key);
     seen.set(key, s);
@@ -1209,6 +1258,18 @@ export interface WholeCandidates {
    * (wholeRulesOf prices them when the keep could reach them).
    */
   deferred: { key: string; give: string[]; get: string[] }[];
+  /** Checkpoint 7h's second review (search#1): the candidates a roster rule makes illegal, on either side, each once (by key). */
+  illegal: string[];
+}
+
+/**
+ * The screens a whole-roster pass made of one partner's trades (Checkpoint 7h's second review, search#1; partnerCandidates'
+ * opts.reuse): `known`, the trades it screened in full (the very Screened objects, with what wholeRulesOf priced) or found
+ * illegal (null); `reached`, the ones it reached and left deferred (its candidates, counted there).
+ */
+export interface ScreenReuse {
+  known: ReadonlyMap<string, Screened | null>;
+  reached: ReadonlySet<string>;
 }
 
 /** The thorough search's 3-a-side candidates (config.search.thorough): its shapes and its beam. */
@@ -1346,7 +1407,7 @@ export function* wholeRosterCandidates(I: TradeInternals, partner: TeamState, po
       }
     }
   }
-  return { full: [...full.values()], deferred: [...deferred.values()] };
+  return { full: [...full.values()], deferred: [...deferred.values()], illegal: [...illegal] };
 }
 
 /**
@@ -1356,9 +1417,11 @@ export function* wholeRosterCandidates(I: TradeInternals, partner: TeamState, po
  * strictly below the keep's last trade when that one's objective is above 3 × EPS (byObjective's ties are within EPS); else
  * the deferred candidates of that keep are priced (with SearchFunnel.three, each class's keep on its own: the trades with 3
  * players on a side, and the others). And the dominance pruning reads a trade's lean versions (dominancePruned): a deferred
- * one (objective ≤ 0) can drop only a trade whose objective is at most EPS, so those trades' lean versions are priced first.
- * Returns the trades screened in full (the list leanCompanions reads) and the ruled ones (screeningRules with `cheap`), with
- * how many deferred ones were priced (`priced`). Yields after every SCREEN_BATCH prices.
+ * one (objective ≤ 0) can drop only a trade whose objective is at most EPS, so those trades' lean versions are priced: the
+ * ones screened in full first, then (Checkpoint 7h's second review, search#3) once a short keep's deferred trades are priced,
+ * theirs, in either class (a 3-for-1's lean is a 2-for-1). Returns the trades screened in full (the list leanCompanions
+ * reads) and the ruled ones (screeningRules with `cheap`), with how many deferred ones were priced (`priced`). Yields after
+ * every SCREEN_BATCH prices.
  */
 export function* wholeRulesOf(
   I: TradeInternals,
@@ -1379,13 +1442,18 @@ export function* wholeRulesOf(
     const s = screenTrade(I, partner, d.give, d.get, key);
     if (s) list.push(s);
   };
+  // The lean versions the dominance pruning reads for `s` (dominancePruned: `s` without one cheap player of mine), priced
+  // where they're still deferred.
+  const priceLeans = (s: Screened): void => {
+    for (const id of s.give) {
+      if (!cheap?.(id)) continue;
+      price(proposalKey({ partnerId: s.partnerId, give: players(s.give.filter((x) => x !== id)), get: players(s.get) }));
+    }
+  };
   if (cheap && waiting.size) {
     for (const s of found.full) {
       if (s.objective > EPS || s.give.length < 2) continue;
-      for (const id of s.give) {
-        if (!cheap(id)) continue;
-        price(proposalKey({ partnerId: s.partnerId, give: players(s.give.filter((x) => x !== id)), get: players(s.get) }));
-      }
+      priceLeans(s);
     }
   }
   let ruled = screeningRules(list, cheap);
@@ -1404,6 +1472,22 @@ export function* wholeRulesOf(
       if (++sinceYield >= SCREEN_BATCH) {
         sinceYield = 0;
         yield;
+      }
+    }
+    // Then the lean versions, in any class, of the short classes' trades the pruning could drop (objective at most EPS)
+    // (Checkpoint 7h's second review, search#3: a 3-for-1's lean is a 2-for-1, in the other class, which a full keep leaves
+    // deferred, so the 3-for-1 stayed among the ruled trades though full screening prunes it, and took a keep's place: on
+    // withWaiverStash(smallLeague(28)), Team 2, 27 such trades in the Thorough search's 3-a-side keep). A lean in the same
+    // short class is priced already, and one in a full class never reaches its own keep (its pruning reads nobody's), so one
+    // pass is enough.
+    if (cheap && waiting.size) {
+      for (const s of [...list]) {
+        if (s.objective > EPS || s.give.length < 2 || !short.some((c) => c.of(s))) continue;
+        priceLeans(s);
+        if (++sinceYield >= SCREEN_BATCH) {
+          sinceYield = 0;
+          yield;
+        }
       }
     }
     ruled = screeningRules(list, cheap);
@@ -1484,8 +1568,25 @@ export function funnelOf(mode: SearchMode = "normal"): SearchFunnel {
 /** Whether a trade has 3 or more players on a side (SearchFunnel.three's trades). */
 const hasThree = (s: Pick<Screened, "give" | "get">): boolean => s.give.length >= 3 || s.get.length >= 3;
 
-/** The shortlist from each partner's candidates past screening's rules (shortlistOf, without the rules), by `funnel` (default the normal search's). */
-function shortlistFrom(ruled: readonly (readonly Screened[])[], funnel: SearchFunnel = funnelOf()): Screened[] {
+/**
+ * A funnel's choice for exact evaluation (tradeSearch): its shortlist, their lean companions, the helps-both lane and the lane's
+ * companions, and all of them in that order (`chosen`).
+ */
+interface ExactChoice {
+  shortlist: Screened[];
+  companions: Screened[];
+  lane: HelpsBothLaneChoice;
+  laneCompanions: Screened[];
+  chosen: Screened[];
+}
+
+/**
+ * The shortlist from each partner's candidates past screening's rules (shortlistOf, without the rules), by `funnel` (default
+ * the normal search's). With SearchFunnel.three (the Thorough search) its two classes are picked apart: each partner's best
+ * keptPerPartner trades of up to 2 players a side and its best three.keptPerPartner with 3 on a side, each class's best of
+ * all partners up to its own cap (exported for the tests of that split: search.whole.test.ts).
+ */
+export function shortlistFrom(ruled: readonly (readonly Screened[])[], funnel: SearchFunnel = funnelOf()): Screened[] {
   const pick = (lists: readonly (readonly Screened[])[], kept: number, max: number): Screened[] => {
     const shortlist: Screened[] = [];
     for (const list of lists) shortlist.push(...[...list].sort(byObjective).slice(0, Math.max(0, Math.floor(kept))));
@@ -1828,13 +1929,18 @@ export function finalistsOf(
       displaced.push(k);
     }
   }
+  return { keys, extras, displaced, hidden: hiddenOutside(cores, keys) };
+}
+
+/** The trades of `cores` outside `keys` that the guards hide at their numbers (finalistsOf's `hidden`): B ≤ 0 or unknown by benefit, else the market guard. */
+function hiddenOutside(cores: readonly TradeEvaluationCore[], keys: ReadonlySet<string>): { byBenefit: number; byMarket: number } {
   const hidden = { byBenefit: 0, byMarket: 0 };
   for (const c of cores) {
     if (keys.has(c.key)) continue;
     if (c.b === null || !(c.b > 0)) hidden.byBenefit++;
     else if (c.flags.hiddenByMarket) hidden.byMarket++;
   }
-  return { keys, extras, displaced, hidden };
+  return hidden;
 }
 
 /**
@@ -1916,6 +2022,14 @@ export interface SearchState {
    * among what it decided; absent on a state made before (the normal search). A re-filter ranks the same finalists.
    */
   readonly mode?: SearchMode;
+  /**
+   * Checkpoint 7h's second review (search#1; the file header, "Whole rosters", "The normal search's trades too"): in the
+   * whole-roster modes, the normal search's own choice on the same context and settings, as mode "normal" makes it (its
+   * shortlist, lean companions, helps-both lane and that lane's companions: `chosen`, keys in that order; `lane`, the lane's
+   * and its companions'), evaluated exactly with the whole-roster funnel's choice, and the trades the normal search plays out
+   * (`finals`: its finalists, "Helps both" extras and displaced finalists), played out here too. Absent in the normal search.
+   */
+  readonly normalChoice?: { readonly chosen: readonly string[]; readonly lane: readonly string[]; readonly finals: readonly string[] };
   /**
    * Versions on the screening block by key: the exact trades' (their screening numbers) and, since Checkpoint 7e, the ones
    * "How to offer it" evaluates (offers.ts adds them; a re-filter's state shares the map). Until then the steps'.
@@ -2289,6 +2403,9 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
   // promoted from, set before its ladder is first worked out and fixed from then on (SearchState.opens), both lists'.
   const opens = new Map<string, string>();
   let ladderSteps = 0;
+  // Checkpoint 7h's second review (offers#3): the ladders worked out for a promoted card whose promotion a later round undid
+  // (dropped from `choices`: worked out with its forced Open), still counted among the ladders the search worked out.
+  let discardedLadders = 0;
   // Checkpoint 7h (the promotion's cost; the file header, "Promoted Last offers"): the cards whose Last offer alone the
   // promotion worked out (lastOf), where the whole ladder would have been fixed then without a preference. Their ladders are
   // fixed so: a later merge that reads one works it out without a preference (choiceOf), and the promotion reads them as
@@ -2479,6 +2596,8 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
     const origins = new Set<string>();
     const superseded = new Set<string>();
     let notPromoted: NotPromoted[] = [];
+    // Checkpoint 7h's second review (offers#3): the trades whose promotion a later round undid (undo), never promoted to again.
+    const undone = new Set<string>();
     // The trades out of the list's rankings (the filler rule's references): the merged ones and the dropped versions (and since
     // Checkpoint 7h the ideas a chain of promotions left out).
     const outOf = (): ReadonlyMap<string, unknown> =>
@@ -2490,12 +2609,16 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
     // Checkpoint 7h (the lead's ruling for a chain of promotions: "the earlier version goes where the newest card's ladder rules
     // place it, or leaves (counted)"): an idea merged into its promoted card, whose card was promoted in turn (merged into the
     // newer card as its forced Open) and that no card above it offers, leaves the list for good (`superseded`) rather than
-    // coming back. Their keys, given back or left out.
+    // coming back. ⚠️ Since Checkpoint 7h's second review (offers#3): an idea that leaves its promoted card (given back, or held
+    // by a card above it), the promoted card being merged into, dropped for or pushed off by another, undoes that promotion
+    // (undo), unless the promoted card was promoted in turn (a chain, as above). Their keys, given back, left out or undone.
     function* release(cards: readonly TradeEvaluation[]): Generator<TradeSearchProgress, string[], void> {
       const back: string[] = [];
       const gone: string[] = [];
+      const undoing: string[] = [];
       for (const m of [...merged.values()]) {
         const holder = yield* holderAbove(m, cards);
+        if (holder?.into !== m.into && origins.has(m.key) && promoted.get(m.into)?.from === m.key && !origins.has(m.into)) undoing.push(m.into);
         if (holder) merged.set(m.key, holder);
         else if (origins.has(m.key) && origins.has(m.into)) gone.push(m.key);
         else back.push(m.key);
@@ -2508,8 +2631,34 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
         merged.delete(key);
         released.add(key);
       }
-      return [...back, ...gone];
+      for (const key of undoing) undo(key);
+      return [...back, ...gone, ...undoing];
     }
+    // ⚠️ An undone promotion leaves no trace (Checkpoint 7h's second review, offers#3; the lead's ruling: "When a later round
+    // gives the promoted card's origin back (release, or the promoted card merged into / dropped for / pushed off by another),
+    // the promotion's record goes … so `promoted` names only promotions the final lists show"; on smallLeague 49 at Any the
+    // undone promoted trade, merged into a card above as its Open, which it was without the promotion too, had become a filler
+    // reference that took the idea it came from and another off the "Helps both" list). Its record goes (`promoted`, its forced
+    // Open in `opens`, its place among the list's candidates in `added`), and the promoted trade leaves the records it entered as
+    // a card (merged into another card's offers, or dropped for a better version), so it's no filler reference: one the list
+    // ranks on its own (`base`) is one of its candidates again, which a later round may merge or drop on its own (it's then
+    // merged into a card shown in its own right), the rest leave the list. Its ladder, worked out with the forced Open, goes too
+    // (a card on both lists has one ladder: the other list works it out again, without one), and it's never promoted to again
+    // (`undone`: "taken"). The idea it came from is given back (or held by a card above it) by the release rule.
+    const undo = (p: string): void => {
+      const record = promoted.get(p);
+      if (!record) return;
+      promoted.delete(p);
+      added.delete(p);
+      origins.delete(record.from);
+      undone.add(p);
+      merged.delete(p);
+      dominated.delete(p);
+      opens.delete(p);
+      if (choices.delete(p)) discardedLadders++;
+      prefers.delete(p);
+      lastOnly.delete(p);
+    };
     // A trade's numbers on the ranking block (Checkpoint 7h: a promoted Last offer is a ladder's version, never simulated there
     // unless the search ranked it or a Plan B box needed it), simulated once (finalByKey, as a Plan B candidate is), a progress
     // unit; under the "offers" timing, the merge's own work.
@@ -2535,8 +2684,9 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
     // offer prints a higher Overall (EG on the printed numbers) than it does is a candidate, unless (NotPromoted's reasons): the
     // card is a merged trade given back ("released": never merged again); the Last offer is a card of the list already
     // ("card": it stays, labeled on this card's offers as before); it's merged, dropped or left out on the list ("shown");
-    // another idea's promotion took it, this pass or before, or its ladder was worked out before without this card as its Open
-    // ("taken": a card's ladder, once worked out, is fixed, as its preference is: Checkpoint 7g's D11); or the card can't be its
+    // another idea's promotion took it, this pass or before (since Checkpoint 7h's second review, offers#3, a promotion a later
+    // round undid too: `undone`), or its ladder was worked out before without this card as its Open ("taken": a card's ladder,
+    // once worked out, is fixed, as its preference is: Checkpoint 7g's D11); or the card can't be its
     // Open by the Open's other rules (offers.ts forcedOpenOk: "open"). Each candidate's Last offer gets its numbers on the
     // ranking block (rankingCoreOf; its printed ones are the ladder's). ⚠️ Then (ours) the list is ranked as the next round
     // would rank it, with every candidate promoted, and a candidate whose Last offer that ranking doesn't keep (the list's own
@@ -2565,7 +2715,7 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
             ? "card"
             : merged.has(p) || dominated.has(p) || superseded.has(p)
               ? "shown"
-              : takenNow.has(p) || ((opens.has(p) || choices.has(p) || lastOnly.has(p)) && opens.get(p) !== c.key)
+              : takenNow.has(p) || undone.has(p) || ((opens.has(p) || choices.has(p) || lastOnly.has(p)) && opens.get(p) !== c.key)
                 ? "taken"
                 : !forcedOpenOk(last.printed, c, minChance)
                   ? "open"
@@ -2914,17 +3064,26 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
       for (const o of earlier) if (printedEg(o.printed) > printedEg(card) + EPS) higherEarlier.push({ card: t.key, offer: o.printed.key, kind: o.kind });
     }
   }
+  // ⚠️ The promotions the final lists show (Checkpoint 7h's second review, offers#3: "so `promoted` names only promotions the
+  // final lists show"): each promoted card a card of its list, the idea it came from merged into it as its "open". A promotion a
+  // later round undid is gone already (settle's undo); this leaves out the earlier promotions of a chain too (ours: its card
+  // promoted in turn, the idea it came from left out for good, `superseded`), so a report counts only promotions that stand.
+  const standing = (s: Settled, shown: ReadonlySet<string>): PromotedTrade[] =>
+    [...s.promoted.values()].filter((p) => {
+      const m = s.merged.get(p.from);
+      return shown.has(p.key) && m?.into === p.key && m.kind === "open";
+    });
   const merged: MergedCards | null = merging
     ? {
         overall: [...so.merged.values()],
         helpsBoth: [...sb.merged.values()],
         rounds: { overall: so.rounds, helpsBoth: sb.rounds },
-        ladders: choices.size,
+        ladders: choices.size + discardedLadders,
         released: so.released.size + sb.released.size,
         ...(dropping ? { dominated: [...so.dominated.values(), ...sb.dominated.values()], restored: so.restored.size + sb.restored.size } : {}),
         ...(promoting
           ? {
-              promoted: [...so.promoted.values(), ...sb.promoted.values()],
+              promoted: [...standing(so, overallKeys), ...standing(sb, bothKeys)],
               notPromoted: [...so.notPromoted, ...sb.notPromoted],
               higherEarlier,
               superseded: so.superseded.size + sb.superseded.size,
@@ -3081,6 +3240,12 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
   const maxPerSide = settings.maxPerSide;
   const perPartner: Screened[][] = [];
   let ruled: Screened[][];
+  // Checkpoint 7h's second review (search#1; the file header, "Whole rosters", "The normal search's trades too"): in the
+  // whole-roster modes, the normal search's own candidates too, on its own settings and pools (the user's max per side: the
+  // Thorough search's 3 a side is its own), each partner's worked out right after its whole-roster pass, from that pass's
+  // screens. Null in the normal search, and when the normal search's own pools stop it (more must-include players than the
+  // user's max per side: it has no trades).
+  let normal: { pools: Pools; lists: Screened[][] } | null = null;
   if (mode === "normal") {
     for (let pi = 0; pi < pools.partners.length; pi++) {
       const partner = pools.partners[pi] as TeamState;
@@ -3101,6 +3266,9 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
     const whole = wholePoolsOf(I, settings, pools, thorough ? Math.max(0, Math.floor(config.search.thorough.threePool)) : null);
     const three: ThreeConfig | null = thorough ? { shapes: config.search.thorough.shapes, beam: config.search.thorough.beam } : null;
     const cheap = atMostWaiverCredit(I);
+    // The normal search's pools: its own settings' (the same pools but for its stops: thoroughSettings changes the max per side only).
+    const normalPools = settings === normalized ? pools : buildPools(I, normalized, opts.partnerId ?? null);
+    const normalLists: Screened[][] | null = normalPools.stop ? null : [];
     ruled = [];
     for (let pi = 0; pi < pools.partners.length; pi++) {
       const partner = pools.partners[pi] as TeamState;
@@ -3111,7 +3279,8 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
         r = it.next();
       }
       // Screening's rules, the deferred candidates priced where the keep or a pruning could read them (wholeRulesOf).
-      const rules = wholeRulesOf(I, partner, r.value, cheap, funnel);
+      const found = r.value;
+      const rules = wholeRulesOf(I, partner, found, cheap, funnel);
       let q = rules.next();
       while (!q.done) {
         yield { stage: "screening", done: pi, total: pools.partners.length };
@@ -3119,13 +3288,29 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
       }
       perPartner.push(q.value.list);
       ruled.push(q.value.ruled);
+      // The normal search's candidates of this partner (partnerCandidates, as mode "normal" runs it), reading the screens this
+      // pass made: the trades it screened in full are the very Screened objects (those wholeRulesOf priced included), the
+      // illegal ones null, and the ones it left deferred are screened here (not counted again).
+      const H = normalLists ? normalPools.get.get(partner.id) : undefined;
+      if (normalLists && H) {
+        const known = new Map<string, Screened | null>(q.value.list.map((s) => [s.key, s]));
+        for (const key of found.illegal) known.set(key, null);
+        const reuse: ScreenReuse = { known, reached: new Set(found.deferred.map((d) => d.key)) };
+        const it2 = partnerCandidates(I, partner, { give: normalPools.give, forcedGive: normalPools.forcedGive, get: H.pool, forcedGet: H.forced }, normalized.maxPerSide, counts, { exhaustive: opts.exhaustive !== false, reuse });
+        let n = it2.next();
+        while (!n.done) {
+          yield { stage: "screening", done: pi, total: pools.partners.length };
+          n = it2.next();
+        }
+        normalLists.push(n.value);
+      }
       yield { stage: "screening", done: pi + 1, total: pools.partners.length };
     }
+    if (normalLists) normal = { pools: normalPools, lists: normalLists };
   }
-  const shortlist = shortlistFrom(ruled, funnel);
-  function* companionsOf(trades: readonly Screened[], skip?: ReadonlySet<string>): Generator<TradeSearchProgress, Screened[], void> {
+  function* companionsOf(trades: readonly Screened[], lists: readonly (readonly Screened[])[], of: Pools, skip?: ReadonlySet<string>): Generator<TradeSearchProgress, Screened[], void> {
     if (opts.leanCompanions === false || !trades.length) return [];
-    const it = leanCompanions(I, trades, perPartner, pools, undefined, skip);
+    const it = leanCompanions(I, trades, lists, of, undefined, skip);
     let r = it.next();
     while (!r.done) {
       yield { stage: "screening", done: pools.partners.length, total: pools.partners.length };
@@ -3133,13 +3318,34 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
     }
     return r.value;
   }
-  const companions = yield* companionsOf(shortlist);
-  // The helps-both lane (Checkpoint 7d; the file header): screened trades on which both lineups gain that the shortlist and
-  // its companions don't hold, best objective first, with their own lean companions.
-  const taken = new Set([...shortlist, ...companions].map((s) => s.key));
-  const lane = laneFrom(ruled, taken, opts.helpsBothLane === false ? 0 : config.search.helpsBothLane);
-  const laneCompanions = yield* companionsOf(lane.trades, taken);
-  const chosen = [...shortlist, ...companions, ...lane.trades, ...laneCompanions];
+  // The trades a funnel sends to exact evaluation (§12 step 3) from each partner's candidates past screening's rules
+  // (`ruledLists`): its shortlist and their lean companions (whose screens leanCompanions reads in `lists`), then the
+  // helps-both lane (Checkpoint 7d; the file header): screened trades on which both lineups gain that the shortlist and its
+  // companions don't hold, best objective first, with their own lean companions.
+  function* exactChoiceOf(ruledLists: readonly (readonly Screened[])[], lists: readonly (readonly Screened[])[], of: Pools, f: SearchFunnel): Generator<TradeSearchProgress, ExactChoice, void> {
+    const shortlist = shortlistFrom(ruledLists, f);
+    const companions = yield* companionsOf(shortlist, lists, of);
+    const taken = new Set([...shortlist, ...companions].map((s) => s.key));
+    const lane = laneFrom(ruledLists, taken, opts.helpsBothLane === false ? 0 : config.search.helpsBothLane);
+    const laneCompanions = yield* companionsOf(lane.trades, lists, of, taken);
+    return { shortlist, companions, lane, laneCompanions, chosen: [...shortlist, ...companions, ...lane.trades, ...laneCompanions] };
+  }
+  const own = yield* exactChoiceOf(ruled, perPartner, pools, funnel);
+  const { companions, lane, laneCompanions } = own;
+  // The normal search's own choice (the whole-roster modes; the file header, "Whole rosters", "The normal search's trades
+  // too"): exactly as mode "normal" makes it (its pools, the dominance pruning, its funnel's keep and cap, its lane), its lean
+  // companions reading the whole-roster pass's screens too; evaluated exactly after the whole-roster funnel's own choice,
+  // those it doesn't hold already.
+  const normalChoice = normal ? yield* exactChoiceOf(normal.lists.map((list) => screeningRules(list, atMostWaiverCredit(I))), [...normal.lists, ...perPartner], normal.pools, funnelOf("normal")) : null;
+  const chosen = [...own.chosen];
+  if (normalChoice) {
+    const inOwn = new Set(chosen.map((s) => s.key));
+    for (const s of normalChoice.chosen) {
+      if (inOwn.has(s.key)) continue;
+      inOwn.add(s.key);
+      chosen.push(s);
+    }
+  }
   mark("screening");
 
   // Exact evaluation (§12 step 3): the shortlist and its lean companions, then the helps-both lane and its own.
@@ -3177,21 +3383,42 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
   // given-player cap in every ranking ("Must-include players of mine").
   const value = assetValue(I);
   const onePartner = pools.partners.length === 1;
-  const {
-    keys: finalKeys,
-    extras,
-    displaced: laneDisplaced,
-    hidden: hiddenElsewhere,
-  } = finalistsOf(
-    screened.map((s) => s.core),
-    value,
-    onePartner,
-    pools.forcedGive,
-    new Set([...lane.trades, ...laneCompanions].map((s) => s.key)),
-    funnel.finalists,
-  );
+  const cores = screened.map((s) => s.core);
+  const laneOf = (c: ExactChoice): string[] => [...c.lane.trades, ...c.laneCompanions].map((s) => s.key);
+  // Checkpoint 7h's second review (search#1): the "Helps both" extras' room widens for the normal search's lane too in the
+  // whole-roster modes (helpsBothPoolOf, and the finalists the lanes displace), as it does for the whole-roster lane.
+  const fin = finalistsOf(cores, value, onePartner, pools.forcedGive, new Set([...laneOf(own), ...(normalChoice ? laneOf(normalChoice) : [])]), funnel.finalists);
+  let finalKeys = fin.keys;
   // Only the "Helps both" list ranks the extras and (Checkpoint 7d) the finalists the lane displaced (finish).
-  const helpsBothExtras = [...extras, ...laneDisplaced];
+  let helpsBothExtras = [...fin.extras, ...fin.displaced];
+  let laneDisplaced = fin.displaced;
+  let hiddenElsewhere = fin.hidden;
+  let normalFinals: string[] = [];
+  if (normalChoice) {
+    // ⚠️ And every trade the normal search plays out is played out here too, ranked on the lists the normal search ranks it
+    // on (ours: the second review's search#1, "no trade the normal search plays out for the "Helps both" list loses its final
+    // run"; the room's widening alone left normal "Helps both" cards without one, as more of the whole-roster search's own
+    // trades help both): its finalists (finalistsOf on the normal choice's trades, its lane, its 60) on both lists, its "Helps
+    // both" extras and displaced finalists on that list alone. So a trade a normal list shows is ranked on that list here, with
+    // the same numbers, and only the list's own rules can leave it out.
+    const keys = new Set(normalChoice.chosen.map((s) => s.key));
+    const n = finalistsOf(
+      cores.filter((c) => keys.has(c.key)),
+      value,
+      onePartner,
+      pools.forcedGive,
+      new Set(laneOf(normalChoice)),
+      config.search.finalists,
+    );
+    normalFinals = [...n.keys];
+    const bothOnlyOwn = new Set([...fin.extras, ...fin.displaced]);
+    const bothOnlyNormal = new Set([...n.extras, ...n.displaced]);
+    const ranked = new Set([...[...fin.keys].filter((k) => !bothOnlyOwn.has(k)), ...normalFinals.filter((k) => !bothOnlyNormal.has(k))]);
+    finalKeys = new Set([...fin.keys, ...normalFinals]);
+    helpsBothExtras = [...new Set([...fin.extras, ...fin.displaced, ...n.extras, ...n.displaced])].filter((k) => !ranked.has(k));
+    laneDisplaced = [...new Set([...fin.displaced, ...n.displaced])].filter((k) => !ranked.has(k));
+    hiddenElsewhere = hiddenOutside(cores, finalKeys);
+  }
   const finalists = screened.filter((s) => finalKeys.has(s.core.key));
 
   // The final simulation (§12 step 5).
@@ -3232,6 +3459,7 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
     preferListed: opts.preferListed !== false,
     dropDominated: opts.dropDominated !== false,
     ...(mode !== "normal" ? { mode } : {}),
+    ...(normalChoice ? { normalChoice: { chosen: normalChoice.chosen.map((s) => s.key), lane: laneOf(normalChoice), finals: normalFinals } } : {}),
     promoteLastOffers: opts.promoteLastOffers !== false,
     ...(opts.promoteFullLadders ? { promoteFullLadders: true } : {}),
     versions: new Map<string, TradeVersion>(screened.map((s) => [s.core.key, { x: s.x, screen: s.core }])),
