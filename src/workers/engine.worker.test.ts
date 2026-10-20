@@ -494,8 +494,8 @@ describe("the re-filter request (Phase 4c; planner reply to Checkpoint 4b, chang
     h.runAll();
     expect(resultOf(h, 2)?.baselineMoves).toEqual(moves);
     expect(asked).toEqual([h.searches[0]?.ctx, h.searches[0]?.ctx]);
-    // The engine's own result stays apart (its search state is filed under it): the re-filter ran on it.
-    expect(h.refilters[0]?.state.result.baselineMoves).toBeUndefined();
+    // The engine's own result, which its search state is filed under (the re-filter ran on it), is the one posted.
+    expect(h.refilters[0]?.state.result).toBe(resultOf(h, 1));
     // A context that has none (the default for a context the engine didn't build): the result as the engine made it.
     const plain = harness();
     plain.handle(trades(1));

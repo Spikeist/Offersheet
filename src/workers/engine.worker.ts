@@ -486,10 +486,14 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
   const refilter = deps.refilter ?? refilterSearch;
   const baselineOf = deps.baseline ?? contextBaseline;
   const baselineMovesOf = deps.baselineMoves ?? contextBaselineMoves;
-  /** A result as it's posted: with my baseline's moves on the context it ran on (Checkpoint 7h), the engine's own object kept apart. */
+  /**
+   * A result as it's posted: with my baseline's moves on the context it ran on (Checkpoint 7h), set on the result itself, so the
+   * object posted is still the one the search's state is filed under (search.ts searchStateOf: an in-process engine, the tests).
+   */
   const posted = (result: TradeSearchResult, ctx: TradeContext | null): TradeSearchResult => {
     const moves = ctx ? baselineMovesOf(ctx) : null;
-    return moves ? { ...result, baselineMoves: moves } : result;
+    if (moves) result.baselineMoves = moves;
+    return result;
   };
   const reword = deps.reword ?? defaultReword;
   const laterSource = deps.laterSource ?? laterSourceOf;
