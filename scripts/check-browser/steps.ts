@@ -37,7 +37,9 @@
  *    the clipboard (offersChecks). Checkpoint 7h (planner reply to Checkpoint 7g, §1: cards closed by default): the step opens
  *    the first idea's Details (its feedback buttons, report form and "Open in Analyzer" are there) and "How to offer it" with a
  *    trusted tap on each control (openCardPanel); the card's own message, when "How to offer it" holds the trade alone, is
- *    copied there; the first offer's message shows open, the others open with a tap.
+ *    copied there; the first offer's message shows open, the others open with a tap. A promoted idea's "Open with", the idea it
+ *    was promoted from (planner reply to Checkpoint 7g, answer 3; its item marked data-offer-original, which the reader reads),
+ *    is held to the minimum chance alone, not config.offers.openMinChance (the first review's item 5).
  * 6. Analyzer (the card's "Open in Analyzer"): it evaluates the same trade with the same three numbers as the card;
  *    both sides shown, no tag on mine; the layout; "Back to the Trade Finder" shows the ideas again. Then step "Waivers"
  *    (Phase 7b, below).
@@ -1605,8 +1607,10 @@ export async function cardStep(ctx: StepContext): Promise<void> {
  * "How to offer it" on the first card (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1; the lead's check:browser
  * bullet): opened, the engine worker works its offers out (timed: `offersSeconds`); they hold the ladder's rules on the numbers
  * they print (contracts.ts offersProblems: "Open with" at least config.offers.openMinChance, or the minimum chance when that's
- * higher, each offer at least config.search.steps.minAcceptGain likelier than the one before, Helps you above 0 and never
- * rising, each with its own Copy); an offer that is another idea of the list says so with that idea's place, "Also shown as
+ * higher, but since Checkpoint 7h a promoted idea's "Open with", the idea it was promoted from (its item marked
+ * data-offer-original), at least the minimum chance alone; each offer at least config.search.steps.minAcceptGain likelier
+ * than the one before, Helps you above 0 and never rising, each with its own Copy); an offer that is another idea of the list
+ * says so with that idea's place, "Also shown as
  * trade idea N." (contracts.ts offersAlsoProblems, the places from the list's data-trade-key: the lead's call, wave D), and no
  * other offer does; since Checkpoint 7f, in the Overall sort (the card step's sorts end on it), none is an idea below the first
  * one (contracts.ts offersMergeProblems: merged ideas); since Checkpoint 7g (planner reply to Checkpoint 7f, answer 3), in the
@@ -1641,16 +1645,19 @@ async function offersChecks(ctx: StepContext, step: string, first: string): Prom
     report.fail(step, "“How to offer it” didn't answer within 30 s");
     return;
   }
+  const minChance = Math.round(config.ranking.minChanceDefault * 100);
   const openMin = Math.round(Math.max(config.offers.openMinChance, config.ranking.minChanceDefault) * 100);
   const gain = Math.round(config.search.steps.minAcceptGain * 100);
   const suggested = [OFFER_STEP_LABEL.suggested, ANALYZER_SUGGESTED_LABEL];
-  const problems = offersProblems(read, { openMin, gain, suggested });
-  report.note(step, "offers", read.offers.map((o) => `${o.label}: Helps you ${o.helps ?? "?"}, ${o.chance ?? "?"}${o.also ? ` (${o.also})` : ""}`));
+  const problems = offersProblems(read, { openMin, minChance, gain, suggested });
+  // A promoted idea's "Open with" (the idea it was promoted from) is held to the minimum chance alone (Checkpoint 7h).
+  const forced = read.offers[0]?.original === true;
+  report.note(step, "offers", read.offers.map((o) => `${o.label}: Helps you ${o.helps ?? "?"}, ${o.chance ?? "?"}${o.original ? " (the idea this one was promoted from)" : ""}${o.also ? ` (${o.also})` : ""}`));
   report.check(
     step,
     problems.length === 0,
     read.offers.length
-      ? `“How to offer it” lists ${pl(read.offers.length, "offer")} in ${took} s, each at least ${gain} points likelier than the one before (the first at least ${openMin}%), Helps you above 0 and never rising, each with its own Copy`
+      ? `“How to offer it” lists ${pl(read.offers.length, "offer")} in ${took} s, each at least ${gain} points likelier than the one before (the first at least ${forced ? `the minimum chance, ${minChance}%: it's the idea this one was promoted from` : `${openMin}%`}), Helps you above 0 and never rising, each with its own Copy`
       : `“How to offer it” says to offer the trade as it is, in ${took} s`,
     "“How to offer it” breaks its rules",
     problems,

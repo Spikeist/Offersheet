@@ -315,12 +315,14 @@ type CardPlaces = ReadonlyMap<string, number>;
  * Plan B box prints its numbers), the veto note when the league's review could cut it, its roster moves when they aren't the
  * card's, and its own message to send them with Copy, named for screen readers by the offer and the card, open on the first
  * offer (`first`; Checkpoint 7h, the planner: "the first offer's message shows open, and the others stay behind their own
- * steps"). The item carries the offer's key (data-offer-key, which `npm run check:browser` reads; never data-trade-key).
+ * steps"). The item carries the offer's key (data-offer-key, which `npm run check:browser` reads; never data-trade-key) and,
+ * since Checkpoint 7h, on a promoted card's "Open with" (the idea it was promoted from: OfferStepView.original), the mark
+ * data-offer-original, which check:browser reads to hold that Open to the minimum chance alone (the first review's item 5).
  */
 function OfferStepItem({ step, name, places, first }: { step: OfferStepView; name: string; places?: CardPlaces | undefined; first: boolean }) {
   const place = step.kind === "suggested" ? undefined : places?.get(step.key);
   return (
-    <li className="break-words" data-offer-key={step.key}>
+    <li className="break-words" data-offer-key={step.key} data-offer-original={step.original ? "true" : undefined}>
       <p>
         <span className="font-semibold">{step.label}:</span> {step.trade}
       </p>

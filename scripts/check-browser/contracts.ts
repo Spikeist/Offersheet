@@ -821,6 +821,11 @@ export interface OfferRead {
   key?: string | null;
   /** Its "Also shown as trade idea N." line (the lead's call for Checkpoint 7e's wave D: an offer that is another card shown), else null. */
   also?: string | null;
+  /**
+   * Checkpoint 7h: its item carries data-offer-original (TradeCard.tsx), a promoted card's "Open with", the idea it was promoted
+   * from, which can print under config.offers.openMinChance though never under the minimum chance (offers.ts forcedOpenOk).
+   */
+  original?: boolean;
 }
 
 /** An offer's veto note read into a printed chance (pure): "…, about 20% it goes through." → "20%", "…, under 5% it goes through." → "<5%"; else null. */
@@ -857,11 +862,14 @@ export const OFFERS_ALONE = /^Offer this trade as it is: no version of it with .
  * one before; every Helps you is a number above 0 and none above the one before; every offer has its own Copy button. With
  * none, its line says to offer the trade as it is (OFFERS_ALONE). The chances compared are the ones the ladder's rules read
  * (the review of wave D, UI-D-3): the chance it goes through when its veto note prints one (`through`), else the chance they
- * accept. `openMin` and `gain` are whole percents (config.offers.
- * openMinChance, or the minimum chance when that's higher; config.search.steps.minAcceptGain), which the step passes: this
- * file imports nothing. Each rule broken, in words.
+ * accept. Since Checkpoint 7h a promoted card's "Open with" (`original`: the idea it was promoted from, placed whatever the
+ * Open's rule would pick) prints at least `minChance` alone, never `openMin` (offers.ts forcedOpenOk: it can print under
+ * config.offers.openMinChance, never under the minimum chance; the first review's item 5), and that mark sits on the first
+ * offer, an "Open with", only. `openMin`, `minChance` and `gain` are whole percents (config.offers.openMinChance, or the
+ * minimum chance when that's higher; the minimum chance; config.search.steps.minAcceptGain), which the step passes: this file
+ * imports nothing. Each rule broken, in words.
  */
-export function offersProblems(read: OffersRead, want: { openMin: number; gain: number; suggested: readonly string[] }): string[] {
+export function offersProblems(read: OffersRead, want: { openMin: number; minChance: number; gain: number; suggested: readonly string[] }): string[] {
   if (read.failed) return ["“How to offer it” says the offers couldn't be worked out"];
   if (!read.offers.length) return OFFERS_ALONE.test(read.status) ? [] : [`“How to offer it” shows no offers and says “${read.status}”`];
   const out: string[] = [];
@@ -876,7 +884,12 @@ export function offersProblems(read: OffersRead, want: { openMin: number; gain: 
     const chance = printedChancePoints(shown);
     if (helps === null || helps <= 0) out.push(`${name} reads Helps you ${o.helps ?? "none"}, not above 0`);
     if (chance === null) out.push(`${name}'s chance they accept reads “${o.chance ?? "none"}”`);
-    if (i === 0 && o.label === "Open with" && chance !== null && chance < want.openMin) out.push(`${name} prints ${shown}, under ${want.openMin}%`);
+    const opening = i === 0 && o.label === "Open with";
+    if (opening && chance !== null) {
+      if (!o.original && chance < want.openMin) out.push(`${name} prints ${shown}, under ${want.openMin}%`);
+      if (o.original && chance < want.minChance) out.push(`${name}, the idea this one was promoted from, prints ${shown}, under the minimum chance of ${want.minChance}%`);
+    }
+    if (o.original && !opening) out.push(`${name} carries a promoted idea's mark (data-offer-original), which only the first offer, its “Open with”, can`);
     const prev = read.offers[i - 1];
     if (prev) {
       const prevShown = prev.through ?? prev.chance;

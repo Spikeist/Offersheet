@@ -745,6 +745,13 @@ export interface OfferStepView {
   key: string;
   /** The whole offer in one line (tests, hover): "Open with: Puka Nacua for Drake London and Chris Olave · Helps you 52 · …". */
   text: string;
+  /**
+   * Checkpoint 7h (OfferStep.original): a promoted card's "Open with", the idea it was promoted from, placed there whatever the
+   * Open's rule would pick, so it can print under config.offers.openMinChance (never under the minimum chance). The card marks
+   * its item (data-offer-original), which `npm run check:browser` reads to hold it to the minimum chance alone (the first
+   * review's item 5). Absent on every other offer.
+   */
+  original?: true;
 }
 
 /** "How to offer it" once its offers load (buildLadderView; the file header). */
@@ -1402,6 +1409,7 @@ export function buildLadderView(ladder: OfferLadder, card: Pick<TradeCardView, "
       message: s.message,
       key: e.key,
       text: `${label}: ${trade} · ${numbers}${acceptNote ? ` · ${acceptNote}` : ""}`,
+      ...(s.original ? { original: true as const } : {}),
     };
     const version: VersionChoice =
       s.kind === "suggested" && own && own.key === e.key
