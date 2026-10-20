@@ -7,10 +7,13 @@
  * Last offers not promoted with why, the lists, merges, drops and rounds, the forced Opens and preferences; every ladder it
  * keeps is the whole-ladder search's for that card; every shown card's first open, worked out on demand, is the ladder the
  * whole-ladder search kept for it; and its Opens and Thens printing a higher Overall are the whole-ladder search's on the cards
- * whose ladder it kept. Seeds: 4, 5, 8 and 24 promote (6 teams at 10%), 1 has Last offers not promoted for the list's rules, 3
- * a 12-team league at Any. Mutations caught: lastOf reading every card's whole ladder never fails it (that's the switch); the
- * "taken" reason without `lastOnly` (a Last offer that is a card whose Last offer alone was checked); choiceOf honoring a
- * preference for such a card; searchLastOfferSteps with the card's tag left out (helpsBoth).
+ * whose ladder it kept. Seeds (facts of the synthetic data, found on this tree): 4, 5, 8, 24 and 57 promote (6 teams at 10%),
+ * 1 has Last offers not promoted for the list's rules, 3 a 12-team league at Any; and the two guards of `lastOnly` (search.ts
+ * lastOf: a card whose Last offer alone was checked counts as having its ladder fixed without a preference): on 49 the "Helps
+ * both" list's card's Last offer is an Overall card checked so, and on 57 an Overall card of an earlier round, each "taken"
+ * (promote's "taken" reason without `lastOnly` promotes it: the merge records differ); on 51 a later round's merge reads such a
+ * card (choiceOf honoring a preference for it gives it one: the preferences differ). Mutations caught: those two. Not caught:
+ * searchLastOfferSteps with the card's "Helps both" tag left out (no card here needs it).
  */
 import { isDeepStrictEqual } from "node:util";
 import { describe, expect, it } from "vitest";
@@ -55,17 +58,22 @@ describe("the promotion checks each card's Last offer alone (Checkpoint 7h)", { 
     { seed: 24, teams: 6, minChance: 0.1 },
     { seed: 1, teams: 6, minChance: 0.1 },
     { seed: 3, teams: 12, minChance: 0 },
+    { seed: 49, teams: 6, minChance: 0.1 },
+    { seed: 51, teams: 6, minChance: 0.1 },
+    { seed: 57, teams: 6, minChance: 0.1 },
   ];
 
   it("the same promotions, lists and merge records as working out every card's whole ladder; the same ladders kept and opened", () => {
     let promoted = 0;
     let rules = 0;
     let lastAlone = 0;
+    let taken = 0;
     for (const { seed, teams, minChance } of CASES) {
       const w = `smallLeague ${seed} (${teams} teams)`;
       const { light, full } = pair(seed, teams, minChance);
       promoted += light.merged?.promoted?.length ?? 0;
       rules += (light.merged?.notPromoted ?? []).filter((n) => n.reason === "rules").length;
+      taken += (light.merged?.notPromoted ?? []).filter((n) => n.reason === "taken").length;
       lastAlone += light.merged?.lastOffers ?? 0;
       // Everything but the ladder counts, bit for bit but the partner's last bits (Checkpoint 7f's resume).
       const a = withoutLadderCounts(light);
@@ -86,6 +94,7 @@ describe("the promotion checks each card's Last offer alone (Checkpoint 7h)", { 
     // Facts of the synthetic data (so the comparison covers both the promotions and the list's rules).
     expect(promoted).toBeGreaterThanOrEqual(4);
     expect(rules).toBeGreaterThan(0);
+    expect(taken).toBeGreaterThanOrEqual(2);
     expect(lastAlone).toBeGreaterThan(0);
   });
 });
