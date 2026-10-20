@@ -27,6 +27,7 @@
     "probe:mfl": "tsx scripts/probe-mfl.ts",
     "probe:yahoo": "tsx scripts/probe-yahoo.ts",
     "probe:fantrax": "tsx scripts/probe-fantrax.ts",
+    "probe:draft": "tsx scripts/probe-draft.ts",
     "probe:all": "tsx scripts/probe-all.ts",
     "import:report": "tsx scripts/import-report.ts",
     "oracle:report": "tsx scripts/oracle-report.ts",
