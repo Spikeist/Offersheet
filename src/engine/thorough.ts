@@ -21,14 +21,20 @@ export function thoroughSettings(settings: TradeSettings): TradeSettings {
 }
 
 /**
- * Roughly how long a Thorough search takes, in seconds (the Trade Finder says "about N seconds" before it starts;
- * config.search.thorough.estimate): the normal search's time on this device (`normalMs`, its TradeSearchResult.timings.total
- * for the same partner filter) times the work ratio when known, else a default rate for each of the `partners` searched;
- * rounded up to config's step, at least one step.
+ * Roughly how long a Thorough search takes, in seconds (the Trade Finder says "about N seconds" before it starts and while it
+ * runs; config.search.thorough.estimate), by scope (the review of Checkpoint 7h's page, thoroughui#3): searching every team
+ * (`partners` the other teams), the normal search's time on this device (`normalMs`, its TradeSearchResult.timings.total for
+ * the same partner filter) times the work ratio when known, else a default rate for each team searched; searching one partner
+ * (`partners` 1), a lower ratio, or a default near what one partner's Thorough search takes (a one-partner normal search is
+ * mostly work that doesn't grow with the search, so the all-teams ratio read 2–3 times too long there). Rounded up to
+ * config's step, at least one step.
  */
 export function thoroughSeconds(normalMs: number | null | undefined, partners: number): number {
   const e = config.search.thorough.estimate;
   const step = Math.max(1, e.roundTo);
-  const raw = typeof normalMs === "number" && Number.isFinite(normalMs) && normalMs > 0 ? (normalMs * e.workRatio) / 1000 : Math.max(1, partners) * e.secondsPerPartner;
+  const teams = Number.isFinite(partners) ? Math.max(1, Math.floor(partners)) : 1;
+  const one = teams === 1;
+  const known = typeof normalMs === "number" && Number.isFinite(normalMs) && normalMs > 0;
+  const raw = known ? (normalMs * (one ? e.onePartner.workRatio : e.workRatio)) / 1000 : one ? e.onePartner.seconds : teams * e.secondsPerPartner;
   return Math.max(step, Math.ceil(raw / step) * step);
 }

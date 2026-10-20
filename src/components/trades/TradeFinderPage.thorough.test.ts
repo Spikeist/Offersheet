@@ -42,6 +42,42 @@ describe("thoroughSeconds: roughly how long it takes", () => {
     expect(thoroughSeconds(Number.NaN, 9)).toBe(thoroughSeconds(null, 9));
     expect(thoroughSeconds(10, 9)).toBe(e.roundTo);
   });
+
+  it("one partner by its own scale (the review of Checkpoint 7h's page, thoroughui#3): a lower ratio, and a default near one partner's search", () => {
+    // A one-partner normal search is mostly work that doesn't grow with the search, so its ratio is the lower one.
+    expect(e.onePartner.workRatio).toBeLessThan(e.workRatio);
+    expect(thoroughSeconds(2990, 1)).toBe(Math.ceil((2.99 * e.onePartner.workRatio) / e.roundTo) * e.roundTo);
+    expect(thoroughSeconds(1400, 1)).toBe(Math.ceil((1.4 * e.onePartner.workRatio) / e.roundTo) * e.roundTo);
+    expect(thoroughSeconds(null, 1)).toBe(Math.ceil(e.onePartner.seconds / e.roundTo) * e.roundTo);
+    // The reviewer's cases on Parker's 12-team league (Node): a 2.99 s normal search for Team 1 read "about 20 seconds" for a
+    // 9.08 s Thorough search, and without a normal time "about 5 seconds"; a 1.40 s one for Team 3, "about 10 seconds" for 5.93 s.
+    expect(thoroughSeconds(2990, 1)).toBe(15);
+    expect(thoroughSeconds(null, 1)).toBe(10);
+    expect(thoroughSeconds(1400, 1)).toBe(10);
+    // Every team's estimate is as before (a 7 s normal search, 9 partners: 45; without one, 5 s a partner).
+    expect(thoroughSeconds(7000, 9)).toBe(45);
+    expect(thoroughSeconds(null, 9)).toBe(45);
+    // A partner count that isn't a whole number of teams reads as one partner.
+    expect(thoroughSeconds(null, 0)).toBe(thoroughSeconds(null, 1));
+    expect(thoroughSeconds(null, Number.NaN)).toBe(thoroughSeconds(null, 1));
+  });
+
+  it("measured: within about 0.9–2 times what one partner's Thorough search took on Parker's two leagues", () => {
+    // The 20 partners of his two leagues, Oct 15 (Node: the one-partner normal search, then the Thorough one right after it;
+    // data-local measurements, the config's comment), at the browser's ×1.24.
+    const runs: [normal: number, thorough: number][] = [
+      [3.05, 8.43], [1.57, 6.56], [1.26, 5.5], [1.23, 5.58], [1.53, 5.82], [1.12, 5.29], [1.66, 6.08], [2.86, 6.42], [1.53, 5.64], [1.53, 5.89], [1.31, 6.43],
+      [1.14, 6.07], [2.11, 6.97], [1.58, 7.03], [2.0, 8.04], [1.03, 7.02], [1.86, 8.54], [2.15, 8.89], [1.57, 7.06], [1.27, 7.41],
+    ];
+    for (const [normal, thorough] of runs) {
+      const ratio = thoroughSeconds(normal * 1.24 * 1000, 1) / (thorough * 1.24);
+      expect(ratio).toBeGreaterThan(0.9);
+      expect(ratio).toBeLessThan(2);
+      const without = thoroughSeconds(null, 1) / (thorough * 1.24);
+      expect(without).toBeGreaterThan(0.9);
+      expect(without).toBeLessThan(1.6);
+    }
+  });
 });
 
 describe("FinderControls: the Thorough search switch", () => {

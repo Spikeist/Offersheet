@@ -794,12 +794,22 @@ export const config = {
       three: { keptPerPartner: 40, exactEvaluationMax: 400 },
       finalists: 120,
       /**
-       * The Trade Finder's "about N seconds" before a Thorough search starts (display only; thorough.ts thoroughSeconds): a
-       * normal search's time on this device × workRatio (measured on Parker's two leagues, Oct 15, Node, warm: 41.5 s against
-       * 6.6 s on his first, 36.1 s against 7.2 s on his 12-team league: 6.3 and 5.0), else secondsPerPartner for each team
-       * searched (the browser's ×1.24 of those runs: 5.7 and 4.1 s a partner), rounded up to `roundTo` seconds.
+       * The Trade Finder's "about N seconds" before a Thorough search starts, and on its progress card while it runs (display
+       * only; thorough.ts thoroughSeconds), by scope. Every team: the normal search's time on this device × workRatio
+       * (measured on Parker's two leagues, Oct 15, Node, a normal search then the Thorough one on a fresh context: 41.6 s
+       * against 7.0 s on his first, 6.0 (6.3 at the build); 33.9–34.3 s against 7.5–7.9 s on his 12-team league, 4.3–4.5 (5.0
+       * at the build)), else secondsPerPartner for each team searched (the browser's ×1.24 of those runs: 5.7 and 3.9 s a
+       * partner). One partner (the review of Checkpoint 7h's page, thoroughui#3: the all-teams ratio read 1.7–3.1 times the
+       * search's time there, and the default 5 s about half of it): onePartner.workRatio × the normal search's time for that
+       * partner, else onePartner.seconds. Measured on the same dumps, every partner of both leagues (20), each after the page's
+       * first search for every team, Node: the normal search 1.03–3.05 s (median 1.55), most of it the shown pass and the final
+       * simulation, which don't grow with the search; the Thorough search 5.29–8.89 s right after it (median 6.49), 5.40–8.45 s
+       * without it (median 6.72); their ratio 2.24–6.80, median 4.27. At the browser's ×1.24, rounded up as below, a ratio of 4
+       * reads 0.94–1.91 times the Thorough search's time (3.5 read as little as 0.57: a quick normal search makes it too short),
+       * and 8 s (about 10 seconds) 0.95–1.49 times it. A ratio follows the device (a slower phone's normal search takes longer
+       * too); the defaults can't. Rounded up to `roundTo` seconds.
        */
-      estimate: { workRatio: 6, secondsPerPartner: 5, roundTo: 5 },
+      estimate: { workRatio: 6, secondsPerPartner: 5, onePartner: { workRatio: 4, seconds: 8 }, roundTo: 5 },
       /**
        * Checkpoint 7h (memory only; search.ts TradeSearchOptions.trimMemos): a whole-roster search lets go of the scenario
        * lineups its exact evaluations memoize every memoTrimEvery exact evaluations (and once it's done).
