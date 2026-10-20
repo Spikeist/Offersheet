@@ -810,7 +810,7 @@ describe("LeagueView free agents and the explainer", () => {
     const page = between(renderToStaticMarkup(createElement(LeagueView, { view: many, refresh })), "Best available", "How these numbers work");
     expect((page.match(/<tbody/g) ?? []).length).toBe(many.freeAgents.length);
     expect((page.match(/<th scope="row"/g) ?? []).length).toBe(many.freeAgents.length * shown);
-    expect(page).toMatch(new RegExp(`<button type="button" aria-expanded="false" class="[^"]*min-h-11[^"]*">Show all ${many.freeAgents.length * 3}<span class="sr-only"> free agents</span></button>`));
+    expect(page).toMatch(new RegExp(`<button type="button" aria-expanded="false" data-free-agents-all="" class="[^"]*min-h-11[^"]*">Show all ${many.freeAgents.length * 3}<span class="sr-only"> free agents</span></button>`));
     // No button when every position fits.
     const few = { ...view, freeAgents: view.freeAgents.map((g) => ({ ...g, players: g.players.slice(0, shown) })) };
     expect(between(renderToStaticMarkup(createElement(LeagueView, { view: few, refresh })), "Best available", "How these numbers work")).not.toContain("Show all");
