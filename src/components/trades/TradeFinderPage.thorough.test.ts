@@ -73,11 +73,12 @@ describe("the Thorough search's progress bar (its own stage weights)", () => {
   const stages: TradeSearchStage[] = ["setup", "screening", "exact", "simScreen", "simFinal", "rank"];
   const sum = (w: Record<TradeSearchStage, number>) => stages.reduce((t, st) => t + w[st], 0);
 
-  it("each search's weights add up to the whole bar; screening gets about half a Thorough search's, under a third of a normal one's", () => {
+  it("each search's weights add up to the whole bar; screening gets most of a Thorough search's (its measured share), under a third of a normal one's", () => {
     expect(sum(stageWeights("normal"))).toBeCloseTo(1, 9);
     expect(sum(stageWeights("thorough"))).toBeCloseTo(1, 9);
     expect(stageWeights()).toEqual(stageWeights("normal"));
     expect(stageWeights("normal")).toEqual({ setup: 0.08, screening: 0.3, exact: 0.2, simScreen: 0.11, simFinal: 0.14, rank: 0.17 });
+    expect(stageWeights("thorough")).toEqual({ setup: 0.01, screening: 0.6, exact: 0.13, simScreen: 0.12, simFinal: 0.06, rank: 0.08 });
     expect(stageWeights("thorough").screening).toBeGreaterThan(0.45);
     expect(stageWeights("thorough").screening).toBeGreaterThan(2 * stageWeights("thorough").exact);
   });

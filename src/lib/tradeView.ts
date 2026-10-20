@@ -3155,9 +3155,14 @@ const STAGE_WEIGHT: Record<TradeSearchStage, number> = { setup: 0.08, screening:
 /**
  * A Thorough search's stage weights (Checkpoint 7h; search.ts, "Whole rosters"), so its bar moves evenly too: it screens
  * whole rosters (tens of thousands of trades a partner) and evaluates five to seven times as many trades exactly, so screening
- * takes about half its time where it takes under a third of a normal search's. MEASURED_LATER
+ * takes most of its time where it takes under a third of a normal search's. Measured on the merged build (Node, Parker's Oct 15
+ * dumps; the context's build counted as setup; the "rank" stage being the ranking, Plan Bs and words, the shown pass and the
+ * ladders): his first league, his prizes, a first (cold) search 1.6%, 60.2%, 18.9%, 8.0%, 4.0% and 7.3% of 40.6 s, one after a
+ * normal search 0%, 75.2%, 3.7%, 9.4%, 5.1% and 6.6% of 33.3 s; his 12-team league 2.7%, 45.0%, 23.4%, 13.9%, 7.0% and 8.0% of
+ * 35.2 s, and 0%, 60.4%, 5.4%, 17.3%, 9.2% and 7.7% of 26.9 s. The weights are about the four runs' means (1%, 60%, 13%, 12%,
+ * 6% and 7%), the "rank" stage's a little above its mean, as the normal search's is.
  */
-const THOROUGH_STAGE_WEIGHT: Record<TradeSearchStage, number> = { setup: 0.02, screening: 0.48, exact: 0.2, simScreen: 0.1, simFinal: 0.05, rank: 0.15 };
+const THOROUGH_STAGE_WEIGHT: Record<TradeSearchStage, number> = { setup: 0.01, screening: 0.6, exact: 0.13, simScreen: 0.12, simFinal: 0.06, rank: 0.08 };
 
 /** Which search a progress bar is for: a normal one (STAGE_WEIGHT) or a Thorough one (THOROUGH_STAGE_WEIGHT). */
 export type ProgressSearch = "normal" | "thorough";
