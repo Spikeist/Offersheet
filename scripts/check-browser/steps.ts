@@ -30,7 +30,10 @@
  *    those among its offers only), since Checkpoint 7g its Last offer the idea plus one player of mine or the idea asking for
  *    fewer of their players (contracts.ts lastOfferShapeProblems) and no idea of the list a version of another's trade at
  *    least as good on both printed numbers (contracts.ts dominatedIdeasProblems), each offer's Copy putting its own message on
- *    the clipboard (offersChecks).
+ *    the clipboard (offersChecks). Checkpoint 7h (planner reply to Checkpoint 7g, §1: cards closed by default): the step opens
+ *    the first idea's Details (its feedback buttons, report form and "Open in Analyzer" are there) and "How to offer it" with a
+ *    trusted tap on each control (openCardPanel); the card's own message, when "How to offer it" holds the trade alone, is
+ *    copied there; the first offer's message shows open, the others open with a tap.
  * 6. Analyzer (the card's "Open in Analyzer"): it evaluates the same trade with the same three numbers as the card;
  *    both sides shown, no tag on mine; the layout; "Back to the Trade Finder" shows the ideas again. Then step "Waivers"
  *    (Phase 7b, below).
@@ -123,8 +126,8 @@
  * Checkpoint 7e (planner reply to Checkpoint 7d, item 4.2, "Now or after this week"; contracts.ts nowOrLaterProblems): the card
  *   step waits until every Trade Finder card's later numbers are in (the list's data-now-or-later), then holds each line it
  *   shows to "Helps you 37 now · 41 if done after this week's games.": its card's own Helps you first, the two more than
- *   config.explain.nowOrLaterMin apart, the planner's tooltip, and the same words among the card's facts (a phone shows
- *   those); the Analyzer step holds its card's line, which comes with its evaluation, to the same (nowOrLaterChecks).
+ *   config.explain.nowOrLaterMin apart, the planner's tooltip, and the same words right under it in the card's Details
+ *   (Checkpoint 7h; until then among the card's facts: a phone shows those); the Analyzer step holds its card's line, which comes with its evaluation, to the same (nowOrLaterChecks).
  * After each step: no console errors (page or worker), CSP violations (Part B: enforced or report-only, page or worker),
  * uncaught exceptions, failed requests to the app, or requests to any other site. Screenshots, when on, go to the shots folder after the page's names are replaced with placeholders,
  * put back right after (one that can't be saved is a skip: it's a record to look at, not a check of the app). Checkpoint 7g
@@ -1338,11 +1341,22 @@ export async function nowOrLaterChecks(ctx: StepContext, step: string, where: "f
     step,
     problems.length === 0,
     where === "finder"
-      ? `“Helps you … now · … if done after this week's games.” shows on ${shown} of ${pl(cards.length, "card")}, each from its own Helps you, more than ${config.explain.nowOrLaterMin} apart, its tooltip's words among its facts`
-      : `the Analyzer's card ${shown ? "shows" : "doesn't need"} the “… if done after this week's games” line${shown ? ", from its own Helps you, its tooltip's words among its facts" : ""}`,
+      ? `“Helps you … now · … if done after this week's games.” shows on ${shown} of ${pl(cards.length, "card")}, each from its own Helps you, more than ${config.explain.nowOrLaterMin} apart, its tooltip's words under it`
+      : `the Analyzer's card ${shown ? "shows" : "doesn't need"} the “… if done after this week's games” line${shown ? ", from its own Helps you, its tooltip's words under it" : ""}`,
     "a card's “… if done after this week's games” line doesn't read as it should",
     problems,
   );
+}
+
+/**
+ * Opens one of a card's two controls (Checkpoint 7h; planner reply to Checkpoint 7g, §1: cards closed by default, "Everything else
+ * goes behind one "Details" control … "How to offer it" stays a separate control"; TradeCard.tsx: 44 px disclosure buttons) with a
+ * trusted tap, unless it's open already (a second tap would close it). `card` is an expression for the card's <article>.
+ */
+export async function openCardPanel(page: PageSession, card: string, label: "Details" | "How to offer it"): Promise<void> {
+  const open = await page.run<boolean>(`return panelOpen(${card}, ${JSON.stringify(label)});`, { cards: true });
+  if (!open) await page.click(`cardDisclosure(${card}, ${JSON.stringify(label)})`, `the card's “${label}”`);
+  await page.waitFor<boolean>(`panelOpen(${card}, ${JSON.stringify(label)})`, 5_000, `the card's “${label}” to open`);
 }
 
 export async function cardStep(ctx: StepContext): Promise<void> {
@@ -1405,6 +1419,8 @@ export async function cardStep(ctx: StepContext): Promise<void> {
   );
 
   const first = `document.querySelector("article")`;
+  // Checkpoint 7h: the card's feedback buttons, its report form and its "Open in Analyzer" are in its Details, closed at first.
+  await openCardPanel(page, first, "Details");
   // This league's feedback records in the league store (an expression for an async body: inPage.ts savedFeedback).
   const readFeedback = `(await savedFeedback(tabLeague()))`;
 
@@ -1457,30 +1473,8 @@ export async function cardStep(ctx: StepContext): Promise<void> {
     report.check(step, saved && undone, `Report saves a reason and a note (${form.reasons} reasons offered), and Undo removes it`, saved ? "Undo didn't remove the report" : "Save report didn't save it");
   }
 
-  // The message to send them: opened, then Copy (a trusted tap) puts it on the clipboard. The card's own (inPage.ts
-  // ownMessage): by now the version question has loaded the offers, whose messages sit first in the card, inside the closed
-  // "How to offer it", where a tap can't reach them.
-  if (!ctx.firstCard.hasPitch) {
-    report.skip(step, "the first idea has no message to copy");
-  } else {
-    const details = `ownMessage(${first})`;
-    await page.click(`${details}.querySelector("summary")`, "Message to send them");
-    await page.click(`${details}.querySelector("button")`, "Copy message");
-    const copied = await page
-      .waitFor<string>(`(() => { const b = ${details}.querySelector("button"); const t = b ? txt(b) : ""; return t === "Copied!" ? "copied" : t.startsWith("Select the text") ? "refused" : null; })()`, 5_000, "the copy")
-      .catch(() => "no answer");
-    const clip = await page.run<{ same: boolean; read: boolean }>(`
-      const d = ${details};
-      const text = d ? txt(d.querySelector("div p")) : "";
-      try { const c = await navigator.clipboard.readText(); return { same: txt({ textContent: c }) === text, read: true }; } catch (e) { return { same: false, read: false }; }
-    `, { cards: true });
-    report.check(
-      step,
-      copied === "copied" && (clip.same || !clip.read),
-      clip.read ? "Copy puts the message to send them on the clipboard" : "Copy says Copied! (the clipboard couldn't be read back here)",
-      copied === "refused" ? "Copy says the browser refused the clipboard" : copied === "copied" ? "the clipboard doesn't hold the message" : "Copy didn't answer",
-    );
-  }
+  // The message to send them: since Checkpoint 7h a closed card shows none; "How to offer it" holds the first offer's (open) and
+  // the others', or the card's own when its offers hold the trade alone: offersChecks copies them.
   report.check(
     step,
     !!ctx.firstCard.analyzerHref?.startsWith("/analyzer?") && ctx.firstCard.linkIsOwnTrade,
@@ -1488,6 +1482,11 @@ export async function cardStep(ctx: StepContext): Promise<void> {
     ctx.firstCard.analyzerHref ? "the card's Analyzer link names another trade than the card's" : "the card has no Open in Analyzer link",
   );
   await offersChecks(ctx, step, first);
+  // Checkpoint 7h: the first idea's layout with both its controls open (the closed cards are measured with the page by the
+  // Trade Finder step; what they hold is hidden there).
+  if (await page.run<boolean>(`return panelOpen(${first}, "Details") && panelOpen(${first}, "How to offer it");`, { cards: true })) {
+    layoutChecks(ctx, step, await page.run<Measure>(`return measure(${first});`, { cards: true }), "the first idea", "with Details and How to offer it open on the first idea: ");
+  }
   // Checkpoint 7f: the cards', boxes' and the first idea's offers' releases at IR returns (its offers are open now), with the
   // near-tie rule's reason when it decided one (review of Checkpoint 7f, PIERCE-1: the lists of roster moves alone).
   await releaseLineChecks(ctx, step, "the trade ideas' roster moves (the first idea's offers open)", "trade");
@@ -1526,7 +1525,7 @@ async function offersChecks(ctx: StepContext, step: string, first: string): Prom
   const has = await page.run<boolean>(`return !!offersDetails(${first});`, { cards: true });
   if (!report.check(step, has, "the first idea has “How to offer it”", "the first idea has no “How to offer it”")) return;
   const started = Date.now();
-  await page.click(`offersDetails(${first}).querySelector("summary")`, "How to offer it");
+  await openCardPanel(page, first, "How to offer it");
   const read = await page
     .waitFor<OffersRead>(`(() => { const o = offersData(${first}); return o && (o.offers.length || o.failed || /^Offer this trade as it is/.test(o.status)) ? o : null; })()`, 30_000, "the offers", 50)
     .catch(() => null);
@@ -1607,7 +1606,8 @@ async function offersChecks(ctx: StepContext, step: string, first: string): Prom
   for (let i = 0; i < read.offers.length; i++) {
     const details = `[...offersDetails(${first}).querySelector("ol").children[${i}].querySelectorAll("details")].find((d) => txt(d.querySelector("summary")).startsWith("Message to send them"))`;
     try {
-      await page.click(`${details}.querySelector("summary")`, `offer ${i + 1}'s message`);
+      // The first offer's message shows open (Checkpoint 7h; planner reply to Checkpoint 7g, §1); the others open with a tap.
+      if (!(await page.run<boolean>(`const d = ${details}; return !!d && d.open;`, { cards: true }))) await page.click(`${details}.querySelector("summary")`, `offer ${i + 1}'s message`);
       await page.click(`${details}.querySelector("button")`, `offer ${i + 1}'s Copy`);
     } catch (err) {
       copies.push(`offer ${i + 1}: ${err instanceof Error ? err.message : "its message couldn't be opened"}`);
@@ -1624,6 +1624,30 @@ async function offersChecks(ctx: StepContext, step: string, first: string): Prom
     else if (clip.read && !clip.same) copies.push(`offer ${i + 1}: the clipboard doesn't hold its message`);
   }
   if (read.offers.length) report.check(step, copies.length === 0, `each offer's Copy puts its own message on the clipboard (${pl(read.offers.length, "offer")})`, "an offer's Copy doesn't work", copies);
+  // Checkpoint 7h: no numbered list (the trade alone, or a failure): the card's own message, open in "How to offer it".
+  if (!read.offers.length) {
+    const details = `firstMessage(${first})`;
+    if (!(await page.run<boolean>(`return !!${details};`, { cards: true }))) {
+      report.fail(step, "“How to offer it” shows no message to send them");
+      return;
+    }
+    const opened = await page.run<boolean>(`return ${details}.open;`, { cards: true });
+    if (!opened) await page.click(`${details}.querySelector("summary")`, "Message to send them");
+    await page.click(`${details}.querySelector("button")`, "Copy message");
+    const copied = await page
+      .waitFor<string>(`(() => { const b = ${details}.querySelector("button"); const t = b ? txt(b) : ""; return t === "Copied!" ? "copied" : t.startsWith("Select the text") ? "refused" : null; })()`, 5_000, "the copy")
+      .catch(() => "no answer");
+    const clip = await page.run<{ same: boolean; read: boolean }>(
+      `const d = ${details}; const text = d ? txt(d.querySelector("div p")) : ""; try { const c = await navigator.clipboard.readText(); return { same: txt({ textContent: c }) === text, read: true }; } catch (e) { return { same: false, read: false }; }`,
+      { cards: true },
+    );
+    report.check(
+      step,
+      opened && copied === "copied" && (clip.same || !clip.read),
+      clip.read ? "“How to offer it” shows the card's message open, and Copy puts it on the clipboard" : "“How to offer it” shows the card's message open, and Copy says Copied! (the clipboard couldn't be read back here)",
+      !opened ? "the card's message in “How to offer it” wasn't open" : copied === "refused" ? "Copy says the browser refused the clipboard" : copied === "copied" ? "the clipboard doesn't hold the message" : "Copy didn't answer",
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1640,6 +1664,8 @@ export async function analyzerStep(ctx: StepContext): Promise<void> {
     report.skip(step, ctx.myTeam ? "no trade idea to open" : "no team picked");
     return;
   }
+  // Checkpoint 7h: "Open in Analyzer" is in the card's Details.
+  await openCardPanel(page, `document.querySelector("article")`, "Details");
   const started = Date.now();
   await page.click(`ownAnalyzerLink(document.querySelector("article"))`, "Open in Analyzer");
   const state = await page.waitFor<string>(ANALYZER_DONE, 120_000, "the evaluation", 50).catch((err: unknown) => `error: ${err instanceof Error ? err.message : "it didn't finish"}`);
@@ -2292,6 +2318,7 @@ async function prizeOddsChecks(ctx: StepContext, step: string): Promise<boolean>
         if (!(await page.run<boolean>(`return !!ownAnalyzerLink(document.querySelector("article"));`, { cards: true }))) {
           report.skip(step, `${under}, the Analyzer's card: the first idea has no “Open in Analyzer” link`);
         } else {
+          await openCardPanel(page, `document.querySelector("article")`, "Details");
           await page.click(`ownAnalyzerLink(document.querySelector("article"))`, "Open in Analyzer");
           const state = await page.waitFor<string>(ANALYZER_DONE, 120_000, "the evaluation", 50).catch((err: unknown) => `error: ${err instanceof Error ? err.message : "it didn't finish"}`);
           const why = state === "illegal" ? "the Analyzer says the first idea can't be made" : `the Analyzer's evaluation didn't finish: ${state.replace(/^error: /, "")}`;
@@ -2462,6 +2489,7 @@ export async function secondLeagueStep(ctx: StepContext): Promise<void> {
     await page.click(`navLink("/trades")`, "the nav's Trades link");
     const shown = await page.waitFor<string>(FINDER_DONE, 120_000, "the Trade Finder", 50).catch(() => "no");
     if (shown === "done") {
+      await openCardPanel(page, `document.querySelector("article")`, "Details");
       await page.click(sentButton, "the Sent button");
       const chooser = `[...document.querySelector("article").querySelectorAll("fieldset")].find((f) => /^Which version/.test(txt(f.querySelector("legend") || f)))`;
       const asked = await page.waitFor<boolean>(`(() => { const b = ${sentButton}; return (b && b.getAttribute("aria-pressed") === "true") || !!(${chooser}); })()`, 5_000, "Sent to save or to ask which version").catch(() => false);

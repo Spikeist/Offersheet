@@ -281,6 +281,22 @@ export const AS_ROSTERS_STAND_LABEL = "As rosters stand";
 export const ODDS_BASIS_TEXT = "These odds count the free-agent pickups that would help each team (listed on its roster): trade ideas start from the same odds.";
 
 /**
+ * Checkpoint 7h (planner reply to Checkpoint 7g, §1: "League page: cut each long explanation paragraph to one line. The rest goes
+ * behind a "Why?" control or moves to How to read."): the League page's long explanations as one line each, the rest behind
+ * "Why?" (WHY_LABEL; WhyNote.tsx): the standings' (what the odds count, and how they were made: ODDS_LINE, then
+ * StandingsView.basis and notes), the remaining games' (ScheduleView.line, then its note), the team table's (LeagueView.teamsNote,
+ * then the chips' key), the trade partners' (PARTNERS_LINE), streaming's (STREAMING_LINE, then who else streams and how a
+ * streamed slot counts) and the rosters' (ROSTERS_LINE, then the rest of their intro). ⚠️ The lines are ours.
+ */
+export const WHY_LABEL = "Why?";
+export const ODDS_LINE = "These odds count each team's likely free-agent pickups.";
+export const PARTNERS_LINE = "Points a week: what each trade chip adds to the other lineup.";
+export const STREAMING_LINE = "A streamed slot uses the better of a team's player and a free agent.";
+export const ROSTERS_LINE = "Rest-of-season (ROS) points count only the games left.";
+/** A trade-partner card's disclosure over what else each side could give (Checkpoint 7h; the lead's step 5 for the League page). */
+export const PARTNER_MORE_LABEL = "More players";
+
+/**
  * The odds' note while a week is under way (league.ts "Game days"; review of track EV): the odds count free-agent pickups
  * only from the next week, and play the week under way with today's rosters. That's what the model does, not a platform
  * rule (a free agent whose game hasn't started can still be picked up and started), so it's said that way (review of
@@ -331,6 +347,11 @@ export interface ChipTag {
 export interface Chip {
   key: string;
   text: string;
+  /**
+   * A trade chip's player, short ("K. Williams"): the team table shows the chips' names on one line and the rest on a tap
+   * (Checkpoint 7h; the lead's step 2 for the League page). Absent on a need (its text is short already).
+   */
+  name?: string;
   /** Hover and screen-reader detail. */
   title: string;
   kind: "need-ros" | "need-next" | "chip";
@@ -768,6 +789,12 @@ export interface ScheduleView {
   caption: string;
   /** Under the table: who counts as a likely starter, and when a week is flagged. */
   note: string;
+  /**
+   * Checkpoint 7h: the note's one line (the rest behind "Why?", LeagueView.tsx), when a week is flagged risky: "Flagged risky:
+   * under a 40% chance to win, or 3 or more likely starters on bye." ("Flagged risky: 3 or more likely starters on bye." in a
+   * points-only league); "" without rows.
+   */
+  line: string;
   /** Why there are no rows: no team picked, a points-only league, no games left. */
   empty: string | null;
 }
@@ -1575,6 +1602,7 @@ function tradeChipTags(snapshot: LeagueSnapshot, team: TeamModel, teamName: (id:
     return {
       key: c.playerId,
       text: `${shortName(name, info?.pos)}: worth ${fmtSigned(c.gap, 0)} to ${to} · costs ${own ? "you" : "his team"} ${perWeek} pts/wk`,
+      name: shortName(name, info?.pos),
       title: `${name}${pos}: worth ${fmtNum(c.gap, 1)} more lineup pts${weighting ? ` ${weighting}` : ""} to ${toLong} than to his own team. ${toLong} would gain ${fmtNum(c.maxOther, 1)} with him (after its free-agent pickups); ${own ? "your team" : "his team"} would lose ${fmtNum(c.cost, 1)} without him, ${perWeek} a week.${droppedAnyway}${starts}${harder ? ` ${harder.title}` : ""}`,
       kind: "chip" as const,
       tags,
@@ -2149,7 +2177,7 @@ function matchupWeeks(snapshot: LeagueSnapshot, me: string, opponentId: string |
 function scheduleView(c: OddsContext): ScheduleView | null {
   const odds = c.odds;
   if (!odds || !odds.weekly.length) return null;
-  const none = (empty: string): ScheduleView => ({ rows: [], showMedian: false, caption: "", note: "", empty });
+  const none = (empty: string): ScheduleView => ({ rows: [], showMedian: false, caption: "", note: "", line: "", empty });
   const me = c.myTeamId;
   if (!me) return none("Pick your team to see your remaining games and each week's risk.");
   const settings = c.snapshot.settings;
@@ -2252,6 +2280,7 @@ function scheduleView(c: OddsContext): ScheduleView | null {
     showMedian,
     caption: `Your remaining regular-season games: the opponent, projected points for you and them, and your chance to win${showMedian ? " and to beat the league median" : ""} each week`,
     note: `${h2h ? "" : "Your league ranks teams by total points, so these games don't change the standings: only your points count. "}${pickupsText}"On bye" names your likely starters who are off that week: ${likelyStartersWords(pickups)}.${streams} A week is flagged risky when ${riskRule(h2h, "your chance to win it", "those starters")}.${noGameWeek ? " A bye week without a game can't change the standings, so it isn't flagged." : ""}${showMedian ? " Median: your chance of a top-half score that week, which counts as a second game." : ""}`,
+    line: `Flagged risky: ${h2h ? `under a ${pct(RISKY_WIN_CHANCE)} chance to win, or ` : ""}${RISKY_BYES} or more likely starters on bye.`,
     empty: null,
   };
 }

@@ -3218,6 +3218,28 @@ function myRosterMoves(
   return { moves, assumed, ...(alike.length ? { assumedLater: alike.map((l) => l.release) } : {}) };
 }
 
+/**
+ * Checkpoint 7h (planner reply to Checkpoint 7g, §1: "“Assumed with or without this trade”: show it once, above the list, not
+ * on every idea and Plan B box"): my moves the trades' baseline makes with or without any trade, as a card's line of moves made
+ * either way names them (RosterMoves.assumed and assumedLater): the League page's pickups, each with the drop V*(T) makes for
+ * him, then the players V*(T) drops whom no pickup names, and the releases at my IR players' returns (the baseline's own, the
+ * League page's "Returns from IR"). myRosterMoves on a trade that changes nothing: my roster after it is V*(T) itself, so it
+ * names no move of its own (`moves` empty), and every pickup and release is made "with or without" it. A card whose own line
+ * names the same moves (tradeView.ts) leaves its line to the list's. Null without a team of mine, or for a context the engine
+ * didn't build (the tests' fakes).
+ */
+export function baselineRosterMoves(ctx: TradeContext): RosterMoves | null {
+  let I: TradeInternals;
+  try {
+    I = tradeInternals(ctx);
+  } catch {
+    return null;
+  }
+  const me = I.me;
+  if (!me) return null;
+  return myRosterMoves(I, me, { give: [], get: [] }, { change: { drops: [], adds: [] }, toIR: [], givenIR: [] }, me.vstar, [], { mine: me.base, before: me.base }, new Set());
+}
+
 /** An exactly evaluated trade with what its simulation needs. */
 export interface ExactTrade {
   evaluation: TradeEvaluationCore;

@@ -18,15 +18,21 @@
  * fallback: words, never color alone); the line above the rosters names the waiver order used, as the Import Report's
  * row does.
  *
+ * Checkpoint 7h (planner reply to Checkpoint 7g, §1: "cut each long explanation paragraph to one line"): the rosters' intro is
+ * one line (ROSTERS_LINE, with the FantasyCalc credit), the rest behind "Why?" (WhyNote.tsx): tapping a player, the lock, and how
+ * free agents are shared out with the waiver order used. "Best available" shows the best config.leaguePage.freeAgentsShown a
+ * position, the rest behind one 44 px "Show all" (the lead's step 3: aria-expanded; "Show fewer" folds them again).
+ *
  * Refresh stays focusable while it works (aria-disabled, clicks ignored), so keyboard focus never
  * drops to the page; `headingRef` lets the page move focus to the league's name after a Try again.
  */
 import Link from "next/link";
-import type { Ref } from "react";
-import { FREE_AGENT_PICKUPS_LABEL, RETURNS_FROM_IR_LABEL, WAIVER_ORDER_LABEL, type FreeAgentPickups, type LeagueView as LeagueViewModel } from "@/lib/leagueView";
+import { useState, type Ref } from "react";
+import { config } from "@/engine/config";
+import { FREE_AGENT_PICKUPS_LABEL, RETURNS_FROM_IR_LABEL, ROSTERS_LINE, WAIVER_ORDER_LABEL, type FreeAgentPickups, type LeagueView as LeagueViewModel } from "@/lib/leagueView";
 import { NOTICES_TITLE } from "@/lib/notices";
 import type { RefreshControl } from "../import/ReportView";
-import { Badge, Callout, Card, CardTitle, FOCUS_TARGET, Facts, cx } from "../ui";
+import { Badge, Callout, Card, CardTitle, FOCUS_TARGET, Facts, buttonClass, cx } from "../ui";
 import { PlayerTable } from "./PlayerTable";
 import { RemainingSchedule } from "./RemainingSchedule";
 import { StandingsOdds } from "./StandingsOdds";
@@ -37,6 +43,7 @@ import { TradePartners } from "./TradePartners";
 import { LockHelp } from "./UntouchableLock";
 import { ValuesCredit } from "./ValuesCredit";
 import { WaiverUpgrades } from "./WaiverUpgrades";
+import { WhyNote } from "./WhyNote";
 
 type ViewProps = { view: LeagueViewModel };
 
@@ -155,21 +162,29 @@ function Rosters({ view }: ViewProps) {
         <h2 id="rosters-title" className="text-lg leading-tight font-extrabold tracking-tight sm:text-xl">
           Rosters
         </h2>
-        <p className="mt-1 text-sm text-muted">
-          Rest-of-season (ROS) points count only the games left. Tap a player for his week-by-week points. <ValuesCredit />
-        </p>
-        {/* What the lock on my players' rows does (the final review of Checkpoint 7e, UI-F-3): only where the locks are. */}
-        {view.rosters.some((r) => r.isMine) ? <LockHelp className="mt-1 text-sm text-muted" /> : null}
-        {view.pickupsNote ? (
-          <>
-            <p className="mt-1 text-sm break-words text-muted">{view.pickupsNote.text}</p>
-            {view.pickupsNote.waiverOrder ? (
-              <p className="text-sm break-words text-muted">
-                <span className="font-semibold text-foreground">{WAIVER_ORDER_LABEL}:</span> {view.pickupsNote.waiverOrder}
-              </p>
-            ) : null}
-          </>
-        ) : null}
+        <WhyNote
+          line={
+            <>
+              {ROSTERS_LINE} <ValuesCredit />
+            </>
+          }
+          topic="the rosters"
+          className="mt-1"
+        >
+          <p>Tap a player for his week-by-week points.</p>
+          {/* What the lock on my players' rows does (the final review of Checkpoint 7e, UI-F-3): only where the locks are. */}
+          {view.rosters.some((r) => r.isMine) ? <LockHelp /> : null}
+          {view.pickupsNote ? (
+            <>
+              <p className="break-words">{view.pickupsNote.text}</p>
+              {view.pickupsNote.waiverOrder ? (
+                <p className="break-words">
+                  <span className="font-semibold">{WAIVER_ORDER_LABEL}:</span> {view.pickupsNote.waiverOrder}
+                </p>
+              ) : null}
+            </>
+          ) : null}
+        </WhyNote>
       </div>
       {view.rosters.map((r) => (
         <details key={r.teamId} open={r.isMine} className="group rounded-2xl border border-line bg-surface shadow-sm">
@@ -261,6 +276,11 @@ function ReturnsList({ lines, teamName }: { lines: readonly string[]; teamName: 
 }
 
 function FreeAgents({ view }: ViewProps) {
+  // The best few a position, the rest behind "Show all" (Checkpoint 7h: the file header).
+  const [all, setAll] = useState(false);
+  const shown = Math.max(1, config.leaguePage.freeAgentsShown);
+  const total = view.freeAgents.reduce((n, g) => n + g.players.length, 0);
+  const more = view.freeAgents.some((g) => g.players.length > shown);
   return (
     <Card>
       <CardTitle eyebrow="Free agents">Best available</CardTitle>
@@ -273,10 +293,16 @@ function FreeAgents({ view }: ViewProps) {
             {view.freeAgents.map((g) => (
               <div key={g.pos}>
                 <h3 className="text-sm font-extrabold tracking-tight">{g.pos}</h3>
-                <PlayerTable players={g.players} caption={`Best free agents at ${g.pos} by rest-of-season points`} showLineupCost={false} split={view.playoffsLeft} />
+                <PlayerTable players={all ? g.players : g.players.slice(0, shown)} caption={`Best free agents at ${g.pos} by rest-of-season points`} showLineupCost={false} split={view.playoffsLeft} />
               </div>
             ))}
           </div>
+          {more ? (
+            <button type="button" aria-expanded={all} onClick={() => setAll((a) => !a)} className={cx(buttonClass("secondary", "sm"), "mt-3 min-h-11")}>
+              {all ? "Show fewer" : `Show all ${total}`}
+              <span className="sr-only"> free agents</span>
+            </button>
+          ) : null}
         </>
       ) : (
         <p className="text-sm text-muted">No free agents with projections were loaded.</p>

@@ -929,6 +929,15 @@ export interface TradeSearchResult {
    */
   myTeamId: string | null;
   baseline: { pPlayoffs: number | null; pTitle: number | null; expWins: number | null; prizes?: PrizeOdds | null };
+  /**
+   * Checkpoint 7h (planner reply to Checkpoint 7g, §1: "“Assumed with or without this trade”: show it once, above the list"): my
+   * moves the baseline makes with or without any trade (evaluate.ts baselineRosterMoves: the League page's pickups, each with
+   * its drop, and the releases at my IR players' returns), as a card's line of moves made either way names them. The Trade
+   * Finder says them once, above its list, and a card or Plan B box names its own line only when it differs (tradeView.ts
+   * assumedLineOf). The engine worker adds it to the result it posts (the search itself doesn't); absent or null: every card
+   * names its own, as before.
+   */
+  baselineMoves?: Pick<RosterMoves, "assumed" | "assumedLater"> | null;
   /** Trades the ranking kept out by default (§10 guards: B ≤ 0, or g_mkt(me) below marketHideBelow), counted. */
   hidden: { byBenefit: number; byMarket: number; /** Phase 4c: finalists under the minimum chance (TradeSettings.minChance). */ byChance?: number };
   /**

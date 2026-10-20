@@ -81,6 +81,12 @@
  * The final review of Checkpoint 7g: the Finder says the ladder's preference for an idea of the list below this one (the
  * lead's ruling W1, PREFER_LISTED_WORDS), and Plan B's paragraph holds with Plan B's narrow rule and the smaller asks (W2,
  * planBWords).
+ * Checkpoint 7h (planner reply to Checkpoint 7g, §1: cards closed by default, "everything else" behind one "Details" control,
+ * "How to offer it" a separate control, "Assumed with or without this trade" once above the list, a Plan B several ideas share
+ * on the highest only): a paragraph on what a closed card shows and what each control holds (detailsWords: the Trade Finder's
+ * ideas start closed, the Analyzer's card with Details open), the odds "in Details", Plan B at the end of "How to offer it"
+ * and shown once when several ideas share it (planBWords), the line of moves made with or without a trade said once above the
+ * list (rosterMovesWords), and the "Now or after this week" line in Details (nowOrLaterWords).
  * A native <details>, closed at first; its summary is a 44 px target.
  */
 import type { HelpsScale } from "@/engine/benefit";
@@ -88,7 +94,22 @@ import { config } from "@/engine/config";
 import type { LeagueSettings } from "@/engine/model";
 import type { Reward } from "@/engine/reward";
 import { fmtNum } from "@/lib/format";
-import { GOAL_LABEL, HARDER_TO_GET_TAG, HELPS_BOTH_TAG, HELPS_THEM_LABEL, OFFERS_HEADING, PLAN_B_HEADING, ROSTER_MOVES_HEADING, cardOddsWords, harderToGetWho, minChanceLabel, planBAlsoText, weighedOddsWords } from "@/lib/tradeView";
+import {
+  BASELINE_ASSUMED,
+  DETAILS_HEADING,
+  GOAL_LABEL,
+  HARDER_TO_GET_TAG,
+  HELPS_BOTH_TAG,
+  HELPS_THEM_LABEL,
+  OFFERS_HEADING,
+  PLAN_B_HEADING,
+  ROSTER_MOVES_HEADING,
+  cardOddsWords,
+  harderToGetWho,
+  minChanceLabel,
+  planBAlsoText,
+  weighedOddsWords,
+} from "@/lib/tradeView";
 
 export type HowToReadPage = "finder" | "analyzer";
 
@@ -133,6 +154,22 @@ export const PREFER_LISTED_WORDS = `When another idea below this one on Overall 
  * offers"). The Analyzer's card promotes nothing (the user built that trade), so its words don't change.
  */
 export const PROMOTED_WORDS = "When an idea's “Last offer” would do better on Overall than the idea itself, that version shows as the idea instead, with the original as its “Open with”.";
+
+/**
+ * What a card shows closed and what its two controls hold, after the paragraph's bold "Details" (Checkpoint 7h; planner reply
+ * to Checkpoint 7g, §1: "A closed card shows only: what Parker gives and what he gets; the three numbers; its tags ("Helps
+ * both," "Harder to get"); one reason. Everything else goes behind one "Details" control … "How to offer it" stays a separate
+ * control."; TradeCard.tsx): on the Trade Finder each idea starts closed; the Analyzer's card opens with Details open.
+ */
+export function detailsWords(page: HowToReadPage): string {
+  const rest =
+    "your odds before and after the trade, the weeks whose chance to win moves, “Now or after this week”, its risks in full, the ROS points, the roster moves its numbers assume, more reasons" +
+    (page === "analyzer" ? ", what Helps you is worth in points a week" : ", “Open in Analyzer”") +
+    " and the buttons to say what happened with it";
+  return page === "analyzer"
+    ? `on the card shows ${rest}; it's open here, and the card's top shows what you give and get, the three numbers, its tags and its main reason. “${OFFERS_HEADING}” holds the offers in order, the first one's message open.`
+    : `opens the rest of an idea: ${rest}. Each idea starts closed, showing what you give and get, the three numbers, its tags (like “${HELPS_BOTH_TAG}”, “${HARDER_TO_GET_TAG}” or “Market check”) and its main reason. “${OFFERS_HEADING}” holds the offers in order, the first one's message open, then “${PLAN_B_HEADING}”.`;
+}
 
 /**
  * "How to offer it" in words, after the paragraph's bold heading (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1):
@@ -183,7 +220,7 @@ export function nowOrLaterWords(): string {
   const min: number = config.explain.nowOrLaterMin;
   const weeks: number = config.explain.nowOrLaterWeeks;
   return (
-    `shows on a card when making the same trade after this week's games would change Helps you by more than ${min} (“Helps you 37 now · 41 if done after this week's games.”), ` +
+    `shows in a card's Details when making the same trade after this week's games would change Helps you by more than ${min} (“Helps you 37 now · 41 if done after this week's games.”), ` +
     `while at least ${weeks} ${weeks === 1 ? "week remains" : "weeks remain"} before your trade deadline. It assumes the same deal is still there next week: injuries, big games or another trade can change that, and their answer may change too.`
   );
 }
@@ -204,12 +241,17 @@ export function rosterMovesWords(page: HowToReadPage): string {
     page === "analyzer"
       ? "when one isn't on the League page's list, your odds before this trade count it too."
       : "when one isn't on the League page's list, the idea's odds start from your odds with it, and the card says so.";
+  // Checkpoint 7h: on the Trade Finder the moves made either way are said once, above the list (BASELINE_ASSUMED).
+  const where =
+    page === "analyzer"
+      ? "are named at the end and aren't counted for the trade"
+      : `are named once, above the list (“${BASELINE_ASSUMED}”), and on an idea only when its own differ; they aren't counted for the trade`;
   return (
-    "lists, in order, each move to your roster that the card's numbers count on, with its reason and its week: a player you'd drop to stay within your " +
+    `(in ${page === "analyzer" ? "the card's" : "an idea's"} Details) lists, in order, each move to your roster that the card's numbers count on, with its reason and its week: a player you'd drop to stay within your ` +
     "league's limits or to make room, a free agent for a roster spot the trade opens, a waiver move the trade makes worthwhile, and who you'd release when a " +
     "player comes back from IR (when the player your lineup would miss least has more trade value than another player nearly as cheap to lose from then on, " +
     "that other player goes instead, and the line says why). " +
-    `Moves you'd make with or without the trade, like the pickups the League page suggests, are named at the end and aren't counted for the trade; ${either} ` +
+    `Moves you'd make with or without the trade, like the pickups the League page suggests, ${where}; ${either} ` +
     "A release you'd make with or without the trade is named with those moves, and your roster card on the League page says why. " +
     "The other team's moves follow yours."
   );
@@ -239,8 +281,9 @@ export function planBGainWords(gain: number = config.search.steps.minAcceptGain)
  */
 export function planBWords(): string {
   return (
-    `shows below an idea when the same team has a trade they're likelier to accept: at least ${planBGainWords()} likelier to go through, while still helping you at least ${planBShareWords()}. ` +
+    `shows at the end of an idea's “${OFFERS_HEADING}”, after the offers, when the same team has a trade they're likelier to accept: at least ${planBGainWords()} likelier to go through, while still helping you at least ${planBShareWords()}. ` +
     `It's the best such trade for a different set of their players, which can be fewer of them, but never the idea's own trade asking for fewer of their players when that could be its “Last offer”, so an idea can show none. ` +
+    "When several ideas would show the same one, only the highest of them in the list shows it. " +
     "It has its own three numbers and odds, its own message to send them, and a link to open it in the Trade Analyzer, where it's shown as one offer."
   );
 }
@@ -414,8 +457,8 @@ export function HowToRead({
         <p>
           <span className="font-bold">Helps you</span> (0–100) is how much the trade raises your chances this season: Offer Sheet plays out the rest of your season
           thousands of times with and without it, and weighs {weighedOddsWords(reward, helpsScale)} by your &ldquo;What does your league reward?&rdquo; setting in Settings
-          (&ldquo;{GOAL_LABEL[config.benefit.goalDefault]}&rdquo; unless you change it). Each card shows {cardOddsWords(reward, helpsScale)} before and after the
-          trade, and the weeks whose chance to win your game moves {weeklyLineWords()}.{helpsValueWords(later, valuesOn, longTermOn)} {helpsScaleWords({ scale: helpsScale, leagueType, longTermOn })}
+          (&ldquo;{GOAL_LABEL[config.benefit.goalDefault]}&rdquo; unless you change it). Each card&apos;s Details show {cardOddsWords(reward, helpsScale)} before and after
+          the trade, and the weeks whose chance to win your game moves {weeklyLineWords()}.{helpsValueWords(later, valuesOn, longTermOn)} {helpsScaleWords({ scale: helpsScale, leagueType, longTermOn })}
         </p>
         <p>
           <span className="font-bold">Chance they accept</span> is an estimate (Est.), rounded to 5% (&ldquo;&lt;{step}&rdquo; when it&apos;s lower) and never above{" "}
@@ -428,6 +471,9 @@ export function HowToRead({
         <p>
           <span className="font-bold">Overall</span> combines the two: how much it helps, discounted by the chance it happens.{" "}
           {analyzer ? "The Trade Finder ranks its trade ideas by it." : "Ideas are sorted by it unless you choose otherwise."}
+        </p>
+        <p>
+          <span className="font-bold">{DETAILS_HEADING}</span> {detailsWords(page)}
         </p>
         <p>
           <span className="font-bold">{HELPS_THEM_LABEL}</span> {helpsThemWords(page, { leagueType, longTermOn })}

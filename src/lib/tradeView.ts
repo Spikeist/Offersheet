@@ -690,7 +690,25 @@ export interface NumberView {
 export interface FlagView {
   kind: "injured" | "market" | "hiddenByMarket" | "noHelp" | "noOdds";
   text: string;
+  /**
+   * Checkpoint 7h (planner reply to Checkpoint 7g, §1: a closed card shows "its tags"): the flag as a small pill on the closed
+   * card, in words (FLAG_PILL: "Market check", "Injured player"); its sentence (`text`) is behind the card's Details (⚠️ ours).
+   */
+  pill: string;
 }
+
+/**
+ * Each risk flag's pill on a closed card (FlagView.pill; Checkpoint 7h, ⚠️ ours: the planner's "tags" read as the card's risk
+ * flags too, short, their sentences behind Details): "Injured player" ("Injured players" for several), "Market check" (hidden or
+ * not), "Doesn't help you", "Not scored".
+ */
+export const FLAG_PILL: Readonly<Record<FlagView["kind"], string>> = {
+  injured: "Injured player",
+  market: "Market check",
+  hiddenByMarket: "Market check",
+  noHelp: "Doesn't help you",
+  noOdds: "Not scored",
+};
 
 export interface FactView {
   label: string;
@@ -748,8 +766,9 @@ export interface LadderView {
    */
   none: boolean;
   /**
-   * The first offer isn't the card's own trade ("Open with"): the card's own message proposes the trade as it is, so it says
-   * that "How to offer it" opens with another offer (OWN_MESSAGE_NOTE; the review of wave D, UI-D-6).
+   * The first offer isn't the card's own trade ("Open with"). Until Checkpoint 7h the card's own message, in the card's body,
+   * said so then (the review of wave D, UI-D-6); since then the card shows no message of its own outside "How to offer it",
+   * whose first offer's message opens with it (TradeCard.tsx).
    */
   opensElsewhere: boolean;
   /** Each offer as a version the user may have sent (the feedback's "Which version did you send?"), in order. */
@@ -1012,6 +1031,13 @@ export interface CardContext {
    * down a trade with the same team).
    */
   offers?: "finder" | "analyzer" | "none" | undefined;
+  /**
+   * Checkpoint 7h (planner reply to Checkpoint 7g, §1): the Trade Finder's list says my moves made with or without any trade
+   * once, above it (baselineAssumedLines); this is that line in a card's words ("Assumed with or without this trade: …"), which
+   * the card's roster moves and its Plan B box's leave out when theirs is the same (withoutListLine). Absent or null: every
+   * card names its own (the Analyzer's, a result without the baseline's moves).
+   */
+  assumedLine?: string | null | undefined;
 }
 
 /** A 0–100 score as printed (printed.ts printedScore): its number; 0 for a trade that doesn't help me (B ≤ 0); "—" when B is unknown. */
@@ -1171,11 +1197,16 @@ export function weeklyLine(winChance: TradeDetail["winChance"], cfg: { readonly 
 
 /**
  * The tooltip on "Helps you 37 now · 41 if done after this week's games." (Checkpoint 7e; planner reply to Checkpoint 7d, item
- * 4.2: the planner's words), said on hover and, since a phone can't hover, among the card's facts (NOW_OR_LATER_LABEL).
+ * 4.2: the planner's words), said on hover and, since a phone can't hover, in words: among the card's facts until Checkpoint 7h
+ * (NOW_OR_LATER_LABEL), since then right under the line in the card's Details (planner reply to Checkpoint 7g, §1: "the timing
+ * line" behind Details; TradeCard.tsx NowOrLater).
  */
 export const NOW_OR_LATER_TITLE = "Assumes the same deal is still there next week. Injuries, big games or another trade can change that, and their answer may change too.";
 
-/** The card's fact that carries the line's tooltip (⚠️ ours: the tooltip's words where a phone shows them). */
+/**
+ * The card's fact that carried the line's tooltip until Checkpoint 7h (⚠️ ours: the tooltip's words where a phone shows them);
+ * since then the words sit right under the line (NOW_OR_LATER_TITLE), so no fact repeats them.
+ */
 export const NOW_OR_LATER_LABEL = "After this week's games";
 
 /** "Helps you 37 now · 41 if done after this week's games." (nowOrLaterView). */
@@ -1256,6 +1287,15 @@ export function tradeWords(p: Pick<TradeProposal, "give" | "get">, snapshot: Sna
 /** The disclosure's summary, on every card that has one (TradeCardView.offers). */
 export const OFFERS_HEADING = "How to offer it";
 
+/**
+ * The card's other disclosure, beside "How to offer it" (Checkpoint 7h; planner reply to Checkpoint 7g, §1: "Everything else goes
+ * behind one "Details" control"; TradeCard.tsx): what the closed card doesn't show. The Trade Analyzer's card opens with it open.
+ */
+export const DETAILS_HEADING = "Details";
+
+/** The heading over the card's reasons after the first, in its Details (Checkpoint 7h: the first shows on the closed card, "one reason"). */
+export const MORE_REASONS_HEADING = "More reasons";
+
 /** What the opened disclosure says while the engine works the offers out (TradeCard.tsx: its status line). */
 export const OFFERS_LOADING_TEXT = "Working out the offers…";
 
@@ -1267,17 +1307,6 @@ export const OFFERS_FAILED_TEXT = "The offers couldn't be worked out this time."
  * trade as it is", though nothing could be worked out): the trade can't be evaluated with the league as it stands now.
  */
 export const OFFERS_NONE_TEXT = "This trade can't be worked out with the league as it stands now.";
-
-/**
- * Over the card's own "Message to send them" once "How to offer it" opens with another offer (LadderView.opensElsewhere; the
- * review of wave D, UI-D-6: the card's own message proposed the trade as it is, while the offers said to open with another).
- */
-export const OWN_MESSAGE_NOTE = "This message proposes the trade as it is. “How to offer it” opens with another offer: send its message first.";
-
-/** The line over a card's own "Message to send them" (OWN_MESSAGE_NOTE) once its offers open with another trade; else null (none loaded, or they open with the card's own). */
-export function ownMessageNote(ladder: Pick<LadderView, "opensElsewhere"> | null | undefined): string | null {
-  return ladder?.opensElsewhere ? OWN_MESSAGE_NOTE : null;
-}
 
 /** The line above the offers, which the disclosure's status line says once they're in (⚠️ ours). */
 export const OFFERS_INTRO_TEXT = "Offer them in order: if they say no, try the next.";
@@ -1314,6 +1343,11 @@ export interface LadderContext {
   lastNflWeek?: number | undefined;
   /** What the league rewards as the offers' numbers were weighed (each version's model inputs, as the card's: CardContext.goal). */
   goal?: Goal | null | undefined;
+  /**
+   * The Trade Finder's line of moves made with or without a trade, in a card's words (CardContext.assumedLine; Checkpoint 7h):
+   * left out of each offer's roster moves, as the card leaves it out of its own. Absent or null: none left out.
+   */
+  assumedLine?: string | null | undefined;
 }
 
 /** A version's "Helps you" scale for its feedback inputs: its own B₃ when it has one, and why that scale departs from 63 (helpsReasonOf). */
@@ -1356,7 +1390,7 @@ export function buildLadderView(ladder: OfferLadder, card: Pick<TradeCardView, "
     const through = showsVeto ? throughText(e.pAccept, e.pComplete) : null;
     const acceptNote = through ? `Counting ${REVIEW_WORDS[snapshot.settings.tradeReview]}, ${through} it goes through.` : null;
     // The roster moves its numbers assume, only where they aren't the card's (the suggested trade is the card).
-    const lines = s.kind === "suggested" ? [] : moveLinesOf(e, snapshot, card.partnerName);
+    const lines = s.kind === "suggested" ? [] : withoutListLine(moveLinesOf(e, snapshot, card.partnerName), ctx.assumedLine);
     const numbers = numberParts.map((p) => (p.label ? `${p.text} ${p.label}` : p.text)).join(" · ");
     const view: OfferStepView = {
       kind: s.kind,
@@ -1432,6 +1466,8 @@ export interface PlanBContext {
    * from my roster's (myRosterIds; review of Checkpoint 7f, PIERCE-3). Absent: the players the box's trade brings me alone.
    */
   myTeamId?: string | null | undefined;
+  /** The list's line of moves made with or without a trade, in a card's words (CardContext.assumedLine): left out of the box's moves when theirs is the same. */
+  assumedLine?: string | null | undefined;
 }
 
 /**
@@ -1496,7 +1532,7 @@ export function planBView(planB: TradeEvaluation["planB"], snapshot: SnapshotPar
     odds,
     weekly,
     oddsNote: planB.before && odds.length ? OWN_BEFORE_NOTE : null,
-    moves: planB.myMoves ? myMovesLines(planB.myMoves, snapshot, teamNameOf(snapshot, planB.proposal.partnerId), { roster: myRosterIds(snapshot, ctx.myTeamId, planB.proposal) }) : [],
+    moves: planB.myMoves ? withoutListLine(myMovesLines(planB.myMoves, snapshot, teamNameOf(snapshot, planB.proposal.partnerId), { roster: myRosterIds(snapshot, ctx.myTeamId, planB.proposal) }), ctx.assumedLine) : [],
     also: null,
     pitch: planBPitch(planB.proposal, snapshot),
     analyzerHref: analyzerHref(planB.proposal, { from: "planB" }),
@@ -2232,14 +2268,28 @@ export function myMovesLines(moves: RosterMoves, snapshot: SnapshotPart, partner
     }
   }
   flushIR();
+  out.push(...assumedLinesOf(moves, snapshot));
+  return out;
+}
+
+/** A name can end the sentence with its own period ("Jr."), as draftSummary's (review of wave B, moves-assumed-double-period). */
+const sentenceOf = (text: string) => (text.endsWith(".") ? text : `${text}.`);
+
+/**
+ * The moves made with or without a trade, in words, the parts of the line that names them (myMovesLines; Checkpoint 7h's list
+ * line, baselineAssumedLines): the League page's pickups and the players dropped in both versions ("add Jake Ferguson, drop
+ * Romeo Doubs", "drop Kyle Pitts Sr."), then the releases at an IR return by week ("release Alec Pierce in week 7, when he
+ * returns from IR"), joined as one list (one pickup group or none and one release, the lead's words) or every part after a
+ * semicolon; and item 2.1's either-way moves apart. Null for a line that has none.
+ */
+function assumedPartsOf(moves: Pick<RosterMoves, "assumed" | "assumedLater">, snapshot: SnapshotPart): { parts: string | null; either: string[] } {
+  const plain = (id: string) => snapshot.players[id]?.name ?? "a player who's no longer in this league's data";
   const partsOf = (eitherWay: boolean) =>
     (moves.assumed ?? []).flatMap((a) => {
       if (!a || (a.eitherWay === true) !== eitherWay) return [];
       const words = [typeof a.add === "string" ? `add ${plain(a.add)}` : null, typeof a.drop === "string" ? `drop ${plain(a.drop)}` : null].filter((w): w is string => w !== null);
       return words.length ? [words.join(", ")] : [];
     });
-  // A name can end the sentence with its own period ("Jr."), as draftSummary's (review of wave B, moves-assumed-double-period).
-  const sentence = (text: string) => (text.endsWith(".") ? text : `${text}.`);
   const own = partsOf(false);
   // Checkpoint 7f (the lead's R3; review of Checkpoint 7f, INTEGRATION-4): each release at an IR return made with or without
   // the trade joins this line, by week, names only (the League page's "Returns from IR" says why). One pickup group (or none)
@@ -2250,12 +2300,46 @@ export function myMovesLines(moves: RosterMoves, snapshot: SnapshotPart, partner
     .sort((a, b) => week(a.week) - week(b.week))
     .map((r) => assumedReleaseText(r, snapshot));
   const parts = [...own, ...later];
-  if (parts.length) out.push(sentence(`${MY_MOVES_ASSUMED} ${parts.join(later.length === 1 && own.length <= 1 ? ", " : "; ")}`));
-  // Item 2.1's either-way moves on a line of their own: the League page doesn't list them (review of wave B, finding
-  // either-way-before-unexplained).
-  const either = partsOf(true);
-  if (either.length) out.push(sentence(`${parts.length ? "Also assumed" : "Assumed"} with or without this trade, though the League page doesn't list ${either.length === 1 ? "it" : "them"}: ${either.join("; ")}`));
+  return { parts: parts.length ? parts.join(later.length === 1 && own.length <= 1 ? ", " : "; ") : null, either: partsOf(true) };
+}
+
+/**
+ * The lines of a card's roster moves that name the moves made with or without the trade (myMovesLines' last lines): "Assumed
+ * with or without this trade: add Jake Ferguson, drop Romeo Doubs, release Alec Pierce in week 7, when he returns from IR."
+ * (MY_MOVES_ASSUMED; assumedPartsOf), then item 2.1's either-way moves on a line of their own, since the League page doesn't
+ * list them (review of wave B, finding either-way-before-unexplained): "Also assumed with or without this trade, though the
+ * League page doesn't list it: add Darren Waller, drop Kyle Pitts Sr." ("Assumed …" alone).
+ */
+export function assumedLinesOf(moves: Pick<RosterMoves, "assumed" | "assumedLater">, snapshot: SnapshotPart): string[] {
+  const { parts, either } = assumedPartsOf(moves, snapshot);
+  const out: string[] = [];
+  if (parts) out.push(sentenceOf(`${MY_MOVES_ASSUMED} ${parts}`));
+  if (either.length) out.push(sentenceOf(`${parts ? "Also assumed" : "Assumed"} with or without this trade, though the League page doesn't list ${either.length === 1 ? "it" : "them"}: ${either.join("; ")}`));
   return out;
+}
+
+/**
+ * The Trade Finder's line above its list (Checkpoint 7h; planner reply to Checkpoint 7g, §1: "“Assumed with or without this
+ * trade”: show it once, above the list, not on every idea and Plan B box"; ⚠️ ours, the words: "a trade", since it names no
+ * trade): "Assumed with or without a trade: add Carnell Tate, drop Romeo Doubs, release Alec Pierce in week 7, when he returns
+ * from IR." (BASELINE_ASSUMED), from my baseline's moves (TradeSearchResult.baselineMoves: the League page's pickups and my IR
+ * returns' releases), in the very words a card's line uses (assumedPartsOf); and that card line (`cardLine`: "Assumed with or
+ * without this trade: …", MY_MOVES_ASSUMED), which a card, its Plan B box and its offers leave out when theirs is the same
+ * (CardContext.assumedLine, PlanBContext.assumedLine, LadderContext.assumedLine). Null when the baseline makes no such move or
+ * isn't known (a result the worker didn't post: every card then names its own, as before).
+ */
+export function baselineAssumedLines(moves: TradeSearchResult["baselineMoves"], snapshot: SnapshotPart): { text: string; cardLine: string } | null {
+  if (!moves) return null;
+  const { parts } = assumedPartsOf(moves, snapshot);
+  return parts ? { text: sentenceOf(`${BASELINE_ASSUMED} ${parts}`), cardLine: sentenceOf(`${MY_MOVES_ASSUMED} ${parts}`) } : null;
+}
+
+/** The Trade Finder's line of my moves made with or without any trade, above its list (baselineAssumedLines; Checkpoint 7h). */
+export const BASELINE_ASSUMED = "Assumed with or without a trade:";
+
+/** A card's (or Plan B box's, or offer's) roster moves without the line the list says once above it (`assumedLine`; Checkpoint 7h). */
+export function withoutListLine(lines: readonly string[], assumedLine: string | null | undefined): string[] {
+  return assumedLine ? lines.filter((l) => l !== assumedLine) : [...lines];
 }
 
 /**
@@ -2341,13 +2425,20 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
     });
     // What his projection assumes joins the flag (the file header: said once, not again under the lists or in the reasons).
     const assumes = assumesFullReturn(flagged.length > 1, blendOn);
-    flags.push({ kind: "injured", text: `Depends on ${flagged.length === 1 ? "an injured player" : "injured players"}: ${listText(who)}. ${assumes.charAt(0).toUpperCase()}${assumes.slice(1)}` });
+    flags.push({
+      kind: "injured",
+      text: `Depends on ${flagged.length === 1 ? "an injured player" : "injured players"}: ${listText(who)}. ${assumes.charAt(0).toUpperCase()}${assumes.slice(1)}`,
+      pill: flagged.length === 1 ? FLAG_PILL.injured : `${FLAG_PILL.injured}s`,
+    });
   }
-  if (e.flags.hiddenByBenefit) flags.push({ kind: "noHelp", text: noHelpText(e) });
+  if (e.flags.hiddenByBenefit) flags.push({ kind: "noHelp", text: noHelpText(e), pill: FLAG_PILL.noHelp });
   // The model's trigger, no number (the file header: planner reply to Checkpoint 4b, change 3), naming the roster spot when
   // it's what trips the check (marketCheckText).
-  if (e.flags.marketCheck) flags.push({ kind: e.flags.hiddenByMarket ? "hiddenByMarket" : "market", text: marketCheckText(e, snapshot, ctx.fantasyCalc) });
-  if (e.b === null && !e.flags.hiddenByBenefit) flags.push({ kind: "noOdds", text: "Not scored: your playoff odds couldn't be worked out, so this trade has no Helps you or Overall number." });
+  if (e.flags.marketCheck) {
+    const kind = e.flags.hiddenByMarket ? "hiddenByMarket" : "market";
+    flags.push({ kind, text: marketCheckText(e, snapshot, ctx.fantasyCalc), pill: FLAG_PILL[kind] });
+  }
+  if (e.b === null && !e.flags.hiddenByBenefit) flags.push({ kind: "noOdds", text: "Not scored: your playoff odds couldn't be worked out, so this trade has no Helps you or Overall number.", pill: FLAG_PILL.noOdds });
 
   // The partner's line (Checkpoint 7c), on a Trade Finder card only when the trade helps both teams (planner reply to
   // Checkpoint 7c, answer 3: CardContext.partnerLine), on the Analyzer's whenever the partner's numbers exist.
@@ -2366,14 +2457,14 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
   const theirLongTerm = them ? theirLongTermFact(e) : null;
   if (theirLongTerm) facts.push(theirLongTerm);
   // "Now or after this week" (Checkpoint 7e, item 4.2): the Trade Finder's numbers as they arrive (CardContext.later), else the
-  // evaluation's own (the Analyzer's); the tooltip's words among the facts too, which a phone shows (⚠️ ours).
+  // evaluation's own (the Analyzer's); since Checkpoint 7h the tooltip's words right under the line, in Details (TradeCard.tsx),
+  // which a phone shows, so no fact repeats them (⚠️ ours).
   const nowOrLater = nowOrLaterView(e, ctx.later?.get(e.key) ?? e.later);
-  if (nowOrLater) facts.push({ label: NOW_OR_LATER_LABEL, value: nowOrLater.title });
   // The scale's wording without the search's or the Analyzer's scale: the league type, and whether long-term values loaded.
   const scaleFallback: ScaleFallback = { leagueType: snapshot.settings.leagueType, longTermOn: !e.dynMissing };
 
-  // The roster moves the numbers assume, mine first (moveLinesOf).
-  const required = moveLinesOf(e, snapshot, partnerName);
+  // The roster moves the numbers assume, mine first (moveLinesOf), without the line the list says once above it (Checkpoint 7h).
+  const required = withoutListLine(moveLinesOf(e, snapshot, partnerName), ctx.assumedLine);
 
   // Injury tags in words on both sides (the evaluation's; else, a core without them, tags from the snapshot: tagsOf).
   const tags = tagsOf(e, snapshot);
@@ -2421,7 +2512,7 @@ export function buildTradeCard(e: TradeEvaluation, ctx: CardContext): TradeCardV
     helpsBothTag,
     details: ctx.details ? detailsView(e, snapshot.settings.leagueType, ctx.helpsScale) : null,
     offers,
-    planB: planBView(e.planB, snapshot, { cardTags: tags, knownTags: ctx.knownTags, seasonEnd: end, baseline: ctx.baseline, reward: ctx.reward, myTeamId: e.detail.myTeamId }),
+    planB: planBView(e.planB, snapshot, { cardTags: tags, knownTags: ctx.knownTags, seasonEnd: end, baseline: ctx.baseline, reward: ctx.reward, myTeamId: e.detail.myTeamId, assumedLine: ctx.assumedLine }),
     injuryNote: incomingInjuryNote(tags, snapshot, flagged, blendOn),
     versions: versionChoices(e, snapshot, ctx.goal ?? null, offers?.suggested ?? (ctx.offers === "finder" || ctx.offers === undefined ? OFFER_STEP_LABEL.suggested : ANALYZER_SUGGESTED_LABEL)),
     flags,
@@ -2591,6 +2682,15 @@ export interface FinderView {
   baseline: string | null;
   /** What those odds count: the League page's (null with no baseline). */
   baselineNote: string | null;
+  /**
+   * Checkpoint 7h (planner reply to Checkpoint 7g, §1: "“Assumed with or without this trade”: show it once, above the list"): "Assumed
+   * with or without a trade: add Carnell Tate, drop Romeo Doubs, release Alec Pierce in week 7, when he returns from IR."
+   * (baselineAssumedLines, from TradeSearchResult.baselineMoves), under my odds before any trade, with cards only; null when the
+   * baseline makes no such move or the result doesn't say (then each card names its own, as before).
+   */
+  assumed: string | null;
+  /** The same line in a card's words ("Assumed with or without this trade: …"), which the cards leave out, and the page passes to "How to offer it" (LadderContext.assumedLine); null with `assumed`. */
+  assumedCardLine: string | null;
   /** What "Helps you" sums up, once for the list (helpsInfoText); null without cards. */
   helpsInfo: string | null;
   /** The search's "Helps you" scale (TradeSearchResult.helpsScale), for "How to read" (HowToRead.helpsScaleWords); null when unknown. */
@@ -2874,16 +2974,41 @@ export function buildFinderView(args: {
   // reward its B was weighed by (Checkpoint 7c: the cards' top-N odds line, the words naming the prizes).
   const helpsScale = result.helpsScale ?? null;
   const reward = result.reward ?? null;
+  // My moves made with or without any trade, once above the list (Checkpoint 7h; planner reply to Checkpoint 7g, §1), which every
+  // card, Plan B box and offer leaves out of its own moves when theirs is the same (CardContext.assumedLine).
+  const assumed = baselineAssumedLines(result.baselineMoves, snapshot);
   // The partner's line only on the cards that help both teams (planner reply to Checkpoint 7c, answer 3), in every sort.
   const sorted = listed.map((e) =>
-    buildTradeCard(e, { snapshot, baseline, reward, lastNflWeek: args.lastNflWeek, knownTags, fantasyCalc: args.fantasyCalc, goal: args.goal, blendOn: args.blendOn, helpsScale, partnerLine: "helpsBoth", later: args.later?.lines }),
+    buildTradeCard(e, {
+      snapshot,
+      baseline,
+      reward,
+      lastNflWeek: args.lastNflWeek,
+      knownTags,
+      fantasyCalc: args.fantasyCalc,
+      goal: args.goal,
+      blendOn: args.blendOn,
+      helpsScale,
+      partnerLine: "helpsBoth",
+      later: args.later?.lines,
+      assumedLine: assumed?.cardLine ?? null,
+    }),
   );
   // A Plan B that is also a card of its own says so, with that card's place in this sort (review of track F: the same
-  // trade showed twice without a word).
+  // trade showed twice without a word). Checkpoint 7h (planner reply to Checkpoint 7g, §1: "when several ideas share a Plan B,
+  // show it only on the highest idea"): a Plan B an idea higher in this sort shows goes from the cards below it, and with it
+  // from the versions their feedback asks about (it isn't shown there).
   const place = new Map(sorted.map((c, i) => [c.key, i + 1]));
+  const boxes = new Set<string>();
   const cards = sorted.map((c) => {
-    const at = c.planB ? place.get(c.planB.key) : undefined;
-    return c.planB && at !== undefined ? { ...c, planB: { ...c.planB, also: planBAlsoText(at) } } : c;
+    if (!c.planB) return c;
+    if (boxes.has(c.planB.key)) {
+      const gone = c.planB.key;
+      return { ...c, planB: null, versions: c.versions.filter((v) => !(v.version === "planB" && v.key === gone)) };
+    }
+    boxes.add(c.planB.key);
+    const at = place.get(c.planB.key);
+    return at !== undefined ? { ...c, planB: { ...c.planB, also: planBAlsoText(at) } } : c;
   });
   const sortLabel = SORT_OPTIONS.find((o) => o.value === args.sort)?.label ?? "Overall";
   // Qualified when an idea shown starts from its own "before" (Checkpoint 7e, item 2.1: its card says so, OWN_BEFORE_NOTE).
@@ -2938,6 +3063,8 @@ export function buildFinderView(args: {
   return {
     baseline: odds?.text ?? null,
     baselineNote: odds?.note ?? null,
+    assumed: cards.length ? (assumed?.text ?? null) : null,
+    assumedCardLine: assumed?.cardLine ?? null,
     // Long-term values counted unless the engine says they're missing (TradeEvaluation.dynMissing: B is B_win alone then).
     helpsInfo: cards.length ? helpsInfoText(snapshot.settings.leagueType, args.fantasyCalc?.available ?? true, !every.some((e) => e.dynMissing), helpsScale, reward) : null,
     helpsScale,

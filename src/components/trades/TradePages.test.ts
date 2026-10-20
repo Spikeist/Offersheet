@@ -73,8 +73,8 @@ const withThem = (e: TradeEvaluation, helps: number | null, over: Partial<Partne
 /** Plan B's heading as React writes it into HTML (its apostrophe escaped): "If they won&#x27;t move: try …" (Checkpoint 7e). */
 const PLAN_B_HTML = PLAN_B_HEADING.replace(/'/g, "&#x27;");
 
-/** A card's own "How to offer it" summary (How to read's paragraph names it too, in bold). */
-const OFFERS_SUMMARY = /<summary[^>]*><span>How to offer it<span class="sr-only">/;
+/** A card's own "How to offer it" control (How to read's paragraph names it too, in bold): a disclosure button since Checkpoint 7h. */
+const OFFERS_SUMMARY = /<button type="button" aria-expanded="(?:true|false)" aria-controls="[^"]+" class="[^"]*"><span class="min-w-0">How to offer it<span class="sr-only">/;
 
 /** Visible text, tags and the entities React writes removed. */
 const textOf = (html: string) =>
@@ -459,10 +459,10 @@ describe("TradeCard (§13: each trade card shows)", () => {
     const html = render(evaluation({ pComplete: 0.4, ros: { received: 142, given: 118 } }));
     const text = textOf(html);
     expect(text).toContain("Trade idea 1 Trade with Gravel Gophers You give Wiggleton Spoons WR · ATL You get Cornelius Snoot RB · HOU");
-    expect(html).toMatch(/<dl class="mt-4 grid grid-cols-3 gap-2">/);
+    expect(html).toMatch(/<dl class="mt-3 grid grid-cols-3 gap-2">/);
     // Each number's label (dt) comes first for screen readers; the number shows above it (flex-col-reverse).
     expect(text).toContain("Helps you 39 Chance they accept 40% Est. · Decent Overall 18");
-    expect(html).toContain('<div class="flex min-w-0 flex-col-reverse justify-end rounded-xl bg-surface-muted px-1.5 py-2 text-center"><dt');
+    expect(html).toContain('<div class="flex min-w-0 flex-col-reverse justify-end rounded-xl bg-surface-muted px-1.5 py-1.5 text-center"><dt');
     // Helps you's tile alone has a tooltip with its scale (planner reply to Checkpoint 4c, A2).
     const tiles = [...html.matchAll(/<div( title="[^"]*")? class="flex min-w-0 flex-col-reverse[^"]*"><dt[^>]*>([^<]+)<\/dt>/g)].map((m) => [m[2], m[1] ?? null]);
     expect(tiles).toEqual([
@@ -471,9 +471,12 @@ describe("TradeCard (§13: each trade card shows)", () => {
       ["Overall", null],
     ]);
     expect(text).toContain("You get 142 ROS pts, give 118");
-    // Phase 4c: my odds right under the three numbers (change 9; the separator is read as a comma). No trade value: the
-    // FantasyCalc credit follows a sentence after the facts (planner reply to Checkpoint 7a, 5.4).
-    expect(text).toContain("Helps you 39 Chance they accept 40% Est. · Decent Overall 18 Title odds +1 percentage point · , Playoff odds +3 percentage points");
+    // Checkpoint 7h: the closed card ends with its first reason and the two controls; my odds open its Details (Phase 4c,
+    // change 9; the separator is read as a comma). No trade value: the FantasyCalc credit follows a sentence after the facts
+    // (planner reply to Checkpoint 7a, 5.4).
+    expect(text).toContain(
+      "Helps you 39 Chance they accept 40% Est. · Decent Overall 18 Your RB2 spot goes from 9.1 to 14.3 projected points per week. Details (trade idea 1, Trade with Gravel Gophers) ▾ How to offer it (trade idea 1, Trade with Gravel Gophers) ▾ Title odds +1 percentage point · , Playoff odds +3 percentage points",
+    );
     expect(text).toContain("Their lineup 0 pts a week These numbers weigh each player's trade value. Values: FantasyCalc (opens in a new tab)");
     expect(text).not.toMatch(/Trade value|5,000|5,400/);
     // The arrow is read as "from … to"; each odds kept on one line.
@@ -508,12 +511,13 @@ describe("TradeCard (§13: each trade card shows)", () => {
       /<div class="flex flex-wrap items-center gap-x-2 gap-y-1"><h3 id="[^"]+" class="[^"]*">Trade with Gravel Gophers<\/h3><span title="Helps both: this trade helps you, and it helps them too \(Helps them 24\)\." class="shrink-0"><span class="[^"]*bg-brand-soft[^"]*">Helps both<\/span><\/span><\/div>/,
     );
     expect(html).toMatch(/<article aria-labelledby="([^"]+)"[\s\S]*<h3 id="\1"/);
-    // The partner's line: after my odds and my weekly line, in the format of mine, the planner's tooltip on "Helps them".
+    // The partner's line: after my odds and before my weekly line since Checkpoint 7h (the lead's order: "the odds lines (and the
+    // partner's line when it shows), the odds note, the weekly line"), in the format of mine, the planner's tooltip on "Helps them".
     const them = `<p><span class="whitespace-nowrap" title="${HELPS_THEM_TITLE.replace(/'/g, "&#x27;")}"><span class="font-semibold">Helps them</span> <span class="tabular-nums">24</span></span><span aria-hidden="true">${NBSP}· </span><span class="sr-only">, </span><span class="whitespace-nowrap"><span class="font-semibold">Their title odds</span> <span aria-hidden="true" class="tabular-nums">6.0% → 6.9%</span><span class="sr-only">from 6.0% to 6.9%</span></span><span aria-hidden="true">${NBSP}· </span><span class="sr-only">, </span><span class="whitespace-nowrap"><span class="font-semibold">Their playoff odds</span> <span aria-hidden="true" class="tabular-nums">41% → 45%</span><span class="sr-only">from 41% to 45%</span></span></p>`;
     expect(html).toContain(them);
-    expect(html.indexOf("Win chance by week")).toBeLessThan(html.indexOf(them));
-    expect(html.indexOf("Playoff odds</span>")).toBeLessThan(html.indexOf("Win chance by week"));
-    expect(textOf(html)).toContain("Win chance by week: Week 9: 68% → 64% week 9 from 68% to 64% Helps them 24 · , Their title odds 6.0% → 6.9% from 6.0% to 6.9% · , Their playoff odds 41% → 45% from 41% to 45%");
+    expect(html.indexOf(them)).toBeLessThan(html.indexOf("Win chance by week"));
+    expect(html.indexOf("Playoff odds</span>")).toBeLessThan(html.indexOf(them));
+    expect(textOf(html)).toContain("Helps them 24 · , Their title odds 6.0% → 6.9% from 6.0% to 6.9% · , Their playoff odds 41% → 45% from 41% to 45% Win chance by week: Week 9: 68% → 64% week 9 from 68% to 64%");
     // No weekly line for them.
     expect(textOf(html).match(/Win chance by week/g)).toHaveLength(1);
   });
@@ -529,13 +533,13 @@ describe("TradeCard (§13: each trade card shows)", () => {
       const html = render(e);
       expect(html).not.toContain(">Helps both<");
       expect(textOf(html)).toContain(`Helps them ${helps} · ,`);
-      expect(html).toMatch(/<h3 id="[^"]+" class="[^"]*">Trade with Gravel Gophers<\/h3><div class="mt-3 grid/);
+      expect(html).toMatch(/<h3 id="[^"]+" class="[^"]*">Trade with Gravel Gophers<\/h3><div class="mt-2 grid/);
     }
     // The veto note stays right under the three numbers (`npm run check:browser` reads it as the <dl>'s next element).
     const vetoed = withThem(evaluation({ pAccept: 0.4, pComplete: 0.2, detail: { vetoRisk: true } }), 24);
     const card = buildTradeCard(vetoed, { snapshot: tradeSnapshot({ tradeReview: "league_vote" }) });
     expect(renderToStaticMarkup(createElement(TradeCard, { card, rank: 1, feedback: NONE, onFeedback: saved }))).toMatch(
-      /<\/dl><p class="mt-2 text-sm text-muted">Counting a league veto vote, about 20% it goes through\.<\/p><div class="mt-2 space-y-0\.5 text-sm">/,
+      /<\/dl><p class="mt-2 text-sm text-muted">Counting a league veto vote, about 20% it goes through\.<\/p>/,
     );
     // At exactly 10 the tag shows.
     expect(render(withThem(evaluation(), config.benefit.helpsThemMin))).toContain(">Helps both<");
@@ -558,7 +562,8 @@ describe("TradeCard (§13: each trade card shows)", () => {
     const vetoed = evaluation({ pAccept: 0.4, pComplete: 0.2, detail: { vetoRisk: true } });
     const card = buildTradeCard(vetoed, { snapshot: tradeSnapshot({ tradeReview: "league_vote" }), fantasyCalc: FC });
     const html = renderToStaticMarkup(createElement(TradeCard, { card, rank: 1, feedback: NONE, onFeedback: saved }));
-    expect(html).toMatch(/<\/dl><p class="mt-2 text-sm text-muted">Counting a league veto vote, about 20% it goes through\.<\/p><div class="mt-2 space-y-0\.5 text-sm"><p>[^]*Title odds/);
+    // Checkpoint 7h: the odds follow in the card's Details.
+    expect(html).toMatch(/<\/dl><p class="mt-2 text-sm text-muted">Counting a league veto vote, about 20% it goes through\.<\/p>[^]*Title odds/);
     // Under 5%, it says so in words ("<5%" is the big number's short form).
     const under = buildTradeCard(evaluation({ pAccept: 0.08, pComplete: 0.04, detail: { vetoRisk: true } }), { snapshot: tradeSnapshot({ tradeReview: "league_vote" }), fantasyCalc: FC });
     expect(under.numbers.acceptNote).toBe("Counting a league veto vote, under 5% it goes through.");
@@ -566,9 +571,13 @@ describe("TradeCard (§13: each trade card shows)", () => {
 
   it("lists the risk flags apart from the numbers, in words with a symbol (not color alone)", () => {
     const html = render(evaluation({ gMine: -0.2, flags: { marketCheck: true, hiddenByMarket: false, hiddenByBenefit: false, injured: ["107"] } }));
+    // Checkpoint 7h: small pills in words on the closed card, their sentences in its Details.
+    expect(html).toMatch(/<ul aria-label="Risks"[^>]*><li[^>]*><span aria-hidden="true">⚠<\/span>Injured player<\/li><li[^>]*><span aria-hidden="true">⚠<\/span>Market check<\/li><\/ul>/);
     expect(html).toMatch(
-      /<ul aria-label="Risks"[^>]*><li[^>]*><span aria-hidden="true"[^>]*>⚠<\/span><span[^>]*>Depends on an injured player: Humbert Fiddlesticks \(injured reserve\)\. His projection assumes he returns at full strength, blended with the trade market\.<\/span><\/li><li[^>]*>.*Market check: counting roster spots, you&#x27;d give up more trade value than you get\./,
+      /<ul aria-label="Risks in full"[^>]*><li[^>]*><span aria-hidden="true"[^>]*>⚠<\/span><span[^>]*>Depends on an injured player: Humbert Fiddlesticks \(injured reserve\)\. His projection assumes he returns at full strength, blended with the trade market\.<\/span><\/li><li[^>]*>.*Market check: counting roster spots, you&#x27;d give up more trade value than you get\./,
     );
+    expect(html.indexOf('aria-label="Risks"')).toBeLessThan(html.indexOf(">Details<"));
+    expect(html.indexOf(">Details<")).toBeLessThan(html.indexOf('aria-label="Risks in full"'));
     expect(render()).not.toContain('aria-label="Risks"');
   });
 
@@ -591,7 +600,8 @@ describe("TradeCard (§13: each trade card shows)", () => {
     // (Not the caveat's words; Checkpoint 7e's heading over the roster moves, "Roster moves these numbers assume", is another.)
     expect(text).not.toContain("the numbers assume they return");
     expect(text.match(/Humbert Fiddlesticks/g)).toHaveLength(2);
-    expect(text).toContain("Why Your WR2 spot goes from 9.1 to 14.3 projected points per week.");
+    // Checkpoint 7h: the first reason on the closed card, right before its two controls.
+    expect(text).toMatch(/Overall \d+ ⚠ Injured player Your WR2 spot goes from 9\.1 to 14\.3 projected points per week\. Details/);
   });
 
   it("says the roster moves the numbers assume, the reasons, and the pitch behind a 44 px summary with a 44 px Copy button", () => {
@@ -602,8 +612,10 @@ describe("TradeCard (§13: each trade card shows)", () => {
     // Checkpoint 7e (planner reply to Checkpoint 7d, item 2.2): every move in order with its reason, and the moves made either way.
     const listed = textOf(render({ ...evaluation(), myMoves: { moves: [{ kind: "makeRoom", week: 6, drop: ["108"], for: ["204"] }], assumed: [{ add: "901", drop: "105" }] } }));
     expect(listed).toContain("Roster moves these numbers assume Make room for Cornelius Snoot: drop Tobias Thimble (TE). Assumed with or without this trade: add Floopy Freeman, drop Glimmer Oddfellow.");
-    expect(text).toContain("Why Your RB2 spot goes from 9.1 to 14.3 projected points per week.");
-    expect(html).toMatch(/<details class="[^"]*"><summary class="flex min-h-11[^"]*"><span>Message to send them<span class="sr-only"> \(trade idea 1, Trade with Gravel Gophers\)<\/span><\/span><span aria-hidden="true" class="text-muted">▾<\/span><\/summary>/);
+    expect(text).toMatch(/Overall \d+ Your RB2 spot goes from 9\.1 to 14\.3 projected points per week\. Details/);
+    // Checkpoint 7h: the card's own message sits in "How to offer it" (open there when the offers hold the trade alone, or the
+    // page gives no engine, as here).
+    expect(html).toMatch(/<details class="[^"]*"( open="")?><summary class="flex min-h-11[^"]*"><span>Message to send them<span class="sr-only"> \(trade idea 1, Trade with Gravel Gophers\)<\/span><\/span><span aria-hidden="true" class="text-muted">▾<\/span><\/summary>/);
     expect(html).toContain("Hey! Want Wiggleton Spoons for Cornelius Snoot?");
     expect(html).toMatch(/<div class="mt-2 \[&amp;&gt;button\]:min-h-11"><button type="button" class="[^"]*" aria-live="polite">Copy message<\/button><\/div>/);
   });
@@ -654,7 +666,7 @@ describe("TradeCard (§13: each trade card shows)", () => {
     // Review of the addendum: the why lived only in a title, which touch screens can't hover and screen readers don't
     // reliably read. Screen readers now hear it in full in place of the pill's two words (not both: it isn't said twice).
     expect(html).toContain(
-      `<li class="min-w-0"><span class="font-extrabold break-words">Mortimer Gloop</span> <span title="${why}"><span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold whitespace-nowrap bg-accent text-navy align-middle"><span aria-hidden="true">Harder to get</span></span><span class="sr-only">${why}</span></span><span class="block text-xs text-muted">RB · DET</span></li>`,
+      `<li class="min-w-0 text-sm leading-snug"><span class="font-extrabold break-words">Mortimer Gloop</span> <span title="${why}"><span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold whitespace-nowrap bg-accent text-navy align-middle"><span aria-hidden="true">Harder to get</span></span><span class="sr-only">${why}</span></span><span class="block text-xs text-muted">RB · DET</span></li>`,
     );
     expect(html.match(/>Harder to get<\/span>/g)).toHaveLength(1);
     expect(textOf(html)).toContain(`You get Mortimer Gloop Harder to get ${why} RB · DET Cornelius Snoot RB · HOU`);
@@ -670,10 +682,10 @@ describe("TradeCard (§13: each trade card shows)", () => {
     const html = render(evaluation({ give: ["103"], get: ["107"] }));
     expect(html).toContain('<span class="mt-0.5 inline-block rounded-md px-1.5 py-0.5 text-xs font-bold break-words bg-warn-bg text-warn-fg">Questionable</span>');
     expect(html).toContain('<span class="mt-0.5 inline-block rounded-md px-1.5 py-0.5 text-xs font-bold break-words bg-danger-bg text-danger-fg">On IR</span>');
-    // The sentence sits under the two lists, before the three numbers.
+    // The sentence sits in the card's Details since Checkpoint 7h (the lead's item 2: "the injury note and the risk sentences").
     const note = "Humbert Fiddlesticks: his projection assumes he returns at full strength, blended with the trade market.";
     expect(html).toContain(`<p class="mt-2 text-xs leading-relaxed break-words text-muted">${note}</p>`);
-    expect(html.indexOf(note)).toBeLessThan(html.indexOf(">Helps you</dt>"));
+    expect(html.indexOf(note)).toBeGreaterThan(html.indexOf(">Details<"));
     // A healthy card has neither.
     expect(render()).not.toContain("inline-block rounded-md");
     expect(render()).not.toContain("full strength");
@@ -688,10 +700,12 @@ describe("TradeCard (§13: each trade card shows)", () => {
       `If they won't move: try … A different set of their players You give: Glimmer Oddfellow You get: Ignatius Fumblewick Helps you 28 · Chance they accept 40% (Est. · Decent) · Overall 13 Message to send them ${which} ▾ Thanks for considering it! Would you trade Ignatius Fumblewick for Glimmer Oddfellow instead? Let me know what you think! Copy message Open in Analyzer ${which}`,
     );
     // Review of Phase 4b: after the card's flags, facts, reasons, message and Open in Analyzer (a flag about the card's
-    // player sat right under a Plan B that didn't include him), and before the feedback buttons.
+    // player sat right under a Plan B that didn't include him). Checkpoint 7h: at the end of "How to offer it", after the card's
+    // Details (its feedback buttons included) and its own message (⚠️ ours: the list it has always followed).
     const at = html.indexOf(PLAN_B_HTML);
-    for (const before of ['aria-label="Risks"', "You get 120 ROS pts", ">Why<", "Hey! Want Wiggleton Spoons for Cornelius Snoot?", 'href="/analyzer?partner=2&amp;give=106&amp;get=204"']) expect(html.indexOf(before), before).toBeLessThan(at);
-    expect(at).toBeLessThan(html.indexOf("What happened with it?"));
+    for (const before of ['aria-label="Risks"', "You get 120 ROS pts", "Hey! Want Wiggleton Spoons for Cornelius Snoot?", 'href="/analyzer?partner=2&amp;give=106&amp;get=204"', "What happened with it?"]) expect(html.indexOf(before), before).toBeLessThan(at);
+    const offersPanel = /aria-controls="([^"]+)"[^>]*><span class="min-w-0">How to offer it/.exec(html)?.[1] ?? "";
+    expect(html.indexOf(`<div id="${offersPanel}" hidden=""`)).toBeLessThan(at);
     // Each number on one line; the estimate's label can wrap apart from its number (a 320 px phone).
     expect(html).toContain(
       '<p class="mt-1 font-semibold"><span class="whitespace-nowrap">Helps you 28</span>' + NBSP + '· <span class="whitespace-nowrap">Chance they accept 40%</span> <span class="whitespace-nowrap">(Est. · Decent)</span>' + NBSP + '· <span class="whitespace-nowrap">Overall 13</span></p>',
@@ -750,7 +764,8 @@ describe("TradeCard (§13: each trade card shows)", () => {
     );
     const ownText = textOf(own);
     expect(ownText).toContain("from 66% to 70% This idea's odds start from your odds with the moves it assumes with or without this trade.");
-    expect(textOf(own.slice(own.indexOf(PLAN_B_HTML)))).toContain("week 13 from 42% to 55% This idea's odds start from your odds with the moves it assumes with or without this trade. Message to send them");
+    expect(textOf(own.slice(own.indexOf(PLAN_B_HTML)))).toContain("from 66% to 70% This idea's odds start from your odds with the moves it assumes with or without this trade. Win chance by week:");
+    // (Checkpoint 7h: the note right under the odds lines, before the weekly line, on the card and on a Plan B box alike.)
     expect(textOf(boxed)).not.toContain("This idea's odds start from");
   });
 
@@ -758,17 +773,19 @@ describe("TradeCard (§13: each trade card shows)", () => {
     const offered = (e = evaluation(), onOffers: (() => Promise<LadderView>) | undefined = () => new Promise<LadderView>(() => {})) =>
       renderToStaticMarkup(createElement(TradeCard, { card: buildTradeCard(e, { snapshot, fantasyCalc: FC }), rank: 1, feedback: NONE, onFeedback: saved, onOffers }));
     const html = offered();
-    expect(html).toMatch(
-      /<details class="mt-3 rounded-xl border border-line"><summary class="flex min-h-11 items-center justify-between gap-2 px-3 text-sm font-bold"><span>How to offer it<span class="sr-only"> \(trade idea 1, Trade with Gravel Gophers\)<\/span><\/span><span aria-hidden="true" class="text-muted">▾<\/span><\/summary>/,
-    );
-    expect(html).not.toMatch(/<details[^>]* open/);
-    // Under the numbers and the odds, before the risk flags and the reasons (where Phase 4's steps were).
+    // Checkpoint 7h: a 44 px disclosure button beside Details, under the numbers and the first reason, its panel hidden.
+    const button = /<button type="button" aria-expanded="false" aria-controls="([^"]+)" class="([^"]*)"><span class="min-w-0">How to offer it<span class="sr-only"> \(trade idea 1, Trade with Gravel Gophers\)<\/span><\/span>/.exec(html);
+    expect(button?.[2]).toContain("min-h-11");
+    const panelAt = html.indexOf(`<div id="${button?.[1] ?? ""}" hidden=""`);
+    expect(panelAt).toBeGreaterThan(0);
     expect(html.indexOf("How to offer it")).toBeGreaterThan(html.indexOf(">Overall</dt>"));
-    expect(html.indexOf("How to offer it")).toBeLessThan(html.indexOf("You get 120 ROS pts"));
-    // Closed and never opened: nothing asked yet, so nothing but its status line inside.
-    expect(textOf(html.slice(html.indexOf("How to offer it"), html.indexOf("You get 120 ROS pts")))).toBe("How to offer it (trade idea 1, Trade with Gravel Gophers) ▾");
-    // Without the page's engine (a test, a page that gives none), on a trade that doesn't help me, or the old steps: none.
-    expect(render()).not.toContain("How to offer it");
+    expect(html.indexOf("How to offer it")).toBeGreaterThan(html.indexOf(">Details<"));
+    expect(html).not.toMatch(/<details[^>]* open/);
+    // Closed and never opened: nothing asked yet, so nothing but its (empty) status line inside.
+    expect(textOf(html.slice(panelAt))).toBe("");
+    // ⚠️ Without the page's engine (a test, a page that gives none) it holds the card's own message, open (the card body shows none).
+    expect(textOf(render())).toMatch(/How to offer it \(trade idea 1, Trade with Gravel Gophers\) ▾ .* Message to send them \(trade idea 1, Trade with Gravel Gophers\) ▾ Hey! Want Wiggleton Spoons/);
+    // On a trade that doesn't help me, or the old steps: none.
     expect(offered(evaluation({ b: -0.5 }))).not.toContain("How to offer it");
     expect(offered(steppedFull())).not.toContain("Offer first:");
   });
@@ -832,7 +849,7 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
   it("says Helps you weighs title and playoff odds by what the league rewards, and that the card shows them with the weeks that move (planner reply to Checkpoint 4b, changes 8 and 9; 7a, 5.2)", () => {
     for (const page of ["finder", "analyzer"] as const) {
       expect(how(undefined, page)).toContain(
-        "Helps you (0–100) is how much the trade raises your chances this season: Offer Sheet plays out the rest of your season thousands of times with and without it, and weighs your title and playoff odds by your “What does your league reward?” setting in Settings (“Only the champion” unless you change it). Each card shows those odds before and after the trade, and the weeks whose chance to win your game moves by 3 percentage points or more (up to 4 weeks, the drops first, then the biggest gains).",
+        "Helps you (0–100) is how much the trade raises your chances this season: Offer Sheet plays out the rest of your season thousands of times with and without it, and weighs your title and playoff odds by your “What does your league reward?” setting in Settings (“Only the champion” unless you change it). Each card's Details show those odds before and after the trade, and the weeks whose chance to win your game moves by 3 percentage points or more (up to 4 weeks, the drops first, then the biggest gains).",
       );
       expect(how(undefined, page)).not.toContain("What matters most");
     }
@@ -859,7 +876,7 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
 
   it("names the odds each card shows after the league's prizes, never “those odds”: a weekly high score or the points title has no odds line (review of the prizes UI, prizes-ui-6)", () => {
     const read = (props: Record<string, unknown>) => textOf(renderToStaticMarkup(createElement(HowToRead, props)));
-    const shows = (odds: string) => `Each card shows ${odds} before and after the trade, and the weeks whose chance to win your game moves`;
+    const shows = (odds: string) => `Each card's Details show ${odds} before and after the trade, and the weeks whose chance to win your game moves`;
     const shares = (o: Partial<Record<"first" | "second" | "third" | "weeklyHigh" | "pointsLeader", number>>) => ({ first: 0, second: 0, third: 0, weeklyHigh: 0, pointsLeader: 0, ...o });
     // By the reward: the card's own lines (tradeView.ts oddsViews).
     expect(read({ reward: { goal: "prizes", shares: shares({ first: 4 / 9, second: 16 / 45, third: 1 / 5 }) } })).toContain(shows("your title, top-3 and playoff odds"));
@@ -1074,17 +1091,20 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
   it("explains the roster moves box on both pages (Checkpoint 7e; planner reply to Checkpoint 7d, item 2.2), and since Checkpoint 7f why a release can name the less valuable of two nearly even players, and the releases made either way (planner reply to Checkpoint 7e, answer 4)", () => {
     // The review of Checkpoint 7f: the rule's words as it decides (PIERCE-2: "the one with less trade value goes" wasn't always
     // so), and a release made either way named with the moves made either way, its reason on the League page (INTEGRATION-4).
-    const box =
-      "Roster moves these numbers assume lists, in order, each move to your roster that the card's numbers count on, with its reason and its week: a player you'd drop to stay within your league's limits or to make room, a free agent for a roster spot the trade opens, a waiver move the trade makes worthwhile, and who you'd release when a player comes back from IR (when the player your lineup would miss least has more trade value than another player nearly as cheap to lose from then on, that other player goes instead, and the line says why). Moves you'd make with or without the trade, like the pickups the League page suggests, are named at the end and aren't counted for the trade;";
+    // Checkpoint 7h: in the card's Details, and on the Trade Finder the moves made either way said once above the list.
+    const box = (where: string) =>
+      `Roster moves these numbers assume (in ${where} Details) lists, in order, each move to your roster that the card's numbers count on, with its reason and its week: a player you'd drop to stay within your league's limits or to make room, a free agent for a roster spot the trade opens, a waiver move the trade makes worthwhile, and who you'd release when a player comes back from IR (when the player your lineup would miss least has more trade value than another player nearly as cheap to lose from then on, that other player goes instead, and the line says why). Moves you'd make with or without the trade, like the pickups the League page suggests,`;
     const releases = "A release you'd make with or without the trade is named with those moves, and your roster card on the League page says why. The other team's moves follow yours.";
-    expect(how()).toContain(`${box} when one isn't on the League page's list, the idea's odds start from your odds with it, and the card says so. ${releases}`);
-    expect(how(undefined, "analyzer")).toContain(`${box} when one isn't on the League page's list, your odds before this trade count it too. ${releases}`);
+    expect(how()).toContain(
+      `${box("an idea's")} are named once, above the list (“Assumed with or without a trade:”), and on an idea only when its own differ; they aren't counted for the trade; when one isn't on the League page's list, the idea's odds start from your odds with it, and the card says so. ${releases}`,
+    );
+    expect(how(undefined, "analyzer")).toContain(`${box("the card's")} are named at the end and aren't counted for the trade; when one isn't on the League page's list, your odds before this trade count it too. ${releases}`);
     expect(rosterMovesWords("finder")).not.toMatch(/either-way|V\*|baseline|two of your players/);
   });
 
   it("explains “Now or after this week” on both pages, its numbers from config (the review of wave D, UI-D-9; planner reply to Checkpoint 7d, item 4.2)", () => {
     const line =
-      "Now or after this week shows on a card when making the same trade after this week's games would change Helps you by more than 3 (“Helps you 37 now · 41 if done after this week's games.”), while at least 2 weeks remain before your trade deadline. It assumes the same deal is still there next week: injuries, big games or another trade can change that, and their answer may change too.";
+      "Now or after this week shows in a card's Details when making the same trade after this week's games would change Helps you by more than 3 (“Helps you 37 now · 41 if done after this week's games.”), while at least 2 weeks remain before your trade deadline. It assumes the same deal is still there next week: injuries, big games or another trade can change that, and their answer may change too.";
     expect(how()).toContain(line);
     expect(how(undefined, "analyzer")).toContain(line);
     expect(nowOrLaterWords()).toContain(`by more than ${config.explain.nowOrLaterMin} `);
@@ -1115,7 +1135,7 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
     // for a different set of their players (other versions of the idea's own trade are in How to offer it), with …", which the
     // (c) sentence's "versions of the same trade" contradicted for a box asking for fewer.
     const planB =
-      "If they won't move: try … shows below an idea when the same team has a trade they're likelier to accept: at least 5 percentage points likelier to go through, while still helping you at least half as much. It's the best such trade for a different set of their players, which can be fewer of them, but never the idea's own trade asking for fewer of their players when that could be its “Last offer”, so an idea can show none. It has its own three numbers and odds, its own message to send them, and a link to open it in the Trade Analyzer, where it's shown as one offer.";
+      "If they won't move: try … shows at the end of an idea's “How to offer it”, after the offers, when the same team has a trade they're likelier to accept: at least 5 percentage points likelier to go through, while still helping you at least half as much. It's the best such trade for a different set of their players, which can be fewer of them, but never the idea's own trade asking for fewer of their players when that could be its “Last offer”, so an idea can show none. When several ideas would show the same one, only the highest of them in the list shows it. It has its own three numbers and odds, its own message to send them, and a link to open it in the Trade Analyzer, where it's shown as one offer.";
     expect(how()).toContain(planB);
     expect(how()).not.toContain("other versions of the idea's own trade");
     // Its numbers are config's (the bar and the share), and the offer it can't be is named as How to offer it names it.
@@ -1308,8 +1328,13 @@ describe("the Trade Analyzer", () => {
       "The trade, evaluated Your odds before this trade: 63% to make the playoffs, 12.0% to win the title. As on the League page, they count the free-agent pickups that would help each team, and the trade's odds start from them. Helps you (0–100) sums up how much your title and playoff odds rise, minus a cost for giving away trade value or plus a credit for gaining it. 63 ≈ as good as adding 3 points a week to your lineup for the rest of the season. Trade with Gravel Gophers",
     );
     expect(text).toContain("Title odds 12.0% → 15.9% from 12.0% to 15.9% · , Playoff odds 63% → 72% from 63% to 72%");
-    // The Analyzer's card has "Details" (what Helps you is worth in points a week), behind a closed 44 px summary named for screen readers.
-    expect(html).toMatch(/<details class="mt-3 rounded-xl border border-line"><summary class="flex min-h-11[^"]*"><span>Details<span class="sr-only"> \(Trade with Gravel Gophers\)<\/span><\/span>/);
+    // The Analyzer's card: one card, so its "Details" open at first (Checkpoint 7h, the lead's item 6), a 44 px disclosure named
+    // for screen readers, holding what Helps you is worth in points a week (its own "Details" disclosure until then); "How to
+    // offer it" closed.
+    const details = /<button type="button" aria-expanded="true" aria-controls="([^"]+)" class="[^"]*min-h-11[^"]*"><span class="min-w-0">Details<span class="sr-only"> \(Trade with Gravel Gophers\)<\/span>/.exec(html);
+    expect(details).not.toBeNull();
+    expect(html).toContain(`<div id="${details?.[1] ?? ""}" class="mt-3 border-t`);
+    expect(html).toMatch(/<button type="button" aria-expanded="false" aria-controls="[^"]+" class="[^"]*"><span class="min-w-0">How to offer it/);
     expect(text).toContain("How Helps you adds up for this trade.");
     expect(text).not.toMatch(/counting roster spots: you'd get|Trade value You give/);
     // Planner reply to Checkpoint 4c, A2: Details ends with what Helps you is worth in lineup points (B 3 on the fixtures' B₃ 6).
@@ -1330,6 +1355,8 @@ describe("the Trade Analyzer", () => {
       "You opened this from “If they won't move: try …” on a trade idea, so it's shown as one offer, without offers to try before it: they've just turned down a trade with the same team. Long-term values didn't load.",
     );
     expect(html).not.toMatch(OFFERS_SUMMARY);
+    // Its message then sits in the card's Details (Checkpoint 7h, ⚠️ ours: no "How to offer it" to hold it).
+    expect(textOf(html)).toContain("Message to send them (Trade with Gravel Gophers) ▾ Hey! Want Wiggleton Spoons for Cornelius Snoot? Copy message What happened with it?");
     expect(html.indexOf("You opened this from")).toBeGreaterThan(html.indexOf("What happened with it?"));
     // Not otherwise, and not without a card.
     expect(buildAnalysisView({ evaluation: evaluation(), illegal: null, notes: [] }, snapshot).notes).toEqual([]);
@@ -1383,11 +1410,10 @@ describe("the Trade Analyzer", () => {
         onOffers: () => new Promise<LadderView>(() => {}),
       }),
     );
-    expect(html).toMatch(/<summary class="flex min-h-11[^"]*"><span>How to offer it<span class="sr-only"> \(Trade with Gravel Gophers\)<\/span><\/span>/);
-    // Without the page's engine: none.
-    expect(renderToStaticMarkup(createElement(AnalysisResult, { view: buildAnalysisView({ evaluation: evaluation(), illegal: null, notes: [] }, snapshot), stale: false, records: [], leagueKey: "espn:0000abcd", onFeedback: saved }))).not.toMatch(
-      OFFERS_SUMMARY,
-    );
+    expect(html).toMatch(/<button type="button" aria-expanded="false" aria-controls="[^"]+" class="[^"]*min-h-11[^"]*"><span class="min-w-0">How to offer it<span class="sr-only"> \(Trade with Gravel Gophers\)<\/span><\/span>/);
+    // ⚠️ Without the page's engine it holds the card's own message alone (Checkpoint 7h: the card body shows none).
+    const bare = renderToStaticMarkup(createElement(AnalysisResult, { view: buildAnalysisView({ evaluation: evaluation(), illegal: null, notes: [] }, snapshot), stale: false, records: [], leagueKey: "espn:0000abcd", onFeedback: saved }));
+    expect(textOf(bare.slice(bare.indexOf(">How to offer it<")))).toMatch(/Message to send them \(Trade with Gravel Gophers\) ▾ Hey! Want Wiggleton Spoons/);
   });
 
   it("explains the card under it, as the Trade Finder does: Harder to get, How to offer it with the trade built among its offers, and the roster moves (review of the addendum; Checkpoint 7e)", () => {
@@ -1399,7 +1425,7 @@ describe("the Trade Analyzer", () => {
     expect(text).toContain("How to read the evaluation");
     expect(text).toContain("Harder to get marks a player you'd get who is one of their two most valuable players and one of the top 12 players by trade value");
     expect(text).toContain("“The trade you built”; and “Last offer”, the trade you built plus a player you can spare");
-    expect(text).toContain("Roster moves these numbers assume lists, in order, each move to your roster");
+    expect(text).toContain("Roster moves these numbers assume (in the card's Details) lists, in order, each move to your roster");
     // Under the card, inside the result's section, closed at first.
     expect(html.indexOf("How to read the evaluation")).toBeGreaterThan(html.indexOf("What happened with it?"));
     expect(html).toMatch(/<\/div><details class="[^"]*"><summary class="flex min-h-11[^"]*">How to read the evaluation<\/summary>[\s\S]*<\/details><\/section>$/);

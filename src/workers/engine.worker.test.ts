@@ -155,7 +155,7 @@ const ANALYZED = { ...ANALYSIS, baseline: BASELINE };
  * minimum.
  */
 function harness(
-  opts: { steps?: number; tick?: number; sliceMs?: number; withClock?: boolean; failContext?: () => boolean; failSearchAt?: number; noState?: boolean; refilterThrows?: boolean } = {},
+  opts: { steps?: number; tick?: number; sliceMs?: number; withClock?: boolean; failContext?: () => boolean; failSearchAt?: number; noState?: boolean; refilterThrows?: boolean; baselineMoves?: EngineHandlerDeps["baselineMoves"] } = {},
 ) {
   const posted: EngineResponse[] = [];
   const queue: (() => void)[] = [];
@@ -220,6 +220,7 @@ function harness(
       baselines.push(ctx);
       return BASELINE;
     },
+    ...(opts.baselineMoves ? { baselineMoves: opts.baselineMoves } : {}),
     schedule: (fn) => void queue.push(fn),
     sliceMs: opts.sliceMs ?? 40,
     ...(opts.withClock === false ? {} : { clock: () => (time += tick) }),
@@ -497,6 +498,26 @@ describe("the re-filter request (Phase 4c; planner reply to Checkpoint 4b, chang
     slow.runAll();
     expect(repliesTo(slow, 2)).toEqual(["rank 0", "rank 1", "trades"]);
     expect(resultOf(h, 2)).toMatchObject({ notes: ["search 1", "re-filtered at 0.3"], filter: { minChance: 0.3 } });
+  });
+
+  it("posts my baseline's moves made with or without any trade with a search's and a re-filter's result, from the context it ran on (Checkpoint 7h), and nothing for a context without them", () => {
+    const moves = { assumed: [{ add: "901", drop: "105" }] };
+    const asked: TradeContext[] = [];
+    const h = harness({ baselineMoves: (ctx) => (asked.push(ctx), moves) });
+    h.handle(trades(1));
+    h.runAll();
+    expect(resultOf(h, 1)).toEqual({ ...SEARCH_RESULT, notes: ["search 1"], baselineMoves: moves });
+    h.handle(refilterReq(2, 1, 0.3));
+    h.runAll();
+    expect(resultOf(h, 2)?.baselineMoves).toEqual(moves);
+    expect(asked).toEqual([h.searches[0]?.ctx, h.searches[0]?.ctx]);
+    // The engine's own result, which its search state is filed under (the re-filter ran on it), is the one posted.
+    expect(h.refilters[0]?.state.result).toBe(resultOf(h, 1));
+    // A context that has none (the default for a context the engine didn't build): the result as the engine made it.
+    const plain = harness();
+    plain.handle(trades(1));
+    plain.runAll();
+    expect(resultOf(plain, 1)).not.toHaveProperty("baselineMoves");
   });
 
   it("answers with the search's own timings, the re-filter's time apart, also when re-filtering a re-filtered result", () => {

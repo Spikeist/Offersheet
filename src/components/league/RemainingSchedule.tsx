@@ -6,6 +6,9 @@
  * says so in words, a "Risky week" badge and its reasons, never by color alone; screen readers hear
  * the whole sentence once. Every word and number comes from buildLeagueView().
  *
+ * Checkpoint 7h (planner reply to Checkpoint 7g, §1): the note under the table is one line (ScheduleView.line: when a week is
+ * flagged risky), the rest behind "Why?" (WhyNote.tsx).
+ *
  * 375 px: five columns (six with the median game), the opponent's name, the risk and the bye list
  * wrapping inside the opponent cell, like the team table's chips, so nothing scrolls sideways. The name
  * wraps anywhere if it must (wrap-anywhere: unlike break-words, it lets a long one-word team name shrink
@@ -15,6 +18,7 @@ import Link from "next/link";
 import type { LeagueView } from "@/lib/leagueView";
 import { Badge, Card, CardTitle, cx } from "../ui";
 import { OddsText } from "./StandingsOdds";
+import { WhyNote } from "./WhyNote";
 
 export function RemainingSchedule({ view }: { view: LeagueView }) {
   const s = view.schedule;
@@ -111,7 +115,13 @@ export function RemainingSchedule({ view }: { view: LeagueView }) {
               </tbody>
             </table>
           </div>
-          <p className="mt-3 text-xs text-muted">{s.note}</p>
+          {s.line ? (
+            <WhyNote line={s.line} topic="your remaining games" className="mt-2">
+              <p>{s.note}</p>
+            </WhyNote>
+          ) : (
+            <p className="mt-3 text-xs text-muted">{s.note}</p>
+          )}
         </>
       )}
     </Card>

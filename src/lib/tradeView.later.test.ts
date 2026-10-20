@@ -52,10 +52,11 @@ describe("nowOrLaterView (Checkpoint 7e, item 4.2)", () => {
 });
 
 describe("the cards' line (Checkpoint 7e, item 4.2)", () => {
-  it("the Trade Analyzer's card reads its evaluation's own numbers, the tooltip's words among its facts", () => {
+  it("the Trade Analyzer's card reads its evaluation's own numbers, the tooltip's words no longer among its facts (Checkpoint 7h: under the line, in Details)", () => {
     const view = buildAnalysisView({ evaluation: { ...evaluation({ b: 3 }), later: at(4) }, illegal: null, notes: [] }, snapshot);
     expect(view.card?.nowOrLater?.text).toBe("Helps you 39 now · 49 if done after this week's games.");
-    expect(view.card?.facts.find((f) => f.label === NOW_OR_LATER_LABEL)?.value).toBe(NOW_OR_LATER_TITLE);
+    expect(view.card?.nowOrLater?.title).toBe(NOW_OR_LATER_TITLE);
+    expect(view.card?.facts.some((f) => f.label === NOW_OR_LATER_LABEL)).toBe(false);
     // Without a line, no such fact.
     const quiet = buildAnalysisView({ evaluation: { ...evaluation({ b: 3 }), later: at(3.2) }, illegal: null, notes: [] }, snapshot);
     expect(quiet.card?.nowOrLater).toBeNull();

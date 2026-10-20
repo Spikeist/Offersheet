@@ -1152,7 +1152,7 @@ describe("buildLeagueView: my remaining schedule (§8: each remaining week's ris
   });
 
   it("asks for a team, says when none of my games is left, and has nothing to show without odds or once the regular season is over", () => {
-    expect(view({ myTeamId: null }).schedule).toEqual({ rows: [], showMedian: false, caption: "", note: "", empty: "Pick your team to see your remaining games and each week's risk." });
+    expect(view({ myTeamId: null }).schedule).toEqual({ rows: [], showMedian: false, caption: "", note: "", line: "", empty: "Pick your team to see your remaining games and each week's risk." });
     const f = leagueFixture();
     f.model.odds = { ...oddsOf(f), weekly: oddsOf(f).weekly.map((wk) => ({ ...wk, games: wk.games.filter((g) => g.teamId !== "1") })) };
     expect(of(f).schedule?.empty).toBe("Your team has no regular-season games left to play.");

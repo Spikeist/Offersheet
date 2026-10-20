@@ -210,6 +210,12 @@ describe("check:browser's release contract (Checkpoint 7f; planner reply to Chec
     expect(releaseLineProblems(["Week 7, when Alec Pierce returns from IR: with or without this trade, release him."], page)).toEqual(["a release made either way reads “Week 7, when Alec Pierce returns from IR: with or without this trade, release him.”"]);
   });
 
+  it("reads the Trade Finder's line above its list in the cards' words for “a trade” (Checkpoint 7h: “Assumed with or without this trade” once, above the list)", () => {
+    expect(releaseLineProblems(["Assumed with or without a trade: add Jake Ferguson, drop Romeo Doubs, release Alec Pierce in week 7, when he returns from IR."], "trade")).toEqual([]);
+    const bad = "Assumed with or without a trade: Week 7, when Alec Pierce returns from IR, release him.";
+    expect(releaseLineProblems([bad], "trade")).toEqual([`a release made either way reads “${bad}”`]);
+  });
+
   it("reads exactly the release lines of the Trade Finder's markup: a card with its offers open and its Plan B box, never a card's or an offer's own list item (review of Checkpoint 7f, PIERCE-1)", () => {
     // My moves on the card: a line that isn't about a release, a release the trade changes (with why), and one made either way.
     const cardMoves: RosterMoves = {
@@ -236,21 +242,22 @@ describe("check:browser's release contract (Checkpoint 7f; planner reply to Chec
     };
     const view = buildLadderView(ladder, card, { snapshot });
     const html = finderMarkup(card, ladder);
-    // The lines the app means: the open offer's, then the card's, then its box's (the page's order), each about a release.
+    // The lines the app means: the card's (in its Details), then the open offer's, then its box's (since Checkpoint 7h both in
+    // "How to offer it", after Details: the page's order), each about a release.
     const about = (lines: readonly string[]) => lines.filter((l) => / returns from IR\b/.test(l));
-    const want = [...about(view.steps[0]?.moves ?? []), ...about(card.required), ...about(card.planB?.moves ?? [])];
+    const want = [...about(card.required), ...about(view.steps[0]?.moves ?? []), ...about(card.planB?.moves ?? [])];
     expect(want).toEqual([
-      "Week 7, when Alec Pierce returns from IR: release Kyle Pitts Sr. (TE). From week 7 on, he and Marvin Harrison Jr. add about the same to your starting lineup, and Harrison Jr. has more trade value. Lock Pitts Sr. on the League page to keep him instead.",
-      "Assumed with or without this trade: release Jordan Mason in week 9, when he returns from IR.",
       "Week 7, when Alec Pierce returns from IR: release Noodle McSprocket (WR) and keep Alec Pierce. From week 7 on, McSprocket and Marvin Harrison Jr. add about the same to your starting lineup, and Harrison Jr. has more trade value. Lock McSprocket on the League page to keep him instead.",
       "Assumed with or without this trade: add Floopy Freeman, release Jordan Mason in week 9, when he returns from IR.",
+      "Week 7, when Alec Pierce returns from IR: release Kyle Pitts Sr. (TE). From week 7 on, he and Marvin Harrison Jr. add about the same to your starting lineup, and Harrison Jr. has more trade value. Lock Pitts Sr. on the League page to keep him instead.",
+      "Assumed with or without this trade: release Jordan Mason in week 9, when he returns from IR.",
       ON_TRADES,
     ]);
     const read = readReleaseLines(html);
     expect(read).toEqual(want);
     expect(releaseLineProblems(read, "trade")).toEqual([]);
     // Every list item of the roster moves, the line that isn't about a release too, and nothing else.
-    expect(documentOf(html).querySelectorAll(ROSTER_MOVE_LINES).map((li) => li.textContent)).toEqual([...(view.steps[0]?.moves ?? []), ...card.required, ...(card.planB?.moves ?? [])]);
+    expect(documentOf(html).querySelectorAll(ROSTER_MOVE_LINES).map((li) => li.textContent)).toEqual([...card.required, ...(view.steps[0]?.moves ?? []), ...(card.planB?.moves ?? [])]);
     // The old reader (every `main li`) also took the card's and the offer's own list items, whose text holds every line: the
     // contract failed the app's own words.
     const old = documentOf(html)

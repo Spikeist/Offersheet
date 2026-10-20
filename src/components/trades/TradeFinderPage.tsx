@@ -610,7 +610,9 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
   // worker when its disclosure opens (engineClient.ts offers: the card by the id of the request whose result holds it,
   // searchResultIdOf, and its key; at the moment and with the settings that search ran with, so a dimmed idea, shown while a
   // newer search runs, gets offers on its own numbers even where the worker no longer keeps its result), then worded for the
-  // card (tradeView.ts buildLadderView).
+  // card (tradeView.ts buildLadderView), without the line of moves made with or without a trade the list says once above it
+  // (Checkpoint 7h: FinderView.assumedCardLine, LadderContext.assumedLine).
+  const assumedLine = view?.assumedCardLine ?? null;
   const onOffers = useCallback(
     (card: TradeCardView): Promise<LadderView> => {
       if (!pair || !myTeamId || !shownOutcome || !league) return Promise.reject(new Error("The trade ideas aren't loaded."));
@@ -618,9 +620,9 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
       const source = finderOffersSource(searchResultIdOf(client, shownOutcome.result), card, shownOutcome.result);
       return client
         .offers({ snapshot: pair.snapshot, model: pair.inputs, myTeamId, nowIso: shownOutcome.nowIso, settings: shownOutcome.settings, source })
-        .then((ladder) => buildLadderView(ladder, card, { snapshot: league, lastNflWeek, goal: shownOutcome.goal }));
+        .then((ladder) => buildLadderView(ladder, card, { snapshot: league, lastNflWeek, goal: shownOutcome.goal, assumedLine }));
     },
-    [pair, myTeamId, shownOutcome, league, leagueId, lastNflWeek],
+    [pair, myTeamId, shownOutcome, league, leagueId, lastNflWeek, assumedLine],
   );
 
   let state: FinderState;
@@ -1057,6 +1059,12 @@ const Results = memo(function Results({
         </h2>
         {view.baseline ? <p className="mt-1 text-sm font-semibold">{view.baseline}</p> : null}
         {view.baselineNote ? <p className="mt-0.5 text-xs text-muted">{view.baselineNote}</p> : null}
+        {/* My moves made with or without any trade, said once for the list (Checkpoint 7h): a list of one line, read as the cards' roster moves are (data-roster-moves). */}
+        {view.assumed ? (
+          <ul data-roster-moves="list" className="mt-0.5 text-xs break-words text-muted">
+            <li>{view.assumed}</li>
+          </ul>
+        ) : null}
         {view.helpsInfo ? <p className="mt-0.5 text-xs text-muted">{view.helpsInfo}</p> : null}
         {view.countText ? <p className="mt-1 text-sm text-muted">{view.countText}</p> : null}
       </div>

@@ -1,101 +1,77 @@
 "use client";
 /**
  * One trade idea (CLAUDE.md §13 "Each trade card shows"; §10's three numbers; §11's "Est." and labels; Phase 4 wave 2
- * decision M13), laid out from its view model (src/lib/tradeView.ts buildTradeCard), mobile-first (375 px):
- * - the partner, then You give / You get (each player with position, NFL team and an injury tag in words);
- * - the three numbers side by side: Helps you, Chance they accept (with "Est." and its label; the chance it goes
- *   through when the league's review could veto it), Overall;
- * - the risk flags apart from the numbers, each saying what it is in words (not color alone);
- * - "You get 142 ROS pts, give 118", the numbers behind the score in words, then a sentence saying the numbers weigh trade
- *   value with the "Values: FantasyCalc" link after it (§2.9; TradeCardView.valuesCredit: no trade value is ever shown,
- *   planner reply to Checkpoint 7a, 5.4), and the roster moves its numbers assume (since Checkpoint 7e, planner reply to
- *   Checkpoint 7d, item 2.2: every one of mine in order, each with its reason, and one line for those made either way; the
- *   partner's after mine; a Plan B box lists its own, mine, under its odds);
- * - the reasons, the pitch message (opened on demand) with Copy, "Open in Analyzer" (the Finder's cards), and the
- *   feedback buttons (FeedbackControls). "Open in Analyzer" carries the trade's ids in its address, so it's never
- *   prefetched: the server sees that address only when the user opens it (the privacy page says so). Using it tells
- *   the Finder which idea to bring back into view when the user comes back (onOpenAnalyzer; finderMemory.ts).
- * Planner addendum to Checkpoint 3: a player I'd get whom his manager values above market carries a gold "Harder to
- * get" pill in words (why on hover, and said in full to screen readers: a title alone isn't reliably read). Checkpoint 7e
- * (planner reply to Checkpoint 7d, item 4.1: "one ordered list of up to 4 offers to the same team"): right under the odds,
- * "How to offer it", a closed 44 px disclosure on every card that helps me (tradeView.ts offersView), whose offers the page's
- * engine worker works out the first time it's opened (`onOffers`: "Working out the offers…" in a status line that stays
- * mounted, then "Offer them in order: if they say no, try the next.", or "Offer this trade as it is: …" when nothing beats
- * it; a failure says so with a 44 px Try again): a numbered list, each offer with its label ("Open with", "Then", "The
- * suggested trade", "Last offer"), its players, Helps you and the chance they accept, its roster moves when they aren't the
- * card's, and its own "Message to send them" with Copy. An offer that is another card the Trade Finder shows says so under its
- * players, Plan B's words with that card's place in the sort shown ("Also shown as trade idea 2."; the lead's call, wave D:
- * the page's `places`; none in the Analyzer). Once they're in, they're the versions the feedback asks about. Both pages
- * explain it under the cards (HowToRead.tsx). The review of wave D: the disclosure's open state is the card's
- * (`useOffers`), and its offers are asked for only while it's open (UI-D-10: a card built for another evaluation asked again
- * in the background once it had been opened), or when the feedback needs them: a first outcome pressed on a card whose offers
- * haven't loaded asks for them first, then which version was sent among them (UI-D-1: such a card saved "the suggested
- * trade" without a word, though its offers said to open with another); Try again hands focus to the status line that
- * replaces it (UI-D-7); and once the offers open with another trade, a line over the card's own "Message to send them" says
- * that message proposes the trade as it is (UI-D-6). The final review of Checkpoint 7e: offers already in stay, and stay the
- * versions the feedback asks about, when the page stops giving a loader (the Trade Analyzer's result gone stale: UI-F-2,
- * whose next outcome saved "the suggested trade" without asking); the disclosure then shows only offers that are in.
- * Planner reply to Checkpoint 4, change 6: every injury-tagged player on either side carries his tag in words under his
- * name ("Out — expected back week 8"; a tinted tag that wraps, so a long one never widens the card past a 375 px
- * screen), and when a player I'd get is tagged, one line under the two lists says his projection assumes he returns at
- * full strength, blended with the trade market while the blend is on (for a player the "Depends on an injured player"
- * flag names, the flag says it instead: src/lib/tradeView.ts). A Finder card can show "If they won't move: try …" (Plan B;
- * "If they say no, try:" until Checkpoint 7e, on a card without steps): the other trade (each tagged player with his tag in
- * words after his name), which kind it is, its three numbers
- * in words (each kept on one line, the estimate's label apart), its own odds and weekly line as the card's (Phase 4c,
- * change 9), "Also shown as trade idea 6." when the list has it as a card of its own, its own "Message to send them"
- * with Copy, and its own "Open in Analyzer" (both named for screen readers). Review of Phase 4b: it sits after the
- * card's own reasons, message and "Open in Analyzer", just before the feedback buttons, so the card's flags, facts and
- * reasons read as the card's (they sat under a Plan B that didn't include their player). The feedback buttons get the
- * card's versions (FeedbackControls asks which one was sent when there are two): its own trade and its Plan B, and once
- * "How to offer it" has loaded, its offers in their order (tradeView.ts cardVersions).
- * Under "You get 142 ROS pts, give 118", a line when my starting lineup moves the other way from those points (a backup
- * given away scores nothing for me). The roster moves its numbers assume include Phase 4b's IR slots and returns. Checkpoint
- * 7e (planner reply to Checkpoint 7d, item 2.1; review of wave B, finding B-4): a card or Plan B box whose odds start from its
- * own "before" (its either-way moves) says so in a small line under them (TradeCardView.oddsNote, PlanBView.oddsNote).
- * Planner reply to Checkpoint 4b (Phase 4c): under the three numbers (after the veto note, which stays right under
- * them), my real odds, "Title odds 12.1% → 13.4% · Playoff odds 65% → 69%" (change 9; each kept on one line, the arrow
- * said as "from … to" for screen readers; since Checkpoint 7c, under "Several prizes" paying 2nd or 3rd place, "Top 3
- * odds 30% → 32%" or "Top 2 odds …" between them, planner reply to Checkpoint 7b, §6: OddsLines lays out whatever lines
- * the view gives, a Plan B box's too), and "Win chance by week: Week 9: 68% → 64% · Week 13: 42% → 55%" when the
- * trade moves a week's chance enough, and the Trade Analyzer's card has "Details" (a closed 44 px disclosure: what Helps you
- * is worth in points a week). An estimate under 5% prints "<5%" (answer 5), said "under 5%" to screen readers.
- * The feedback buttons wait for the browser to keep a press (onFeedback returns the save's promise: change 7's
- * FeedbackControls), so a refused press is said on the card itself.
- * Planner reply to Checkpoint 4c (Phase 7a, A2): "Helps you" has a tooltip saying what its scale means ("63 ≈ as good as
- * adding 3 points a week to your lineup for the rest of the season."; the page's info line says it in words too, for a
- * phone), and the Analyzer's Details ends with what the trade is worth in lineup points a week ("≈ +1.8 pts/week").
- * Checkpoint 7c (planner reply to Checkpoint 7b, §7): a card that helps both teams carries a "Helps both" pill in words right
- * after its heading (in every sort, and on the Analyzer's card; why on hover), outside the heading, so the card is still
- * named by "Trade with …" alone; and after my odds and my weekly line, the partner's line in the format of mine ("Helps
- * them 24 · Their title odds 6.0% → 6.9% · Their playoff odds 41% → 45%", each item kept on one line, the arrow read as
- * "from … to", the planner's tooltip on "Helps them"; OddsLines). A Plan B box shows neither. Since Checkpoint 7d (planner
- * reply to Checkpoint 7c, answer 3) a Trade Finder card shows the partner's line only with the tag, the Analyzer's card
- * whenever it has one (the view decides: tradeView.ts CardContext.partnerLine).
- * Checkpoint 7d (planner reply to Checkpoint 7c, answer 1): every press on the feedback buttons carries what the card prints
- * (tradeView.ts cardPress, TradeCardView.shown), which the record it makes keeps for the export.
- * Checkpoint 7e (planner reply to Checkpoint 7d, item 4.2): when doing the trade after this week's games moves its Helps you by
- * more than config.explain.nowOrLaterMin, "Helps you 37 now · 41 if done after this week's games." right under the three
- * numbers (after the veto note), the planner's tooltip on it, and the same words among the card's facts ("After this week's
- * games"), so a phone shows them too (TradeCardView.nowOrLater). A Trade Finder card's line arrives after the search; the
- * Analyzer's comes with its evaluation. A Plan B box has none.
+ * decision M13), laid out from its view model (src/lib/tradeView.ts buildTradeCard), mobile-first (375 px).
+ *
+ * Checkpoint 7h (planner reply to Checkpoint 7g, §1: "Cards are closed by default. A closed card shows only: what Parker gives
+ * and what he gets; the three numbers; its tags ("Helps both," "Harder to get"); one reason. Everything else goes behind one
+ * "Details" control … "How to offer it" stays a separate control."; the lead's rulings for track "clutter", items 1–3 and 6):
+ * - Closed: "Trade idea N", the heading and its "Helps both" tag; You give / You get, each player with position, NFL team, an
+ *   injury tag in words and "Harder to get"; the three numbers (the veto note right under them when it shows); its risk flags
+ *   as small pills in words (FlagView.pill: "Market check", "Injured player"; ⚠️ ours, their sentences behind Details); one
+ *   reason, the first of the card's reasons; then two 44 px disclosure buttons side by side, Details and How to offer it
+ *   (aria-expanded, aria-controls naming its panel; the panels below them, full width, each kept in the page while closed
+ *   with the hidden attribute, so focus stays on the button pressed and a reader of the page finds the card's words either way).
+ * - Details, in this order: my odds lines and the partner's line when it shows (in the format of mine, the planner's tooltip on
+ *   "Helps them"; Checkpoint 7c/7d), the odds note, the weekly line, the timing line ("Helps you 37 now · 41 if done after this
+ *   week's games." with its words right under it, which a phone can't hover for), the injury note and the risk sentences, "You
+ *   get 142 ROS pts, give 118" and its note, the facts, the sentence with the "Values: FantasyCalc" link (§2.9; no trade value
+ *   is ever shown), the Analyzer's "How Helps you adds up" (what Helps you is worth in points a week; its "Details" disclosure
+ *   until Checkpoint 7h), the roster moves its numbers assume (without the line of moves made either way the Trade Finder says
+ *   once above its list: tradeView.ts CardContext.assumedLine), the other reasons ("More reasons"), the card's own message when
+ *   it has no "How to offer it" (⚠️ ours), "Open in Analyzer" and the feedback buttons (⚠️ ours, the planner's "everything
+ *   else"). Closed on a Trade Finder card, open on the Trade Analyzer's (one card): `detailsOpen`, by default open without a
+ *   `rank`.
+ * - How to offer it: the offers in order, the first offer's "Message to send them" open and the others closed (the planner: "the
+ *   first offer's message shows open, and the others stay behind their own steps"); the card's own message, open, when its
+ *   offers don't list it (the trade alone, or they couldn't be worked out; ⚠️ ours); then the Plan B box ("If they won't move:
+ *   try …", ⚠️ ours: inside How to offer it, after the offers it has always followed), its message closed. A closed card shows no
+ *   message, and the note over the card's own message (the review of wave D, UI-D-6) goes with it.
+ *
+ * "How to offer it" (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1: "one ordered list of up to 4 offers to the same
+ * team"): its offers are worked out by the page's engine worker the first time it's opened (`onOffers`: "Working out the
+ * offers…" in a status line that stays mounted, then "Offer them in order: if they say no, try the next.", or "Offer this
+ * trade as it is: …" when nothing beats it; a failure says so with a 44 px Try again): a numbered list, each offer with its
+ * label ("Open with", "Then", "The suggested trade", "Last offer"), its players, Helps you and the chance they accept, its
+ * roster moves when they aren't the card's, and its own "Message to send them" with Copy. An offer that is another card the
+ * Trade Finder shows says so under its players, Plan B's words with that card's place in the sort shown ("Also shown as trade
+ * idea 2."; the lead's call, wave D: the page's `places`; none in the Analyzer). Once they're in, they're the versions the
+ * feedback asks about. The review of wave D: its open state is the card's (`useOffers`), and its offers are asked for only while
+ * it's open (UI-D-10), or when the feedback needs them: a first outcome pressed on a card whose offers haven't loaded asks for
+ * them first, then which version was sent among them (UI-D-1); Try again hands focus to the status line that replaces it
+ * (UI-D-7). The final review of Checkpoint 7e: offers already in stay, and stay the versions the feedback asks about, when the
+ * page stops giving a loader (the Trade Analyzer's result gone stale: UI-F-2); the panel then shows only offers that are in.
+ *
+ * Planner reply to Checkpoint 4, change 6: every injury-tagged player on either side carries his tag in words under his name
+ * ("Out — expected back week 8"; a tinted tag that wraps, so a long one never widens the card past a 375 px screen); what a
+ * hurt player's projection assumes is said in Details (the injury note, or the "Depends on an injured player" flag). A Plan B
+ * box: the other trade (each tagged player with his tag in words after his name), which kind it is, its three numbers in words
+ * (each kept on one line, the estimate's label apart), its own odds and weekly line, "Also shown as trade idea 6." when the list
+ * has it as a card of its own, its roster moves, its own "Message to send them" with Copy, and its own "Open in Analyzer".
+ * Checkpoint 7e (planner reply to Checkpoint 7d, item 2.1; review of wave B, finding B-4): a card or Plan B box whose odds start
+ * from its own "before" says so in a small line under them (TradeCardView.oddsNote, PlanBView.oddsNote).
  * Each list of roster moves (the card's, its Plan B box's, each offer's) carries `data-roster-moves` ("card", "plan-b",
- * "offer"), so `npm run check:browser` reads its lines alone (review of Checkpoint 7f, PIERCE-1: it read every list item under
- * main, and a card sits in one).
+ * "offer"), so `npm run check:browser` reads its lines alone (review of Checkpoint 7f, PIERCE-1).
+ * "Open in Analyzer" carries the trade's ids in its address, so it's never prefetched: the server sees that address only when
+ * the user opens it (the privacy page says so); using it tells the Finder which idea to bring back into view (onOpenAnalyzer).
+ * The feedback buttons (FeedbackControls) wait for the browser to keep a press, and every press carries what the card prints
+ * (tradeView.ts cardPress, TradeCardView.shown), which the record keeps for the export (Checkpoint 7d).
  * It's an <article> named by its heading; the heading level is the page's to choose.
  */
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useId, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import type { TradeEvaluation } from "@/engine/tradeModel";
 import type { FeedbackSaveResult } from "@/lib/feedbackShare";
 import type { FeedbackChange } from "@/lib/feedbackStore";
 import {
+  DETAILS_HEADING,
+  MORE_REASONS_HEADING,
   OFFERS_FAILED_TEXT,
+  OFFERS_HEADING,
   OFFERS_LOADING_TEXT,
   ROSTER_MOVES_HEADING,
   cardPress,
   cardVersions,
-  ownMessageNote,
   planBAlsoText,
   type AssetView,
   type CardFeedback,
@@ -107,7 +83,6 @@ import {
   type NumberView,
   type OddsView,
   type OfferStepView,
-  type OffersView,
   type PlanBView,
   type ThemView,
   type TradeCardView,
@@ -128,7 +103,6 @@ import { FeedbackControls } from "./FeedbackControls";
  */
 const SEP = `${String.fromCharCode(0xa0)}· `;
 
-
 /** An injury tag's tint by its tone (the words say it all; the tint only helps scanning). */
 const TAG_CLASS: Record<InjuryTone, string> = {
   muted: "bg-surface-muted text-muted",
@@ -141,9 +115,9 @@ function AssetList({ title, assets }: { title: string; assets: AssetView[] }) {
     <div className="min-w-0">
       <h4 className="text-xs font-bold tracking-wider text-muted uppercase">{title}</h4>
       {assets.length ? (
-        <ul className="mt-1 space-y-1">
+        <ul className="mt-0.5 space-y-0.5">
           {assets.map((a) => (
-            <li key={a.id} className="min-w-0">
+            <li key={a.id} className="min-w-0 text-sm leading-snug">
               <span className="font-extrabold break-words">{a.name}</span>
               {a.tag ? (
                 <>
@@ -157,7 +131,7 @@ function AssetList({ title, assets }: { title: string; assets: AssetView[] }) {
           ))}
         </ul>
       ) : (
-        <p className="mt-1 text-sm text-muted">Nothing</p>
+        <p className="mt-0.5 text-sm text-muted">Nothing</p>
       )}
     </div>
   );
@@ -166,10 +140,10 @@ function AssetList({ title, assets }: { title: string; assets: AssetView[] }) {
 /** One of the three numbers; its tooltip (NumberView.title: Helps you's scale) on the whole tile. */
 function Score({ label, number, sub }: { label: string; number: NumberView; sub?: string | undefined }) {
   return (
-    <div title={number.title} className="flex min-w-0 flex-col-reverse justify-end rounded-xl bg-surface-muted px-1.5 py-2 text-center">
-      <dt className="mt-0.5 text-xs leading-tight font-semibold text-muted">{label}</dt>
+    <div title={number.title} className="flex min-w-0 flex-col-reverse justify-end rounded-xl bg-surface-muted px-1.5 py-1.5 text-center">
+      <dt className="text-xs leading-tight font-semibold text-muted">{label}</dt>
       <dd>
-        <span className="block text-2xl font-black tracking-tight tabular-nums" aria-hidden={number.srText ? true : undefined}>
+        <span className="block text-2xl leading-tight font-black tracking-tight tabular-nums" aria-hidden={number.srText ? true : undefined}>
           {number.value}
         </span>
         {number.srText ? <span className="sr-only">{number.srText}</span> : null}
@@ -203,13 +177,14 @@ function OddsItem({ odds, first }: { odds: OddsView; first: boolean }) {
 }
 
 /**
- * My odds before and after the trade, next to the three numbers: each odds kept on one line (it wraps between them on a
- * 320 px phone), the arrow said as "from … to" to screen readers; then the weeks whose win chance moves, each kept whole;
- * then (Checkpoint 7c) the partner's line, "Helps them 24" with the planner's tooltip, then their odds as mine.
+ * My odds before and after the trade (each odds kept on one line: it wraps between them on a 320 px phone, the arrow said as
+ * "from … to" to screen readers); then (Checkpoint 7c) the partner's line, "Helps them 24" with the planner's tooltip, then their
+ * odds as mine; then the note on whose "before" they start from (Checkpoint 7e); then the weeks whose win chance moves, each kept
+ * whole (Checkpoint 7h's order: "the odds lines (and the partner's line when it shows), the odds note, the weekly line").
  */
-function OddsLines({ odds, weekly, them = null }: { odds: OddsView[]; weekly: WeeklyLineView | null; them?: ThemView | null }) {
+function OddsLines({ odds, weekly, them = null, note = null }: { odds: OddsView[]; weekly: WeeklyLineView | null; them?: ThemView | null; note?: string | null }) {
   return (
-    <div className="mt-2 space-y-0.5 text-sm">
+    <div className="space-y-0.5 text-sm">
       {odds.length ? (
         <p>
           {odds.map((o, i) => (
@@ -217,6 +192,17 @@ function OddsLines({ odds, weekly, them = null }: { odds: OddsView[]; weekly: We
           ))}
         </p>
       ) : null}
+      {them ? (
+        <p>
+          <span className="whitespace-nowrap" title={them.helps.title}>
+            <span className="font-semibold">{them.label}</span> <span className="tabular-nums">{them.helps.value}</span>
+          </span>
+          {them.odds.map((o) => (
+            <OddsItem key={o.label} odds={o} first={false} />
+          ))}
+        </p>
+      ) : null}
+      {note ? <p className="text-xs leading-relaxed break-words text-muted">{note}</p> : null}
       {weekly ? (
         <p className="text-muted">
           <span className="font-semibold">{weekly.label}:</span>{" "}
@@ -229,16 +215,6 @@ function OddsLines({ odds, weekly, them = null }: { odds: OddsView[]; weekly: We
               </span>
               <span className="sr-only">{w.srText}</span>
             </Fragment>
-          ))}
-        </p>
-      ) : null}
-      {them ? (
-        <p>
-          <span className="whitespace-nowrap" title={them.helps.title}>
-            <span className="font-semibold">{them.label}</span> <span className="tabular-nums">{them.helps.value}</span>
-          </span>
-          {them.odds.map((o) => (
-            <OddsItem key={o.label} odds={o} first={false} />
           ))}
         </p>
       ) : null}
@@ -261,45 +237,63 @@ function HelpsBothBadge({ tag }: { tag: HelpsBothTagView }) {
 }
 
 /**
- * "Helps you 37 now · 41 if done after this week's games." (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.2) under the
- * three numbers, the planner's tooltip on hover (the card's facts say it too, which a phone shows: tradeView.ts
- * NOW_OR_LATER_LABEL); the first half kept on one line, the dot read as a pause.
+ * "Helps you 37 now · 41 if done after this week's games." (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.2), the planner's
+ * tooltip on hover and, since Checkpoint 7h, its words right under it in the card's Details, which a phone shows (it can't
+ * hover); the first half kept on one line, the dot read as a pause. The words carry `data-now-or-later-words` (check:browser).
  */
 function NowOrLater({ line }: { line: NowOrLaterView }) {
   return (
-    <p className="mt-2 text-sm" title={line.title}>
-      <span className="font-semibold whitespace-nowrap">{line.now}</span>
-      <span aria-hidden>{SEP}</span>
-      <span className="sr-only">, </span>
-      <span>{line.later}</span>
-    </p>
+    <div className="mt-2 text-sm">
+      <p title={line.title}>
+        <span className="font-semibold whitespace-nowrap">{line.now}</span>
+        <span aria-hidden>{SEP}</span>
+        <span className="sr-only">, </span>
+        <span>{line.later}</span>
+      </p>
+      <p data-now-or-later-words className="text-xs leading-relaxed text-muted">
+        {line.title}
+      </p>
+    </div>
   );
 }
 
-/** The Trade Analyzer's "Details": what Helps you is worth in points a week, behind a closed 44 px summary named for screen readers. */
-function Details({ details, name }: { details: DetailsView; name: string }) {
+/** The Trade Analyzer's "How Helps you adds up" (DetailsView: what Helps you is worth in points a week), inside its card's Details since Checkpoint 7h. */
+function HelpsWorth({ details }: { details: DetailsView }) {
   return (
-    <details className="mt-3 rounded-xl border border-line">
-      <summary className="flex min-h-11 items-center justify-between gap-2 px-3 text-sm font-bold">
-        <span>
-          {details.summary}
-          <span className="sr-only"> ({name})</span>
-        </span>
-        <span aria-hidden className="text-muted">
-          ▾
-        </span>
-      </summary>
-      <div className="border-t border-line p-3 text-sm leading-relaxed">
-        <p className="text-muted">{details.intro}</p>
-        <ul className="mt-2 list-disc space-y-1 pl-5">
-          {details.items.map((item) => (
-            <li key={item} className="break-words">
-              {item}
-            </li>
-          ))}
-        </ul>
-      </div>
-    </details>
+    <div className="mt-3 text-sm leading-relaxed">
+      <p className="text-muted">{details.intro}</p>
+      <ul className="mt-1 list-disc space-y-1 pl-5">
+        {details.items.map((item) => (
+          <li key={item} className="break-words">
+            {item}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * A disclosure button (Checkpoint 7h: the card's Details and How to offer it, side by side), 44 px, aria-expanded with
+ * aria-controls naming its panel, named for screen readers by the card; the arrow turns when it's open.
+ */
+function DisclosureButton({ open, controls, onToggle, name, children }: { open: boolean; controls: string; onToggle: () => void; name: string; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-expanded={open}
+      aria-controls={controls}
+      onClick={onToggle}
+      className="inline-flex min-h-11 min-w-0 flex-1 items-center justify-between gap-2 rounded-xl border border-line bg-surface px-3 text-left text-sm font-bold hover:bg-surface-muted sm:flex-none"
+    >
+      <span className="min-w-0">
+        {children}
+        <span className="sr-only"> ({name})</span>
+      </span>
+      <span aria-hidden className={cx("shrink-0 text-muted transition-transform", open && "rotate-180")}>
+        ▾
+      </span>
+    </button>
   );
 }
 
@@ -318,10 +312,11 @@ type CardPlaces = ReadonlyMap<string, number>;
  * shows (its key in `places`; never the suggested trade, the card itself), "Also shown as trade idea 2." as a Plan B box says
  * it (the lead's call, wave D), Helps you and the chance they accept (each kept on one line, the estimate's label apart, as a
  * Plan B box prints its numbers), the veto note when the league's review could cut it, its roster moves when they aren't the
- * card's, and its own message to send them with Copy, named for screen readers by the offer and the card. The item carries
- * the offer's key (data-offer-key, which `npm run check:browser` reads; never data-trade-key, the cards' own).
+ * card's, and its own message to send them with Copy, named for screen readers by the offer and the card, open on the first
+ * offer (`first`; Checkpoint 7h, the planner: "the first offer's message shows open, and the others stay behind their own
+ * steps"). The item carries the offer's key (data-offer-key, which `npm run check:browser` reads; never data-trade-key).
  */
-function OfferStepItem({ step, name, places }: { step: OfferStepView; name: string; places?: CardPlaces | undefined }) {
+function OfferStepItem({ step, name, places, first }: { step: OfferStepView; name: string; places?: CardPlaces | undefined; first: boolean }) {
   const place = step.kind === "suggested" ? undefined : places?.get(step.key);
   return (
     <li className="break-words" data-offer-key={step.key}>
@@ -356,7 +351,7 @@ function OfferStepItem({ step, name, places }: { step: OfferStepView; name: stri
           </ul>
         </>
       ) : null}
-      <Message text={step.message} name={`${step.label}: ${step.trade}; ${name}`} className="mt-2" />
+      <Message text={step.message} name={`${step.label}: ${step.trade}; ${name}`} className="mt-2" defaultOpen={first} />
     </li>
   );
 }
@@ -365,12 +360,28 @@ function OfferStepItem({ step, name, places }: { step: OfferStepView; name: stri
  * What the opened "How to offer it" shows for a state (tests render each): one status line that stays mounted, so each change
  * is announced ("Working out the offers…" with a spinner, then the line above the offers, "Offer this trade as it is: …"
  * when no version makes a better first offer, or that the trade can't be worked out), a failure with a 44 px Try again, and
- * the offers as a numbered list (an offer that is another card of `places` says so). Try again goes away once pressed, so it
- * hands focus to the status line that says what happens next (the review of wave D, UI-D-7: focus fell to the page).
+ * the offers as a numbered list (an offer that is another card of `places` says so), the first offer's message open. Since
+ * Checkpoint 7h the card's own message (`pitch`), open, where the list doesn't show it: the trade alone, or the offers couldn't
+ * be worked out (⚠️ ours: the card body shows no message). Try again goes away once pressed, so it hands focus to the status
+ * line that says what happens next (the review of wave D, UI-D-7: focus fell to the page).
  */
-export function OffersPanel({ state, name, onRetry, places }: { state: OffersState; name: string; onRetry?: (() => void) | undefined; places?: CardPlaces | undefined }) {
+export function OffersPanel({
+  state,
+  name,
+  onRetry,
+  places,
+  pitch,
+}: {
+  state: OffersState;
+  name: string;
+  onRetry?: (() => void) | undefined;
+  places?: CardPlaces | undefined;
+  pitch?: string | null | undefined;
+}) {
   const loading = state.kind === "loading";
   const statusRef = useRef<HTMLParagraphElement>(null);
+  const listed = state.kind === "done" && !state.ladder.alone && state.ladder.steps.length > 0;
+  const own = !!pitch && ((state.kind === "done" && state.ladder.alone) || state.kind === "failed");
   return (
     <>
       <p
@@ -402,54 +413,15 @@ export function OffersPanel({ state, name, onRetry, places }: { state: OffersSta
           ) : null}
         </div>
       ) : null}
-      {state.kind === "done" && !state.ladder.alone && state.ladder.steps.length ? (
+      {listed ? (
         <ol className="mt-2 list-decimal space-y-3 pl-5">
-          {state.ladder.steps.map((s) => (
-            <OfferStepItem key={s.key} step={s} name={name} places={places} />
+          {state.ladder.steps.map((s, i) => (
+            <OfferStepItem key={s.key} step={s} name={name} places={places} first={i === 0} />
           ))}
         </ol>
       ) : null}
+      {own && pitch ? <Message text={pitch} name={name} className="mt-2" defaultOpen /> : null}
     </>
-  );
-}
-
-/**
- * "How to offer it" behind a 44 px summary named for screen readers, closed at first; its open state is the card's (`open`,
- * `onToggle`: useOffers asks for the offers while it's open), so it stays as the user left it when the card is built for
- * another evaluation; `places`, the Trade Finder's cards' places (TradeCardProps.places), for the offers that are cards.
- */
-function OffersDisclosure({
-  offers,
-  state,
-  open,
-  name,
-  onToggle,
-  onRetry,
-  places,
-}: {
-  offers: OffersView;
-  state: OffersState;
-  open: boolean;
-  name: string;
-  onToggle: (open: boolean) => void;
-  onRetry: () => void;
-  places?: CardPlaces | undefined;
-}) {
-  return (
-    <details className="mt-3 rounded-xl border border-line" open={open} onToggle={(e) => onToggle(e.currentTarget.open)}>
-      <summary className="flex min-h-11 items-center justify-between gap-2 px-3 text-sm font-bold">
-        <span>
-          {offers.heading}
-          <span className="sr-only"> ({name})</span>
-        </span>
-        <span aria-hidden className="text-muted">
-          ▾
-        </span>
-      </summary>
-      <div className="border-t border-line p-3 text-sm leading-relaxed">
-        <OffersPanel state={state} name={name} onRetry={onRetry} places={places} />
-      </div>
-    </details>
   );
 }
 
@@ -562,10 +534,14 @@ function useOffers(
   return { state, open, toggle: setOpen, retry: () => setAttempt((a) => a + 1), versions };
 }
 
-/** A message behind a 44 px "Message to send them" summary, with a 44 px Copy button; `name` says whose for screen readers. */
-function Message({ text, name, className }: { text: string; name: string; className?: string }) {
+/**
+ * A message behind a 44 px "Message to send them" summary, with a 44 px Copy button; `name` says whose for screen readers;
+ * `defaultOpen` opens it at first (Checkpoint 7h: the first offer's), after which it's the user's.
+ */
+function Message({ text, name, className, defaultOpen = false }: { text: string; name: string; className?: string; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <details className={cx("rounded-xl border border-line", className)}>
+    <details className={cx("rounded-xl border border-line", className)} open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
       <summary className="flex min-h-11 items-center justify-between gap-2 px-3 text-sm font-bold">
         <span>
           Message to send them<span className="sr-only"> ({name})</span>
@@ -586,11 +562,13 @@ function Message({ text, name, className }: { text: string; name: string; classN
 }
 
 /**
- * "If they won't move: try …" (Plan B; Checkpoint 7e, the planner's heading): the other trade in words (tags after the names), which kind it is, its three numbers
- * (each kept on one line, the estimate's label apart, so nothing breaks inside "(Est. · Likely)" on a 375 px phone; the
- * chance it goes through when a veto could cut it), its own odds and weekly line laid out as the card's (OddsLines;
- * Phase 4c, change 9: none when the Plan B carries no odds), whether the list shows it as an idea of its own, its own
- * message to send them and its own "Open in Analyzer", both named for screen readers by the card.
+ * "If they won't move: try …" (Plan B; Checkpoint 7e, the planner's heading), inside "How to offer it" after the offers since
+ * Checkpoint 7h: the other trade in words (tags after the names), which kind it is, its three numbers (each kept on one line,
+ * the estimate's label apart, so nothing breaks inside "(Est. · Likely)" on a 375 px phone; the chance it goes through when a
+ * veto could cut it), its own odds and weekly line laid out as the card's (OddsLines; Phase 4c, change 9: none when the Plan B
+ * carries no odds), whether the list shows it as an idea of its own, its roster moves (without the list's line of moves made
+ * either way: Checkpoint 7h), its own message to send them (closed) and its own "Open in Analyzer", both named for screen
+ * readers by the card.
  */
 function PlanBBox({ planB, name, showLink, onOpen }: { planB: PlanBView; name: string; showLink: boolean; onOpen?: ((href: string) => void) | undefined }) {
   const which = `if they won't move: ${planB.give} for ${planB.get}; ${name}`;
@@ -619,8 +597,11 @@ function PlanBBox({ planB, name, showLink, onOpen }: { planB: PlanBView; name: s
         ))}
       </p>
       {planB.acceptNote ? <p className="text-muted">{planB.acceptNote}</p> : null}
-      {planB.odds.length || planB.weekly ? <OddsLines odds={planB.odds} weekly={planB.weekly} /> : null}
-      {planB.oddsNote ? <p className="text-xs text-muted">{planB.oddsNote}</p> : null}
+      {planB.odds.length || planB.weekly ? (
+        <div className="mt-2">
+          <OddsLines odds={planB.odds} weekly={planB.weekly} note={planB.oddsNote} />
+        </div>
+      ) : null}
       {planB.moves.length ? (
         <>
           <p className="mt-1 font-semibold">{ROSTER_MOVES_HEADING}</p>
@@ -668,7 +649,7 @@ export interface TradeCardProps {
   /**
    * "How to offer it" (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1): works the card's offers out when its
    * disclosure is opened (the page asks its engine worker and words the answer: tradeView.ts buildLadderView). Absent: the card
-   * shows no "How to offer it".
+   * shows no offers (its own message instead, and its Plan B box when it has one).
    */
   onOffers?: ((card: TradeCardView) => Promise<LadderView>) | undefined;
   /**
@@ -677,10 +658,17 @@ export interface TradeCardProps {
    * call, wave D: an offer can be another card of its list). Absent (the Analyzer): no offer says it.
    */
   places?: ReadonlyMap<string, number> | undefined;
+  /**
+   * Whether "Details" is open at first (Checkpoint 7h, the lead's item 6: the Trade Analyzer's one card opens with Details, a
+   * Trade Finder card closed); absent: open without a `rank` (the Analyzer's card has none), closed with one.
+   */
+  detailsOpen?: boolean;
 }
 
-export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedback, showAnalyzerLink = true, onOpenAnalyzer, onOffers, places }: TradeCardProps) {
+export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedback, showAnalyzerLink = true, onOpenAnalyzer, onOffers, places, detailsOpen }: TradeCardProps) {
   const headingId = useId();
+  const detailsId = useId();
+  const offersId = useId();
   const Heading = headingLevel;
   const n = card.numbers;
   // Several ideas can be with the same team: buttons name their card by its place too.
@@ -692,11 +680,20 @@ export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedbac
   const ladder = offers.state.kind === "done" ? offers.state.ladder : null;
   const versions = ladder ? cardVersions(card, ladder) : card.versions;
   const loadVersions = offersOn && offers.state.kind !== "done" && offers.state.kind !== "failed" ? offers.versions : undefined;
+  // Details: closed on a Trade Finder card, open on the Analyzer's one card (Checkpoint 7h).
+  const [showDetails, setShowDetails] = useState(detailsOpen ?? rank === undefined);
+  // The offers themselves show while the page can work them out, or ones already in do (a stale Analyzer result: UI-F-2).
+  const offersShown = !!card.offers && (offersOn || !!ladder);
+  // "How to offer it" holds the offers, the card's own message and its Plan B box; without offers or a Plan B (a trade that
+  // doesn't help me, one opened from a Plan B in the Analyzer) there's no such control, and the message goes in Details.
+  const offerPanel = !!card.offers || !!card.planB;
   const heading = (
     <Heading id={headingId} className="text-lg leading-tight font-extrabold tracking-tight wrap-anywhere">
       {card.heading}
     </Heading>
   );
+  // The first reason shows on the closed card; the others in Details (Checkpoint 7h: "one reason").
+  const [reason, ...moreReasons] = card.reasons;
   return (
     <article aria-labelledby={headingId} className="rounded-2xl border border-line bg-surface p-4 shadow-sm sm:p-5">
       {rank ? <p className="text-xs font-bold tracking-wider text-brand uppercase">Trade idea {rank}</p> : null}
@@ -710,99 +707,128 @@ export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedbac
         heading
       )}
 
-      <div className="mt-3 grid grid-cols-2 gap-3">
+      <div className="mt-2 grid grid-cols-2 gap-3">
         <AssetList title="You give" assets={card.give} />
         <AssetList title="You get" assets={card.get} />
       </div>
-      {card.injuryNote ? <p className="mt-2 text-xs leading-relaxed break-words text-muted">{card.injuryNote}</p> : null}
 
-      <dl className="mt-4 grid grid-cols-3 gap-2">
+      <dl className="mt-3 grid grid-cols-3 gap-2">
         <Score label="Helps you" number={n.helps} />
         <Score label="Chance they accept" number={n.accept} sub={n.acceptLabel} />
         <Score label="Overall" number={n.overall} />
       </dl>
       {/* The veto note right under the numbers it qualifies (`npm run check:browser` reads it as the <dl>'s next element). */}
       {n.acceptNote ? <p className="mt-2 text-sm text-muted">{n.acceptNote}</p> : null}
-      {card.nowOrLater ? <NowOrLater line={card.nowOrLater} /> : null}
-      <OddsLines odds={card.odds} weekly={card.weekly} them={card.them} />
-      {card.oddsNote ? <p className="mt-1 text-xs leading-relaxed break-words text-muted">{card.oddsNote}</p> : null}
-      {/* Without a loader (a stale Analyzer result) only offers already in show, as the feedback reads them (UI-F-2). */}
-      {card.offers && (onOffers || ladder) ? <OffersDisclosure offers={card.offers} state={offers.state} open={offers.open} name={name} onToggle={offers.toggle} onRetry={offers.retry} places={places} /> : null}
-
+      {/* The risk flags as small pills in words (Checkpoint 7h); their sentences are in Details. */}
       {card.flags.length ? (
-        <ul aria-label="Risks" className="mt-3 space-y-1.5">
+        <ul aria-label="Risks" className="mt-2 flex flex-wrap gap-1.5">
           {card.flags.map((f) => (
-            <li key={f.kind} className="flex gap-2 rounded-xl border border-warn-line bg-warn-bg px-3 py-2 text-sm font-semibold text-warn-fg">
-              <span aria-hidden className="shrink-0">
-                ⚠
-              </span>
-              <span className="min-w-0 break-words">{f.text}</span>
+            <li key={f.kind} className="inline-flex items-center gap-1 rounded-full border border-warn-line bg-warn-bg px-2 py-0.5 text-xs font-bold text-warn-fg">
+              <span aria-hidden>⚠</span>
+              {f.pill}
             </li>
           ))}
         </ul>
       ) : null}
+      {reason ? <p className="mt-2 text-sm leading-snug break-words">{reason}</p> : null}
 
-      <p className="mt-3 text-sm font-bold">{card.ros}</p>
-      {card.rosNote ? <p className="mt-0.5 text-xs leading-relaxed break-words text-muted">{card.rosNote}</p> : null}
-      <dl className="mt-2 divide-y divide-line text-sm">
-        {card.facts.map((f) => (
-          <div key={f.label} className="grid gap-0.5 py-1.5 sm:grid-cols-[minmax(0,10rem)_1fr] sm:gap-3">
-            <dt className="font-semibold text-muted">{f.label}</dt>
-            <dd className="min-w-0 break-words">{f.value}</dd>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <DisclosureButton open={showDetails} controls={detailsId} onToggle={() => setShowDetails((o) => !o)} name={name}>
+          {DETAILS_HEADING}
+        </DisclosureButton>
+        {offerPanel ? (
+          <DisclosureButton open={offers.open} controls={offersId} onToggle={() => offers.toggle(!offers.open)} name={name}>
+            {card.offers?.heading ?? OFFERS_HEADING}
+          </DisclosureButton>
+        ) : null}
+      </div>
+
+      <div id={detailsId} hidden={!showDetails} className="mt-3 border-t border-line pt-3">
+        <OddsLines odds={card.odds} weekly={card.weekly} them={card.them} note={card.oddsNote} />
+        {card.nowOrLater ? <NowOrLater line={card.nowOrLater} /> : null}
+        {card.injuryNote ? <p className="mt-2 text-xs leading-relaxed break-words text-muted">{card.injuryNote}</p> : null}
+        {card.flags.length ? (
+          <ul aria-label="Risks in full" className="mt-3 space-y-1.5">
+            {card.flags.map((f) => (
+              <li key={f.kind} className="flex gap-2 rounded-xl border border-warn-line bg-warn-bg px-3 py-2 text-sm font-semibold text-warn-fg">
+                <span aria-hidden className="shrink-0">
+                  ⚠
+                </span>
+                <span className="min-w-0 break-words">{f.text}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+
+        <p className="mt-3 text-sm font-bold">{card.ros}</p>
+        {card.rosNote ? <p className="mt-0.5 text-xs leading-relaxed break-words text-muted">{card.rosNote}</p> : null}
+        <dl className="mt-2 divide-y divide-line text-sm">
+          {card.facts.map((f) => (
+            <div key={f.label} className="grid gap-0.5 py-1.5 sm:grid-cols-[minmax(0,10rem)_1fr] sm:gap-3">
+              <dt className="font-semibold text-muted">{f.label}</dt>
+              <dd className="min-w-0 break-words">{f.value}</dd>
+            </div>
+          ))}
+        </dl>
+        {/* The attribution after a sentence (a link inside a sentence, so its line needn't be a 44 px target). */}
+        {card.valuesCredit ? (
+          <p className="mt-1 text-xs text-muted">
+            {card.valuesCredit} <ValuesCredit className="text-xs" />
+          </p>
+        ) : null}
+        {card.details ? <HelpsWorth details={card.details} /> : null}
+
+        {card.required.length ? (
+          <div className="mt-3 rounded-xl bg-surface-muted px-3 py-2 text-sm">
+            <p className="font-bold">{ROSTER_MOVES_HEADING}</p>
+            <ul data-roster-moves="card" className="mt-1 list-disc space-y-0.5 pl-5">
+              {card.required.map((r) => (
+                <li key={r} className="break-words">
+                  {r}
+                </li>
+              ))}
+            </ul>
           </div>
-        ))}
-      </dl>
-      {/* The attribution after a sentence (a link inside a sentence, so its line needn't be a 44 px target). */}
-      {card.valuesCredit ? (
-        <p className="mt-1 text-xs text-muted">
-          {card.valuesCredit} <ValuesCredit className="text-xs" />
-        </p>
-      ) : null}
-      {card.details ? <Details details={card.details} name={name} /> : null}
+        ) : null}
 
-      {card.required.length ? (
-        <div className="mt-3 rounded-xl bg-surface-muted px-3 py-2 text-sm">
-          <p className="font-bold">{ROSTER_MOVES_HEADING}</p>
-          <ul data-roster-moves="card" className="mt-1 list-disc space-y-0.5 pl-5">
-            {card.required.map((r) => (
-              <li key={r} className="break-words">
-                {r}
-              </li>
-            ))}
-          </ul>
+        {moreReasons.length ? (
+          <div className="mt-3">
+            <p className="text-sm font-bold">{MORE_REASONS_HEADING}</p>
+            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm leading-relaxed">
+              {moreReasons.map((r) => (
+                <li key={r} className="break-words">
+                  {r}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+
+        {/* No "How to offer it" (a trade that doesn't help me, a Plan B opened in the Analyzer): its own message here (⚠️ ours). */}
+        {!offerPanel && card.pitch ? <Message text={card.pitch} name={name} className="mt-3" /> : null}
+
+        {showAnalyzerLink ? (
+          <div className="mt-3">
+            <Link href={card.analyzerHref} prefetch={false} onClick={onOpenAnalyzer ? () => onOpenAnalyzer(card.analyzerHref) : undefined} className={cx(buttonClass("secondary", "sm"), "min-h-11")}>
+              Open in Analyzer<span className="sr-only"> ({name})</span>
+            </Link>
+          </div>
+        ) : null}
+
+        {/* Each press carries what this card prints, for the record and the export (Checkpoint 7d: cardPress). */}
+        <FeedbackControls feedback={feedback} onChange={(change) => onFeedback(cardPress(change, card))} tradeName={name} versions={versions} loadVersions={loadVersions} />
+      </div>
+
+      {offerPanel ? (
+        <div id={offersId} hidden={!offers.open} className="mt-3 border-t border-line pt-3 text-sm leading-relaxed">
+          {offersShown ? (
+            <OffersPanel state={offers.state} name={name} onRetry={offers.retry} places={places} pitch={card.pitch} />
+          ) : card.pitch ? (
+            <Message text={card.pitch} name={name} defaultOpen />
+          ) : null}
+          {card.planB ? <PlanBBox planB={card.planB} name={name} showLink={showAnalyzerLink} onOpen={onOpenAnalyzer} /> : null}
         </div>
       ) : null}
-
-      {card.reasons.length ? (
-        <div className="mt-3">
-          <p className="text-sm font-bold">Why</p>
-          <ul className="mt-1 list-disc space-y-1 pl-5 text-sm leading-relaxed">
-            {card.reasons.map((r) => (
-              <li key={r} className="break-words">
-                {r}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      {/* The card's own message proposes the trade as it is: said when "How to offer it" opens with another (UI-D-6). */}
-      {card.pitch && ownMessageNote(ladder) ? <p className="mt-3 text-sm break-words text-muted">{ownMessageNote(ladder)}</p> : null}
-      {card.pitch ? <Message text={card.pitch} name={name} className={ownMessageNote(ladder) ? "mt-1" : "mt-3"} /> : null}
-
-      {showAnalyzerLink ? (
-        <div className="mt-3">
-          <Link href={card.analyzerHref} prefetch={false} onClick={onOpenAnalyzer ? () => onOpenAnalyzer(card.analyzerHref) : undefined} className={cx(buttonClass("secondary", "sm"), "min-h-11")}>
-            Open in Analyzer<span className="sr-only"> ({name})</span>
-          </Link>
-        </div>
-      ) : null}
-
-      {/* After the card's own content (review of Phase 4b: its flags read as the Plan B's when they sat under it). */}
-      {card.planB ? <PlanBBox planB={card.planB} name={name} showLink={showAnalyzerLink} onOpen={onOpenAnalyzer} /> : null}
-
-      {/* Each press carries what this card prints, for the record and the export (Checkpoint 7d: cardPress). */}
-      <FeedbackControls feedback={feedback} onChange={(change) => onFeedback(cardPress(change, card))} tradeName={name} versions={versions} loadVersions={loadVersions} />
     </article>
   );
 }

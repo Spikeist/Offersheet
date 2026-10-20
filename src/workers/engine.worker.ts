@@ -22,6 +22,9 @@
  *   Checkpoint 7h (planner reply to Checkpoint 7g, section 3): `thorough: true` runs the Thorough search (search.ts
  *   TradeSearchOptions.mode "thorough"; about 5–6 times a normal search's work), sliced, stopped and kept like any other;
  *   a `refilter` carries the flag too, so a new search in its place is a Thorough one.
+ *   Checkpoint 7h (planner reply to Checkpoint 7g, §1): the result it posts carries my baseline's moves made with or without any
+ *   trade (TradeSearchResult.baselineMoves: contextBaselineMoves, on the context the search ran on), which the Trade Finder
+ *   says once above its list; a re-filter's too.
  * - `refilter` (Phase 4c; planner reply to Checkpoint 4b, change 10: "Re-filter instantly from the finalists, without
  *   re-running the search"): the ideas of a finished search (`of`: its request id, or an earlier re-filter's) ranked again
  *   with the request's minimum chance (TradeSettings.minChance; search.ts refilterSearch: the same finalists, their Plan
@@ -120,7 +123,7 @@
  * handler on its main thread when the browser has no Worker support (src/lib/engineClient.ts). The listener
  * is registered only when this module runs as a worker.
  */
-import { analyzeTrade, analyzeWhatIf, buildTradeContext, laterNumbers, tradeInternals, withWords, type TradeAnalysis, type TradeContext, type TradeInternals, type WhatIfAnalysis, type WhatIfProposal } from "@/engine/evaluate";
+import { analyzeTrade, analyzeWhatIf, baselineRosterMoves, buildTradeContext, laterNumbers, tradeInternals, withWords, type TradeAnalysis, type TradeContext, type TradeInternals, type WhatIfAnalysis, type WhatIfProposal } from "@/engine/evaluate";
 import type { ModelInputs } from "@/engine/inputs";
 import { buildLeagueModel, buildLeagueModelWithContext, rateWaiverUpgrades, type BuildLeagueModelOptions, type LeagueModelBuild } from "@/engine/league";
 import type { LeagueModel, WaiverUpgrades } from "@/engine/leagueModel";
@@ -329,6 +332,11 @@ export interface EngineHandlerDeps {
   refilter?: typeof refilterSearch;
   /** My odds before any trade in a context (default contextBaseline; tests with fake contexts pass their own). */
   baseline?: (ctx: TradeContext) => BaselineOdds | null;
+  /**
+   * My moves made with or without any trade in a context (Checkpoint 7h; default contextBaselineMoves; tests with fake contexts
+   * pass their own), added to every search's and re-filter's result posted (TradeSearchResult.baselineMoves).
+   */
+  baselineMoves?: (ctx: TradeContext) => TradeSearchResult["baselineMoves"];
   /** An evaluation's words made again (default: evaluate.ts withWords in the context; tests with fake contexts pass their own). */
   reword?: (ctx: TradeContext, core: TradeEvaluationCore) => TradeEvaluation;
   /** A finished result's cards and their "now or after this week" numbers (the header, `later`; default laterSourceOf; tests pass fakes). */
@@ -465,6 +473,21 @@ export function contextBaseline(ctx: TradeContext): BaselineOdds | null {
   return base ? { pPlayoffs: base.pPlayoffs, pTitle: base.pTitle, expWins: base.expWins, prizes: { ...base.prizes } } : null;
 }
 
+/**
+ * My moves made with or without any trade in a context (Checkpoint 7h; planner reply to Checkpoint 7g, §1: the Trade Finder says
+ * "Assumed with or without this trade" once, above its list): evaluate.ts baselineRosterMoves' assumed line, the League page's
+ * pickups and my IR returns' releases. Null without a team of mine, for a context the engine didn't build (the tests' fakes),
+ * or when it can't be worked out (the list's cards then name their own, as before).
+ */
+export function contextBaselineMoves(ctx: TradeContext): TradeSearchResult["baselineMoves"] {
+  try {
+    const moves = baselineRosterMoves(ctx);
+    return moves ? { assumed: moves.assumed, ...(moves.assumedLater?.length ? { assumedLater: moves.assumedLater } : {}) } : null;
+  } catch {
+    return null;
+  }
+}
+
 /** An evaluation's reasons and pitch made again in its context (evaluate.ts withWords: explain.ts's words, the injury tags). */
 const defaultReword = (ctx: TradeContext, core: TradeEvaluationCore): TradeEvaluation => withWords(tradeInternals(ctx), core);
 
@@ -502,6 +525,16 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
   const stateOf = deps.searchState ?? searchStateOf;
   const refilter = deps.refilter ?? refilterSearch;
   const baselineOf = deps.baseline ?? contextBaseline;
+  const baselineMovesOf = deps.baselineMoves ?? contextBaselineMoves;
+  /**
+   * A result as it's posted: with my baseline's moves on the context it ran on (Checkpoint 7h), set on the result itself, so the
+   * object posted is still the one the search's state is filed under (search.ts searchStateOf: an in-process engine, the tests).
+   */
+  const posted = (result: TradeSearchResult, ctx: TradeContext | null): TradeSearchResult => {
+    const moves = ctx ? baselineMovesOf(ctx) : null;
+    if (moves) result.baselineMoves = moves;
+    return result;
+  };
   const reword = deps.reword ?? defaultReword;
   const laterSource = deps.laterSource ?? laterSourceOf;
   const offersOfSearch = deps.offersOfSearch ?? offerLadderOfSearch;
@@ -734,13 +767,17 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
     search(ctx, { settings, partnerId: req.partnerId ?? null, ...(req.thorough === true ? { mode: "thorough" as const } : {}), ...timing });
 
   function startSearch(req: TradesRequest, now: Date, settings: TradeSettings): void {
+    let ran: TradeContext | null = null;
     runSliced(
       req.id,
       { stage: "setup", done: 0, total: 1 },
-      () => searchOn(contextFor(req, now, settings), req, settings),
+      () => {
+        ran = contextFor(req, now, settings);
+        return searchOn(ran, req, settings);
+      },
       (result) => {
         keep(req.id, result, result.timings);
-        return result;
+        return posted(result, ran);
       },
     );
   }
@@ -749,11 +786,13 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
   function startRefilter(req: RefilterRequest, now: Date, settings: TradeSettings): void {
     const prior = results.get(req.of);
     let path: "refilter" | "same" | "search" = "search";
+    let ran: TradeContext | null = null;
     runSliced(
       req.id,
       { stage: "rank", done: 0, total: 1 },
       () => {
         const ctx = contextFor(req, now, settings);
+        ran = ctx;
         // contextFor forgets the kept results when it builds a new context: then `prior` ran on another one.
         if (prior && results.get(req.of) === prior) {
           const state = stateOf(prior.result);
@@ -776,13 +815,13 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
       (result) => {
         if (path === "search" || !prior) {
           keep(req.id, result, result.timings);
-          return result;
+          return posted(result, ran);
         }
         keep(req.id, result, prior.searchTimings);
-        if (path === "same") return result;
+        if (path === "same") return posted(result, ran);
         // The page says how long the search took: its own timings, the re-filter's time apart.
         const took = result.timings.total;
-        return { ...result, timings: { ...prior.searchTimings, ...(typeof took === "number" ? { refilter: took } : {}) } };
+        return posted({ ...result, timings: { ...prior.searchTimings, ...(typeof took === "number" ? { refilter: took } : {}) } }, ran);
       },
     );
   }
