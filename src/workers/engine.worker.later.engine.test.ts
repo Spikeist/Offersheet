@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { analyzeTrade, buildTradeContext, laterNumbers } from "@/engine/evaluate";
-import { runTradeSearch, searchStateOf } from "@/engine/search";
+import { searchStateOf } from "@/engine/search";
 import { defaultTradeSettings } from "@/engine/settings";
 import { TEST_NOW } from "@/engine/testLeague";
 import { smallLeague } from "@/engine/trade.testing";
