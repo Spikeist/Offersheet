@@ -153,10 +153,16 @@ export const PREFER_LISTED_WORDS = `When another idea below this one on Overall 
 /**
  * Promoted Last offers in words, the Trade Finder's (Checkpoint 7h; planner reply to Checkpoint 7g, answer 3: "When an offer list
  * finds a version with a higher Overall than the idea it sits under: that version becomes the idea; the original becomes its
- * "Open with" step, the bigger ask."; the lead's ruling: the Last offer only, the one sentence; search.ts, "Promoted Last
- * offers"). The Analyzer's card promotes nothing (the user built that trade), so its words don't change.
+ * "Open with" step, the bigger ask."; the lead's ruling: the Last offer only; search.ts, "Promoted Last offers"). The Analyzer's
+ * card promotes nothing (the user built that trade), so its words don't change.
+ * The second review (offers#2): said as the rule works. ⚠️ "can", not "usually" (ours, for the lead's "usually"): the promotion
+ * passes over most such Last offers on Parker's leagues (2 promoted, 7 not on his six runs; 8 and 18 on 40 synthetic leagues),
+ * nearly all because the list's own limits wouldn't keep the version as an idea (MergedCards.notPromoted "rules": the
+ * given-player cap on all 7 of his, how many ideas can trade the same player of mine), and then it stays the idea's Last offer.
+ * And the original, placed as that "Open with" whatever the Open's rule would pick, can print under
+ * config.offers.openMinChance, though never under the minimum chance (offers.ts forcedOpenOk: it was an idea of the list).
  */
-export const PROMOTED_WORDS = "When an idea's “Last offer” would do better on Overall than the idea itself, that version shows as the idea instead, with the original as its “Open with”.";
+export const PROMOTED_WORDS = `When an idea's “Last offer” would do better on Overall than the idea itself, that version can show as the idea instead, with the original as its “Open with”, even when the original has less than a ${percentWords(config.offers.openMinChance)} chance they accept (never less than your minimum chance). It stays the “Last offer” when the list's own limits, like how many ideas can trade the same player of yours, wouldn't show it as an idea.`;
 
 /**
  * What a card shows closed and what its two controls hold, after the paragraph's bold "Details" (Checkpoint 7h; planner reply
