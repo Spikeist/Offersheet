@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { config } from "./config";
-import { buildTradeContext, proposalKey, screenTrade, tradeInternals, type Screened, type TeamState } from "./evaluate";
+import { buildTradeContext, evaluateExact, proposalKey, screenTrade, tradeInternals, type Screened, type TeamState } from "./evaluate";
 import type { Pos } from "./model";
 import {
   atMostWaiverCredit,
@@ -19,6 +19,7 @@ import {
   runTradeSearch,
   screeningRules,
   searchStateOf,
+  shortlistFrom,
   sidesOf,
   wholePoolsOf,
   wholeRosterCandidates,
@@ -30,7 +31,7 @@ import {
 import { defaultTradeSettings, normalizeTradeSettings, type TradeSettings } from "./settings";
 import { TEST_NOW } from "./testLeague";
 import { thoroughSettings } from "./thorough";
-import { smallLeague } from "./trade.testing";
+import { smallLeague, withWaiverStash } from "./trade.testing";
 import type { TradeAsset, TradeSearchResult } from "./tradeModel";
 
 const league = smallLeague(11);
@@ -43,6 +44,8 @@ const asPlayers = (xs: readonly string[]): TradeAsset[] => xs.map((id) => ({ kin
 const byObjective = (a: Screened, b: Screened) => (Math.abs(b.objective - a.objective) > 1e-9 ? b.objective - a.objective : a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
 const excluded = new Set<Pos>(config.market.tradeSearchExcluded);
 const tradable = (t: TeamState) => [...new Set([...t.roster, ...(I.irOn ? t.ir : [])])].filter((id) => I.league.table.rows.has(id) && !excluded.has(I.league.posOf(id) as Pos));
+const hasThree = (s: { give: readonly string[]; get: readonly string[] }) => s.give.length >= 3 || s.get.length >= 3;
+const threeConfig: ThreeConfig = { shapes: config.search.thorough.shapes, beam: config.search.thorough.beam };
 
 function drain<T>(g: Generator<void, T, void>): T {
   let r = g.next();
@@ -50,8 +53,8 @@ function drain<T>(g: Generator<void, T, void>): T {
   return r.value;
 }
 
-function wholeOf(partner: TeamState, maxPerSide = 2, three: ThreeConfig | null = null): { found: WholeCandidates; screened: number; pool: WholePool } {
-  const whole = wholePoolsOf(I, settings, pools, three ? config.search.thorough.threePool : null);
+function wholeOf(partner: TeamState, maxPerSide = 2, three: ThreeConfig | null = null, threePool: number = config.search.thorough.threePool): { found: WholeCandidates; screened: number; pool: WholePool } {
+  const whole = wholePoolsOf(I, settings, pools, three ? threePool : null);
   const pool = whole.get(partner.id) as WholePool;
   const tally = { screened: 0 };
   const found = drain(wholeRosterCandidates(I, partner, pool, maxPerSide, tally, three));
@@ -157,6 +160,46 @@ describe("wholeRulesOf: the keep reads what screening every candidate in full gi
       }
     });
   }
+
+  // Checkpoint 7h's second review (search#3): with the Thorough search's two keeps, on leagues where its 3-a-side class has
+  // fewer trades above 0 than its keep (so the keep reads the trades at or under 0, which the deferral left unpriced). A short
+  // 3-a-side trade's lean versions can be 2-player trades, in the other class, and the pruning must read them priced
+  // (withWaiverStash(smallLeague(28)), Team 2: 27 dominated 3-a-side trades were kept; (53), Team 5: 2 kept that full screening
+  // prunes, 2 it keeps left out). The app's own trade context.
+  for (const [seed, team] of [
+    [28, "2"],
+    [53, "5"],
+  ] as const) {
+    it(`the Thorough search's two keeps on withWaiverStash(smallLeague(${seed})), Team ${team}, its 3-a-side class short, match pricing every candidate`, () => {
+      const lg = withWaiverStash(smallLeague(seed, {}, 6));
+      const J = tradeInternals(buildTradeContext(lg.snapshot, lg.inputs, { now: TEST_NOW }));
+      const s3 = thoroughSettings(settings);
+      const whole = wholePoolsOf(J, s3, buildPools(J, s3, null), config.search.thorough.threePool);
+      const partner = J.byId.get(team) as TeamState;
+      const found = drain(wholeRosterCandidates(J, partner, whole.get(team) as WholePool, s3.maxPerSide, { screened: 0 }, threeConfig));
+      const funnel = funnelOf("thorough");
+      const cheap = atMostWaiverCredit(J);
+      const lazy = drain(wholeRulesOf(J, partner, found, cheap, funnel));
+      const all = [...found.full];
+      for (const d of found.deferred) {
+        const s = screenTrade(J, partner, d.give, d.get, d.key);
+        if (s) all.push(s);
+      }
+      const full = screeningRules(all, cheap);
+      const threeKeep = funnel.three?.keptPerPartner ?? 0;
+      expect(full.filter((s) => hasThree(s) && s.objective > 3e-9).length).toBeLessThan(threeKeep);
+      const classes: [(s: Screened) => boolean, number][] = [
+        [(s) => !hasThree(s), funnel.keptPerPartner],
+        [hasThree, threeKeep],
+      ];
+      for (const [of, keep] of classes) {
+        const kept = lazy.ruled.filter(of).sort(byObjective).slice(0, keep);
+        expect(kept.map((s) => s.key)).toEqual(full.filter(of).sort(byObjective).slice(0, keep).map((s) => s.key));
+      }
+      // The short class priced in full, its pruning reading what full screening reads: the very same ruled trades.
+      expect(lazy.ruled.filter(hasThree).map((s) => s.key).sort()).toEqual(full.filter(hasThree).map((s) => s.key).sort());
+    });
+  }
 });
 
 describe("the brute force (mode bruteForce)", { timeout: 300_000 }, () => {
@@ -170,7 +213,9 @@ describe("the brute force (mode bruteForce)", { timeout: 300_000 }, () => {
     expect(f).toEqual({ ...config.search.bruteForce });
     expect(bs?.mode).toBe("bruteForce");
     expect(searchStateOf(normal)?.mode).toBeUndefined();
-    expect(brute.counts.simFinal).toBeLessThanOrEqual(f.finalists + config.search.helpsBothFinalists + config.search.helpsBothLane);
+    // Its finalists and "Helps both" extras, and (Checkpoint 7h's second review, search#1) the normal search's own final runs.
+    const own = f.finalists + config.search.helpsBothFinalists + config.search.helpsBothLane;
+    expect(brute.counts.simFinal).toBeLessThanOrEqual(own + config.search.finalists + config.search.helpsBothFinalists + config.search.helpsBothLane);
   });
 
   it("evaluates trades of up to 2 players a side, and more of them than the normal search", () => {
@@ -207,25 +252,59 @@ describe("the Thorough search (mode thorough)", { timeout: 300_000 }, () => {
     expect(thoroughSettings(s3)).toBe(s3);
   });
 
-  it("adds trades with 3 players on a side, from the bigger pools, each screened once", () => {
+  // The checks run twice (Checkpoint 7h's second review, search#4, found by its verifier): at the config's threePool, which on
+  // this league holds all 10 of my players, so a beam extending my side from my whole pool passed my side's check too, and at
+  // 5, where each side's bigger pool leaves 5 of its whole pool out, so a player added from outside fails either side's check.
+  it.each([
+    { threePool: config.search.thorough.threePool, leavesMineOut: false },
+    { threePool: 5, leavesMineOut: true },
+  ])("adds trades with 3 players on a side, from the bigger pools, each screened once (threePool $threePool)", ({ threePool, leavesMineOut }) => {
     const partner = pools.partners[0] as TeamState;
     const three: ThreeConfig = { shapes: config.search.thorough.shapes, beam: config.search.thorough.beam };
-    const { found, pool } = wholeOf(partner, 3, three);
+    const { found, pool } = wholeOf(partner, 3, three, threePool);
     const all = [...found.full, ...found.deferred];
     const keys = all.map((s) => s.key);
     expect(new Set(keys).size).toBe(keys.length);
     expect(all.some((s) => s.give.length === 3 || s.get.length === 3)).toBe(true);
     const threeGive = new Set(pool.three?.give);
     const threeGet = new Set(pool.three?.get);
+    // Whether each side's bigger pool leaves some of its whole pool out (the partner's does at both: only 5 of its players would
+    // add to my lineup, and its bigger pool holds those alone).
+    expect(pool.give.some((id) => !threeGive.has(id))).toBe(leavesMineOut);
+    expect(pool.get.some((id) => !threeGet.has(id))).toBe(true);
+    // Each 3-a-side trade is a shape's (each side from the first `top` of its bigger pool) or a beam extension: one of the best
+    // `beam` two-player trades screened in full (the seeds: the same with 2 a side) with one more player on a side, or one on
+    // each side, each added player checked on its own against its side's bigger pool (Checkpoint 7h's second review, search#4:
+    // a bound on the players from outside the pools, up to a seed's 4, passed a beam extending from the whole rosters too).
+    const seeds = wholeOf(partner, 2)
+      .found.full.filter((s) => s.give.length + s.get.length >= 3)
+      .sort(byObjective)
+      .slice(0, three.beam);
+    const firstOf = (side: readonly string[] | undefined, top: number) => new Set((side ?? []).slice(0, top));
+    const isShape = (s: Pick<Screened, "give" | "get">) =>
+      three.shapes.some((sh) => s.give.length === sh.give && s.get.length === sh.get && s.give.every((id) => firstOf(pool.three?.give, sh.top).has(id)) && s.get.every((id) => firstOf(pool.three?.get, sh.top).has(id)));
+    const extends1 = (s: Pick<Screened, "give" | "get">) =>
+      seeds.some((seed) => {
+        if (!seed.give.every((id) => s.give.includes(id)) || !seed.get.every((id) => s.get.includes(id))) return false;
+        const addGive = s.give.filter((id) => !seed.give.includes(id));
+        const addGet = s.get.filter((id) => !seed.get.includes(id));
+        return addGive.length <= 1 && addGet.length <= 1 && addGive.length + addGet.length >= 1 && addGive.every((id) => threeGive.has(id)) && addGet.every((id) => threeGet.has(id));
+      });
+    // Extensions counted by the side they reach 3 on (a seed has at most 2 a side, so its added player is on that side).
+    let extendedMine = 0;
+    let extendedTheirs = 0;
     for (const s of all) {
-      if (s.give.length < 3 && s.get.length < 3) continue;
+      if (!hasThree(s)) continue;
       expect(s.give.length).toBeLessThanOrEqual(3);
       expect(s.get.length).toBeLessThanOrEqual(3);
-      // A 3-a-side trade's players come from the bigger pools, but for a beam seed's two-player half (from the whole pools).
-      const extraGive = s.give.filter((id) => !threeGive.has(id));
-      const extraGet = s.get.filter((id) => !threeGet.has(id));
-      expect(extraGive.length + extraGet.length).toBeLessThanOrEqual(4);
+      const shape = isShape(s);
+      if (!shape && s.give.length === 3) extendedMine++;
+      if (!shape && s.get.length === 3) extendedTheirs++;
+      expect(shape || extends1(s), s.key).toBe(true);
     }
+    // Extensions on each side, so each side's check reads real ones.
+    expect(extendedMine).toBeGreaterThan(0);
+    expect(extendedTheirs).toBeGreaterThan(0);
     // Every shape's trades from its first `top` of each pool are there.
     const shape = config.search.thorough.shapes[0] as { give: number; get: number; top: number };
     const want = sidesOf([], (pool.three?.give ?? []).slice(0, shape.top), shape.give).length * sidesOf([], (pool.three?.get ?? []).slice(0, shape.top), shape.get).length;
@@ -253,11 +332,58 @@ describe("the Thorough search (mode thorough)", { timeout: 300_000 }, () => {
     const again = runTradeSearch(ctx, { settings, mode: "thorough" });
     expect(again.trades.map((x) => x.key)).toEqual(t.trades.map((x) => x.key));
     expect(again.counts).toEqual(t.counts);
-    // The funnel keeps the trades with 3 on a side apart: never more of them evaluated exactly than its cap (plus companions and the lane).
-    const threes = [...(st?.exactByKey.keys() ?? [])].filter((k) => {
-      const p = st?.exactByKey.get(k)?.evaluation.proposal;
-      return !!p && (p.give.length >= 3 || p.get.length >= 3);
+  });
+
+  // The funnel keeps the trades with 3 on a side apart (Checkpoint 7h's second review, search#4: the bound this replaced, its
+  // cap plus the normal search's 200 plus the lane, held with one keep for every trade too). Each partner's candidates past
+  // screening's rules as the search rules them, and its shortlist from them (shortlistFrom, which the search calls with
+  // funnelOf("thorough")).
+  describe("the funnel's two classes", () => {
+    const s3 = thoroughSettings(settings);
+    const p3 = buildPools(I, s3, null);
+    const whole = wholePoolsOf(I, s3, p3, config.search.thorough.threePool);
+    const funnel = funnelOf("thorough");
+    const cheap = atMostWaiverCredit(I);
+    const ruled = p3.partners.map((p) => {
+      const found = drain(wholeRosterCandidates(I, p, whole.get(p.id) as WholePool, s3.maxPerSide, { screened: 0 }, threeConfig));
+      return drain(wholeRulesOf(I, p, found, cheap, funnel)).ruled;
     });
-    expect(threes.length).toBeLessThanOrEqual(config.search.thorough.three.exactEvaluationMax + config.search.exactEvaluationMax + config.search.helpsBothLane);
+    const twoKeys = (list: readonly Screened[]) => list.filter((s) => !hasThree(s)).map((s) => s.key).sort();
+    const shortlist = shortlistFrom(ruled, funnel);
+
+    it("each partner has at most three.keptPerPartner trades with 3 on a side in the shortlist", () => {
+      const keep = funnel.three?.keptPerPartner ?? 0;
+      expect(keep).toBe(config.search.thorough.three.keptPerPartner);
+      let three = 0;
+      for (const [i, p] of p3.partners.entries()) {
+        const n = shortlist.filter((s) => s.partnerId === p.id && hasThree(s)).length;
+        expect(n).toBeLessThanOrEqual(keep);
+        // Every partner here has more than its keep's worth (so the keep binds) and the cap over all of them doesn't.
+        expect((ruled[i] ?? []).filter(hasThree).length).toBeGreaterThan(keep);
+        expect(n).toBe(keep);
+        three += n;
+      }
+      expect(three).toBeLessThanOrEqual(funnel.three?.exactEvaluationMax ?? 0);
+    });
+
+    it("the best two-player trades are kept whatever the trades with 3 on a side score", () => {
+      // Each partner's best keptPerPartner two-player trades by the objective, then the best exactEvaluationMax of them all.
+      const expected = ruled
+        .flatMap((list) => list.filter((s) => !hasThree(s)).sort(byObjective).slice(0, funnel.keptPerPartner))
+        .sort(byObjective)
+        .slice(0, funnel.exactEvaluationMax);
+      expect(twoKeys(shortlist)).toEqual(twoKeys(expected));
+      // With every 3-a-side trade's objective raised above every two-player trade's, the same two-player trades.
+      const boosted = ruled.map((list) => list.map((s) => (hasThree(s) ? { ...s, objective: s.objective + 1e6 } : s)));
+      expect(twoKeys(shortlistFrom(boosted, funnel))).toEqual(twoKeys(expected));
+    });
+
+    it("the Thorough search evaluates its shortlist exactly (every trade of it, but those its exact legality turns down)", () => {
+      const st = searchStateOf(runTradeSearch(ctx, { settings, mode: "thorough" }));
+      for (const s of shortlist) {
+        if (st?.exactByKey.has(s.key)) continue;
+        expect("illegal" in evaluateExact(I, { partnerId: s.partnerId, give: asPlayers(s.give), get: asPlayers(s.get) }, s3.maxPerSide), s.key).toBe(true);
+      }
+    });
   });
 });

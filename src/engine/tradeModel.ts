@@ -736,8 +736,11 @@ export interface MergedCards {
    * Overall than the idea it sits under: that version becomes the idea; the original becomes its "Open with" step, the bigger
    * ask. Count how often this happens on Parker's leagues. It's a sign of what the search misses (section 2)."; search.ts,
    * "Promoted Last offers"): each list's Last offers promoted to cards, in the order they were promoted (the idea each was
-   * promoted from is among `overall` or `helpsBoth` too, merged into it as its "open"). Absent with the rule off
-   * (TradeSearchOptions.promoteLastOffers, a report switch).
+   * promoted from is among `overall` or `helpsBoth` too, merged into it as its "open"). Since Checkpoint 7h's second review
+   * (offers#3) only the promotions the final lists show, each promoted card a card of its list: a promotion a later round undid
+   * (its card taken off the list, the idea it came from given back) leaves no trace here, and ⚠️ the earlier promotions of a
+   * chain (their cards promoted in turn) aren't named either. Absent with the rule off (TradeSearchOptions.promoteLastOffers, a
+   * report switch).
    */
   promoted?: PromotedTrade[];
   /**
@@ -763,7 +766,9 @@ export interface MergedCards {
   /**
    * ⚠️ Checkpoint 7h (the lead's ruling): the ideas a chain of promotions left out (an idea promoted to its Last offer, whose
    * card was promoted in turn, so the newest card's ladder, opening with the idea it was promoted from, doesn't hold it): out of
-   * their list for good. Present with `promoted`.
+   * their list for good, ⚠️ unless a later round undoes the chain (since Checkpoint 7h's second review, offers#3; search.ts
+   * undonePromotions: the idea then comes back, given back as a merged trade is, and isn't counted here). Present with
+   * `promoted`.
    */
   superseded?: number;
 }
@@ -784,8 +789,9 @@ export interface PromotedTrade {
  * A Last offer that prints a higher Overall than its card but wasn't promoted (Checkpoint 7h; MergedCards.notPromoted): the card,
  * its Last offer, the list and why: "card", the Last offer is already a card of the list (it stays, labeled on this card's
  * offers: "Also shown as trade idea N."); "shown", it's merged into another card, dropped for a better version or left out by a
- * chain of promotions on the list; "taken", another idea was promoted to it, or its ladder was worked out before without this
- * card as its Open; "released", the card is a merged trade given back, never merged again; "open", the card can't be its Open by
+ * chain of promotions on the list; "taken", another idea was promoted to it (since Checkpoint 7h's second review also one a
+ * later round undid), or its ladder was worked out before without this card as its Open; "released", the card is a merged trade
+ * given back, never merged again (an idea whose promotion a later round undid among them); "open", the card can't be its Open by
  * the Open's other rules (offers.ts forcedOpenOk: a Last offer tagged "Helps both" over a card that doesn't help both); ⚠️
  * "rules", the list's own rules wouldn't keep the Last offer as a card (the given-player, partner or core cap, or the filler
  * rule, on the ranking block), so the card stays with it as its Last offer.

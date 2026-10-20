@@ -2294,9 +2294,10 @@ export interface PreferredRow {
 
 /**
  * A promoted Last offer (section 11; Checkpoint 7h, planner reply to Checkpoint 7g, answer 3; TradeSearchResult.merged.promoted):
- * the card it is now with its place (null: not on its list in the end, a chain's later promotion or the usual rules), the idea
- * it was promoted from (its forced "Open with") with its place without the merge (null: not a card there), both as printed, and
- * the Last offer's kind.
+ * the card it is now with its place, the idea it was promoted from (its forced "Open with") with its place without the merge
+ * (null: not a card there), both as printed, and the Last offer's kind. Since Checkpoint 7h's second review (offers#3)
+ * MergedCards.promoted names only the promotions that stand, each card on its list (a promotion a later round undid, or a chain's
+ * earlier one, isn't there), so the section counts those alone; the place is null only for a result that doesn't show it.
  */
 export interface PromotedRow {
   list: ListName;
