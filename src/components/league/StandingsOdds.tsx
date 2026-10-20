@@ -25,10 +25,14 @@
  * the table's own scroller. Checkpoint 7c (planner reply to Checkpoint 7b, §6): under "Several prizes" paying 2nd or 3rd
  * place both lines carry my chance of a top-3 (top-2) finish between the playoffs and the title ("Your odds: 60% playoffs ·
  * 30% top 3 · 10.5% title"; leagueView.ts myOddsOf), laid out like the other parts; the table keeps its columns.
+ * Checkpoint 7h (planner reply to Checkpoint 7g, §1: "cut each long explanation paragraph to one line"): what the odds count
+ * and how they were made (StandingsView.basis and notes) are one line above the table (ODDS_LINE) with the rest behind "Why?"
+ * (WhyNote.tsx); a model without the basis shows its first note as the line.
  */
 import { Fragment } from "react";
-import { AS_ROSTERS_STAND_LABEL, YOUR_ODDS_LABEL, type LeagueView, type OddsCell, type OddsPart } from "@/lib/leagueView";
+import { AS_ROSTERS_STAND_LABEL, ODDS_LINE, YOUR_ODDS_LABEL, type LeagueView, type OddsCell, type OddsPart } from "@/lib/leagueView";
 import { Badge, Card, CardTitle, cx } from "../ui";
+import { WhyNote } from "./WhyNote";
 
 /** Wide screens only (sm and up): hidden on phones. */
 const WIDE_ONLY = "hidden sm:table-cell";
@@ -90,6 +94,8 @@ function MyOddsLines({ mine }: { mine: NonNullable<NonNullable<LeagueView["stand
 export function StandingsOdds({ view }: { view: LeagueView }) {
   const s = view.standings;
   if (!s) return null;
+  // One line, the rest behind "Why?" (Checkpoint 7h): what the odds count and how they were made.
+  const why = s.basis ? { line: ODDS_LINE, more: [s.basis], notes: s.notes } : s.notes.length ? { line: s.notes[0] ?? "", more: [], notes: s.notes.slice(1) } : null;
   return (
     <Card>
       <CardTitle eyebrow="Standings">Playoff odds</CardTitle>
@@ -98,7 +104,22 @@ export function StandingsOdds({ view }: { view: LeagueView }) {
       ) : (
         <>
           {s.mine ? <MyOddsLines mine={s.mine} /> : null}
-          {s.basis ? <p className="mb-3 text-xs text-muted">{s.basis}</p> : null}
+          {why && (why.more.length || why.notes.length) ? (
+            <WhyNote line={why.line} topic="what the odds count" className="mb-2">
+              {why.more.map((m) => (
+                <p key={m}>{m}</p>
+              ))}
+              {why.notes.length ? (
+                <ul className="space-y-1" aria-label="How the odds were made">
+                  {why.notes.map((n) => (
+                    <li key={n}>{n}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </WhyNote>
+          ) : why ? (
+            <p className="mb-2 text-xs text-muted">{why.line}</p>
+          ) : null}
           {/* relative: keeps the cells' screen-reader text inside this scroller, not widening the page. */}
           <div className="relative -mx-4 overflow-x-auto sm:mx-0">
             <table className="w-full min-w-[18rem] text-sm">
@@ -193,13 +214,6 @@ export function StandingsOdds({ view }: { view: LeagueView }) {
               </tbody>
             </table>
           </div>
-          {s.notes.length ? (
-            <ul className="mt-3 space-y-1 text-xs text-muted" aria-label="How the odds were made">
-              {s.notes.map((n) => (
-                <li key={n}>{n}</li>
-              ))}
-            </ul>
-          ) : null}
         </>
       )}
     </Card>

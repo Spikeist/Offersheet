@@ -441,6 +441,12 @@ export const config = {
      * streamed on Parker's data, Brock Bowers' 11.8 a week would get a 6.1 one), so their byes still count.
      */
     streamCoversBye: ["K", "DEF"] as readonly Pos[],
+    /**
+     * Checkpoint 7h (planner reply to Checkpoint 7g, §1: "The League page fits in about 8 screens"; the lead's step 3 for it):
+     * "Best available" shows this many free agents a position, the rest behind one "Show all" (display only: the free agents
+     * the model reads are freeAgentsPerPosition's).
+     */
+    freeAgentsShown: 2,
   },
 
   /**

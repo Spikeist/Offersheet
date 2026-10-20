@@ -7,10 +7,13 @@
  * (LeagueView.streaming); this file only lays it out. At 375 px the two position tables stack and each
  * fits: a name that can't fit wraps, the opponent and the projection stay on one line. No trade values
  * here, so no FantasyCalc credit.
+ * Checkpoint 7h (planner reply to Checkpoint 7g, §1: "cut each long explanation paragraph to one line"): after which positions I
+ * stream, one line (STREAMING_LINE), with who else streams and how a streamed slot counts behind "Why?" (WhyNote.tsx).
  */
 import Link from "next/link";
-import { SETTINGS_HREF, type LeagueView, type StreamingGroup } from "@/lib/leagueView";
+import { SETTINGS_HREF, STREAMING_LINE, type LeagueView, type StreamingGroup } from "@/lib/leagueView";
 import { Card, CardTitle } from "../ui";
+import { WhyNote } from "./WhyNote";
 
 function PickTable({ group }: { group: StreamingGroup }) {
   return (
@@ -81,10 +84,12 @@ export function StreamingPicks({ view }: { view: LeagueView }) {
             </Link>
           </p>
         ) : null}
+      </div>
+      <WhyNote line={STREAMING_LINE} topic="streaming">
         {/* wrap-anywhere: a long one-word team name wraps instead of widening the card past a phone's edge. */}
         <p className="wrap-anywhere">{s.others}</p>
-      </div>
-      <p className="mt-2 text-xs leading-relaxed text-muted">{s.note}</p>
+        <p>{s.note}</p>
+      </WhyNote>
     </Card>
   );
 }

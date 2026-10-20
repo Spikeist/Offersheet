@@ -1,3 +1,4 @@
+"use client";
 /**
  * Best trade partners for the user's team (CLAUDE.md §7, §14 item 3): teams whose trade chips would
  * start for the user while the user's trade chips would start for them; then one-sided fits, badged by
@@ -12,11 +13,17 @@
  * team picked, where the trade search turns the fit into ranked trade ideas. The link is a 44 px target that wraps a long
  * team name at 375 px; its arrow is hidden from screen readers. It carries the team's id in its address, so it's never
  * prefetched: the server sees that address only when the user opens it.
+ * Checkpoint 7h (planner reply to Checkpoint 7g, §1): the paragraph under the cards is one line (PARTNERS_LINE), the rest behind
+ * "Why?" (WhyNote.tsx). The lead's step 5 for the League page ("condense the trade-partner cards"): a card shows its team, its
+ * fit, who to aim for (the lead lines) and its Trade Finder link; what else each side could give is behind one 44 px "More
+ * players" disclosure (PARTNER_MORE_LABEL; aria-expanded, named for screen readers by the team), in the page while closed.
  */
 import Link from "next/link";
-import { BEST_TARGET_NOTE, type LeagueView, type PartnerSide, type PartnerTarget } from "@/lib/leagueView";
+import { useId, useState } from "react";
+import { BEST_TARGET_NOTE, PARTNER_MORE_LABEL, PARTNERS_LINE, type LeagueView, type PartnerCard, type PartnerSide, type PartnerTarget } from "@/lib/leagueView";
 import { Badge, Card, CardTitle, buttonClass, cx } from "../ui";
 import { HarderToGetBadge } from "./HarderToGetBadge";
+import { WhyNote } from "./WhyNote";
 
 function PlayerList({ side }: { side: PartnerSide }) {
   return (
@@ -55,6 +62,38 @@ function TargetLine({ target }: { target: PartnerTarget }) {
   );
 }
 
+/**
+ * What else each side of a fit could give, behind a 44 px disclosure (the file header, Checkpoint 7h): their other trade chips,
+ * then mine (or that none of mine would start for them).
+ */
+function MorePlayers({ card }: { card: PartnerCard }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  return (
+    <>
+      <button type="button" aria-expanded={open} aria-controls={id} onClick={() => setOpen((o) => !o)} className="mt-1 flex min-h-11 items-center gap-1.5 text-left text-sm font-semibold text-muted">
+        <span aria-hidden className={cx("inline-block text-xs transition-transform", open && "rotate-90")}>
+          ▸
+        </span>
+        <span>
+          {PARTNER_MORE_LABEL}
+          <span className="sr-only">{` (${card.name})`}</span>
+        </span>
+      </button>
+      <div id={id} hidden={!open}>
+        {card.theyCanGive.players.length ? <PlayerList side={card.theyCanGive} /> : null}
+        {card.youCanGive.players.length ? (
+          <PlayerList side={card.youCanGive} />
+        ) : (
+          <p className="mt-1.5 text-sm leading-relaxed text-muted">
+            <span className="font-semibold">You could give:</span> no trade chip that would start for them, so a trade would likely cost you a starter.
+          </p>
+        )}
+      </div>
+    </>
+  );
+}
+
 export function TradePartners({ view }: { view: LeagueView }) {
   const { cards, empty } = view.partners;
   return (
@@ -87,14 +126,7 @@ export function TradePartners({ view }: { view: LeagueView }) {
                 {c.targets.map((t) => (
                   <TargetLine key={t.id} target={t} />
                 ))}
-                {c.theyCanGive.players.length ? <PlayerList side={c.theyCanGive} /> : null}
-                {c.youCanGive.players.length ? (
-                  <PlayerList side={c.youCanGive} />
-                ) : (
-                  <p className="mt-1.5 text-sm leading-relaxed text-muted">
-                    <span className="font-semibold">You could give:</span> no trade chip that would start for them, so a trade would likely cost you a starter.
-                  </p>
-                )}
+                <MorePlayers card={c} />
                 <Link href={c.ideas.href} prefetch={false} className={cx(buttonClass("secondary", "sm"), "mt-2 h-auto min-h-11 py-2 text-left wrap-anywhere")}>
                   {c.ideas.text}
                   <span aria-hidden> →</span>
@@ -102,12 +134,14 @@ export function TradePartners({ view }: { view: LeagueView }) {
               </li>
             ))}
           </ul>
-          <p className="mt-3 text-xs text-muted">
-            Points per week are what each trade chip would add to the other team&apos;s starting lineup, after that team&apos;s free-agent pickups. Fit combines both
-            directions; teams with a trade chip who would start for you, when none of yours would start for them, come last. {BEST_TARGET_NOTE} &ldquo;See trade
-            ideas&rdquo; opens the Trade Finder for that team: actual trades, ranked by how much they help you and how likely that team is to say yes, which can
-            differ from the trade chips named here.
-          </p>
+          <WhyNote line={PARTNERS_LINE} topic="trade partners" className="mt-2">
+            <p>
+              Points per week are what each trade chip would add to the other team&apos;s starting lineup, after that team&apos;s free-agent pickups. Fit combines both
+              directions; teams with a trade chip who would start for you, when none of yours would start for them, come last. {BEST_TARGET_NOTE} &ldquo;See trade
+              ideas&rdquo; opens the Trade Finder for that team: actual trades, ranked by how much they help you and how likely that team is to say yes, which can
+              differ from the trade chips named here.
+            </p>
+          </WhyNote>
         </>
       )}
     </Card>

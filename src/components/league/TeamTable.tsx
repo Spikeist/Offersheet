@@ -1,3 +1,4 @@
+"use client";
 /**
  * The League page's team table (CLAUDE.md §14 item 3): teams ranked by projected points per week,
  * with record, points for, rest-of-season points, and need and trade-chip chips (§7; the "Surplus"
@@ -9,10 +10,17 @@
  * width). The note under it says which weeks the numbers count (from the next week while one is in
  * progress). Another team's trade chip his manager would want a little extra for also carries a gold "Harder to get"
  * tag (planner addendum to Checkpoint 3, §2), in words like "starter", and the key explains it when one shows.
+ * Checkpoint 7h (planner reply to Checkpoint 7g, §1: "cut each long explanation paragraph to one line"): the note under the table
+ * is its one line (with the FantasyCalc credit), the chips' key behind "Why?" (WhyNote.tsx). The lead's step 2 for the League
+ * page ("condense the team table's trade-chip pills: names on one line, the rest on tap"): a team's trade chips are one 44 px
+ * disclosure button, "Trade chips: K. Williams, C. Hubbard, C. McCaffrey" (Chip.name), whose tap shows the pills as before
+ * (what each is worth and to whom, what he costs his team, his tags), in the page while closed with the hidden attribute.
  */
+import { useId, useState } from "react";
 import { HARDER_TO_GET_TAG, STARTER_TAG, type Chip, type ChipTag as ChipTagView, type LeagueView } from "@/lib/leagueView";
 import { Badge, Card, CardTitle, cx } from "../ui";
 import { ValuesCredit } from "./ValuesCredit";
+import { WhyNote } from "./WhyNote";
 
 const CHIP_CLASS: Record<Chip["kind"], string> = {
   "need-ros": "border border-warn-line bg-warn-bg text-warn-fg",
@@ -69,6 +77,42 @@ function ChipLine({ label, chips }: { label: string; chips: Chip[] }) {
   );
 }
 
+/**
+ * A team's trade chips, condensed (the file header, Checkpoint 7h): their names on one line, a 44 px disclosure button named for
+ * screen readers by the team, the pills (ChipLine's) under it on a tap.
+ */
+function ChipNames({ label, chips, team }: { label: string; chips: Chip[]; team: string }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  if (!chips.length) return null;
+  return (
+    <>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen((o) => !o)}
+        className="mt-0.5 flex min-h-11 w-full items-center gap-1.5 text-left text-xs"
+      >
+        <span aria-hidden className={cx("inline-block text-muted transition-transform", open && "rotate-90")}>
+          ▸
+        </span>
+        <span className="min-w-0">
+          <span className="font-semibold text-muted">{label}</span> <span className="font-bold text-brand-strong dark:text-brand">{chips.map((c) => c.name ?? c.text).join(", ")}</span>
+          <span className="sr-only">{` (${team})`}</span>
+        </span>
+      </button>
+      <div id={id} hidden={!open}>
+        <p className="flex flex-wrap items-center gap-1 pb-1">
+          {chips.map((c) => (
+            <ChipTag key={c.key} chip={c} />
+          ))}
+        </p>
+      </div>
+    </>
+  );
+}
+
 export function TeamTable({ view }: { view: LeagueView }) {
   const nextLabel = view.heatmap.windowLabel.next.toLowerCase();
   const harderShown = view.teams.some((t) => t.chips.some((c) => c.tags.some((g) => g.kind === "harder")));
@@ -110,7 +154,7 @@ export function TeamTable({ view }: { view: LeagueView }) {
                     {t.name} {t.isMine ? <Badge tone="brand">You</Badge> : null}
                   </span>
                   <ChipLine label="Needs" chips={t.needs} />
-                  <ChipLine label="Trade chips" chips={t.chips} />
+                  <ChipNames label="Trade chips" chips={t.chips} team={t.name} />
                 </th>
                 <td className="py-2.5 pr-3 text-right align-top font-semibold whitespace-nowrap tabular-nums">{t.record}</td>
                 <td className="hidden py-2.5 pr-3 text-right align-top tabular-nums sm:table-cell">{t.pointsFor}</td>
@@ -121,16 +165,23 @@ export function TeamTable({ view }: { view: LeagueView }) {
           </tbody>
         </table>
       </div>
-      <ul className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted" aria-label="Chip key">
-        <LegendItem kind="need-ros" sample="RB2" text="need, rest of season" />
-        <LegendItem kind="need-next" sample="RB2" text={`need, ${nextLabel} only`} />
-        <LegendItem kind="chip" sample="J. Doe: +12" text={view.chipLegend} />
-        <LegendItem kind="chip" sample="J. Doe" tag={{ text: STARTER_TAG, kind: "starter" }} text="he starts for his own team" />
-        {harderShown ? <LegendItem kind="chip" sample="J. Doe" tag={{ text: HARDER_TO_GET_TAG, kind: "harder" }} text="his manager will likely want a little extra for him" /> : null}
-      </ul>
-      <p className="mt-2 text-xs text-muted">
-        {view.teamsNote} <ValuesCredit />
-      </p>
+      <WhyNote
+        line={
+          <>
+            {view.teamsNote} <ValuesCredit />
+          </>
+        }
+        topic="needs and trade chips"
+        className="mt-2"
+      >
+        <ul className="flex flex-wrap items-center gap-x-4 gap-y-1.5" aria-label="Chip key">
+          <LegendItem kind="need-ros" sample="RB2" text="need, rest of season" />
+          <LegendItem kind="need-next" sample="RB2" text={`need, ${nextLabel} only`} />
+          <LegendItem kind="chip" sample="J. Doe: +12" text={view.chipLegend} />
+          <LegendItem kind="chip" sample="J. Doe" tag={{ text: STARTER_TAG, kind: "starter" }} text="he starts for his own team" />
+          {harderShown ? <LegendItem kind="chip" sample="J. Doe" tag={{ text: HARDER_TO_GET_TAG, kind: "harder" }} text="his manager will likely want a little extra for him" /> : null}
+        </ul>
+      </WhyNote>
     </Card>
   );
 }
