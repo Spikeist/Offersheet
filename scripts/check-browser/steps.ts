@@ -128,6 +128,13 @@
  *   shows to "Helps you 37 now · 41 if done after this week's games.": its card's own Helps you first, the two more than
  *   config.explain.nowOrLaterMin apart, the planner's tooltip, and the same words right under it in the card's Details
  *   (Checkpoint 7h; until then among the card's facts: a phone shows those); the Analyzer step holds its card's line, which comes with its evaluation, to the same (nowOrLaterChecks).
+ * Checkpoint 7h (planner reply to Checkpoint 7g; steps7h.ts holds the checks, contracts7h.ts their rules, inPage7h.ts the
+ *   readers): step "What if" after the Analyzer (section 4: the Analyzer's "What if" mode, a change built from the page's own
+ *   lists and evaluated, its result held to the planner's words and the cards' odds forms, no trade offer's parts); in step
+ *   "Waivers" each list's odds lines and a "Rest of season" row's "Details" opened and closed with focus kept (section 5:
+ *   waiverDetailsChecks, from waiverMoveChecks); step "Thorough search" after Waivers (section 3: the switch off by default with
+ *   its estimate, a Thorough search run to the end and timed in an info line, the normal search's ideas back at once); under
+ *   "Several prizes" the waiver rows' and the what-if's top-N line too (prizeOddsChecks).
  * After each step: no console errors (page or worker), CSP violations (Part B: enforced or report-only, page or worker),
  * uncaught exceptions, failed requests to the app, or requests to any other site. Screenshots, when on, go to the shots folder after the page's names are replaced with placeholders,
  * put back right after (one that can't be saved is a skip: it's a record to look at, not a check of the app). Checkpoint 7g
@@ -240,6 +247,7 @@ import {
 } from "./contracts";
 import type { AppRequest, PageEvent, PageSession } from "./page";
 import { finderShot, leagueShots, openedCardShot } from "./shots";
+import { thoroughStep, waiverDetailsChecks, waiverPrizeOddsChecks, whatIfPrizeOddsChecks, whatIfStep } from "./steps7h";
 
 export interface CardInfo {
   heading: string;
@@ -267,7 +275,7 @@ export interface CardInfo {
   feedback: Array<{ label: string; pressed: boolean }>;
 }
 
-interface Measure {
+export interface Measure {
   pageOverflow: boolean;
   scrollWidth: number;
   clientWidth: number;
@@ -309,7 +317,7 @@ const seconds = (ms: number) => Math.round(ms / 100) / 10;
 const pl = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** The in-page mark every timeline is measured from. */
-async function mark(page: PageSession): Promise<number> {
+export async function mark(page: PageSession): Promise<number> {
   return page.run<number>("return performance.now();");
 }
 
@@ -317,7 +325,7 @@ async function mark(page: PageSession): Promise<number> {
  * The in-page prelude that defines clean(text) for a reader (inPage.ts cleanCall): the league's names and id replaced by
  * report.ts's rules, so what comes back carries placeholders, never a name.
  */
-function cleaning(ctx: StepContext): string {
+export function cleaning(ctx: StepContext): string {
   return cleanCall(nameRules(ctx.names, [[ctx.leagueId, LEAGUE_ID_PLACEHOLDER]]));
 }
 
@@ -348,17 +356,17 @@ async function settle(page: PageSession, maxMs = 8_000): Promise<void> {
 }
 
 /** The layout's two checks; `lead` starts their lines when a step measures twice (the waiver view with a fold open). */
-function layoutChecks(ctx: StepContext, step: string, m: Measure, where = "the page", lead = ""): void {
+export function layoutChecks(ctx: StepContext, step: string, m: Measure, where = "the page", lead = ""): void {
   const sideways = m.pageOverflow ? `${where} scrolls sideways (${m.scrollWidth} px wide at ${m.clientWidth} px)` : `${pl(m.looseCount, "element")} reach past the right edge`;
   ctx.report.check(step, !m.pageOverflow && m.looseCount === 0, `${lead}no sideways scrolling at ${m.clientWidth} px`, `${lead}${sideways}`, m.loose);
   ctx.report.check(step, m.smallCount === 0, `${lead}tap targets at least 44 px tall (${m.targets} checked)`, `${lead}${pl(m.smallCount, "tap target")} under 44 px tall or 24 px wide`, m.small);
 }
 
-async function measurePage(ctx: StepContext): Promise<Measure> {
+export async function measurePage(ctx: StepContext): Promise<Measure> {
   return ctx.page.run<Measure>("return measure();");
 }
 
-async function screenshot(ctx: StepContext, name: string): Promise<void> {
+export async function screenshot(ctx: StepContext, name: string): Promise<void> {
   if (!ctx.shotsDir) return;
   try {
     ctx.shots.push(...(await ctx.page.screenshots(ctx.shotsDir, name, sanitizeCall(nameRules(ctx.names, [[ctx.leagueId, LEAGUE_ID_PLACEHOLDER]])))));
@@ -1887,6 +1895,8 @@ export async function waiverMoveChecks(ctx: StepContext, step: string): Promise<
   const toggle = r.toggle ?? null;
   const at = { index: 0, toggles: toggle ?? [], measured: { done: false } };
   await waiverListChecks(ctx, step, r, r.label ?? "Rest of season", at);
+  // Checkpoint 7h (planner reply to Checkpoint 7g, section 5): its rows' odds lines, and a row's "Details" (steps7h.ts).
+  await waiverDetailsChecks(ctx, step, r.label ?? "Rest of season", !!r.rated);
   if (!r.rated && ((r.moves ?? []).length || r.rest)) report.info(step, "“Rest of season” isn't rated by Helps you here (no season to simulate): its rows show the lineup gain");
   if (!toggle || toggle.length < 2) return;
   // Every other list of the toggle (review of Checkpoint 7f, WAIVERS-5: only the second was read, so a week under way's
@@ -1896,6 +1906,7 @@ export async function waiverMoveChecks(ctx: StepContext, step: string): Promise<
     await page.waitFor<boolean>(togglePressed(i), 5_000, "the toggle to follow the tap").catch(() => false);
     const list = await page.run<WaiversRead>(READ_WAIVERS);
     await waiverListChecks(ctx, step, list, list.label ?? toggle[i]?.label ?? "", { ...at, index: i });
+    await waiverDetailsChecks(ctx, step, list.label ?? toggle[i]?.label ?? "", !!list.rated);
   }
   await page.click(waiverToggle(0), "the toggle's “Rest of season”");
   await page.waitFor<boolean>(togglePressed(0), 5_000, "the toggle to follow the tap back").catch(() => false);
@@ -2304,6 +2315,8 @@ async function prizeOddsChecks(ctx: StepContext, step: string): Promise<boolean>
   const league = await page.waitFor<string>(LEAGUE_READY, 180_000, "the League page", 250).catch((err: unknown) => `error: ${err instanceof Error ? err.message : "it didn't load"}`);
   if (report.check(step, league === "ready", `${under}, the League page built again`, `${under}, the League page didn't load: ${league.replace(/^error: /, "")}`)) {
     await myOddsChecks(ctx, step, under);
+    // Checkpoint 7h: the rated waiver rows' odds lines (steps7h.ts).
+    await waiverPrizeOddsChecks(ctx, step, under);
   }
   if (!ctx.myTeam || !ctx.firstCard) {
     report.skip(step, `${under}, the cards' odds lines: ${ctx.myTeam ? "the Trade Finder found no idea in this run" : "no team picked"}`);
@@ -2324,6 +2337,8 @@ async function prizeOddsChecks(ctx: StepContext, step: string): Promise<boolean>
           const why = state === "illegal" ? "the Analyzer says the first idea can't be made" : `the Analyzer's evaluation didn't finish: ${state.replace(/^error: /, "")}`;
           if (report.check(step, state === "evaluated", `${under}, the Analyzer evaluated the first idea`, `${under}, ${why}`)) {
             await cardOddsChecks(ctx, step, () => "the Analyzer's card", under);
+            // Checkpoint 7h: the Analyzer's "What if" too (steps7h.ts).
+            await whatIfPrizeOddsChecks(ctx, step, under);
           }
         }
       }
@@ -2991,7 +3006,9 @@ export const STEPS: readonly Step[] = [
   { name: "Trade Finder", run: finderStep, health: true },
   { name: "Trade card", run: cardStep, health: true },
   { name: "Analyzer", run: analyzerStep, health: true },
+  { name: "What if", run: whatIfStep, health: true },
   { name: "Waivers", run: waiversStep, health: true },
+  { name: "Thorough search", run: thoroughStep, health: true },
   { name: "Settings", run: settingsStep, health: true },
   { name: "Second league", run: secondLeagueStep, health: true },
   { name: "Public pages", run: staticPagesStep, health: false, independent: true },

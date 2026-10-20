@@ -96,7 +96,7 @@ export const INSTRUMENT = String.raw`(() => {
           if (!d || typeof d !== "object") return;
           if (d.type === "trades" && d.result) {
             C.engine.push({ t: performance.now(), type: "trades", timings: d.result.timings || null, counts: d.result.counts || null, shown: Array.isArray(d.result.trades) ? d.result.trades.length : null });
-          } else if (d.type === "analysis" || d.type === "league" || d.type === "error" || d.type === "cancelled") {
+          } else if (d.type === "analysis" || d.type === "whatif" || d.type === "league" || d.type === "error" || d.type === "cancelled") {
             C.engine.push({ t: performance.now(), type: d.type });
           }
         });

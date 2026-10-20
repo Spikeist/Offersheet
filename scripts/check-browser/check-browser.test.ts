@@ -1681,11 +1681,13 @@ describe("Checkpoint 7b: the Analyzer's link back isn't prefetched", () => {
     expect(isPrefetchRequest(undefined)).toBe(false);
   });
 
-  it("runs the new steps where they belong: Notices after League, Waivers after the Analyzer", () => {
+  it("runs the new steps where they belong: Notices after League, Waivers after the Analyzer (Checkpoint 7h: What if between them, the Thorough search after Waivers)", () => {
     const names = STEPS.map((s) => s.name);
     expect(names.indexOf("Notices")).toBe(names.indexOf("League") + 1);
-    expect(names.indexOf("Waivers")).toBe(names.indexOf("Analyzer") + 1);
-    expect(names.indexOf("Settings")).toBe(names.indexOf("Waivers") + 1);
+    expect(names.indexOf("What if")).toBe(names.indexOf("Analyzer") + 1);
+    expect(names.indexOf("Waivers")).toBe(names.indexOf("What if") + 1);
+    expect(names.indexOf("Thorough search")).toBe(names.indexOf("Waivers") + 1);
+    expect(names.indexOf("Settings")).toBe(names.indexOf("Thorough search") + 1);
   });
 });
 
