@@ -106,6 +106,35 @@ describe("the season list rated by Helps you, end to end (a made-up league, 400 
     }
   });
 
+  it("Checkpoint 7h: every row's odds are my odds in the very two seasons its B read (my roster as it stands, then with the move, on its own seasons)", () => {
+    const run = (score: { mean: number[]; sd: number[] }, sims: number) => seasonOdds(league.snapshot, c.season(score), { sims, seed: config.simulation.seed })?.teams.find((t) => t.teamId === c.me);
+    expect(rated.some((r) => r.rating?.sims === SIMS) && rated.some((r) => r.rating?.sims === 100)).toBe(true);
+    for (const r of rated) {
+      const sims = r.rating?.sims as number;
+      const odds = r.rating?.odds;
+      const after = scorer(rosterWith(r), c.me);
+      const b4 = run(c.myTeam.score, sims);
+      const now = after ? run(after, sims) : undefined;
+      if (!odds || !b4 || !now) throw new Error(`no odds for ${r.playerId}`);
+      const close = (got: number | null, want: number | null | undefined, what: string) => {
+        if (want === null || want === undefined) expect(got, `${r.playerId} ${what}`).toBeNull();
+        else expect(got, `${r.playerId} ${what}`).toBeCloseTo(want, 12);
+      };
+      for (const [o, t] of [
+        [odds.before, b4],
+        [odds.after, now],
+      ] as const) {
+        close(o.pPlayoffs, t.pPlayoffs, "playoffs");
+        close(o.prizes.first, t.pTitle, "title");
+        close(o.prizes.second, t.pSecond, "2nd");
+        close(o.prizes.third, t.pThird, "3rd");
+      }
+    }
+    // Moves on the same seasons share their before: every finished row's is one and the same.
+    const finished = rated.filter((r) => r.rating?.sims === SIMS).map((r) => r.rating?.odds?.before);
+    for (const o of finished) expect(o).toEqual(finished[0]);
+  });
+
   it("the drop is the candidate with the best B on the screening seasons among those he out-projects, when one can go (here every player of mine at his position can go)", () => {
     const roster = league.snapshot.teams.find((t) => t.id === c.me)?.roster ?? [];
     const ros = (id: string) => model.players[id]?.ros.total ?? 0;
@@ -223,9 +252,75 @@ describe("the rater on its own (createWaiverRater)", () => {
       expect(ch.dCH).toBe(0);
       for (const v of Object.values(ch.dPrizes)) expect(v === null || v === 0).toBe(true);
     }
-    expect(result.rows[0]?.rating).toEqual({ b: 0, bWin: null, helps: null, sims: SIMS });
+    const rating = result.rows[0]?.rating;
+    if (!rating) throw new Error("no rating");
+    const { odds, ...rest } = rating;
+    expect(rest).toEqual({ b: 0, bWin: null, helps: null, sims: SIMS });
+    // Checkpoint 7h: its odds lines read the same before and after, number for number (the one run), each its own copy.
+    expect(odds?.after).toEqual(odds?.before);
+    expect(odds?.after).not.toBe(odds?.before);
+    expect(odds?.after.prizes).not.toBe(odds?.before.prizes);
     // Only the before runs were made: one per block.
     expect(result.runs).toEqual({ screen: 1, shown: 1 });
+  });
+
+  it("Checkpoint 7h: each row keeps my odds from the two runs its B read, the shown block's when finished, the screening block's when not, and no run more", () => {
+    const seen: { add: string; ch: WaiverRunChange }[] = [];
+    const rater = createWaiverRater(
+      {
+        built,
+        myIndex,
+        normals,
+        seed: config.simulation.seed,
+        highScores: false,
+        scoreAfter: (add) => (add === "up" ? plus(5) : add === "down" ? plus(-5) : before),
+        benefitOf: (add, _drop, ch) => {
+          seen.push({ add, ch });
+          return { b: 100 * ch.dPO };
+        },
+        b3: c.scale.b3,
+        weighs: null,
+      },
+      { waivers: { ratingScreenSims: 100, ratingFinishRows: 1 } },
+    );
+    const result = rater.rate([
+      { playerId: "down", points: 1, options: [{ drop: "a", keep: 0 }] },
+      { playerId: "up", points: 1, options: [{ drop: "a", keep: 0 }] },
+    ]);
+    // The same runs as without the odds: the before and two moves on the screening block, the before and "up" on the shown one.
+    expect(result.runs).toEqual({ screen: 3, shown: 2 });
+    /** My odds from a run of my score on the first `sims` seasons of the block, made here from scratch. */
+    const per = built.setup.weeks.length * built.setup.teams.length;
+    const mine = (score: WeeklyScore, sims: number) => {
+      const row = (xs: Float64Array) => Float64Array.from(built.simWeekToModelWeek, (k) => xs[k] as number);
+      const mean = built.setup.mean.map((m, i) => (i === myIndex ? row(score.mean) : m));
+      const sd = built.setup.sd.map((s, i) => (i === myIndex ? row(score.sd) : s));
+      const block = sims === SIMS ? normals : { ...normals, sims, z: normals.z.subarray(0, sims * per) };
+      const o = simulateSeason({ ...built.setup, mean, sd }, { sims, seed: config.simulation.seed, normals: block }).teams[myIndex];
+      if (!o) throw new Error("no odds");
+      return { pPlayoffs: o.pPlayoffs, first: o.pTitle, second: o.pSecond, third: o.pThird };
+    };
+    const [down, up] = result.rows;
+    expect(up?.rating.sims).toBe(SIMS);
+    expect(down?.rating.sims).toBe(100);
+    for (const [r, score, sims] of [
+      [up, plus(5), SIMS],
+      [down, plus(-5), 100],
+    ] as const) {
+      const odds = r?.rating.odds;
+      if (!odds) throw new Error("no odds");
+      const b4 = mine(before, sims);
+      const after = mine(score, sims);
+      expect([odds.before.pPlayoffs, odds.before.prizes.first, odds.before.prizes.second, odds.before.prizes.third]).toEqual([b4.pPlayoffs, b4.first, b4.second, b4.third]);
+      expect([odds.after.pPlayoffs, odds.after.prizes.first, odds.after.prizes.second, odds.after.prizes.third]).toEqual([after.pPlayoffs, after.first, after.second, after.third]);
+    }
+    // after − before is the very change its B weighed: the finishing's for "up", the screening's for "down" (its last one).
+    const upCh = seen.filter((s) => s.add === "up").at(-1)?.ch;
+    const downCh = seen.filter((s) => s.add === "down").at(-1)?.ch;
+    expect(Object.is((up?.rating.odds?.after.pPlayoffs as number) - (up?.rating.odds?.before.pPlayoffs as number), upCh?.dPO)).toBe(true);
+    expect(Object.is((down?.rating.odds?.after.pPlayoffs as number) - (down?.rating.odds?.before.pPlayoffs as number), downCh?.dPO)).toBe(true);
+    // Each row its own copy: no two rows share an object (one row's odds never change another's).
+    expect(up?.rating.odds?.before).not.toBe(down?.rating.odds?.before);
   });
 
   it("moves with the same score share one run; a better score has the higher B; the best row is finished on the shown block", () => {

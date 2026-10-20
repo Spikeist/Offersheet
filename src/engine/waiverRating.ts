@@ -42,13 +42,20 @@
  *    keep their screened B and Helps you (⚠️ the lead's reading: "rows past the top 10 keep their screened Helps you"), each
  *    row saying how many seasons are behind it (WaiverRowRating.sims). Each row keeps B_win too, B's odds part
  *    (WaiverRowRating.bWin), so the page can say when the trade value a move gives up is why it prints no gain.
+ * 3. The odds (Checkpoint 7h; planner reply to Checkpoint 7g, section 5: "each row's details show the odds lines (title,
+ *    playoffs, and top-N under the league's prizes), before → after, from the same run as its Helps you"): each row keeps my
+ *    odds in the two runs its B was read from (WaiverRowRating.odds): the block's before run and the chosen option's run, the
+ *    shown block's for a finished row, the screening block's for the rest. Both are the memoized runs the B's read, so no
+ *    season is played for them and every other number is the one before, bit for bit; after − before is the change B
+ *    weighed. ⚠️ The before run is the rating's own (my roster as it stands, no modeled pickup of mine; every other team after
+ *    its modeled pickups), not the League page's headline (every team after its pickups, mine included).
  * Moves whose after-score is the same, number for number on the weeks the simulator reads, share one run (memoized per
  * block; the before score's own entry is the before run, so a move that changes nothing has B_win 0 exactly): on Parker's
  * league (week 6) 228 options of 48 rows are 62 distinct scores, most of them depth receivers who never start for him.
  */
 import type { Benefit } from "./benefit";
 import { tradeScore } from "./benefit";
-import type { WaiverListRating, WaiverRowRating } from "./leagueModel";
+import type { WaiverListRating, WaiverOdds, WaiverRowRating } from "./leagueModel";
 import { runPrizeDeltas, type PrizeDeltas, type PrizeOdds } from "./reward";
 import type { SimSetupResult } from "./season";
 import { simulateSeason, type SimNormals, type SimProgress } from "./sim";
@@ -133,6 +140,11 @@ interface Screened {
 /** A whole number ≥ 0 from a config value (else 0). */
 function count(x: number): number {
   return Number.isFinite(x) ? Math.max(0, Math.floor(x)) : 0;
+}
+
+/** A run's odds as a row keeps them (WaiverRowRating.odds; the file header, step 3): a copy, so no two rows share an object. */
+function oddsOf(run: MyRun): WaiverOdds {
+  return { pPlayoffs: run.pPlayoffs, prizes: { ...run.prizes } };
 }
 
 /** A finite number, else null. */
@@ -273,7 +285,10 @@ export function createWaiverRater(x: WaiverRaterInputs, cfg: WaiverRaterConfig):
         if (!s) return null;
         const done = finished.get(i);
         const b = done ? done.b : s.b;
-        return { option: s.option, rating: { b, bWin: done ? done.bWin : s.bWin, helps: tradeScore(b, x.b3), sims: done ? shown.sims : screen.sims } };
+        // 3. The odds from the runs this B read (the file header): memoized, so none is played again.
+        const on = done ? onShown : onScreen;
+        const odds = { before: oddsOf(on.before()), after: oddsOf(on.of(s.row)) };
+        return { option: s.option, rating: { b, bWin: done ? done.bWin : s.bWin, helps: tradeScore(b, x.b3), sims: done ? shown.sims : screen.sims, odds } };
       });
       return { rows: ratings, info: { b3: x.b3, screenSims: screen.sims, shownSims: shown.sims, finished: finished.size, weighs: x.weighs }, runs: { screen: onScreen.runs(), shown: onShown.runs() } };
     },

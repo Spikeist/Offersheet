@@ -51,12 +51,24 @@
  * takes away "Show all" or the fold's button while it has keyboard focus, focus moves to the fold's button, else the
  * section's heading (useFocusFallback; review of Checkpoint 7f, WAIVERS-2: focus fell to the page). Which rows help, and the
  * words: waiversView.ts (WaiverListView.helping, .blocked, .rest, .noneHelps).
+ *
+ * Checkpoint 7h (planner reply to Checkpoint 7g, sections 1 and 5; the lead's rulings for the waivers track): each row compact,
+ * the move, its main number and "Outscores" line, why a move can't be made and the status pills, with its own 44 px "Details"
+ * (WaiverRowCard: a button, aria-expanded and aria-controls naming its panel, which is always in the page, hidden until it's
+ * opened, so the button never moves and keeps keyboard focus) holding Points, Better than, Lineup gain, the odds lines a rated
+ * row carries ("Your odds: without a pickup → with this one", then "Title odds 8.9% → 9.2%" …: waiversView.ts
+ * waiverOddsLines) and Why no gain; each list's long note as one line with a 44 px "Why?" at its end over the rest (WhyNote,
+ * the same kind of disclosure), which the toggle closes again. A redraw that takes away a row's Details button while it has
+ * keyboard focus (the rating's answer moves a row into the fold) gives focus to that row's button wherever it now is, else
+ * the fold's button, else the heading (useFocusFallback).
  */
 import Link from "next/link";
-import { createContext, use, useCallback, useEffect, useId, useRef, useState, type RefObject } from "react";
+import { Fragment, createContext, use, useCallback, useEffect, useId, useRef, useState, type RefObject } from "react";
 import { EngineError, waiverRatingFor, waiverRatingKnown } from "@/lib/engineClient";
 import {
   DEPTH_ONLY_TAG,
+  DETAILS_TEXT,
+  ODDS_LABEL,
   RATING_FAILED_TEXT,
   RATING_PENDING_TEXT,
   RATING_PENDING_WEEK_TEXT,
@@ -65,6 +77,7 @@ import {
   UNTOUCHABLES_LABEL,
   WAIVERS_SECTION_ID,
   WAIVERS_TITLE,
+  WHY_TEXT,
   buildWaiversView,
   type WaiverListMode,
   type WaiverListView,
@@ -166,6 +179,14 @@ function useLockFocus(view: WaiversView, heading: RefObject<HTMLHeadingElement |
 /** A button's ref callback that can say, as the button goes, whether it had keyboard focus (useFocusFallback). */
 type TrackedRef = (el: HTMLButtonElement | null) => (() => void) | undefined;
 
+/** The attribute a row's "Details" button carries its player's id in (Checkpoint 7h: focus follows him across a redraw). */
+export const DETAILS_PLAYER_ATTRIBUTE = "data-waiver-details";
+
+/** The CSS selector of the "Details" button of the row adding player `id` (DETAILS_PLAYER_ATTRIBUTE). */
+function detailsSelector(id: string): string {
+  return `button[${DETAILS_PLAYER_ATTRIBUTE}="${id.replace(/["\\]/g, "\\$&")}"]`;
+}
+
 /**
  * Keeps keyboard focus in the section when a redraw takes away the button that had it (review of Checkpoint 7f, WAIVERS-2 and
  * INTEGRATION-2): "Show all N" (or "Show fewer") counts the rows above the fold, so the rating's answer, a lock or the switch
@@ -173,11 +194,14 @@ type TrackedRef = (el: HTMLButtonElement | null) => (() => void) | undefined;
  * it's rated), and a list without "No gain" rows has no fold; focus fell to the page. Each of the two buttons notes as it goes
  * whether it had focus (its ref's cleanup runs while it's still in the page), and once the redraw is done focus moves to the
  * next control left, the fold's button, else the section's heading (useLockFocus's fallback), only while focus is still lost,
- * so a press or a key since is never undone.
+ * so a press or a key since is never undone. Checkpoint 7h: a row's "Details" button too (the rating's answer can move its row
+ * into the fold, or out of it, remounting it): focus goes to the same row's button wherever it now is (DETAILS_PLAYER_ATTRIBUTE),
+ * else as above.
  */
-function useFocusFallback(heading: RefObject<HTMLHeadingElement | null>): { trackShowAll: TrackedRef; trackFold: TrackedRef } {
+function useFocusFallback(heading: RefObject<HTMLHeadingElement | null>): { trackShowAll: TrackedRef; trackFold: TrackedRef; trackDetails: TrackedRef } {
   const fold = useRef<HTMLButtonElement | null>(null);
-  const lost = useRef(false);
+  // false: nothing lost; true: a button that's gone for good; a string: the player whose row's "Details" button went.
+  const lost = useRef<boolean | string>(false);
   const trackShowAll = useCallback<TrackedRef>((el) => {
     if (!el) return undefined;
     return () => {
@@ -192,25 +216,35 @@ function useFocusFallback(heading: RefObject<HTMLHeadingElement | null>): { trac
       if (fold.current === el) fold.current = null;
     };
   }, []);
+  const trackDetails = useCallback<TrackedRef>((el) => {
+    if (!el) return undefined;
+    return () => {
+      if (document.activeElement === el) lost.current = el.getAttribute(DETAILS_PLAYER_ATTRIBUTE) ?? true;
+    };
+  }, []);
   useEffect(() => {
-    if (!lost.current) return;
+    const was = lost.current;
+    if (!was) return;
     lost.current = false;
     const active = document.activeElement;
     if (active && active !== document.body) return;
-    (fold.current ?? heading.current)?.focus();
+    const same = typeof was === "string" ? document.getElementById(WAIVERS_SECTION_ID)?.querySelector<HTMLButtonElement>(detailsSelector(was)) : null;
+    (same ?? fold.current ?? heading.current)?.focus();
   });
-  return { trackShowAll, trackFold };
+  return { trackShowAll, trackFold, trackDetails };
 }
 
 /**
  * The section for a given view (tests render it directly); `rating`: the season list's rating under way, or failed
- * (RatedWaivers); `open`: whether "Show all" and the fold start open (the page starts both closed; static-render tests open
- * them to read every row).
+ * (RatedWaivers); `open`: whether "Show all", the fold and (Checkpoint 7h) the list's "Why?" start open (the page starts
+ * them closed; static-render tests open them to read every row). Each row's "Details" starts closed; its panel is in the
+ * markup either way (hidden).
  */
-export function WaiverUpgradesCard({ view, rating = null, open }: { view: WaiversView; rating?: WaiverRatingStatus; open?: { all?: boolean; more?: boolean } }) {
+export function WaiverUpgradesCard({ view, rating = null, open }: { view: WaiversView; rating?: WaiverRatingStatus; open?: { all?: boolean; more?: boolean; why?: boolean } }) {
   const [mode, setMode] = useState<WaiverListMode>(view.first);
   const [all, setAll] = useState(open?.all ?? false);
   const [more, setMore] = useState(open?.more ?? false);
+  const [why, setWhy] = useState(open?.why ?? false);
   // The heading takes focus from script (tabIndex −1) when the section is revealed (the file header).
   const headingRef = useRef<HTMLHeadingElement>(null);
   // Arrived through the header's link (the file header): bring the section into view once it's there, its heading focused.
@@ -218,7 +252,7 @@ export function WaiverUpgradesCard({ view, rating = null, open }: { view: Waiver
     if (window.location.hash === `#${WAIVERS_SECTION_ID}`) revealSection(browserSectionPage(), WAIVERS_SECTION_ID);
   }, []);
   useLockFocus(view, headingRef);
-  const { trackShowAll, trackFold } = useFocusFallback(headingRef);
+  const { trackShowAll, trackFold, trackDetails } = useFocusFallback(headingRef);
   const lists = waiverLists(view);
   const list = lists.find((l) => l.mode === mode) ?? lists[0] ?? null;
   // "Show all" opened closes for good once the rows above the fold are no more than it shows at first (review of Checkpoint
@@ -249,6 +283,7 @@ export function WaiverUpgradesCard({ view, rating = null, open }: { view: Waiver
                 setMode(l.mode);
                 setAll(false);
                 setMore(false);
+                setWhy(false);
               }}
               className={cx("min-h-11 rounded-lg px-3 text-sm font-bold", list?.mode === l.mode ? "bg-surface text-foreground shadow-sm" : "text-muted hover:text-foreground")}
             >
@@ -257,7 +292,21 @@ export function WaiverUpgradesCard({ view, rating = null, open }: { view: Waiver
           ))}
         </div>
       ) : null}
-      {list ? <WaiverListBody list={list} all={all} onShowAll={() => setAll((a) => !a)} more={more} onMore={() => setMore((m) => !m)} rating={rating} showAllRef={trackShowAll} foldRef={trackFold} /> : null}
+      {list ? (
+        <WaiverListBody
+          list={list}
+          all={all}
+          onShowAll={() => setAll((a) => !a)}
+          more={more}
+          onMore={() => setMore((m) => !m)}
+          why={why}
+          onWhy={() => setWhy((w) => !w)}
+          rating={rating}
+          showAllRef={trackShowAll}
+          foldRef={trackFold}
+          detailsRef={trackDetails}
+        />
+      ) : null}
     </Card>
   );
 }
@@ -334,18 +383,24 @@ function WaiverListBody({
   onShowAll,
   more,
   onMore,
+  why,
+  onWhy,
   rating,
   showAllRef,
   foldRef,
+  detailsRef,
 }: {
   list: WaiverListView;
   all: boolean;
   onShowAll: () => void;
   more: boolean;
   onMore: () => void;
+  why: boolean;
+  onWhy: () => void;
   rating: WaiverRatingStatus;
   showAllRef: TrackedRef;
   foldRef: TrackedRef;
+  detailsRef: TrackedRef;
 }) {
   const restId = useId();
   const above = list.rows.slice(0, list.helping + list.blocked);
@@ -367,7 +422,7 @@ function WaiverListBody({
           {rating === "pending" ? RATING_PENDING_WEEK_TEXT : ""}
         </p>
       )}
-      <p className="mb-3 text-xs leading-relaxed text-muted">{list.note}</p>
+      <WhyNote list={list} open={why} onToggle={onWhy} />
       {list.rows.length ? (
         <>
           {/* No row helps: the line says so, before any move that can't be made (review of Checkpoint 7f, WAIVERS-1). */}
@@ -379,7 +434,7 @@ function WaiverListBody({
           {above.length ? (
             <ul data-waiver-rows="shown" aria-label={list.caption} className={cx("space-y-2", list.noneHelps && "mt-3")}>
               {rows.map((r) => (
-                <WaiverRowCard key={r.id} row={r} weekLabel={list.weekLabel} depthOnlyTitle={list.depthOnlyTitle} />
+                <WaiverRowCard key={r.id} row={r} weekLabel={list.weekLabel} depthOnlyTitle={list.depthOnlyTitle} detailsRef={detailsRef} />
               ))}
             </ul>
           ) : null}
@@ -408,7 +463,7 @@ function WaiverListBody({
           {rest && more ? (
             <ul id={restId} data-waiver-rows="rest" aria-label={rest.caption} className="mt-3 space-y-2">
               {list.rows.slice(list.helping + list.blocked).map((r) => (
-                <WaiverRowCard key={r.id} row={r} weekLabel={list.weekLabel} depthOnlyTitle={list.depthOnlyTitle} />
+                <WaiverRowCard key={r.id} row={r} weekLabel={list.weekLabel} depthOnlyTitle={list.depthOnlyTitle} detailsRef={detailsRef} />
               ))}
             </ul>
           ) : null}
@@ -420,7 +475,51 @@ function WaiverListBody({
   );
 }
 
-function WaiverRowCard({ row: r, weekLabel, depthOnlyTitle }: { row: WaiverRowView; weekLabel: string; depthOnlyTitle: string }) {
+/**
+ * A list's one line and its "Why?" (Checkpoint 7h; planner reply to Checkpoint 7g, section 1: "cut each long explanation
+ * paragraph to one line. The rest goes behind a "Why?" control"): the line (WaiverListView.lead) with a 44 px button at its end
+ * (aria-expanded, aria-controls naming the rest; its negative margins keep the 44 px target from spreading the line's text
+ * apart), then the rest (WaiverListView.note), hidden until it's opened and always in the page, so the button keeps keyboard
+ * focus and check:browser's text scans read it. Its words name the list for screen readers ("Why? (more on Rest of season's
+ * numbers)").
+ */
+function WhyNote({ list, open, onToggle }: { list: WaiverListView; open: boolean; onToggle: () => void }) {
+  const id = useId();
+  return (
+    <div className="mb-3 text-xs leading-relaxed text-muted">
+      <p>
+        {list.lead}{" "}
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={id}
+          onClick={onToggle}
+          className="-my-3 inline-flex min-h-11 items-center px-1 align-middle font-bold text-foreground underline underline-offset-2"
+        >
+          {WHY_TEXT}
+          <span className="sr-only"> (more on {list.label}&apos;s numbers)</span>
+        </button>
+      </p>
+      <p id={id} hidden={!open}>
+        {list.note}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * One move (the file header), compact (Checkpoint 7h; planner reply to Checkpoint 7g, sections 1 and 5): "Add" him (position,
+ * NFL team, and his bye, or on a one-week list the week's opponent: ⚠️ ours, what a streamer weighs), "Drop" the player named
+ * with his lock (or an open roster spot), the main number and the "Outscores" line with the row's "Details" beside them (on a
+ * phone under the names; from sm up on the right, the button under the numbers), why a move can't be made, the status pills;
+ * then the details, hidden until "Details" opens them: Points, Better than, Lineup gain, the odds lines ("Your odds: without
+ * a pickup → with this one", then each line before → after, as the cards print them) and Why no gain. The panel is always in
+ * the page (aria-controls names it; check:browser's text scans read it), so the button never moves and keeps keyboard focus;
+ * the button carries the row's player (DETAILS_PLAYER_ATTRIBUTE) so focus can follow him across a redraw (useFocusFallback).
+ */
+function WaiverRowCard({ row: r, weekLabel, depthOnlyTitle, detailsRef }: { row: WaiverRowView; weekLabel: string; depthOnlyTitle: string; detailsRef: TrackedRef }) {
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
   return (
     <li className="rounded-xl border border-line px-3 py-2.5">
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
@@ -429,7 +528,15 @@ function WaiverRowCard({ row: r, weekLabel, depthOnlyTitle }: { row: WaiverRowVi
             <span className="text-xs font-semibold text-muted">Add </span>
             {r.name}{" "}
             <span className="text-xs font-semibold whitespace-nowrap text-muted">
-              {r.pos} · {r.nflTeam} · {r.bye}
+              {r.pos} · {r.nflTeam} ·{" "}
+              {r.opponent ? (
+                <>
+                  <span aria-hidden>{r.opponent.short}</span>
+                  <span className="sr-only">{r.opponent.long}</span>
+                </>
+              ) : (
+                r.bye
+              )}
             </span>
           </p>
           {r.drop ? (
@@ -445,12 +552,29 @@ function WaiverRowCard({ row: r, weekLabel, depthOnlyTitle }: { row: WaiverRowVi
             <p className="text-sm text-muted">{r.dropText}</p>
           ) : null}
         </div>
-        <div className="shrink-0 sm:text-right" title={r.main.title}>
-          <p className={cx("font-black tabular-nums", r.main.positive ? "text-ok-fg" : "text-muted")}>
-            <span className="text-xs font-semibold text-muted">{r.main.label}: </span>
-            {r.main.text}
-          </p>
-          {r.outscores ? <p className="text-xs text-muted">{r.outscores}</p> : null}
+        <div className="flex w-full items-start justify-between gap-x-3 sm:w-auto sm:flex-col sm:items-end">
+          <div className="min-w-0 sm:text-right" title={r.main.title}>
+            <p className={cx("font-black tabular-nums", r.main.positive ? "text-ok-fg" : "text-muted")}>
+              <span className="text-xs font-semibold text-muted">{r.main.label}: </span>
+              {r.main.text}
+            </p>
+            {r.outscores ? <p className="text-xs text-muted">{r.outscores}</p> : null}
+          </div>
+          <button
+            ref={detailsRef}
+            type="button"
+            aria-expanded={open}
+            aria-controls={panelId}
+            data-waiver-details={r.id}
+            onClick={() => setOpen((o) => !o)}
+            className="inline-flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-2 text-sm font-bold text-muted hover:text-foreground"
+          >
+            {DETAILS_TEXT}
+            <span className="sr-only"> ({r.name})</span>
+            <span aria-hidden className={cx("inline-block text-xs transition-transform", open && "rotate-180")}>
+              ▾
+            </span>
+          </button>
         </div>
       </div>
       {/* Why he can't be added, the untouchables named (their locks are on the untouchables line above: review of wave C, UI-C-7). */}
@@ -475,35 +599,62 @@ function WaiverRowCard({ row: r, weekLabel, depthOnlyTitle }: { row: WaiverRowVi
           ) : null}
         </p>
       ) : null}
-      <dl className="mt-1.5 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-sm">
-        <dt className="text-muted">Points</dt>
-        <dd className="tabular-nums">
-          {r.rosText} rest of season · {weekLabel}: {r.weekText}
-          {r.opponent ? (
+      <div id={panelId} hidden={!open} className="mt-1.5">
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-sm">
+          <dt className="text-muted">Points</dt>
+          <dd className="tabular-nums">
+            {r.rosText} rest of season · {weekLabel}: {r.weekText}
+            {r.opponent ? (
+              <>
+                {" "}
+                <span aria-hidden>{r.opponent.short}</span>
+                <span className="sr-only">{r.opponent.long}</span>
+              </>
+            ) : null}
+          </dd>
+          <dt className="text-muted">Better than</dt>
+          <dd className="wrap-anywhere">{r.betterThan}</dd>
+          {r.lineupGain ? (
             <>
-              {" "}
-              <span aria-hidden>{r.opponent.short}</span>
-              <span className="sr-only">{r.opponent.long}</span>
+              <dt className="text-muted">Lineup gain</dt>
+              <dd className="tabular-nums" title={r.gain.title}>
+                {r.lineupGain}
+              </dd>
             </>
           ) : null}
-        </dd>
-        <dt className="text-muted">Better than</dt>
-        <dd className="wrap-anywhere">{r.betterThan}</dd>
-        {r.lineupGain ? (
-          <>
-            <dt className="text-muted">Lineup gain</dt>
-            <dd className="tabular-nums" title={r.gain.title}>
-              {r.lineupGain}
-            </dd>
-          </>
-        ) : null}
-        {r.why ? (
-          <>
-            <dt className="text-muted">Why no gain</dt>
-            <dd>{r.why}</dd>
-          </>
-        ) : null}
-      </dl>
+          {/* My odds before → after from the runs behind its Helps you (Checkpoint 7h, section 5), the cards' forms. */}
+          {r.odds ? (
+            <>
+              <dt className="text-muted">{ODDS_LABEL}</dt>
+              <dd className="text-muted">
+                <span aria-hidden>{r.odds.frame}</span>
+                <span className="sr-only">{r.odds.srFrame}</span>
+              </dd>
+              {r.odds.lines.map((o) => (
+                <Fragment key={o.label}>
+                  <dt className="text-muted">{o.label}</dt>
+                  <dd className="tabular-nums">
+                    {o.srValue === o.value ? (
+                      o.value
+                    ) : (
+                      <>
+                        <span aria-hidden>{o.value}</span>
+                        <span className="sr-only">{o.srValue}</span>
+                      </>
+                    )}
+                  </dd>
+                </Fragment>
+              ))}
+            </>
+          ) : null}
+          {r.why ? (
+            <>
+              <dt className="text-muted">Why no gain</dt>
+              <dd>{r.why}</dd>
+            </>
+          ) : null}
+        </dl>
+      </div>
     </li>
   );
 }

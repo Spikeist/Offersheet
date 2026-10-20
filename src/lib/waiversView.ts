@@ -55,6 +55,20 @@
  * points, as an unrated list, and WaiversView.pendingRating tells the section to ask for it ("Rating these against your
  * odds…": RATING_PENDING_TEXT) and to build this view again from the answer (WaiverUpgrades.tsx).
  *
+ * Less clutter (Checkpoint 7h; planner reply to Checkpoint 7g, sections 1 and 5; the lead's rulings for the waivers track):
+ * - Each row compact: the move (add, drop and the lock), its main number, the "Outscores …" line, why a move can't be made,
+ *   and the status pills show; the rest goes behind the row's own "Details" (WaiverUpgrades.tsx): "Points", "Better than",
+ *   "Lineup gain" (a rated list's), the odds lines (below) and "Why no gain". ⚠️ Ours: on a one-week list the add line names
+ *   the week's opponent in place of the bye (WaiverRowView.opponent: the main thing a streamer weighs; the bye is the rest
+ *   of the season's, in the details' "Points").
+ * - The odds lines (section 5: "each row's details show the odds lines (title, playoffs, and top-N under the league's
+ *   prizes), before → after, from the same run as its Helps you"): a rated row's WaiverRowView.odds, in the cards' forms
+ *   (waiverOddsLines), framed "Your odds: without a pickup → with this one" (ODDS_LABEL, ODDS_FRAME): ⚠️ the rating's own
+ *   "before" (my roster as it stands with no pickup of mine, the other teams after theirs: WaiverRowRating.odds), never the
+ *   League page's headline, and the list's "Why?" says so. The one-week lists stay in points: no odds lines.
+ * - Each list's long note becomes one line (WaiverListView.lead: what its main number is), the rest behind "Why?"
+ *   (WaiverListView.note).
+ *
  * Without lists, one line instead: no team picked (with a link to pick it), my redraft season over, or no week left
  * (buildWaiversView; review of Phase 7b: the section showed nothing then, and the header's "Waivers" link led nowhere).
  * "Season over" is the League page's own (leagueView.ts seasonOver: since Checkpoint 7c only when no prize the league pays
@@ -70,12 +84,14 @@
 import { lineupEquivalent } from "@/engine/benefit";
 import { config } from "@/engine/config";
 import type { ModelInputs } from "@/engine/inputs";
-import type { LeagueModel, WaiverBlocked, WaiverIdle, WaiverList, WaiverListRating, WaiverRow } from "@/engine/leagueModel";
+import type { LeagueModel, WaiverBlocked, WaiverIdle, WaiverList, WaiverListRating, WaiverOdds, WaiverRow } from "@/engine/leagueModel";
 import type { FreeAgentStatus, InjuryStatus, LeagueSnapshot, Platform, Pos } from "@/engine/model";
+import type { Reward } from "@/engine/reward";
 import { gainSteps, waiverRatingPending } from "@/engine/waivers";
 import { fmtNum, fmtWhole, weeksText } from "./format";
 import { INJURY_LABEL, posLabel } from "./labels";
 import { seasonOver, shortName, type InjuryTone } from "./leagueView";
+import { percentText, titleOddsText, topChance, topOddsLabel, topPlacesOf, type OddsView } from "./tradeView";
 
 /** The section's id: the site header's "Waivers" link goes to /league#waivers (WAIVERS_HREF; ./waiversLink.ts). */
 export { WAIVERS_HREF, WAIVERS_SECTION_ID } from "./waiversLink";
@@ -118,6 +134,29 @@ export const SAME_POSITION_HELP = "On: the player you drop plays the same positi
 export const UNTOUCHABLES_LABEL = "Untouchable (never in trade ideas, never suggested as drops):";
 /** The suggestion under a move only another position could make room for (item 3.3: "suggest turning off 'Drop from the same position'"). */
 export const SAME_POSITION_HINT = `Turn off “${SAME_POSITION_LABEL}” to drop a player at another position.`;
+
+/**
+ * Checkpoint 7h (planner reply to Checkpoint 7g, sections 1 and 5): each row's own disclosure ("Details": Points, Better than,
+ * Lineup gain, the odds lines, Why no gain) and each list's ("Why?": the rest of its note), the words of their buttons.
+ */
+export const DETAILS_TEXT = "Details";
+export const WHY_TEXT = "Why?";
+/**
+ * The frame of a rated row's odds lines (section 5; the lead's ruling for the waivers track: the rating's own "before", my
+ * roster as it stands with no pickup of mine, not the League page's headline, "word it so"): "Your odds: without a pickup →
+ * with this one", then each line "before → after" in the cards' forms; for screen readers the arrow in words.
+ */
+export const ODDS_LABEL = "Your odds";
+export const ODDS_FRAME = "without a pickup → with this one";
+export const ODDS_FRAME_SR = "without a pickup, then with this one";
+/**
+ * What the odds lines are, in a rated list's "Why?" (section 5; ratingWhy): the rating's own runs, each row's on the seasons
+ * behind its own Helps you (so a move played out on fewer seasons starts from slightly different odds: ratingWhy says so when
+ * the list has both kinds), and its "before" isn't the League page's headline (ODDS_WHY_HEADLINE: whose odds count the
+ * pickups it suggests for me).
+ */
+export const ODDS_WHY = "Each move's details show your odds without a pickup of yours (the other teams make theirs), then with the move, on the seasons behind its Helps you";
+export const ODDS_WHY_HEADLINE = "The League page's odds count the pickups it suggests for you too.";
 
 /**
  * Which weeks a list's fold and its "none helps" line name (Checkpoint 7f, item 3): the rest of the season, this week (a
@@ -217,7 +256,17 @@ export interface WaiverListView {
   mode: WaiverListMode;
   /** The toggle's label: "Rest of season", "This week", or "Next week" while the current week is under way. */
   label: string;
-  /** What the list's numbers count, in words; when a row of it is "Depth only", what that means too (DEPTH_ONLY_WORDS). */
+  /**
+   * Checkpoint 7h (planner reply to Checkpoint 7g, section 1: the long note becomes one line, the rest behind "Why?"): what the
+   * list's main number is, in one sentence ("Helps you: how much each move raises your chances over weeks 6–17, on the same
+   * scale as trade ideas."; "Lineup gain: what each move adds to your starting lineup in week 6.").
+   */
+  lead: string;
+  /**
+   * The rest of what the list's numbers count, in words, behind "Why?" (WHY_TEXT): how they're worked out, "Outscores", the
+   * odds lines on a rated list (ODDS_WHY), the positions I stream; when a row of it is "Depth only", what that means too
+   * (DEPTH_ONLY_WORDS).
+   */
   note: string;
   /** The "Depth only" tag's hover text for this list (DEPTH_ONLY_WORDS, as a sentence). */
   depthOnlyTitle: string;
@@ -310,6 +359,15 @@ export interface WaiverRowView {
    * your chances, but the trade value you'd give up outweighs that (your “Protect my trade value” setting)."; else null.
    */
   why: string | null;
+  /**
+   * Checkpoint 7h (planner reply to Checkpoint 7g, section 5): on a rated list, my odds before → after from the runs behind
+   * its Helps you, in the row's details: `lines` (waiverOddsLines: title, top-N under the league's prizes, playoffs) under
+   * ODDS_LABEL and their frame, ODDS_FRAME with the seasons behind them ("without a pickup → with this one (from 1,000
+   * simulated seasons)": a row played out on fewer seasons starts from slightly different odds), `srFrame` its words for
+   * screen readers (ODDS_FRAME_SR); null on the one-week lists ("stay in points"), on a list not rated yet, for a move that
+   * can't be made, and in a list rated before.
+   */
+  odds: { frame: string; srFrame: string; lines: OddsView[] } | null;
   depthOnly: boolean;
 }
 
@@ -428,15 +486,25 @@ function weekLabel(input: WaiversInput, list: WaiverList): string {
 }
 
 /**
- * What a rated season list's Helps you weighs, in words (Checkpoint 7e, item 3.4): the season played out, and the trade
- * value or long-term value it counts too (WaiverListRating.weighs; no number: CLAUDE.md §2.9), and how many seasons are
- * behind its rows (`rated` and `finished`: its rows with a rating, and those played out on the whole shown block; the final
- * review of Checkpoint 7e, UI-F-5: it said "the others" when every move was finished, and how many times each move is played
- * out when no move could be made). Since the review of Checkpoint 7f (INTEGRATION-7) it doesn't count the finished moves ("The
- * 6 best moves are …" above a list showing 3, the others folded as "No gain"): "The best moves are played out 20,000 times,
- * the others 1,000 times." (⚠️ ours: "The best move is …" when exactly one was), or "Each move is played out 20,000 times."
+ * A rated season list's one line (Checkpoint 7h; planner reply to Checkpoint 7g, section 1: "cut each long explanation
+ * paragraph to one line"): what its main number is, over which weeks, on which scale. The rest is ratingWhy's, behind "Why?".
  */
-function ratingNote(r: WaiverListRating, span: string, counts: { rated: number; finished: number }): string {
+function ratingLead(span: string): string {
+  return `Helps you: how much each move raises your chances over ${span}, on the same scale as trade ideas.`;
+}
+
+/**
+ * The rest of what a rated season list's Helps you weighs, in words, behind "Why?" (Checkpoint 7e, item 3.4; since Checkpoint
+ * 7h after ratingLead's line): the season played out, and the trade value or long-term value it counts too
+ * (WaiverListRating.weighs; no number: CLAUDE.md §2.9), how many seasons are behind its rows (`rated` and `finished`: its rows
+ * with a rating, and those played out on the whole shown block; the final review of Checkpoint 7e, UI-F-5: it said "the
+ * others" when every move was finished, and how many times each move is played out when no move could be made), and (since
+ * Checkpoint 7h) what the odds lines in each move's details are (ODDS_WHY). Since the review of Checkpoint 7f (INTEGRATION-7)
+ * it doesn't count the finished moves ("The 6 best moves are …" above a list showing 3, the others folded as "No gain"): "The
+ * best moves are played out 20,000 times, the others 1,000 times." (⚠️ ours: "The best move is …" when exactly one was), or
+ * "Each move is played out 20,000 times."
+ */
+function ratingWhy(r: WaiverListRating, counts: { rated: number; finished: number }): string {
   const weighs =
     r.weighs === "tradeValue"
       ? " It counts the trade value you'd give up too, as your “Protect my trade value” setting asks."
@@ -451,7 +519,38 @@ function ratingNote(r: WaiverListRating, span: string, counts: { rated: number; 
       : counts.finished > 0 && others > 0
         ? ` The ${counts.finished === 1 ? "best move is" : "best moves are"} played out ${fmtWhole(r.shownSims)} times, the others ${fmtWhole(r.screenSims)} times.`
         : ` ${each} played out ${fmtWhole(counts.finished > 0 ? r.shownSims : r.screenSims)} times.`;
-  return `Helps you: how much each move raises your chances at what your league rewards over ${span}, from simulated seasons, on the same scale as trade ideas.${weighs}${sims} Outscores: his rest-of-season points against the player you'd drop.`;
+  // The odds lines (Checkpoint 7h): when moves were played out on both blocks, their "before" differs a little (each its own).
+  const mixed = counts.finished > 0 && others > 0 ? `, so a move played out ${fmtWhole(r.screenSims)} times starts from slightly different odds than one played out ${fmtWhole(r.shownSims)} times` : "";
+  const odds = counts.rated > 0 ? ` ${ODDS_WHY}${mixed}. ${ODDS_WHY_HEADLINE}` : "";
+  return `It's worked out from seasons simulated with and without each move, weighing your chances at what your league rewards.${weighs}${sims}${odds} Outscores: his rest-of-season points against the player you'd drop.`;
+}
+
+/** One odds line before → after, both printed as they are by `text` (the cards' oddsView forms); "unknown" when either isn't known. */
+function oddsLine(label: string, before: number | null, after: number | null, text: (p: number) => string): OddsView {
+  if (before === null || after === null || !Number.isFinite(before) || !Number.isFinite(after)) return { label, value: "unknown", srValue: "unknown" };
+  const from = text(before);
+  const to = text(after);
+  return { label, value: `${from} → ${to}`, srValue: `from ${from} to ${to}` };
+}
+
+/**
+ * A rated row's odds lines (Checkpoint 7h; planner reply to Checkpoint 7g, section 5: "the odds lines (title, playoffs, and
+ * top-N under the league's prizes), before → after, from the same run as its Helps you"), in the cards' forms (tradeView.ts
+ * oddsViews): "Title odds 8.9% → 9.2%" (one decimal; "unknown" when either side's is unknown, as a card's line), under
+ * "Several prizes" paying 3rd place (else 2nd: topPlacesOf) "Top 3 odds 27% → 28%" (whole percents, left out when a part
+ * isn't known, never a partial sum: topChance), then "Playoff odds 61% → 62%". Before and after are the two runs the row's B
+ * read (WaiverRowRating.odds), each printed as it is (never before + a change). Null without them (a list rated before).
+ */
+export function waiverOddsLines(odds: { before: WaiverOdds; after: WaiverOdds } | null | undefined, reward: Pick<Reward, "goal" | "shares"> | null | undefined): OddsView[] | null {
+  if (!odds) return null;
+  const { before, after } = odds;
+  const places = topPlacesOf(reward);
+  const top = places ? { from: topChance(before.prizes, places), to: topChance(after.prizes, places) } : null;
+  return [
+    oddsLine("Title odds", before.prizes.first, after.prizes.first, titleOddsText),
+    ...(places && top && top.from !== null && top.to !== null ? [oddsLine(topOddsLabel(places), top.from, top.to, percentText)] : []),
+    oddsLine("Playoff odds", before.pPlayoffs, after.pPlayoffs, percentText),
+  ];
 }
 
 function listView(input: WaiversInput, list: WaiverList, mode: WaiverListMode, teamId: string, labels: { underWay: string | null; week: string | null }): WaiverListView {
@@ -471,16 +570,18 @@ function listView(input: WaiversInput, list: WaiverList, mode: WaiverListMode, t
   const when = mode === "ros" ? null : nextWeek ? "next week" : "this week";
   const rated = rating ? list.rows.filter((r) => r.rating) : [];
   const counts = rating ? { rated: rated.length, finished: rated.filter((r) => (r.rating?.sims ?? 0) >= rating.shownSims).length } : null;
-  // A one-week list's drop is the season list's for the same free agent, when he's on it (waivers.ts; the final review of
-  // Checkpoint 7e, UI-F-7: a streamed kicker's or D/ST's row has none there, its drop the drop order's).
+  // One line, what the main number is (Checkpoint 7h, section 1), and the rest behind "Why?". A one-week list's drop is the
+  // season list's for the same free agent, when he's on it (waivers.ts; the final review of Checkpoint 7e, UI-F-7: a streamed
+  // kicker's or D/ST's row has none there, its drop the drop order's).
+  const lead = rating && counts ? ratingLead(span) : `Lineup gain: what each move adds to your starting lineup ${mode === "ros" ? "over" : "in"} ${span}.`;
   const note =
     mode === "ros"
       ? rating && counts
-        ? `${ratingNote(rating, span, counts)} Lineup gain: what the move adds to your starting lineup over ${span}, each week counted once, ${how}.${streamedNote}`
-        : `Lineup gain: what adding him adds to your starting lineup over ${span}, each week counted once, ${how}, after dropping the player named. Outscores: his rest-of-season points against the player you'd drop.${streamedNote}`
+        ? `${ratingWhy(rating, counts)} Lineup gain: what the move adds to your starting lineup over ${span}, each week counted once, ${how}.${streamedNote}`
+        : `It counts each week once, ${how}, after dropping the player named. Outscores: his rest-of-season points against the player you'd drop.${streamedNote}`
       : mode === "underWay"
-        ? `Lineup gain: what adding him adds to your starting lineup in ${span}, ${how}, after dropping the player named (the same one as for the rest of the season when he's on that list, among players whose games haven't started). Outscores: his projection for the games still to play against the player you'd drop. Players whose games have started are locked: yours stay in the best lineup you could have set before kickoff.`
-        : `Lineup gain: what adding him adds to your starting lineup in ${span}, ${how}, after dropping the player named (the same one as for the rest of the season when he's on that list). Outscores: his projection ${when} against the player you'd drop.`;
+        ? `It's worked out ${how}, after dropping the player named (the same one as for the rest of the season when he's on that list, among players whose games haven't started). Outscores: his projection for the games still to play against the player you'd drop. Players whose games have started are locked: yours stay in the best lineup you could have set before kickoff.`
+        : `It's worked out ${how}, after dropping the player named (the same one as for the rest of the season when he's on that list). Outscores: his projection ${when} against the player you'd drop.`;
   const weekIndex = model.weeks.indexOf(pickupWeek);
   // The rows that help first, then the moves that can't be made, both above the fold, then the "No gain" rows, folded
   // (Checkpoint 7f, item 3, and its review, WAIVERS-1; the file header), each group in the engine's order (the sort is
@@ -504,6 +605,7 @@ function listView(input: WaiversInput, list: WaiverList, mode: WaiverListMode, t
   return {
     mode,
     label,
+    lead,
     note: `${note}${depthNote}`,
     depthOnlyTitle: `${capitalize(depthWords)}.`,
     underWay,
@@ -675,6 +777,11 @@ function rowView(
     }
   }
   const lineupGain = rating && r.gain !== null ? (gainSteps(r.gain, decimals) > 0 ? `+${pointsText(fmtNum(r.gain, decimals))} ${where}` : `None ${where}`) : null;
+  // My odds before → after from the runs behind its Helps you (Checkpoint 7h, section 5): a rated list's rows only, with the
+  // seasons behind them (each row's own: a row played out on fewer seasons starts from slightly different odds).
+  const lines = rating && r.gain !== null && r.rating ? waiverOddsLines(r.rating.odds, model.reward) : null;
+  const seasons = r.rating ? ` (from ${fmtWhole(r.rating.sims)} simulated seasons)` : "";
+  const odds = lines ? { frame: `${ODDS_FRAME}${seasons}`, srFrame: `${ODDS_FRAME_SR}${seasons}`, lines } : null;
   return {
     id: r.playerId,
     name: fullName,
@@ -696,6 +803,7 @@ function rowView(
     lineupGain,
     blocked,
     why,
+    odds,
     depthOnly: r.depthOnly,
   };
 }
