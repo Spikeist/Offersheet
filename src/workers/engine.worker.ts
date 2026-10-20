@@ -301,7 +301,10 @@ export function cardKeysOf(result: Pick<TradeSearchResult, "trades" | "helpsBoth
  * The cards of a search's or re-filter's result and their "now or after this week" numbers (the header, `later`): each card's
  * exact trade from the result's search state (search.ts searchStateOf: the engine's own result object, never a copy), on the
  * context and with the settings the search ran with (evaluate.ts laterNumbers). Null for a result without cards; each line
- * null for one no search ranked (no state).
+ * null for one no search ranked (no state). The exact trade is an exact-evaluated trade's or, since Checkpoint 7h, a ladder's
+ * version (SearchState.versions: a promoted Last offer, which the search shows as a card but never evaluated as one), as
+ * search.ts finish's exactOf reads it (the second review, search#2 and offers#1: read from exactByKey alone, a promoted card
+ * never got its line).
  */
 export function laterSourceOf(result: TradeSearchResult): LaterSource | null {
   const keys = cardKeysOf(result);
@@ -311,7 +314,7 @@ export function laterSourceOf(result: TradeSearchResult): LaterSource | null {
   return {
     keys,
     line: (key) => {
-      const x = state.exactByKey.get(key);
+      const x = state.exactByKey.get(key) ?? state.versions.get(key)?.x;
       return x ? laterNumbers(state.I, x, state.settings) : null;
     },
   };

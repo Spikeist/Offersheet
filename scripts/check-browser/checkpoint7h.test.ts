@@ -5,8 +5,12 @@
  * waiversView.ts waiverOddsLines; the Thorough search's help from TradeFinderPage.tsx thoroughHelp and engine thorough.ts) and
  * on reads that break each rule, and a syntax check of the in-page JavaScript, which TypeScript never sees. The steps themselves
  * need the production build and Chrome: the live script is their test (and the track's offline harness ran them on the real
- * components: S\7h\build-browser.md). Every name here is fictional.
+ * components: S\7h\build-browser.md). Every name here is fictional. Section 1's closed ideas a phone screen: the measure and its
+ * words on reads laid out as Chrome laid out the real Trade Finder (the review of the first review's fix, its harness at 375 px),
+ * its step through a fake page, and its place in the card step: before the first screenshot replaces the league's names.
  */
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { THOROUGH_LABEL as APP_THOROUGH_LABEL, thoroughHelp } from "@/components/trades/TradeFinderPage";
 import { analyzeWhatIf, buildTradeContext } from "@/engine/evaluate";
@@ -19,12 +23,15 @@ import { ODDS_FRAME, waiverOddsLines } from "@/lib/waiversView";
 import { contextBaseline } from "@/workers/engine.worker";
 import { releaseLineProblems } from "./contracts";
 import {
+  IDEAS_PER_SCREEN_GOAL,
   THOROUGH_HELP,
   TITLE_ODDS_VALUE,
   WHAT_IF_CARD_HEADING,
   WHAT_IF_SECTION_HEADING,
   WHOLE_ODDS_VALUE,
   asTradeWords,
+  closedIdeasOf,
+  closedIdeasText,
   newIdeas,
   oddsOrderProblems,
   oddsValueProblems,
@@ -38,15 +45,32 @@ import {
   weeklyItemProblems,
   whatIfProblems,
   whatIfSwitchProblems,
+  type ClosedIdeaRead,
   type IdeaSummary,
   type ThoroughSwitchRead,
   type WaiverRowRead,
   type WhatIfRead,
 } from "./contracts7h";
 import { CARD_HELPERS, PAGE_HELPERS, cleanCall } from "./inPage";
-import { READ_FINDER_SUMMARY, READ_WAIVER_ODDS, READ_WHAT_IF, READ_WHAT_IF_CHOICES, READ_WHAT_IF_MOVES, READ_WHAT_IF_SWITCH, WHAT_IF_HELPERS, readThorough, readWaiverRow, thoroughSwitch, waiverDetailsButton, whatIfRow } from "./inPage7h";
-import { nameRules } from "./report";
-import { THOROUGH_LABEL, thoroughEstimates, withWhatIf } from "./steps7h";
+import {
+  READ_CLOSED_IDEAS,
+  READ_FINDER_SUMMARY,
+  READ_WAIVER_ODDS,
+  READ_WHAT_IF,
+  READ_WHAT_IF_CHOICES,
+  READ_WHAT_IF_MOVES,
+  READ_WHAT_IF_SWITCH,
+  WHAT_IF_HELPERS,
+  readThorough,
+  readWaiverRow,
+  thoroughSwitch,
+  waiverDetailsButton,
+  whatIfRow,
+} from "./inPage7h";
+import { PHONE } from "./page";
+import { CheckReport, nameRules } from "./report";
+import type { StepContext } from "./steps";
+import { CLOSED_IDEAS_NOTE, THOROUGH_LABEL, closedIdeasChecks, thoroughEstimates, withWhatIf } from "./steps7h";
 
 // ---------------------------------------------------------------------------------------------
 // The in-page JavaScript
@@ -55,7 +79,7 @@ describe("Checkpoint 7h's in-page JavaScript", () => {
   const clean = cleanCall(nameRules({ leagueName: "Fictional League", teams: [{ id: "3", name: "Gravel Gophers", ownerName: 'quote " and \\ slash' }], players: [] }, [["12345", "<league id>"]]));
   const body = (reader: string) => `return (async () => {\n${PAGE_HELPERS}\n${CARD_HELPERS}\n${clean}\n${reader}\n})`;
 
-  it("compiles: the what-if helpers and readers, the waiver rows' readers, the Thorough search's", () => {
+  it("compiles: the what-if helpers and readers, the waiver rows' readers, the Thorough search's, the closed ideas'", () => {
     for (const reader of [
       WHAT_IF_HELPERS + READ_WHAT_IF_SWITCH,
       WHAT_IF_HELPERS + READ_WHAT_IF_CHOICES,
@@ -65,6 +89,7 @@ describe("Checkpoint 7h's in-page JavaScript", () => {
       READ_WAIVER_ODDS,
       readThorough(THOROUGH_LABEL),
       READ_FINDER_SUMMARY,
+      READ_CLOSED_IDEAS,
     ]) {
       expect(() => new Function(body(reader)), reader.slice(0, 60)).not.toThrow();
     }
@@ -317,5 +342,121 @@ describe("the Thorough search (section 3)", () => {
     expect(sameIdeasProblems(normal, [normal[0] as IdeaSummary, { ...(normal[1] as IdeaSummary), helps: "41" }])).toHaveLength(1);
     expect(newIdeas(normal, [idea("Trade with Team 4", ["C"], ["E", "D"]), idea("Trade with Team 5", ["A", "C", "F"], ["G"])])).toBe(1);
     expect(oversizedIdeas([idea("x", ["A", "B", "C"], ["D"]), idea("y", ["A", "B", "C", "D"], ["E"])], 3)).toEqual(["idea 2: 4 for 1"]);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------
+// Section 1: the Trade Finder's ideas a phone screen, every card closed
+
+/**
+ * A list laid out as Chrome laid out the real Trade Finder at 375 px (league 1, Oct 15, his prizes, through the review's harness:
+ * its first idea 696.5 px down, 16 px between ideas; "Trade idea N" and the heading on one baseline, or the heading right under it
+ * when it doesn't fit beside it). `apart`: the ideas whose heading doesn't fit beside "Trade idea N"; `tagged`: those with the
+ * "Helps both" tag; `open`: the idea with a panel open.
+ */
+function laidOut(heights: readonly number[], opts: { apart?: (i: number) => boolean; tagged?: readonly number[]; open?: number; gaps?: readonly number[] } = {}): ClosedIdeaRead[] {
+  let top = 696.5;
+  return heights.map((h, i) => {
+    const item = { top, bottom: top + h, left: 16, right: 359 };
+    top += h + (opts.gaps?.[i] ?? 16);
+    const apart = opts.apart?.(i) ?? false;
+    const eyebrow = apart ? { top: item.top + 17, bottom: item.top + 33, left: 33, right: 119.9 } : { top: item.top + 22, bottom: item.top + 38, left: 33, right: 119.9 };
+    const heading = apart ? { top: eyebrow.bottom, bottom: eyebrow.bottom + 22.5, left: 33, right: 247.3 } : { top: item.top + 17, bottom: item.top + 39.5, left: 127.9, right: 285.6 };
+    return { item, eyebrow, heading, tagged: opts.tagged?.includes(i) ?? false, open: i === opts.open };
+  });
+}
+
+describe("the closed ideas a phone screen (section 1: “With cards closed, the Trade Finder shows at least 2 ideas per screen”)", () => {
+  // The review's harness, league 1 (Oct 15, his prizes), 13 ideas: the dumps' "Team N" names, where every untagged heading fits
+  // beside "Trade idea N" (ideas 5 and 9, tagged "Helps both", don't), and a 13-character name, where none does.
+  const SHORT = [425, 357, 379, 357, 374, 401, 379, 357, 374, 417, 379, 379, 341];
+  const LONG = [441, 373, 395, 373, 374, 417, 395, 373, 374, 433, 395, 395, 357];
+  const TAGGED = [4, 8];
+  const short = laidOut(SHORT, { apart: (i) => TAGGED.includes(i), tagged: TAGGED });
+  const long = laidOut(LONG, { apart: () => true, tagged: TAGGED });
+
+  it("the measure: the screen ÷ (the mean idea + the gap), and on how many “Trade idea N” shares its heading's line", () => {
+    expect(closedIdeasOf(short, PHONE.height)).toEqual({ ideas: 13, heights: SHORT, gap: 16, perIdea: 394, perScreen: 2.06, beside: 11, apartTagged: 2 });
+    // A real team name of 13 characters or more: no heading fits beside "Trade idea N", and the list is under the goal.
+    expect(closedIdeasOf(long, PHONE.height)).toEqual({ ideas: 13, heights: LONG, gap: 16, perIdea: 408, perScreen: 1.99, beside: 0, apartTagged: 2 });
+    // The gap is the mean of the list's gaps.
+    const m = closedIdeasOf(laidOut([400, 400, 400], { gaps: [10, 22] }), PHONE.height);
+    expect(m).toMatchObject({ gap: 16, perIdea: 416, perScreen: Math.round((PHONE.height / 416) * 100) / 100 });
+  });
+
+  it("shares the line only when the heading starts above the eyebrow's bottom, to its right", () => {
+    const [a] = laidOut([400]);
+    const at = (heading: { top: number; left: number }) => closedIdeasOf([{ ...(a as ClosedIdeaRead), heading: { ...heading, bottom: heading.top + 22.5, right: 285.6 } }, a as ClosedIdeaRead], PHONE.height);
+    const eyebrow = (a as ClosedIdeaRead).eyebrow as { top: number; bottom: number; right: number };
+    expect(at({ top: eyebrow.top - 5, left: eyebrow.right + 8 })).toMatchObject({ beside: 2 });
+    expect(at({ top: eyebrow.bottom, left: eyebrow.right + 8 })).toMatchObject({ beside: 1 });
+    expect(at({ top: eyebrow.top - 5, left: 33 })).toMatchObject({ beside: 1 });
+    expect(closedIdeasOf([{ ...(a as ClosedIdeaRead), eyebrow: null }, a as ClosedIdeaRead], PHONE.height)).toMatchObject({ beside: 1 });
+  });
+
+  it("says why when it can't measure: fewer than 2 ideas, an idea not laid out, a panel open", () => {
+    expect(closedIdeasOf([], PHONE.height)).toEqual({ why: "no idea in the list" });
+    expect(closedIdeasOf(short.slice(0, 1), PHONE.height)).toEqual({ why: "only 1 idea, so no space between ideas to measure" });
+    expect(closedIdeasOf([...short.slice(0, 2), { ...(short[2] as ClosedIdeaRead), item: null }], PHONE.height)).toEqual({ why: "an idea couldn't be laid out" });
+    expect(closedIdeasOf(laidOut(SHORT, { open: 3 }), PHONE.height)).toEqual({ why: "1 idea has a panel open, so not every card is closed" });
+    expect(closedIdeasOf(laidOut(SHORT, { open: 3 }).map((r, i) => ({ ...r, open: r.open || i === 0 })), PHONE.height)).toEqual({ why: "2 ideas have a panel open, so not every card is closed" });
+  });
+
+  it("its words: numbers only, the goal met or not on the two decimals printed, and why a heading keeps its own line", () => {
+    const head = "with every card closed and the league's own team names on the page, the 13 ideas take";
+    expect(closedIdeasText(closedIdeasOf(short, PHONE.height) as never)).toBe(
+      `${head} 394 px each, counting the space between them: 2.06 ideas a phone screen (the planner's goal: at least 2); “Trade idea N” shares its heading's line on 11 of 13; on the other 2 the heading doesn't fit beside it (both carry the “Helps both” tag)`,
+    );
+    expect(closedIdeasText(closedIdeasOf(long, PHONE.height) as never)).toBe(
+      `${head} 408 px each, counting the space between them: 1.99 ideas a phone screen, under the planner's goal of at least 2; “Trade idea N” shares its heading's line on none of the 13: no heading fits beside it (2 of them carry the “Helps both” tag)`,
+    );
+    const words = (over: Partial<Parameters<typeof closedIdeasText>[0]>) => closedIdeasText({ ideas: 13, heights: SHORT, gap: 16, perIdea: 406, perScreen: 2, beside: 13, apartTagged: 0, ...over });
+    expect(words({})).toContain(": 2.00 ideas a phone screen (the planner's goal: at least 2); “Trade idea N” shares its heading's line on all 13");
+    expect(words({ perScreen: 1.99 })).toContain("1.99 ideas a phone screen, under the planner's goal of at least 2;");
+    expect(words({ ideas: 2, beside: 2 })).toMatch(/shares its heading's line on both$/);
+    expect(words({ beside: 12, apartTagged: 1 })).toMatch(/on 12 of 13; on the other the heading doesn't fit beside it \(it carries the “Helps both” tag\)$/);
+    expect(words({ beside: 10, apartTagged: 0 })).toMatch(/on 10 of 13; on the other 3 the heading doesn't fit beside it$/);
+    expect(words({ beside: 9, apartTagged: 4 })).toMatch(/on the other 4 the heading doesn't fit beside it \(all carry the “Helps both” tag\)$/);
+    expect(IDEAS_PER_SCREEN_GOAL).toBe(2);
+  });
+
+  it("the step: reads the page's geometry alone (no cleaning: no text comes back), notes the measure, ok at the goal, info under it, a skip when it can't", async () => {
+    const run = async (read: ClosedIdeaRead[] | Error) => {
+      const sent: string[] = [];
+      const page = { run: async (body: string) => (sent.push(body), read instanceof Error ? Promise.reject(read) : read) };
+      const report = new CheckReport();
+      await closedIdeasChecks({ page, report } as unknown as StepContext, "Trade card");
+      return { sent, report };
+    };
+    const met = await run(short);
+    expect(met.sent).toEqual([READ_CLOSED_IDEAS]);
+    expect(met.report.lines).toEqual([{ step: "Trade card", status: "ok", text: closedIdeasText(closedIdeasOf(short, PHONE.height) as never), details: [] }]);
+    expect(met.report.numbers["Trade card"]?.[CLOSED_IDEAS_NOTE]).toEqual(closedIdeasOf(short, PHONE.height));
+    // Under the goal: an info line (the lead's call what to trim), never a failure.
+    const under = await run(long);
+    expect(under.report.lines.map((l) => l.status)).toEqual(["info"]);
+    expect(under.report.failed()).toBe(false);
+    expect(under.report.lines[0]?.text).toContain("1.99 ideas a phone screen, under the planner's goal of at least 2");
+    // Can't measure: a skip saying why, nothing noted.
+    const open = await run(laidOut(SHORT, { open: 0 }));
+    expect(open.report.lines).toEqual([{ step: "Trade card", status: "skip", text: "the closed ideas a phone screen: 1 idea has a panel open, so not every card is closed", details: [] }]);
+    expect(open.report.numbers).toEqual({});
+    const failed = await run(new Error("the page threw"));
+    expect(failed.report.lines.map((l) => [l.status, l.text])).toEqual([["skip", "the closed ideas a phone screen: couldn't read the Trade Finder's list"]]);
+  });
+
+  it("the card step measures once the later numbers are in, before its first screenshot puts placeholders in the league's names (steps.ts cardStep)", () => {
+    const source = readFileSync(fileURLToPath(new URL("./steps.ts", import.meta.url)), "utf8");
+    const start = source.indexOf("export async function cardStep(");
+    const step = source.slice(start, source.indexOf("\nexport async function ", start + 1));
+    const later = step.indexOf('await nowOrLaterChecks(ctx, step, "finder");');
+    const measure = step.indexOf("await closedIdeasChecks(ctx, step);");
+    const shot = step.indexOf("await finderShot(ctx, step);");
+    expect(start).toBeGreaterThan(0);
+    expect(later).toBeGreaterThan(0);
+    expect(measure).toBeGreaterThan(later);
+    expect(shot).toBeGreaterThan(measure);
+    // Nothing between them presses, opens or shoots anything on the page (comments aside).
+    expect(step.slice(later, shot).replace(/^\s*\/\/.*$/gm, "").replace(/\s+/g, " ").trim()).toBe('await nowOrLaterChecks(ctx, step, "finder"); await closedIdeasChecks(ctx, step);');
   });
 });

@@ -6,8 +6,9 @@
  * Checkpoint 7h (planner reply to Checkpoint 7g, §1: "Cards are closed by default. A closed card shows only: what Parker gives
  * and what he gets; the three numbers; its tags ("Helps both," "Harder to get"); one reason. Everything else goes behind one
  * "Details" control … "How to offer it" stays a separate control."; the lead's rulings for track "clutter", items 1–3 and 6):
- * - Closed: "Trade idea N", the heading and its "Helps both" tag; You give / You get, each player with position, NFL team, an
- *   injury tag in words and "Harder to get"; the three numbers (the veto note right under them when it shows); its risk flags
+ * - Closed: "Trade idea N", the heading and its "Helps both" tag, on one row that wraps when they don't fit (the first
+ *   review's item 3); You give / You get, each player with position, NFL team, an injury tag in words and "Harder to get";
+ *   the three numbers (the veto note right under them when it shows); its risk flags
  *   as small pills in words (FlagView.pill: "Market check", "Injured player"; ⚠️ ours, their sentences behind Details); one
  *   reason, the first of the card's reasons; then two 44 px disclosure buttons side by side, Details and How to offer it
  *   (aria-expanded, aria-controls naming its panel; the panels below them, full width, each kept in the page while closed
@@ -314,12 +315,14 @@ type CardPlaces = ReadonlyMap<string, number>;
  * Plan B box prints its numbers), the veto note when the league's review could cut it, its roster moves when they aren't the
  * card's, and its own message to send them with Copy, named for screen readers by the offer and the card, open on the first
  * offer (`first`; Checkpoint 7h, the planner: "the first offer's message shows open, and the others stay behind their own
- * steps"). The item carries the offer's key (data-offer-key, which `npm run check:browser` reads; never data-trade-key).
+ * steps"). The item carries the offer's key (data-offer-key, which `npm run check:browser` reads; never data-trade-key) and,
+ * since Checkpoint 7h, on a promoted card's "Open with" (the idea it was promoted from: OfferStepView.original), the mark
+ * data-offer-original, which check:browser reads to hold that Open to the minimum chance alone (the first review's item 5).
  */
 function OfferStepItem({ step, name, places, first }: { step: OfferStepView; name: string; places?: CardPlaces | undefined; first: boolean }) {
   const place = step.kind === "suggested" ? undefined : places?.get(step.key);
   return (
-    <li className="break-words" data-offer-key={step.key}>
+    <li className="break-words" data-offer-key={step.key} data-offer-original={step.original ? "true" : undefined}>
       <p>
         <span className="font-semibold">{step.label}:</span> {step.trade}
       </p>
@@ -700,19 +703,37 @@ export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedbac
       {card.heading}
     </Heading>
   );
+  // "Helps both" next to the heading, wrapping under it on a narrow phone (Checkpoint 7c); the heading alone names the card.
+  const titled = card.helpsBothTag ? (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      {heading}
+      <HelpsBothBadge tag={card.helpsBothTag} />
+    </div>
+  ) : (
+    heading
+  );
   // The first reason shows on the closed card; the others in Details (Checkpoint 7h: "one reason").
   const [reason, ...moreReasons] = card.reasons;
   return (
     <article aria-labelledby={headingId} className="rounded-2xl border border-line bg-surface p-4 shadow-sm sm:p-5">
-      {rank ? <p className="text-xs font-bold tracking-wider text-brand uppercase">Trade idea {rank}</p> : null}
-      {/* "Helps both" next to the heading, wrapping under it on a narrow phone (Checkpoint 7c); the heading alone names the card. */}
-      {card.helpsBothTag ? (
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          {heading}
-          <HelpsBothBadge tag={card.helpsBothTag} />
+      {/* "Trade idea N" on one row with the heading and its "Helps both" tag, on one baseline, wrapping when they don't fit
+          (Checkpoint 7h, the first review's item 3: the eyebrow's own line saved, toward at least 2 closed ideas a phone
+          screen). ⚠️ Ours: the heading and its tag move down together, as one piece, with no gap above them: a card tagged
+          "Helps both" that can't fit all three on a line (every one at 375 px) is laid out as before, rather than the tag
+          dropping to a line of its own under the heading, 10.5 px taller than before.
+          ⚠️ The line is saved only while the heading fits beside "Trade idea N": at 375 px about 214 px of heading (207 px from
+          idea 10 on), "Trade with " and about 11 characters of team name. A longer name puts the heading under the eyebrow, as
+          before, so the saving depends on the league's own names (the review of this change: league 1's list, 1.99 ideas a
+          phone screen before it, reads 2.06 with the dumps' "Team N" names and still 1.99 with a 13-character name).
+          `npm run check:browser` measures the closed ideas with the league's own names (scripts/check-browser/steps7h.ts
+          closedIdeasChecks). */}
+      {rank ? (
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <p className="text-xs font-bold tracking-wider text-brand uppercase">Trade idea {rank}</p>
+          {titled}
         </div>
       ) : (
-        heading
+        titled
       )}
 
       <div className="mt-2 grid grid-cols-2 gap-3">

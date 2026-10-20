@@ -1501,8 +1501,13 @@ describe("Checkpoint 7c: “Helps both” (planner reply to Checkpoint 7b, §7)"
   });
 
   it("Checkpoint 7e: “How to offer it” on the numbers it prints (offersProblems), and the reader of the opened list as TradeCard renders it (planner reply to Checkpoint 7d, item 4.1)", () => {
-    const want = { openMin: Math.round(config.offers.openMinChance * 100), gain: Math.round(config.search.steps.minAcceptGain * 100), suggested: [OFFER_STEP_LABEL.suggested, ANALYZER_SUGGESTED_LABEL] };
-    expect([want.openMin, want.gain]).toEqual([15, 5]);
+    const want = {
+      openMin: Math.round(config.offers.openMinChance * 100),
+      minChance: Math.round(config.ranking.minChanceDefault * 100),
+      gain: Math.round(config.search.steps.minAcceptGain * 100),
+      suggested: [OFFER_STEP_LABEL.suggested, ANALYZER_SUGGESTED_LABEL],
+    };
+    expect([want.openMin, want.minChance, want.gain]).toEqual([15, 10, 5]);
     const offer = (label: string, helps: string, chance: string, copy = true): OfferRead => ({ label, helps, chance, copy });
     const read = (offers: OfferRead[], status = "Offer them in order: if they say no, try the next."): OffersRead => ({ status, offers, failed: false });
     // A ladder that keeps every rule, the Analyzer's too.
@@ -1532,6 +1537,24 @@ describe("Checkpoint 7c: “Helps both” (planner reply to Checkpoint 7b, §7)"
     expect([throughOf("Counting a league veto vote, about 20% it goes through."), throughOf("Counting the commissioner's review, under 5% it goes through."), throughOf("Saved."), throughOf(null)]).toEqual(["20%", "<5%", null, null]);
     expect(offersProblems(read([{ ...offer("Open with", "50", "40%"), through: "20%" }, offer("The suggested trade", "45", "30%")]), want)).toEqual([]);
     expect(offersProblems(read([offer("Open with", "50", "20%"), { ...offer("The suggested trade", "45", "40%"), through: "20%" }]), want)).toEqual(["offer 2 (“The suggested trade”) prints 20%, not 5 points above offer 1's 20%"]);
+    // Checkpoint 7h (the first review's item 5): a promoted idea's "Open with", the idea it was promoted from (its item marked
+    // data-offer-original), is held to the minimum chance alone: it passes at 10% and fails under it, where an unmarked Open
+    // fails under 15% as before (above); every other rule holds it as any offer; and the mark belongs to the first offer, an
+    // "Open with", only.
+    const forced = (chance: string, through?: string): OfferRead => ({ ...offer("Open with", "69", chance), original: true, ...(through ? { through } : {}) });
+    expect(offersProblems(read([forced("10%"), offer("Then", "41", "20%"), offer("The suggested trade", "23", "55%")]), want)).toEqual([]);
+    expect(offersProblems(read([forced("15%"), offer("The suggested trade", "23", "55%")]), { ...want, minChance: 0 })).toEqual([]);
+    expect(offersProblems(read([forced("5%"), offer("The suggested trade", "23", "55%")]), want)).toEqual(["offer 1 (“Open with”), the idea this one was promoted from, prints 5%, under the minimum chance of 10%"]);
+    // Its chance it goes through when a veto note prints one, as for every offer.
+    expect(offersProblems(read([forced("20%", "<5%"), offer("The suggested trade", "23", "55%")]), want)).toEqual(["offer 1 (“Open with”), the idea this one was promoted from, prints <5%, under the minimum chance of 10%"]);
+    expect(offersProblems(read([forced("10%"), offer("The suggested trade", "70", "12%")]), want)).toEqual([
+      "offer 2 (“The suggested trade”) prints 12%, not 5 points above offer 1's 10%",
+      "offer 2 (“The suggested trade”)'s Helps you 70 is above offer 1's 69",
+    ]);
+    expect(offersProblems(read([offer("Open with", "60", "15%"), { ...offer("Then", "50", "20%"), original: true }, { ...offer("The suggested trade", "23", "55%"), original: true }]), want)).toEqual([
+      "offer 2 (“Then”) carries a promoted idea's mark (data-offer-original), which only the first offer, its “Open with”, can",
+      "offer 3 (“The suggested trade”) carries a promoted idea's mark (data-offer-original), which only the first offer, its “Open with”, can",
+    ]);
     // The reader (inPage.ts offersData) reads what TradeCard renders: each offer a direct <li> of the list, its first paragraph
     // its label in bold, its second its numbers, its message behind a "Message to send them" summary with a Copy button.
     const snapshot = tradeSnapshot();
@@ -1552,6 +1575,17 @@ describe("Checkpoint 7c: “Helps both” (planner reply to Checkpoint 7b, §7)"
     const labeled = renderToStaticMarkup(createElement(OffersPanel, { state: { kind: "done", ladder }, name: "trade idea 1", places: new Map([[opened, 2]]) }));
     expect(labeled).toContain(`<li class="break-words" data-offer-key="${opened}"><p><span class="font-semibold">Open with:</span>`);
     expect(labeled).toMatch(/<\/p><p class="text-muted">Also shown as trade idea 2\.<\/p><p class="font-semibold"><span class="whitespace-nowrap">Helps you 50<\/span>/);
+    // Checkpoint 7h (the first review's item 5): a promoted idea's "Open with" (OfferStep.original) carries the mark on its
+    // item, and no other offer does (scripts/check-browser/offers.test.ts reads it with the reader on a real promoting search).
+    expect(panel).not.toContain("data-offer-original");
+    const promotedLadder = buildLadderView(
+      { cardKey: base.key, steps: [{ kind: "open", evaluation: evaluation({ get: ["202", "204"], b: 4.2, pAccept: 0.1, pComplete: 0.1 }), message: "Hey!", original: true }, { kind: "suggested", evaluation: base, message: "Thanks!" }] },
+      buildTradeCard(base, { snapshot }),
+      { snapshot },
+    );
+    expect(promotedLadder.steps.map((s) => s.original ?? false)).toEqual([true, false]);
+    const marked = renderToStaticMarkup(createElement(OffersPanel, { state: { kind: "done", ladder: promotedLadder }, name: "trade idea 1" }));
+    expect([...marked.matchAll(/<li class="break-words" data-offer-key="[^"]+"( data-offer-original="true")?>/g)].map((m) => !!m[1])).toEqual([true, false]);
     for (const piece of [
       "function offersDetails(a)",
       // Checkpoint 7h: "How to offer it" is a disclosure button naming its panel (cardPanel), Details another.
@@ -1566,6 +1600,7 @@ describe("Checkpoint 7c: “Helps both” (planner reply to Checkpoint 7b, §7)"
       'visibleText(b) === "Copy message"',
       'd.querySelector("[role=alert]")',
       'key: li.getAttribute("data-offer-key")',
+      'original: li.getAttribute("data-offer-original") !== null',
       "const OFFER_ALSO = /^Also shown as trade idea \\d+\\.$/;",
       "function cardPlaces(a)",
       'a.closest("li[data-trade-key]")',

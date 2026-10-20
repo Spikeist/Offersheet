@@ -3,7 +3,9 @@
  * 7d, item 4.2; engine.worker.ts's header, `later`), on a seeded synthetic league (src/engine/trade.testing.ts smallLeague:
  * made-up players, placeholder teams): after the search answers, every card's numbers come under its id, in the cards' order,
  * each the engine's own (evaluate.ts laterNumbers on the search's state, the number the Analyzer gives the same trade), with
- * real timers as in a worker; a re-filter's cards known from before come again at once (memoized).
+ * real timers as in a worker; a re-filter's cards known from before come again at once (memoized). Since Checkpoint 7h a
+ * promoted card (a Last offer the search shows in place of its idea: search.ts "Promoted Last offers") gets its line too, from
+ * the ladder's version the search keeps for it (the second review, search#2 and offers#1).
  */
 import { describe, expect, it } from "vitest";
 import { analyzeTrade, buildTradeContext, laterNumbers } from "@/engine/evaluate";
@@ -12,7 +14,8 @@ import { defaultTradeSettings } from "@/engine/settings";
 import { TEST_NOW } from "@/engine/testLeague";
 import { smallLeague } from "@/engine/trade.testing";
 import type { TradeSearchResult } from "@/engine/tradeModel";
-import { cardKeysOf, createEngineHandler, type EngineResponse, type LaterLine, type TradesRequest } from "./engine.worker";
+import { nowOrLaterView } from "@/lib/tradeView";
+import { cardKeysOf, createEngineHandler, laterSourceOf, type EngineResponse, type LaterLine, type TradesRequest } from "./engine.worker";
 
 const league = smallLeague(11);
 const NOW = TEST_NOW.toISOString();
@@ -60,7 +63,7 @@ describe("the worker's 'now or after this week' replies with the real engine (Ch
     const state = searchStateOf(result);
     if (!state) throw new Error("no search state");
     for (const l of lines) {
-      const x = state.exactByKey.get(l.key);
+      const x = state.exactByKey.get(l.key) ?? state.versions.get(l.key)?.x;
       if (!x) throw new Error(`no exact trade for ${l.key}`);
       expect(l.later, l.key).toEqual(laterNumbers(state.I, x, state.settings));
       expect(l.later?.b, l.key).not.toBeNull();
@@ -80,5 +83,36 @@ describe("the worker's 'now or after this week' replies with the real engine (Ch
       if (before) expect(l.later).toBe(before.later);
     }
     console.info(`[worker+engine] now-or-later lines: ${lines.length} cards in ${ms.toFixed(0)} ms after the answer (6-team synthetic league)`);
+  });
+
+  it("gives a promoted card its line, from the ladder's version the search keeps for it (Checkpoint 7h; the second review, search#2 and offers#1)", { timeout: 180_000 }, async () => {
+    // smallLeague 5 (6 teams, 8 availability scenarios, at least 10%: search.promote.test.ts's seed): Overall idea 1 is a
+    // promoted Last offer (a smaller ask), shown as a card though the search never evaluated it as one, so its exact trade is
+    // only among the search state's versions. Read from exactByKey alone (before the fix), its line was null and the card
+    // showed none, though its two Helps you differ by 13.
+    const five = smallLeague(5, {}, 6);
+    const posted: EngineResponse[] = [];
+    const handle = createEngineHandler((r) => posted.push(r), {
+      clock: () => performance.now(),
+      buildContext: (snapshot, inputs, opts) => buildTradeContext(snapshot, inputs, { ...opts, scenarios: 8 }),
+    });
+    handle({ ...request(1), snapshot: five.snapshot, model: five.inputs, myTeamId: five.snapshot.myTeamId, settings: { ...defaultTradeSettings(), minChance: 0.1 } });
+    await until(posted, doneFor(1));
+    const answer = posted.find((r): r is Extract<EngineResponse, { type: "trades" }> => r.type === "trades" && r.id === 1);
+    if (!answer) throw new Error("no answer");
+    const result = answer.result as TradeSearchResult;
+    const idea = result.trades[0];
+    if (!idea) throw new Error("no card");
+    expect(result.merged?.promoted?.map((p) => p.key)).toContain(idea.key);
+    const state = searchStateOf(result);
+    if (!state) throw new Error("no search state");
+    expect(state.exactByKey.has(idea.key)).toBe(false);
+    const version = state.versions.get(idea.key)?.x;
+    if (!version) throw new Error("no version for the promoted card");
+    // The line the worker posts for it is the engine's own for its trade, and the card shows it.
+    const line = linesOf(posted, 1).find((l) => l.key === idea.key)?.later ?? null;
+    expect(line).toEqual(laterNumbers(state.I, version, state.settings));
+    expect(laterSourceOf(result)?.line(idea.key)).toEqual(line);
+    expect(nowOrLaterView(idea, line)?.text).toBe("Helps you 39 now · 52 if done after this week's games.");
   });
 });

@@ -37,7 +37,9 @@
  *    the clipboard (offersChecks). Checkpoint 7h (planner reply to Checkpoint 7g, §1: cards closed by default): the step opens
  *    the first idea's Details (its feedback buttons, report form and "Open in Analyzer" are there) and "How to offer it" with a
  *    trusted tap on each control (openCardPanel); the card's own message, when "How to offer it" holds the trade alone, is
- *    copied there; the first offer's message shows open, the others open with a tap.
+ *    copied there; the first offer's message shows open, the others open with a tap. A promoted idea's "Open with", the idea it
+ *    was promoted from (planner reply to Checkpoint 7g, answer 3; its item marked data-offer-original, which the reader reads),
+ *    is held to the minimum chance alone, not config.offers.openMinChance (the first review's item 5).
  * 6. Analyzer (the card's "Open in Analyzer"): it evaluates the same trade with the same three numbers as the card;
  *    both sides shown, no tag on mine; the layout; "Back to the Trade Finder" shows the ideas again. Then step "Waivers"
  *    (Phase 7b, below).
@@ -138,7 +140,9 @@
  *   "Waivers" each list's odds lines and a "Rest of season" row's "Details" opened and closed with focus kept (section 5:
  *   waiverDetailsChecks, from waiverMoveChecks); step "Thorough search" after Waivers (section 3: the switch off by default with
  *   its estimate, a Thorough search run to the end and timed in an info line, the normal search's ideas back at once); under
- *   "Several prizes" the waiver rows' and the what-if's top-N line too (prizeOddsChecks).
+ *   "Several prizes" the waiver rows' and the what-if's top-N line too (prizeOddsChecks); at the card step's start, before the
+ *   clutter-1 shot replaces the league's names, the closed ideas a phone screen with the league's own team names, against the
+ *   planner's 2 (section 1: closedIdeasChecks; an info line under it, never a failure).
  * After each step: no console errors (page or worker), CSP violations (Part B: enforced or report-only, page or worker),
  * uncaught exceptions, failed requests to the app, or requests to any other site. Screenshots, when on, go to the shots folder after the page's names are replaced with placeholders,
  * put back right after (one that can't be saved is a skip: it's a record to look at, not a check of the app). Checkpoint 7g
@@ -227,6 +231,7 @@ import {
   PLAYOFF_WEIGHT_RANGE,
   playoffWeightRead,
   prizeGroupProblems,
+  RELEASE_EITHER_WAY_MARK,
   RELEASE_REASON_MARK,
   releaseLineProblems,
   requestNamesAddress,
@@ -255,7 +260,7 @@ import { finderShot, leagueShots, openedCardShot } from "./shots";
 import { FREE_AGENTS_ALL, MY_ROSTER_SUMMARY, READ_LEAGUE_SECTIONS, leagueDisclosure } from "./inPage";
 import { LEAGUE_DISCLOSURES, leagueDisclosuresText, leagueSectionsProblems, type LeagueSectionsRead } from "./contracts";
 import { PHONE } from "./page";
-import { thoroughStep, waiverDetailsChecks, waiverPrizeOddsChecks, whatIfPrizeOddsChecks, whatIfStep } from "./steps7h";
+import { closedIdeasChecks, thoroughStep, waiverDetailsChecks, waiverPrizeOddsChecks, whatIfPrizeOddsChecks, whatIfStep } from "./steps7h";
 
 export interface CardInfo {
   heading: string;
@@ -1203,9 +1208,10 @@ export async function closeLeagueSections(ctx: StepContext, step: string, opened
  * (since Checkpoint 7g "From week 7 on, he and … add about the same to your starting lineup, …", from the line's own return
  * week), never after "instead of dropping someone else", its lock where it is (`page`), and a release made with or without
  * the trade named in the line of moves made either way. A skip when the page shows none (no IR player of mine, or room for
- * every return).
+ * every return). Its line counts the releases made either way in both forms, a card's "this trade" and, since Checkpoint 7h,
+ * the Trade Finder's line above its list, "a trade" (contracts.ts RELEASE_EITHER_WAY_MARK; the second review, browser#1).
  */
-async function releaseLineChecks(ctx: StepContext, step: string, where: string, on: "league" | "trade"): Promise<void> {
+export async function releaseLineChecks(ctx: StepContext, step: string, where: string, on: "league" | "trade"): Promise<void> {
   const { page, report } = ctx;
   const lines = await page.run<string[]>(cleaning(ctx) + READ_RELEASE_LINES);
   if (!lines.length) {
@@ -1213,7 +1219,7 @@ async function releaseLineChecks(ctx: StepContext, step: string, where: string, 
     return;
   }
   const reasons = lines.filter((l) => l.includes(RELEASE_REASON_MARK)).length;
-  const either = lines.filter((l) => l.startsWith("Assumed with or without this trade")).length;
+  const either = lines.filter((l) => RELEASE_EITHER_WAY_MARK.test(l)).length;
   const problems = releaseLineProblems(lines, on);
   report.check(
     step,
@@ -1475,6 +1481,10 @@ export async function cardStep(ctx: StepContext): Promise<void> {
   }
   // Checkpoint 7e (item 4.2): the cards' "now or after this week" lines, once they're all in, in the default sort.
   await nowOrLaterChecks(ctx, step, "finder");
+  // Checkpoint 7h (planner reply to Checkpoint 7g, §1: "With cards closed, the Trade Finder shows at least 2 ideas per screen"):
+  // every card still closed, the closed ideas measured with the league's own team names, before the shot below replaces them
+  // with placeholders (steps7h.ts; with --no-shots too).
+  await closedIdeasChecks(ctx, step);
   // Checkpoint 7g (planner reply to Checkpoint 7f, item 5): the clutter check's first screenshot, the whole Trade Finder before
   // anything on a card is pressed or opened (shots.ts; nothing with --no-shots).
   await finderShot(ctx, step);
@@ -1605,8 +1615,10 @@ export async function cardStep(ctx: StepContext): Promise<void> {
  * "How to offer it" on the first card (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1; the lead's check:browser
  * bullet): opened, the engine worker works its offers out (timed: `offersSeconds`); they hold the ladder's rules on the numbers
  * they print (contracts.ts offersProblems: "Open with" at least config.offers.openMinChance, or the minimum chance when that's
- * higher, each offer at least config.search.steps.minAcceptGain likelier than the one before, Helps you above 0 and never
- * rising, each with its own Copy); an offer that is another idea of the list says so with that idea's place, "Also shown as
+ * higher, but since Checkpoint 7h a promoted idea's "Open with", the idea it was promoted from (its item marked
+ * data-offer-original), at least the minimum chance alone; each offer at least config.search.steps.minAcceptGain likelier
+ * than the one before, Helps you above 0 and never rising, each with its own Copy); an offer that is another idea of the list
+ * says so with that idea's place, "Also shown as
  * trade idea N." (contracts.ts offersAlsoProblems, the places from the list's data-trade-key: the lead's call, wave D), and no
  * other offer does; since Checkpoint 7f, in the Overall sort (the card step's sorts end on it), none is an idea below the first
  * one (contracts.ts offersMergeProblems: merged ideas); since Checkpoint 7g (planner reply to Checkpoint 7f, answer 3), in the
@@ -1641,16 +1653,19 @@ async function offersChecks(ctx: StepContext, step: string, first: string): Prom
     report.fail(step, "“How to offer it” didn't answer within 30 s");
     return;
   }
+  const minChance = Math.round(config.ranking.minChanceDefault * 100);
   const openMin = Math.round(Math.max(config.offers.openMinChance, config.ranking.minChanceDefault) * 100);
   const gain = Math.round(config.search.steps.minAcceptGain * 100);
   const suggested = [OFFER_STEP_LABEL.suggested, ANALYZER_SUGGESTED_LABEL];
-  const problems = offersProblems(read, { openMin, gain, suggested });
-  report.note(step, "offers", read.offers.map((o) => `${o.label}: Helps you ${o.helps ?? "?"}, ${o.chance ?? "?"}${o.also ? ` (${o.also})` : ""}`));
+  const problems = offersProblems(read, { openMin, minChance, gain, suggested });
+  // A promoted idea's "Open with" (the idea it was promoted from) is held to the minimum chance alone (Checkpoint 7h).
+  const forced = read.offers[0]?.original === true;
+  report.note(step, "offers", read.offers.map((o) => `${o.label}: Helps you ${o.helps ?? "?"}, ${o.chance ?? "?"}${o.original ? " (the idea this one was promoted from)" : ""}${o.also ? ` (${o.also})` : ""}`));
   report.check(
     step,
     problems.length === 0,
     read.offers.length
-      ? `“How to offer it” lists ${pl(read.offers.length, "offer")} in ${took} s, each at least ${gain} points likelier than the one before (the first at least ${openMin}%), Helps you above 0 and never rising, each with its own Copy`
+      ? `“How to offer it” lists ${pl(read.offers.length, "offer")} in ${took} s, each at least ${gain} points likelier than the one before (the first at least ${forced ? `the minimum chance, ${minChance}%: it's the idea this one was promoted from` : `${openMin}%`}), Helps you above 0 and never rising, each with its own Copy`
       : `“How to offer it” says to offer the trade as it is, in ${took} s`,
     "“How to offer it” breaks its rules",
     problems,

@@ -27,6 +27,9 @@
  *   search's ideas come back at once, as they were, without a search (sameIdeasProblems).
  * - Under "Several prizes" (steps.ts prizeOddsChecks, with the cards'): the rated waiver rows' odds lines and the what-if's carry
  *   the top-N line (waiverPrizeOddsChecks, and whatIfRun with `under`).
+ * - In step "Trade card" (section 1, "With cards closed, the Trade Finder shows at least 2 ideas per screen"; closedIdeasChecks,
+ *   called from steps.ts cardStep at its start): the closed ideas a phone screen, measured with the league's own team names on
+ *   the page, in numbers only; an ok line at the planner's 2 or above, an info line under it (never a failure).
  */
 import { config } from "@/engine/config";
 import { thoroughSeconds } from "@/engine/thorough";
@@ -35,6 +38,9 @@ import { ODDS_FRAME, RATING_PENDING_TEXT } from "@/lib/waiversView";
 import { pageValueLeaks, releaseLineProblems, valueLeaks } from "./contracts";
 import {
   asTradeWords,
+  closedIdeasOf,
+  closedIdeasText,
+  IDEAS_PER_SCREEN_GOAL,
   newIdeas,
   oddsOrderProblems,
   oversizedIdeas,
@@ -46,6 +52,7 @@ import {
   waiverOddsCoverageProblems,
   whatIfProblems,
   whatIfSwitchProblems,
+  type ClosedIdeaRead,
   type IdeaSummary,
   type ThoroughSwitchRead,
   type WaiverRowRead,
@@ -54,6 +61,7 @@ import {
 } from "./contracts7h";
 import { READ_PRIZE_LEAGUE, READ_WAIVERS, WAIVER_REST } from "./inPage";
 import {
+  READ_CLOSED_IDEAS,
   READ_FINDER_SUMMARY,
   READ_WAIVER_ODDS,
   READ_WHAT_IF,
@@ -67,6 +75,7 @@ import {
   waiverDetailsButton,
   whatIfRow,
 } from "./inPage7h";
+import { PHONE } from "./page";
 import { cleaning, expectedTopPlaces, FINDER_DONE, FINDER_DONE_STATUS, layoutChecks, mark, measurePage, noTopReason, screenshot, sidelessCards, waiverFoldOpen, type CardInfo, type StepContext } from "./steps";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -77,6 +86,40 @@ const pl = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 async function savedPlaces(ctx: StepContext): Promise<{ places: 2 | 3 | null; why: string }> {
   const saved = (await ctx.page.run<{ settings: unknown } | null>(READ_PRIZE_LEAGUE).catch(() => null))?.settings ?? null;
   return { places: expectedTopPlaces(saved), why: noTopReason(saved) };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Section 1: the Trade Finder's ideas a phone screen, every card closed
+
+/** The key of the card step's numbers that holds the closed ideas' measure (contracts7h.ts ClosedIdeas). */
+export const CLOSED_IDEAS_NOTE = "closedIdeas";
+
+/**
+ * The planner's goal for the closed cards (reply to Checkpoint 7g, §1: "With cards closed, the Trade Finder shows at least 2
+ * ideas per screen"), measured on the page as a user sees it: the league's own team names, never the placeholders a screenshot
+ * puts in their place. The review of the first review's fix found why it matters: "Trade idea N" shares the heading's line, and
+ * saves its own, only while "Trade with <team>" fits beside it (about 214 px at 375 px, 207 px from idea 10 on: about 11
+ * characters of team name), and the dumps' "Team N" names always fit, so a harness on them, or a measure after the names are
+ * replaced (shots.ts), reads the best case. So the card step runs this at its start, once every card's "now or after this
+ * week" number is in and before the clutter-1 shot replaces the names (steps.ts cardStep), every card closed as the page opens
+ * them. Numbers only (inPage7h.ts READ_CLOSED_IDEAS reads geometry, no text): the ideas' heights, the gap, what an idea takes and
+ * the ideas a phone screen (PHONE.height), noted under CLOSED_IDEAS_NOTE, with on how many "Trade idea N" shares the heading's
+ * line. An ok line at the planner's goal or above; an info line under it: a league's own names and ideas can put it there, and
+ * what to trim then is the lead's call, so it's said, never a failure. A skip when it can't be measured (contracts7h.ts
+ * closedIdeasOf).
+ */
+export async function closedIdeasChecks(ctx: StepContext, step: string): Promise<void> {
+  const { page, report } = ctx;
+  const read = await page.run<ClosedIdeaRead[]>(READ_CLOSED_IDEAS).catch(() => null);
+  const measured = read ? closedIdeasOf(read, PHONE.height) : { why: "couldn't read the Trade Finder's list" };
+  if ("why" in measured) {
+    report.skip(step, `the closed ideas a phone screen: ${measured.why}`);
+    return;
+  }
+  report.note(step, CLOSED_IDEAS_NOTE, measured);
+  const text = closedIdeasText(measured);
+  if (measured.perScreen >= IDEAS_PER_SCREEN_GOAL) report.ok(step, text);
+  else report.info(step, text);
 }
 
 // ---------------------------------------------------------------------------------------------

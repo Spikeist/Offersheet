@@ -17,6 +17,8 @@
  * - Section 3, the Thorough search: its switch there, off by default, with "Takes about N seconds" (thoroughSwitchProblems,
  *   THOROUGH_HELP); while it's on, the settings line says the search's players a side (thoroughSummaryProblems); turned off, the
  *   normal search's ideas back as they were (sameIdeasProblems).
+ * - Section 1, "With cards closed, the Trade Finder shows at least 2 ideas per screen": the closed ideas measured with the
+ *   league's own team names, a phone screen's worth (closedIdeasOf, closedIdeasText; IDEAS_PER_SCREEN_GOAL).
  */
 
 // ---------------------------------------------------------------------------------------------
@@ -372,4 +374,103 @@ export function newIdeas(normal: readonly IdeaSummary[], found: readonly IdeaSum
 /** The ideas with more than `max` players on a side (pure; the Thorough search's ideas have up to 3 a side). */
 export function oversizedIdeas(ideas: readonly IdeaSummary[], max: number): string[] {
   return ideas.flatMap((i, k) => (i.give.length > max || i.get.length > max ? [`idea ${k + 1}: ${i.give.length} for ${i.get.length}`] : []));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Section 1: the Trade Finder's ideas a phone screen, every card closed
+
+/** The planner's goal (reply to Checkpoint 7g, §1): "With cards closed, the Trade Finder shows at least 2 ideas per screen." */
+export const IDEAS_PER_SCREEN_GOAL = 2;
+
+/** A box on the page in CSS px: its top and bottom from the top of the page, its left and right from the page's left edge. */
+export interface PageBox {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
+/**
+ * One idea of the Trade Finder's list as inPage7h.ts READ_CLOSED_IDEAS lays it out: its list item (the card and nothing else),
+ * its "Trade idea N" and its heading (each null when it isn't found), whether the heading carries the "Helps both" tag, and
+ * whether a panel of its card is open (Details or How to offer it).
+ */
+export interface ClosedIdeaRead {
+  item: PageBox | null;
+  eyebrow: PageBox | null;
+  heading: PageBox | null;
+  tagged: boolean;
+  open: boolean;
+}
+
+/** What the closed ideas take on a phone (closedIdeasOf): numbers only, nothing that names a team. */
+export interface ClosedIdeas {
+  ideas: number;
+  /** Each idea's height in px, rounded, in the list's order. */
+  heights: number[];
+  /** The space between two ideas in px: the mean of the list's gaps, to a tenth. */
+  gap: number;
+  /** What an idea takes on the page, its mean height plus the gap, rounded to the px. */
+  perIdea: number;
+  /** The phone screen's height ÷ what an idea takes, to two decimals: the ideas a screen. */
+  perScreen: number;
+  /** The ideas whose "Trade idea N" shares its heading's line (TradeCard.tsx: the row saves the eyebrow's own line only then). */
+  beside: number;
+  /** Of the others, those whose heading carries the "Helps both" tag (the two move as one piece, too wide for the row at 375 px). */
+  apartTagged: number;
+}
+
+/**
+ * The Trade Finder's ideas a phone screen with every card closed (pure; Checkpoint 7h, §1; the reviewers' measure: the screen's
+ * height ÷ (the mean idea + the gap)), or why it can't be measured: fewer than 2 ideas (no space between ideas to read), an idea
+ * the reader couldn't lay out, or a card with a panel open (the goal is about closed cards). "Trade idea N" shares its heading's
+ * line when the heading starts above its bottom, to its right: on one row the two sit on one baseline, and a heading that
+ * doesn't fit beside it starts right under it (TradeCard.tsx, no gap between the row's lines).
+ */
+export function closedIdeasOf(read: readonly ClosedIdeaRead[], screen: number): ClosedIdeas | { why: string } {
+  if (read.length < 2) return { why: read.length ? "only 1 idea, so no space between ideas to measure" : "no idea in the list" };
+  const boxes = read.map((r) => r.item);
+  if (boxes.some((b) => b === null)) return { why: "an idea couldn't be laid out" };
+  const open = read.filter((r) => r.open).length;
+  if (open) return { why: `${open === 1 ? "1 idea has" : `${open} ideas have`} a panel open, so not every card is closed` };
+  const items = boxes as PageBox[];
+  const heights = items.map((b) => b.bottom - b.top);
+  const gaps = items.slice(1).map((b, i) => b.top - (items[i] as PageBox).bottom);
+  const gap = gaps.reduce((s, g) => s + g, 0) / gaps.length;
+  const per = heights.reduce((s, h) => s + h, 0) / heights.length + gap;
+  const shares = (r: ClosedIdeaRead) => !!r.eyebrow && !!r.heading && r.heading.top < r.eyebrow.bottom - 0.5 && r.heading.left >= r.eyebrow.right - 0.5;
+  return {
+    ideas: read.length,
+    heights: heights.map((h) => Math.round(h)),
+    gap: Math.round(gap * 10) / 10,
+    perIdea: Math.round(per),
+    perScreen: Math.round((screen / per) * 100) / 100,
+    beside: read.filter(shares).length,
+    apartTagged: read.filter((r) => r.tagged && !shares(r)).length,
+  };
+}
+
+/**
+ * The card step's line for it (pure): what the ideas take with the space between them, the ideas a phone screen against the
+ * planner's goal (judged on the two decimals printed), and on how many "Trade idea N" shares its heading's line, with how many
+ * of the others carry the "Helps both" tag (a heading with its tag is too wide for the row at 375 px with almost any name: the
+ * rest are kept apart by their team's name). Measured with the league's own team names on the page (steps7h.ts
+ * closedIdeasChecks): the review of the first review's fix found that the dumps' "Team N" names always fit beside "Trade idea
+ * N", while a longer name keeps the heading on a line of its own.
+ */
+export function closedIdeasText(m: ClosedIdeas): string {
+  const goal = m.perScreen >= IDEAS_PER_SCREEN_GOAL ? ` (the planner's goal: at least ${IDEAS_PER_SCREEN_GOAL})` : `, under the planner's goal of at least ${IDEAS_PER_SCREEN_GOAL}`;
+  const apart = m.ideas - m.beside;
+  const tags = !m.apartTagged ? "" : ` (${m.apartTagged === apart ? (apart === 1 ? "it carries" : apart === 2 ? "both carry" : "all carry") : `${m.apartTagged} of them carry`} the “Helps both” tag)`;
+  const shared = !apart
+    ? m.ideas === 2
+      ? "on both"
+      : `on all ${m.ideas}`
+    : !m.beside
+      ? `on none of the ${m.ideas}: no heading fits beside it${tags}`
+      : `on ${m.beside} of ${m.ideas}; on the ${apart === 1 ? "other" : `other ${apart}`} the heading doesn't fit beside it${tags}`;
+  return (
+    `with every card closed and the league's own team names on the page, the ${m.ideas} ideas take ${m.perIdea} px each, counting the space between them: ` +
+    `${m.perScreen.toFixed(2)} ideas a phone screen${goal}; “Trade idea N” shares its heading's line ${shared}`
+  );
 }

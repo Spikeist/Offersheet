@@ -522,6 +522,28 @@ describe("TradeCard (§13: each trade card shows)", () => {
     expect(textOf(html).match(/Win chance by week/g)).toHaveLength(1);
   });
 
+  it("puts “Trade idea N” on one row with the heading and its “Helps both” tag, wrapping when they don't fit (Checkpoint 7h, the first review's item 3: toward at least 2 closed ideas a phone screen)", () => {
+    const card = (e: TradeEvaluation, rank?: number) => renderToStaticMarkup(createElement(TradeCard, { card: buildTradeCard(e, { snapshot }), rank, feedback: NONE, onFeedback: saved }));
+    const eyebrow = (n: number) => `<p class="text-xs font-bold tracking-wider text-brand uppercase">Trade idea ${n}</p>`;
+    const h3 = '<h3 id="[^"]+" class="text-lg leading-tight font-extrabold tracking-tight wrap-anywhere">Trade with Gravel Gophers</h3>';
+    const article = '<article aria-labelledby="[^"]+" class="[^"]*">';
+    // A Trade Finder card: the eyebrow and the heading side by side on one baseline (its own line saved, 16 px a card, while
+    // the heading fits beside it: about 11 characters of team name at 375 px), the row the card's first child, with no gap
+    // between its lines, so a heading too long to fit beside the eyebrow sits under it as it did when the eyebrow had a line of
+    // its own.
+    const row = '<div class="flex flex-wrap items-baseline gap-x-2">';
+    expect(card(evaluation(), 3)).toMatch(new RegExp(`${article}${row}${eyebrow(3)}${h3}</div>`));
+    // Tagged "Helps both": the heading and its tag one piece of the row (Checkpoint 7c's pairing), so on a phone, where the
+    // three don't fit on a line, they move under the eyebrow together and the card is laid out as before.
+    const pair = '<div class="flex flex-wrap items-center gap-x-2 gap-y-1">';
+    const tagged = withThem(evaluation(), 24);
+    expect(card(tagged, 2)).toMatch(new RegExp(`${article}${row}${eyebrow(2)}${pair}${h3}<span title="Helps both: [^"]+" class="shrink-0"><span class="[^"]*">Helps both</span></span></div></div>`));
+    // The Trade Analyzer's card (no place in a list): no eyebrow, the heading (with its tag) first, as before.
+    expect(card(evaluation())).toMatch(new RegExp(`${article}${h3}<div class="mt-2 grid`));
+    expect(card(tagged)).toMatch(new RegExp(`${article}${pair}${h3}<span title="Helps both`));
+    expect(card(tagged)).not.toContain("Trade idea");
+  });
+
   it("keeps the tag to the cards that help both, says “Helps them 0” when the trade costs them, and shows no line without the partner's numbers", () => {
     const render = (e: ReturnType<typeof evaluation>) => renderToStaticMarkup(createElement(TradeCard, { card: buildTradeCard(e, { snapshot }), rank: 1, feedback: NONE, onFeedback: saved }));
     // Helps them under 10, or 0, or a trade that doesn't help me: their line, no tag.
@@ -533,7 +555,8 @@ describe("TradeCard (§13: each trade card shows)", () => {
       const html = render(e);
       expect(html).not.toContain(">Helps both<");
       expect(textOf(html)).toContain(`Helps them ${helps} · ,`);
-      expect(html).toMatch(/<h3 id="[^"]+" class="[^"]*">Trade with Gravel Gophers<\/h3><div class="mt-2 grid/);
+      // Nothing after the heading on its row ("Trade idea 1" before it: Checkpoint 7h, the first review's item 3).
+      expect(html).toMatch(/<h3 id="[^"]+" class="[^"]*">Trade with Gravel Gophers<\/h3><\/div><div class="mt-2 grid/);
     }
     // The veto note stays right under the three numbers (`npm run check:browser` reads it as the <dl>'s next element).
     const vetoed = withThem(evaluation({ pAccept: 0.4, pComplete: 0.2, detail: { vetoRisk: true } }), 24);
@@ -1050,7 +1073,7 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
   it("explains Harder to get and How to offer it: its offers in order, by their rules from config (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1), merged ideas (Checkpoint 7f; planner reply to Checkpoint 7e, decision 3), and since Checkpoint 7g the Last offer's smaller ask, the ladder's preference for an idea of the list and the versions of a trade one of which shows alone (planner reply to Checkpoint 7f, answer 3; the final review's W1)", () => {
     expect(how()).toContain(HARDER);
     expect(how()).toContain(
-      "How to offer it works out, when you open it on an idea that helps you, up to 4 offers to the same team, in order: “Open with” the version that helps you most while it still has at least a 15% chance they accept (or your minimum chance, when that's higher); “Then”, versions that help you a little less, each at least 5 percentage points likelier than the one before; “The suggested trade”, the idea itself; and “Last offer”, the suggested trade plus a player you can spare (losing him costs your lineup little) or asking for fewer of their players, whichever has the higher Overall, when it's at least 5 percentage points likelier; with a player added it still does at least 80% as much for you, and asking for fewer it keeps at least 75% of the idea's Overall. Each offer shows Helps you, the chance they accept, the roster moves its numbers assume when they aren't the idea's, and its own message to send them. When an idea's offers include another idea below it on Overall, the list shows only the higher one, and the other is among its offers. When an idea's “Last offer” would do better on Overall than the idea itself, that version shows as the idea instead, with the original as its “Open with”. When another idea below this one on Overall fits one of these offers, it can be offered there when its Helps you is within 3 of the version the rules alone would pick, even if that version helps you more or, for the “Last offer”, has a higher Overall, so it shows among this idea's offers rather than as an idea of its own. When two ideas are versions of the same trade and one is at least as good on both Helps you and the chance, only that one shows. An offer can still be an idea above it on Overall whose own offers don't include this one; it then says so, with that idea's place (“Also shown as trade idea 2.”). The idea's own “If they won't move: try …” trade is never one of its offers. When no other version makes a better first offer, it says to offer the trade as it is.",
+      "How to offer it works out, when you open it on an idea that helps you, up to 4 offers to the same team, in order: “Open with” the version that helps you most while it still has at least a 15% chance they accept (or your minimum chance, when that's higher); “Then”, versions that help you a little less, each at least 5 percentage points likelier than the one before; “The suggested trade”, the idea itself; and “Last offer”, the suggested trade plus a player you can spare (losing him costs your lineup little) or asking for fewer of their players, whichever has the higher Overall, when it's at least 5 percentage points likelier; with a player added it still does at least 80% as much for you, and asking for fewer it keeps at least 75% of the idea's Overall. Each offer shows Helps you, the chance they accept, the roster moves its numbers assume when they aren't the idea's, and its own message to send them. When an idea's offers include another idea below it on Overall, the list shows only the higher one, and the other is among its offers. When an idea's “Last offer” would do better on Overall than the idea itself, that version can show as the idea instead, with the original as its “Open with”, even when the original has less than a 15% chance they accept (never less than your minimum chance). It stays the “Last offer” when the list's own limits, like how many ideas can trade the same player of yours, wouldn't show it as an idea. When another idea below this one on Overall fits one of these offers, it can be offered there when its Helps you is within 3 of the version the rules alone would pick, even if that version helps you more or, for the “Last offer”, has a higher Overall, so it shows among this idea's offers rather than as an idea of its own. When two ideas are versions of the same trade and one is at least as good on both Helps you and the chance, only that one shows. An offer can still be an idea above it on Overall whose own offers don't include this one; it then says so, with that idea's place (“Also shown as trade idea 2.”). The idea's own “If they won't move: try …” trade is never one of its offers. When no other version makes a better first offer, it says to offer the trade as it is.",
     );
     // The final review of Checkpoint 7g (the lead's ruling W1; merge-b-howtoread-rules-false, merge-ui-howtoread-preference,
     // merge-a-howtoread-higher-overall-vs-preference): the ladder's preference for an idea of the list below this one, which
@@ -1066,6 +1089,14 @@ describe("HowToRead (planner addendum to Checkpoint 3)", () => {
     expect(PREFER_LISTED_WORDS).toContain(`it can be offered there when its Helps you is within ${config.offers.preferWithinHelps} of the version the rules alone would pick, even if that version helps you more or, for the “Last offer”, has a higher Overall`);
     // Checkpoint 7h (answer 3): the promoted Last offers, on the Trade Finder only (the Analyzer's card promotes nothing).
     expect(offersWords("analyzer")).not.toContain(PROMOTED_WORDS);
+    // The second review (offers#2): said as the rule works. The version "can" show as the idea (on Parker's six runs the
+    // promotion passed over 7 of 9 such Last offers, all for the list's own limits), it stays the Last offer when those limits
+    // wouldn't show it as an idea, and the original as its "Open with" can print under the Open's own least chance (from
+    // config), never under the minimum chance (offers.ts forcedOpenOk).
+    expect(PROMOTED_WORDS).toContain("that version can show as the idea instead, with the original as its “Open with”");
+    expect(PROMOTED_WORDS).not.toMatch(/version shows as the idea|usually/);
+    expect(PROMOTED_WORDS).toContain(`even when the original has less than a ${Math.round(config.offers.openMinChance * 100)}% chance they accept (never less than your minimum chance)`);
+    expect(PROMOTED_WORDS).toContain("It stays the “Last offer” when the list's own limits, like how many ideas can trade the same player of yours, wouldn't show it as an idea.");
     expect(PREFER_LISTED_WORDS).not.toMatch(/is offered there|a little more|first\b/);
     // The Analyzer's card is no idea of a list: nothing on merging there, and no preference.
     expect(offersWords("analyzer")).not.toContain("on Overall");

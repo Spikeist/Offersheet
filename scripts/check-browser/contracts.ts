@@ -727,6 +727,14 @@ export const RELEASE_LOCK = / Lock .+ to keep (?:him|it) instead\.$/;
 export const RELEASE_EITHER_WAY = /^Assumed with or without (?:this|a) trade: (?:.+(?:, |; ))?release .+ (?:in week \d+, )?when .+ returns from IR\.$/;
 
 /**
+ * What marks a line about a release at an IR return as naming one made with or without a trade, in either form ("this trade"
+ * on a card, "a trade" in the Trade Finder's line above its list): the lines releaseLineProblems holds to RELEASE_EITHER_WAY,
+ * and the ones the card step counts (the second review, browser#1: its count read "this trade" alone, and said 0 next to the
+ * list's line).
+ */
+export const RELEASE_EITHER_WAY_MARK = /with or without (?:this|a) trade/;
+
+/**
  * What's wrong with a page's lines about a release at an IR return (Checkpoint 7f; inPage.ts READ_RELEASE_LINES: a card's
  * roster moves, a Plan B box's and an offer's, on a trade page; the "Returns from IR" of my roster card on the League page,
  * `page` "league"): a line with the near-tie rule's reason reads as RELEASE_REASON (Checkpoint 7f's words don't), counts from
@@ -745,7 +753,7 @@ export function releaseLineProblems(lines: readonly string[], page: "league" | "
     const lock = RELEASE_LOCK.exec(line)?.[0] ?? null;
     if (lock && page === "trade" && !lock.includes(" on the League page to keep ")) out.push(`a release's lock doesn't say it's on the League page: “${line}”`);
     if (lock && page === "league" && lock.includes(" on the League page ")) out.push(`the League page's lock sends you to the League page: “${line}”`);
-    if (/with or without (?:this|a) trade/.test(line) && !RELEASE_EITHER_WAY.test(line)) out.push(`a release made either way reads “${line}”`);
+    if (RELEASE_EITHER_WAY_MARK.test(line) && !RELEASE_EITHER_WAY.test(line)) out.push(`a release made either way reads “${line}”`);
   }
   return out;
 }
@@ -821,6 +829,11 @@ export interface OfferRead {
   key?: string | null;
   /** Its "Also shown as trade idea N." line (the lead's call for Checkpoint 7e's wave D: an offer that is another card shown), else null. */
   also?: string | null;
+  /**
+   * Checkpoint 7h: its item carries data-offer-original (TradeCard.tsx), a promoted card's "Open with", the idea it was promoted
+   * from, which can print under config.offers.openMinChance though never under the minimum chance (offers.ts forcedOpenOk).
+   */
+  original?: boolean;
 }
 
 /** An offer's veto note read into a printed chance (pure): "…, about 20% it goes through." → "20%", "…, under 5% it goes through." → "<5%"; else null. */
@@ -857,11 +870,14 @@ export const OFFERS_ALONE = /^Offer this trade as it is: no version of it with .
  * one before; every Helps you is a number above 0 and none above the one before; every offer has its own Copy button. With
  * none, its line says to offer the trade as it is (OFFERS_ALONE). The chances compared are the ones the ladder's rules read
  * (the review of wave D, UI-D-3): the chance it goes through when its veto note prints one (`through`), else the chance they
- * accept. `openMin` and `gain` are whole percents (config.offers.
- * openMinChance, or the minimum chance when that's higher; config.search.steps.minAcceptGain), which the step passes: this
- * file imports nothing. Each rule broken, in words.
+ * accept. Since Checkpoint 7h a promoted card's "Open with" (`original`: the idea it was promoted from, placed whatever the
+ * Open's rule would pick) prints at least `minChance` alone, never `openMin` (offers.ts forcedOpenOk: it can print under
+ * config.offers.openMinChance, never under the minimum chance; the first review's item 5), and that mark sits on the first
+ * offer, an "Open with", only. `openMin`, `minChance` and `gain` are whole percents (config.offers.openMinChance, or the
+ * minimum chance when that's higher; the minimum chance; config.search.steps.minAcceptGain), which the step passes: this file
+ * imports nothing. Each rule broken, in words.
  */
-export function offersProblems(read: OffersRead, want: { openMin: number; gain: number; suggested: readonly string[] }): string[] {
+export function offersProblems(read: OffersRead, want: { openMin: number; minChance: number; gain: number; suggested: readonly string[] }): string[] {
   if (read.failed) return ["“How to offer it” says the offers couldn't be worked out"];
   if (!read.offers.length) return OFFERS_ALONE.test(read.status) ? [] : [`“How to offer it” shows no offers and says “${read.status}”`];
   const out: string[] = [];
@@ -876,7 +892,12 @@ export function offersProblems(read: OffersRead, want: { openMin: number; gain: 
     const chance = printedChancePoints(shown);
     if (helps === null || helps <= 0) out.push(`${name} reads Helps you ${o.helps ?? "none"}, not above 0`);
     if (chance === null) out.push(`${name}'s chance they accept reads “${o.chance ?? "none"}”`);
-    if (i === 0 && o.label === "Open with" && chance !== null && chance < want.openMin) out.push(`${name} prints ${shown}, under ${want.openMin}%`);
+    const opening = i === 0 && o.label === "Open with";
+    if (opening && chance !== null) {
+      if (!o.original && chance < want.openMin) out.push(`${name} prints ${shown}, under ${want.openMin}%`);
+      if (o.original && chance < want.minChance) out.push(`${name}, the idea this one was promoted from, prints ${shown}, under the minimum chance of ${want.minChance}%`);
+    }
+    if (o.original && !opening) out.push(`${name} carries a promoted idea's mark (data-offer-original), which only the first offer, its “Open with”, can`);
     const prev = read.offers[i - 1];
     if (prev) {
       const prevShown = prev.through ?? prev.chance;

@@ -20,15 +20,17 @@ import { describe, expect, it } from "vitest";
 import { LeagueView } from "@/components/league/LeagueView";
 import { NOW, leagueFixture } from "@/components/league/testFixtures";
 import { OffersPanel, TradeCard } from "@/components/trades/TradeCard";
-import { evaluation, tradeSnapshot } from "@/components/trades/testFixtures";
+import { FinderFrame } from "@/components/trades/TradeFinderPage";
+import { evaluation, searchResult, tradeSnapshot } from "@/components/trades/testFixtures";
 import type { PlayerInfo } from "@/engine/model";
 import { planBFixture } from "@/engine/tradeTestFixtures";
 import type { OfferLadder, RosterMoves } from "@/engine/tradeModel";
 import { buildLeagueView } from "@/lib/leagueView";
-import { buildLadderView, buildTradeCard, myMovesLines, releaseLine, type CardFeedback, type TradeCardView } from "@/lib/tradeView";
+import { buildFinderView, buildLadderView, buildTradeCard, myMovesLines, releaseLine, type CardFeedback, type TradeCardView } from "@/lib/tradeView";
 import { RELEASE_EITHER_WAY, RELEASE_REASON, releaseLineProblems } from "./contracts";
 import { CARD_HELPERS, PAGE_HELPERS, READ_RELEASE_LINES, ROSTER_MOVE_LINES, cleanCall } from "./inPage";
-import { nameRules } from "./report";
+import { CheckReport, nameRules } from "./report";
+import { releaseLineChecks, type StepContext } from "./steps";
 
 const base = tradeSnapshot();
 const snapshot = { ...base, players: { ...base.players, "107": { ...(base.players["107"] as PlayerInfo), name: "Alec Pierce" }, "105": { ...(base.players["105"] as PlayerInfo), name: "Marvin Harrison Jr." }, "108": { ...(base.players["108"] as PlayerInfo), name: "Kyle Pitts Sr." }, "206": { ...(base.players["206"] as PlayerInfo), name: "Jordan Mason" } } };
@@ -214,6 +216,26 @@ describe("check:browser's release contract (Checkpoint 7f; planner reply to Chec
     expect(releaseLineProblems(["Assumed with or without a trade: add Jake Ferguson, drop Romeo Doubs, release Alec Pierce in week 7, when he returns from IR."], "trade")).toEqual([]);
     const bad = "Assumed with or without a trade: Week 7, when Alec Pierce returns from IR, release him.";
     expect(releaseLineProblems([bad], "trade")).toEqual([`a release made either way reads “${bad}”`]);
+  });
+
+  it("counts the releases made either way in both forms, a card's “this trade” and the Trade Finder's line above its list, “a trade” (the second review, browser#1)", async () => {
+    // The Trade Finder as the page renders it: the line above its list names my baseline's release at Alec Pierce's return; the
+    // card's own line names another release, so the card keeps it (tradeView.ts withoutListLine).
+    const e = { ...evaluation({ detail: { myTeamId: "1" }, b: 3 }), myMoves: { moves: [], assumed: [], assumedLater: [{ week: 9, player: "206", returner: "206" }] } };
+    const view = buildFinderView({ result: searchResult([e], { baselineMoves: { assumed: [], assumedLater: [{ week: 7, player: "107", returner: "107" }] } }), sort: "overall", snapshot, partnerId: null });
+    const html = renderToStaticMarkup(
+      createElement("main", null, createElement(FinderFrame, { state: { kind: "done", view }, teamName: "Moonbeam Mudcats", controls: null, records: [], leagueKey: "espn:0000abcd", onFeedback: saved })),
+    );
+    const lines = readReleaseLines(html);
+    expect(lines).toEqual(["Assumed with or without a trade: release Alec Pierce in week 7, when he returns from IR.", "Assumed with or without this trade: release Jordan Mason in week 9, when he returns from IR."]);
+    // The card step's check on them (steps.ts releaseLineChecks, its page read stood in for): both named in its count, where it
+    // counted the card's form alone and said 1.
+    const report = new CheckReport();
+    const ctx = { page: { run: () => Promise.resolve(lines) }, report, names: null, leagueId: "12345" } as unknown as StepContext;
+    await releaseLineChecks(ctx, "Trade card", "the trade ideas' roster moves", "trade");
+    expect(report.lines).toEqual([
+      { step: "Trade card", status: "ok", text: "the trade ideas' roster moves: 2 lines about a release at an IR return read as the cards word them (0 with the near-tie rule's reason, 2 naming one made either way)", details: [] },
+    ]);
   });
 
   it("reads exactly the release lines of the Trade Finder's markup: a card with its offers open and its Plan B box, never a card's or an offer's own list item (review of Checkpoint 7f, PIERCE-1)", () => {

@@ -434,7 +434,8 @@ function panelOpen(a, label) {
 // cardPanel), or null; and, opened, what it shows (contracts.ts OffersRead): its status line, each offer of its numbered list
 // (its label, Helps you and the chance as printed from the paragraph that starts with "Helps you", whether its own message has
 // a Copy button; its key, the item's data-offer-key, and its "Also shown as trade idea N." line when it's another card shown:
-// the lead's call, wave D), and whether it shows a failure.
+// the lead's call, wave D; since Checkpoint 7h whether the item carries data-offer-original, a promoted card's "Open with", the
+// idea it was promoted from: the first review's item 5), and whether it shows a failure.
 const OFFER_ALSO = /^Also shown as trade idea \d+\.$/;
 function offersDetails(a) {
   return cardPanel(a, "How to offer it");
@@ -481,6 +482,7 @@ function offersData(a) {
             copy: !!message && [...message.querySelectorAll("button")].some((b) => visibleText(b) === "Copy message"),
             key: li.getAttribute("data-offer-key"),
             also: ps.map(txt).find((t) => OFFER_ALSO.test(t)) || null,
+            original: li.getAttribute("data-offer-original") !== null,
           };
         })
     : [];
