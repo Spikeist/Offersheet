@@ -776,6 +776,13 @@ export const config = {
       exactEvaluationMax: 1000,
       three: { keptPerPartner: 40, exactEvaluationMax: 400 },
       finalists: 120,
+      /**
+       * The Trade Finder's "about N seconds" before a Thorough search starts (display only; thorough.ts thoroughSeconds): a
+       * normal search's time on this device × workRatio (measured on Parker's two leagues, Oct 15, Node, warm: 41.5 s against
+       * 6.6 s on his first, 36.1 s against 7.2 s on his 12-team league: 6.3 and 5.0), else secondsPerPartner for each team
+       * searched (the browser's ×1.24 of those runs: 5.7 and 4.1 s a partner), rounded up to `roundTo` seconds.
+       */
+      estimate: { workRatio: 6, secondsPerPartner: 5, roundTo: 5 },
     },
   },
 

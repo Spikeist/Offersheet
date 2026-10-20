@@ -19,3 +19,16 @@ export function thoroughSettings(settings: TradeSettings): TradeSettings {
   const max = Math.max(settings.maxPerSide, Math.floor(config.search.thorough.maxPerSide));
   return max === settings.maxPerSide ? settings : { ...settings, maxPerSide: max };
 }
+
+/**
+ * Roughly how long a Thorough search takes, in seconds (the Trade Finder says "about N seconds" before it starts;
+ * config.search.thorough.estimate): the normal search's time on this device (`normalMs`, its TradeSearchResult.timings.total
+ * for the same partner filter) times the work ratio when known, else a default rate for each of the `partners` searched;
+ * rounded up to config's step, at least one step.
+ */
+export function thoroughSeconds(normalMs: number | null | undefined, partners: number): number {
+  const e = config.search.thorough.estimate;
+  const step = Math.max(1, e.roundTo);
+  const raw = typeof normalMs === "number" && Number.isFinite(normalMs) && normalMs > 0 ? (normalMs * e.workRatio) / 1000 : Math.max(1, partners) * e.secondsPerPartner;
+  return Math.max(step, Math.ceil(raw / step) * step);
+}
