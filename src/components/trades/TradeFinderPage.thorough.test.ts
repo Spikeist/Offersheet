@@ -164,6 +164,9 @@ describe("How to read: the Thorough search's paragraph (the Trade Finder's only)
     expect(words).toContain(`about ${t.estimate.workRatio} times as long`);
     expect(words).toContain("Its ideas stay for this visit");
     expect(words).toContain("The switch isn't saved");
+    // The review of Checkpoint 7h's page: this tab keeps it as left (the trip to the Analyzer included), never "always" the usual search.
+    expect(words).toContain("this tab keeps it as you left it (coming back from the Analyzer too), and a new tab or a reload starts with the usual search");
+    expect(words).not.toContain("always starts with the usual search");
     expect(words).not.toMatch(/goals?/i);
     expect(read("finder")).toContain(`${THOROUGH_HEADING} ${words}`);
     expect(read("analyzer")).not.toContain(words);

@@ -4,7 +4,9 @@
  * search found, while they still hold (the worker's own rule: no kickoff since, the same deadline readings), the
  * Finder's address and sort, the idea to come back to, and one engine client for both pages. Phase 4c: per saved league
  * (planner reply to Checkpoint 4b, change 11), so nothing from one league shows in another, an address included: a trade
- * page reads only an address of the league it shows (useLeagueQuery's rule; review of track ML).
+ * page reads only an address of the league it shows (useLeagueQuery's rule; review of track ML). Checkpoint 7h (the review of
+ * its page): the Thorough search switch as each league's Finder was left, and how long each normal search took here (the
+ * Thorough search's estimate scales it), both kept across the trip to the Analyzer.
  */
 import { afterEach, describe, expect, it } from "vitest";
 import type { ModelInputs } from "@/engine/inputs";
@@ -13,18 +15,25 @@ import type { TradeSearchResult } from "@/engine/tradeModel";
 import { contextStillValid } from "@/workers/freshness";
 import {
   KEPT_SEARCHES,
+  KEPT_SEARCH_TIMES,
   finderAddress,
   honoredQuery,
   queryOwnerAfter,
   recallSearch,
   recallSearchEntry,
   rememberFinderAddress,
+  rememberOpened,
   rememberReturn,
   rememberSearch,
+  rememberSearchTime,
   rememberSort,
+  rememberThorough,
   rememberedSort,
+  rememberedThorough,
   resetFinderMemory,
+  searchTimeOf,
   takeReturn,
+  takeReturnTarget,
   tradeEngine,
   type QueryOwner,
 } from "./finderMemory";
@@ -102,6 +111,30 @@ describe("the Finder's address, sort and place", () => {
     expect(rememberedSort(A)).toBe("helps");
   });
 
+  it("keeps each league's Thorough search switch as its Finder was left (off by default, reset with everything else)", () => {
+    expect(rememberedThorough(A)).toBe(false);
+    rememberThorough(A, true);
+    expect(rememberedThorough(A)).toBe(true);
+    expect(rememberedThorough(B)).toBe(false);
+    rememberThorough(B, true);
+    rememberThorough(A, false);
+    expect(rememberedThorough(A)).toBe(false);
+    expect(rememberedThorough(B)).toBe(true);
+    resetFinderMemory();
+    expect(rememberedThorough(B)).toBe(false);
+  });
+
+  it("Open in Analyzer files the idea under its search and keeps the switch as that search had it (Checkpoint 7h)", () => {
+    rememberThorough(A, false);
+    rememberOpened(A, { key: "search|thorough", thorough: true }, "2|give:105|get:203", "/analyzer?partner=2&give=105&get=203&from=planB");
+    expect(rememberedThorough(A)).toBe(true);
+    expect(rememberedThorough(B)).toBe(false);
+    expect(takeReturnTarget("search|thorough")).toEqual({ cardKey: "2|give:105|get:203", href: "/analyzer?partner=2&give=105&get=203&from=planB" });
+    rememberOpened(A, { key: "search", thorough: false }, "x");
+    expect(rememberedThorough(A)).toBe(false);
+    expect(takeReturnTarget("search")).toEqual({ cardKey: "x", href: null });
+  });
+
   it("gives back the idea whose Open in Analyzer was used once, and only to its own search", () => {
     rememberReturn("search", "2|give:105|get:203");
     expect(takeReturn("search")).toBe("2|give:105|get:203");
@@ -109,6 +142,38 @@ describe("the Finder's address, sort and place", () => {
     rememberReturn("search", "x");
     expect(takeReturn("another search")).toBeNull();
     expect(takeReturn("search")).toBeNull();
+  });
+});
+
+describe("how long each normal search took here (the Thorough search's estimate; Checkpoint 7h)", () => {
+  it("keeps a search's time by its key, the newest replacing it, and gives none for a key it never saw", () => {
+    expect(searchTimeOf("a")).toBeNull();
+    rememberSearchTime("a", 7000);
+    expect(searchTimeOf("a")).toBe(7000);
+    rememberSearchTime("a", 6500);
+    expect(searchTimeOf("a")).toBe(6500);
+    expect(searchTimeOf("b")).toBeNull();
+  });
+
+  it("ignores a time that isn't a positive number of milliseconds, so it never stands in for a search's", () => {
+    rememberSearchTime("a", 7000);
+    for (const bad of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) rememberSearchTime("a", bad);
+    expect(searchTimeOf("a")).toBe(7000);
+    rememberSearchTime("b", 0);
+    expect(searchTimeOf("b")).toBeNull();
+  });
+
+  it("keeps the newest KEPT_SEARCH_TIMES keys, apart from the ideas (a re-filter replacing a search's ideas leaves its time), and forgets them on reset", () => {
+    rememberSearch("a", "2026-10-01T16:00:00.000Z", found("a"));
+    rememberSearchTime("a", 7000);
+    // A re-filter's ideas under the same key: the page notes no time for it (its timings are the re-filter's few milliseconds).
+    rememberSearch("a", "2026-10-01T16:05:00.000Z", found("a at 30%"));
+    expect(searchTimeOf("a")).toBe(7000);
+    for (let i = 0; i < KEPT_SEARCH_TIMES; i++) rememberSearchTime(`k${i}`, 1000 + i);
+    expect(searchTimeOf("a")).toBeNull();
+    expect(searchTimeOf("k0")).toBe(1000);
+    resetFinderMemory();
+    expect(searchTimeOf("k0")).toBeNull();
   });
 });
 
