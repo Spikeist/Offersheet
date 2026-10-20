@@ -654,8 +654,9 @@ export function helpsBothStatusOk(status: string, cards: number): boolean {
 
 /**
  * Checkpoint 7e (planner reply to Checkpoint 7d, item 4.2): a card's "now or after this week" line as the page shows it
- * (inPage.ts nowOrLaterOf): its Helps you tile, the line's words as seen and its tooltip (null: no line), and the words of the
- * card's fact for it (null: none).
+ * (inPage.ts nowOrLaterOf): its Helps you tile, the line's words as seen and its tooltip (null: no line), and the words that
+ * say its tooltip where a phone shows them (null: none): since Checkpoint 7h right under the line in the card's Details, until
+ * then the card's fact.
  */
 export interface NowOrLaterRead {
   helps: string | null;
@@ -669,7 +670,7 @@ export const NOW_OR_LATER_LINE = /^Helps you (\d+) now · (\d+) if done after th
 /**
  * What's wrong with the cards' "now or after this week" lines (Checkpoint 7e, item 4.2): a line reads as NOW_OR_LATER_LINE,
  * starts from its card's own Helps you, shows only when the two differ by more than `min` (config.explain.nowOrLaterMin), with
- * `title` (the planner's words) as its tooltip and the same words as the card's fact, which a phone shows; no such fact without
+ * `title` (the planner's words) as its tooltip and the same words right under it, which a phone shows; no such words without
  * a line. Empty when every card is right.
  */
 export function nowOrLaterProblems(cards: readonly NowOrLaterRead[], want: { min: number; title: string }, where: (i: number) => string = (i) => `idea ${i + 1}`): string[] {
@@ -689,7 +690,7 @@ export function nowOrLaterProblems(cards: readonly NowOrLaterRead[], want: { min
     if (String(now) !== c.helps) out.push(`${where(i)}'s line starts from ${now}, its Helps you is ${c.helps ?? "missing"}`);
     if (!(Math.abs(now - later) > want.min)) out.push(`${where(i)}'s line shows ${now} and ${later}, within ${want.min} of each other`);
     if (c.line.title !== want.title) out.push(`${where(i)}'s line has the tooltip “${c.line.title ?? "(none)"}”`);
-    if (c.fact !== want.title) out.push(`${where(i)}'s facts say “${c.fact ?? "(nothing)"}” for the later line`);
+    if (c.fact !== want.title) out.push(`${where(i)}'s words under the later line say “${c.fact ?? "(nothing)"}”`);
   });
   return out;
 }
@@ -719,9 +720,11 @@ export const RELEASE_LOCK = / Lock .+ to keep (?:him|it) instead\.$/;
  * A card's line of moves made with or without the trade when it names a release at an IR return made either way (Checkpoint
  * 7f, the lead's R3; since the review of Checkpoint 7f, INTEGRATION-4, inside that line, names only and without a reason, the
  * releases last: "Assumed with or without this trade: add Jake Ferguson, drop Romeo Doubs, release Alec Pierce in week 7, when
- * he returns from IR."; tradeView.ts myMovesLines). Its own line, "…: release him, with or without this trade.", is gone.
+ * he returns from IR."; tradeView.ts myMovesLines). Its own line, "…: release him, with or without this trade.", is gone. Since
+ * Checkpoint 7h (planner reply to Checkpoint 7g, §1: "show it once, above the list") the Trade Finder's line above its list says
+ * it in the same words for "a trade" ("Assumed with or without a trade: …"; tradeView.ts baselineAssumedLines).
  */
-export const RELEASE_EITHER_WAY = /^Assumed with or without this trade: (?:.+(?:, |; ))?release .+ (?:in week \d+, )?when .+ returns from IR\.$/;
+export const RELEASE_EITHER_WAY = /^Assumed with or without (?:this|a) trade: (?:.+(?:, |; ))?release .+ (?:in week \d+, )?when .+ returns from IR\.$/;
 
 /**
  * What's wrong with a page's lines about a release at an IR return (Checkpoint 7f; inPage.ts READ_RELEASE_LINES: a card's
@@ -742,7 +745,7 @@ export function releaseLineProblems(lines: readonly string[], page: "league" | "
     const lock = RELEASE_LOCK.exec(line)?.[0] ?? null;
     if (lock && page === "trade" && !lock.includes(" on the League page to keep ")) out.push(`a release's lock doesn't say it's on the League page: “${line}”`);
     if (lock && page === "league" && lock.includes(" on the League page ")) out.push(`the League page's lock sends you to the League page: “${line}”`);
-    if (line.includes("with or without this trade") && !RELEASE_EITHER_WAY.test(line)) out.push(`a release made either way reads “${line}”`);
+    if (/with or without (?:this|a) trade/.test(line) && !RELEASE_EITHER_WAY.test(line)) out.push(`a release made either way reads “${line}”`);
   }
   return out;
 }

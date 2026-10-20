@@ -414,22 +414,46 @@ function cardPlanBHeadings() {
   const kinds = ["A different set of their players", "The same players of theirs, a different package"];
   return [...document.querySelectorAll("article p")].filter((p) => p.nextElementSibling && kinds.includes(txt(p.nextElementSibling))).map(txt);
 }
-// Checkpoint 7e (planner reply to Checkpoint 7d, item 4.1): the card's "How to offer it" (TradeCard.tsx OffersDisclosure: a
-// <details> whose summary starts with those words), or null; and, opened, what it shows (contracts.ts OffersRead): its status
-// line, each offer of its numbered list (its label, Helps you and the chance as printed from the paragraph that starts with
-// "Helps you", whether its own message has a Copy button; its key, the item's data-offer-key, and its "Also shown as trade
-// idea N." line when it's another card shown: the lead's call, wave D), and whether it shows a failure.
+// Checkpoint 7h (planner reply to Checkpoint 7g, §1: cards closed, "Everything else goes behind one "Details" control …
+// "How to offer it" stays a separate control"; TradeCard.tsx): a card's two controls are 44 px disclosure buttons, each naming
+// its panel (aria-controls; the panel kept in the page with the hidden attribute while closed). cardDisclosure(a, label) is the
+// button whose own words (no screen-reader-only part) start with the label, or null; cardPanel(a, label) its panel, or null;
+// panelOpen(a, label) whether it's open (aria-expanded). The steps open one with a trusted tap on the button.
+function cardDisclosure(a, label) {
+  return [...a.querySelectorAll("button[aria-controls]")].find((b) => visibleText(b).replace(/▾/g, "").trim().startsWith(label)) || null;
+}
+function cardPanel(a, label) {
+  const b = cardDisclosure(a, label);
+  return b ? document.getElementById(b.getAttribute("aria-controls")) : null;
+}
+function panelOpen(a, label) {
+  const b = cardDisclosure(a, label);
+  return !!b && b.getAttribute("aria-expanded") === "true";
+}
+// Checkpoint 7e (planner reply to Checkpoint 7d, item 4.1): the card's "How to offer it" (since Checkpoint 7h its panel:
+// cardPanel), or null; and, opened, what it shows (contracts.ts OffersRead): its status line, each offer of its numbered list
+// (its label, Helps you and the chance as printed from the paragraph that starts with "Helps you", whether its own message has
+// a Copy button; its key, the item's data-offer-key, and its "Also shown as trade idea N." line when it's another card shown:
+// the lead's call, wave D), and whether it shows a failure.
 const OFFER_ALSO = /^Also shown as trade idea \d+\.$/;
 function offersDetails(a) {
-  return [...a.querySelectorAll("details")].find((d) => txt(d.querySelector("summary")).startsWith("How to offer it")) || null;
+  return cardPanel(a, "How to offer it");
 }
-// The card's own "Message to send them" (TradeCard.tsx Message, after the card's facts), or null: never an offer's inside
-// "How to offer it", which comes first in the card and holds its offers' messages, closed, once the card has asked for them
-// (an outcome press's version question does), nor the Plan B box's.
+// The card's own "Message to send them" (TradeCard.tsx Message), or null: since Checkpoint 7h the one in "How to offer it"
+// when its offers hold the trade alone or couldn't be worked out (or in Details on a card without "How to offer it"), never an
+// offer's inside its numbered list, nor the Plan B box's.
 function ownMessage(a) {
   const offers = offersDetails(a);
+  const list = offers ? offers.querySelector("ol") : null;
   const box = planBBox(a);
-  return [...a.querySelectorAll("details")].find((d) => txt(d.querySelector("summary")).startsWith("Message to send them") && !(offers && offers.contains(d)) && !(box && box.contains(d))) || null;
+  return [...a.querySelectorAll("details")].find((d) => txt(d.querySelector("summary")).startsWith("Message to send them") && !(list && list.contains(d)) && !(box && box.contains(d))) || null;
+}
+// The first message "How to offer it" shows (Checkpoint 7h: the first offer's, open, or the card's own), or null: never the Plan
+// B box's. The card step copies it.
+function firstMessage(a) {
+  const offers = offersDetails(a);
+  const box = planBBox(a);
+  return offers ? [...offers.querySelectorAll("details")].find((d) => txt(d.querySelector("summary")).startsWith("Message to send them") && !(box && box.contains(d))) || null : null;
 }
 function offersData(a) {
   const d = offersDetails(a);
@@ -525,18 +549,21 @@ function allCards() {
   return [...document.querySelectorAll("article")].map(cardData);
 }
 // Checkpoint 7e (planner reply to Checkpoint 7d, item 4.2): a card's "now or after this week" line, one of the card's own
-// paragraphs (never inside its Plan B box or its offers), its words as seen (no screen-reader-only part) and its tooltip; and
-// the card's fact that says the tooltip's words ("After this week's games"). contracts.ts nowOrLaterProblems reads them.
+// paragraphs (never inside its Plan B box or its offers; since Checkpoint 7h in its Details), its words as seen (no
+// screen-reader-only part) and its tooltip; and the words that say the tooltip where a phone shows them (since Checkpoint 7h
+// right under the line, data-now-or-later-words; until then the card's fact "After this week's games"). contracts.ts
+// nowOrLaterProblems reads them.
 function nowOrLaterOf(a) {
   const seen = (el) => {
     const c = el.cloneNode(true);
     for (const x of c.querySelectorAll(".sr-only")) x.remove();
     return txt(c);
   };
-  const p = [...a.querySelectorAll(":scope > p")].find((x) => /^Helps you \S+ now\b/.test(txt(x)));
-  const dt = [...a.querySelectorAll("dt")].find((d) => txt(d) === "After this week's games");
-  const dd = dt ? dt.nextElementSibling : null;
-  return { helps: scoreOf(a, "Helps you"), line: p ? { text: seen(p), title: p.getAttribute("title") } : null, fact: dd ? txt(dd) : null };
+  const box = planBBox(a);
+  const offers = offersDetails(a);
+  const p = [...a.querySelectorAll("p[title]")].find((x) => /^Helps you \S+ now\b/.test(txt(x)) && !(box && box.contains(x)) && !(offers && offers.contains(x)));
+  const words = a.querySelector("[data-now-or-later-words]");
+  return { helps: scoreOf(a, "Helps you"), line: p ? { text: seen(p), title: p.getAttribute("title") } : null, fact: words ? txt(words) : null };
 }
 function allNowOrLater() {
   return [...document.querySelectorAll("article")].map(nowOrLaterOf);

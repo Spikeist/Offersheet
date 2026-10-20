@@ -5,11 +5,13 @@
  * Don't redesign anything yet."). `npm run check:browser` takes four, into .cache/check-browser/shots/ with the other
  * screenshots, named so the report can use them (CLUTTER_SHOTS):
  * 1. clutter-1-trade-finder: the whole Trade Finder once every card's "now or after this week" number is in, the ideas in the
- *    order the page opens with (Overall in a fresh browser), nothing on any card opened. Taken at the start of the card step,
+ *    order the page opens with (Overall in a fresh browser), every card closed (since Checkpoint 7h each closed by default:
+ *    planner reply to Checkpoint 7g, §1), nothing on any card opened. Taken at the start of the card step,
  *    before it presses anything (finderShot).
- * 2. clutter-2-trade-card-opened: the first card on its own with everything on it opened: "How to offer it" (its offers worked
- *    out) with each offer's message, its own message and its Plan B box's message. Those are every <details> the card has; its
- *    facts, roster moves and reasons always show. The card is scrolled into view first. Taken at the end of the card step,
+ * 2. clutter-2-trade-card-opened: the first card on its own with everything on it opened: since Checkpoint 7h its two disclosure
+ *    buttons, Details (the odds, the facts, the roster moves, the other reasons, the feedback) and "How to offer it" (its offers
+ *    worked out, then its Plan B box), each by a click, then every <details> the card has: each offer's message, its own and its
+ *    Plan B box's. Until Checkpoint 7h its facts, roster moves and reasons always showed. The card is scrolled into view first. Taken at the end of the card step,
  *    after its checks; the shot then closes what it opened and puts the page's scroll back (openedCardShot).
  * 3. clutter-3-league: the whole League page, its Waiver upgrades rated and on "Rest of season", nothing unfolded. Taken at the
  *    end of the Waivers step, after its checks: the League step itself leaves before the rating is in (leagueShots).
@@ -271,13 +273,16 @@ return {
   cards: cards.length,
   top: r ? Math.round(r.top + window.scrollY) : null,
   height: r ? Math.round(r.height) : null,
-  open: a ? [...a.querySelectorAll("details")].filter((d) => d.open).length : 0,
+  // Checkpoint 7h: the card's open parts are its disclosure buttons' open panels (Details, How to offer it), not the messages
+  // inside them, which can be open while their panel is closed.
+  open: a ? [...a.querySelectorAll("button[aria-controls]")].filter((b) => b.getAttribute("aria-expanded") === "true").length : 0,
   sort: sort && sort.selectedIndex >= 0 ? txt(sort.options[sort.selectedIndex]) : null,
 };`;
 
 /**
- * Opens the first card's "How to offer it" when it's closed (its open state is the card's: React follows the toggle and asks
- * for the offers), keeping what it opened for CLOSE_OPENED_CALL; and the page's scroll, to put back (needs CARD_HELPERS).
+ * Opens the first card's "How to offer it" when it's closed (since Checkpoint 7h a disclosure button: a click, so React follows
+ * it and asks for the offers), keeping what it opened for CLOSE_OPENED_CALL; and the page's scroll, to put back (needs
+ * CARD_HELPERS).
  */
 export const OPEN_OFFERS_CALL = String.raw`// shot:open-offers
 window.__checkOpened = [];
@@ -285,12 +290,12 @@ const a = ${FIRST_CARD};
 const x = window.scrollX;
 const y = window.scrollY;
 if (!a) return { found: false, offers: false, x: x, y: y };
-const d = offersDetails(a);
-if (d && !d.open) {
-  d.open = true;
-  window.__checkOpened.push(d);
+const b = cardDisclosure(a, "How to offer it");
+if (b && b.getAttribute("aria-expanded") !== "true") {
+  b.click();
+  window.__checkOpened.push(b);
 }
-return { found: true, offers: !!d, x: x, y: y };`;
+return { found: true, offers: !!b, x: x, y: y };`;
 
 /** The first card's offers worked out, or failed, or none to work out (a waitFor expression; CARD_HELPERS). */
 export const OFFERS_SETTLED =
@@ -299,13 +304,22 @@ export const OFFERS_SETTLED =
   String.raw`) ? true : null; })()`;
 
 /**
- * Opens every <details> on the first card still closed, keeping which for CLOSE_OPENED_CALL: how many it has, how many the shot
- * opened, and whether the card has a Plan B box (needs CARD_HELPERS).
+ * Opens everything on the first card still closed (since Checkpoint 7h its disclosure buttons, Details among them, with a click,
+ * then every <details>: the messages), keeping which for CLOSE_OPENED_CALL: how many it has, how many the shot opened, and
+ * whether the card has a Plan B box (needs CARD_HELPERS).
  */
 export const OPEN_ALL_CALL = String.raw`// shot:open-all
 const a = ${FIRST_CARD};
 if (!a) return { total: 0, opened: 0, planB: false };
 const list = window.__checkOpened || (window.__checkOpened = []);
+const buttons = [...a.querySelectorAll("button[aria-controls]")].filter((b) => document.getElementById(b.getAttribute("aria-controls")));
+for (const b of buttons) {
+  if (b.getAttribute("aria-expanded") !== "true") {
+    b.click();
+    list.push(b);
+  }
+}
+await sleep(100);
 const all = [...a.querySelectorAll("details")];
 for (const d of all) {
   if (!d.open) {
@@ -313,7 +327,7 @@ for (const d of all) {
     list.push(d);
   }
 }
-return { total: all.length, opened: list.length, planB: !!planBBox(a) };`;
+return { total: buttons.length + all.length, opened: list.length, planB: !!planBBox(a) };`;
 
 /** No Copy button on the first card says "Copied!" (it goes back after 2.5 s: CopyButton.tsx): a waitFor expression. */
 export const NO_COPIED = String.raw`(() => { const a = ${FIRST_CARD}; return !a || ![...a.querySelectorAll("button")].some((b) => txt(b) === "Copied!") ? true : null; })()`;
@@ -327,7 +341,12 @@ return true;`;
 /** Closes what OPEN_OFFERS_CALL and OPEN_ALL_CALL opened, innermost last opened first; how many. */
 export const CLOSE_OPENED_CALL = String.raw`// shot:close
 const list = window.__checkOpened || [];
-for (const d of list.slice().reverse()) if (d.isConnected && d.open) d.open = false;
+for (const d of list.slice().reverse()) {
+  if (!d.isConnected) continue;
+  if (d.tagName === "BUTTON") {
+    if (d.getAttribute("aria-expanded") === "true") d.click();
+  } else if (d.open) d.open = false;
+}
 window.__checkOpened = null;
 return list.length;`;
 

@@ -1554,7 +1554,10 @@ describe("Checkpoint 7c: “Helps both” (planner reply to Checkpoint 7b, §7)"
     expect(labeled).toMatch(/<\/p><p class="text-muted">Also shown as trade idea 2\.<\/p><p class="font-semibold"><span class="whitespace-nowrap">Helps you 50<\/span>/);
     for (const piece of [
       "function offersDetails(a)",
-      'startsWith("How to offer it")',
+      // Checkpoint 7h: "How to offer it" is a disclosure button naming its panel (cardPanel), Details another.
+      'return cardPanel(a, "How to offer it");',
+      "function cardDisclosure(a, label)",
+      'b.getAttribute("aria-controls")',
       "function offersData(a)",
       'ps.map(txt).find((t) => t.startsWith("Helps you ")',
       "/Helps you (\\S+)/",
@@ -1566,19 +1569,24 @@ describe("Checkpoint 7c: “Helps both” (planner reply to Checkpoint 7b, §7)"
       "const OFFER_ALSO = /^Also shown as trade idea \\d+\\.$/;",
       "function cardPlaces(a)",
       'a.closest("li[data-trade-key]")',
-      // Checkpoint 7e's live check: once an outcome press's version question has loaded the offers, "How to offer it"
-      // holds their messages, closed, ahead of the card's own, so the card's own is found past them and the Plan B box's.
+      // The card's own message (since Checkpoint 7h only in "How to offer it" when its offers hold the trade alone) is never an
+      // offer's inside its numbered list, nor the Plan B box's; the first message it shows is the card step's to copy.
       "function ownMessage(a)",
-      "!(offers && offers.contains(d)) && !(box && box.contains(d))",
+      "!(list && list.contains(d)) && !(box && box.contains(d))",
       "const pitch = ownMessage(a);",
+      "function firstMessage(a)",
     ]) {
       expect(CARD_HELPERS, piece).toContain(piece);
     }
-    // TradeCard puts "How to offer it" ahead of the card's own message, which is why the card step can't take the first one.
+    // TradeCard: the two controls (Details, then "How to offer it"), each a button naming a panel the reader finds by its id;
+    // the closed card shows no message (Checkpoint 7h).
     const card = buildTradeCard(base, { snapshot });
     const html = renderToStaticMarkup(createElement(TradeCard, { card, rank: 1, feedback: noFeedback, onFeedback: saved, onOffers: async () => ladder }));
-    expect(html.indexOf(">How to offer it")).toBeGreaterThan(-1);
-    expect(html.indexOf(">How to offer it")).toBeLessThan(html.lastIndexOf(">Message to send them"));
+    const controls = [...html.matchAll(/<button type="button" aria-expanded="false" aria-controls="([^"]+)"[^>]*><span class="min-w-0">([^<]+)<span class="sr-only">/g)].map((m) => [m[2], html.includes(`<div id="${m[1] ?? ""}" hidden=""`)]);
+    expect(controls).toEqual([
+      ["Details", true],
+      ["How to offer it", true],
+    ]);
   });
 
   it("Checkpoint 7e: an offer that is another idea shown says so with that idea's place, and no other offer does (offersAlsoProblems; the lead's call, wave D)", () => {
