@@ -188,7 +188,19 @@
  *    review of Checkpoint 7g (merge-ui-report-after-merge, the lead's ruling W3): a merged or dropped trade that wasn't a card
  *    without the merge says what let it in, a merge or a dropped version, when its list's records tell, else both (freedByOf,
  *    freedWords: it read "a card only after another merge" whatever did), the cards that left say the same of what pushed them
- *    off, and a merged Last offer reads "a card without the merge" only when it was one.
+ *    off, and a merged Last offer reads "a card without the merge" only when it was one. Checkpoint 7h (planner reply to
+ *    Checkpoint 7g, answer 3: "No: promote it. … Count how often this happens on Parker's leagues."; mergeSection): the Last
+ *    offers promoted to cards, each with the idea it came from.
+ * 12. The search against a brute force, and the Thorough search (Checkpoint 7h; planner reply to Checkpoint 7g, sections 2
+ *    and 3; scripts/lib/wholeSearch.ts, its own file header): under each setting (section 1's search, and section 2's), the
+ *    brute force (search.ts mode "bruteForce", a report switch the app never sets: every 1-for-1, 1-for-2, 2-for-1 and
+ *    2-for-2 with every partner from whole rosters, the same screening objective, then exact evaluation and the simulation on
+ *    the best of them) and the Thorough search (mode "thorough", the Trade Finder's switch), each cold on a trade context of
+ *    its own: their times; how many of the brute force's top 10 and top 25 by Overall (its finalists by EG, past the guards
+ *    and the minimum chance, and its own card list) the app's search evaluated exactly, made a finalist and showed (as a card,
+ *    among a card's offers, or dropped for a better version it shows); the best trade it missed with its numbers, and where
+ *    each of the brute force's top 10 fell out of the app's search, read off its own rules (its candidates screened again on
+ *    the same context); the promotions (answer 3); and the Thorough search's cards the app's search doesn't show.
  *
  * Phase 7b (planner reply to Checkpoint 7a, §6.1): the settings line names the playoff weeks' weight ω every ROS(T) of the
  * search reads, set automatically from my odds under my goal (league.ts step 5c; league-report's playoffWeightSummary: the
@@ -265,6 +277,7 @@ import { ROOT, env, loadEnv } from "./lib/env";
 import { redactorFromMap } from "./lib/minimize";
 import { installConsoleScrubber, registerScrubber, scrubEverything, scrubEverythingExcept } from "./lib/redact";
 import { isMainModule, prizesReadLine, reportArgs, reportCommandText, reportSourceLine, setNetworkMode, wantsLive, type DumpInfo, type Env, type ReportArgs } from "./lib/runMode";
+import { wholeSearchLines, wholeSearchSetting, wholeSummary, type WholeSearchSetting } from "./lib/wholeSearch";
 
 // ---------------------------------------------------------------------------------------------
 // Report choices (not model tunables: nothing the engine computes depends on them)
@@ -2680,6 +2693,8 @@ export interface TradeReportOptions {
    * 2, 3 and 10 (prizesSettingsOf; section 10 reads section 2's search); without them, the prefilled split.
    */
   prizes?: PrizeAmounts | null;
+  /** Section 12 (Checkpoint 7h): the brute force and the Thorough search under each setting; false leaves it out (default true). */
+  wholeRosters?: boolean;
 }
 
 export interface TradeReport {
@@ -2711,6 +2726,11 @@ export interface TradeReport {
   helpsBoth: HelpsBothSection;
   /** Section 11 (Checkpoint 7e): "How to offer it" under each setting. */
   ladders: LadderSection;
+  /**
+   * Section 12 (Checkpoint 7h): the brute force and the Thorough search under section 1's setting (`title`) and section 2's
+   * (`other`), each null when that setting's search stopped before ranking; null with TradeReportOptions.wholeRosters false.
+   */
+  whole: { title: WholeSearchSetting | null; other: WholeSearchSetting | null } | null;
   /** This report's own stages, ms ("total": everything buildTradeReport did). */
   timing: Record<string, number>;
 }
@@ -2796,8 +2816,18 @@ export function buildTradeReport(input: LeagueSnapshot, inputs: ModelInputs, opt
     other: { rows: splitLadders.rows, better: ladderBetter(splitLadders.result, TOP_DETAIL), merge: mergeSection(splitLadders.result, unmerged.other, offersMs(goals.result.timings.offers)) },
   };
   lap("ladders");
+  // Section 12 (Checkpoint 7h; planner reply to Checkpoint 7g, sections 2 and 3): the brute force and the Thorough search under
+  // each setting, each cold on a trade context of its own, against that setting's search (section 1's, section 2's).
+  const whole =
+    opts.wholeRosters === false
+      ? null
+      : {
+          title: wholeSearchSetting(snapshot, inputs, { now, clock, settings, ...sc, label: GOAL_WORDS[settings.goal] }, { ctx, result }),
+          other: wholeSearchSetting(snapshot, inputs, { now, clock, settings: prizesSettings, ...sc, label: GOAL_WORDS[prizesSettings.goal] }, { ctx: prizesCtx, result: goals.result }),
+        };
+  lap("whole rosters");
   timing.total = clock() - start;
-  const report: Omit<TradeReport, "doc"> = { snapshot, pre4c, settings, prizes: opts.prizes ?? null, ctx, result, model: league.model, league: { cold: league.cold, warm: league.warm }, runtime, beams: { result: beams.result, runtime: beams.runtime }, goals, scale, gap, filter, blend, odds, anchors, premiumAnchors, neutral, kickoff, pickupWeeks: weeks, openSpots, helpsBoth, ladders, timing };
+  const report: Omit<TradeReport, "doc"> = { snapshot, pre4c, settings, prizes: opts.prizes ?? null, ctx, result, model: league.model, league: { cold: league.cold, warm: league.warm }, runtime, beams: { result: beams.result, runtime: beams.runtime }, goals, scale, gap, filter, blend, odds, anchors, premiumAnchors, neutral, kickoff, pickupWeeks: weeks, openSpots, helpsBoth, ladders, whole, timing };
   return { ...report, doc: render(snapshot, inputs, opts, report) };
 }
 
@@ -2826,6 +2856,7 @@ function render(snapshot: LeagueSnapshot, inputs: ModelInputs, opts: TradeReport
   renderOpenSpots(L, snapshot, r, teamName);
   renderHelpsBoth(L, snapshot, inputs, r, teamName);
   renderLadders(L, snapshot, inputs, r, teamName);
+  renderWholeSearch(L, snapshot, r, teamName);
   return L.join("\n");
 }
 
@@ -2838,7 +2869,7 @@ function renderHeader(L: string[], snapshot: LeagueSnapshot, inputs: ModelInputs
   const s = r.settings;
   const model = r.model;
   const me = r.result.myTeamId;
-  L.push("# Trade search: Parker's ESPN league (Checkpoint 7g)", "");
+  L.push("# Trade search: Parker's ESPN league (Checkpoint 7h)", "");
   L.push(
     `Generated by \`${opts.command ?? commandText("trade:report", [opts.mode === "live" ? "--live" : null])}\` on ${(opts.generatedAt ?? opts.now).toISOString().slice(0, 10)} through the real engine, as the app's Web Workers run it. Team, owner and league names are placeholders (you are Team ${me ?? "–"}); NFL player names are public.`,
     "",
@@ -3628,6 +3659,29 @@ function renderLadders(L: string[], snapshot: LeagueSnapshot, inputs: ModelInput
   setting(`${other}${r.goals.reward ? ` (${prizesWords(r.goals.reward)})` : ""}`, r.ladders.other, r.goals.result);
 }
 
+/** Section 12 (Checkpoint 7h; the file header): the search against a brute force and the Thorough search, under each setting. */
+function renderWholeSearch(L: string[], snapshot: LeagueSnapshot, r: Report, teamName: (id: string) => string): void {
+  if (!r.whole) return;
+  const b = config.search.bruteForce;
+  const t = config.search.thorough;
+  L.push("## 12. The search against a brute force, and the Thorough search", "");
+  L.push(
+    `Planner reply to Checkpoint 7g, section 2: "screen every 1-for-1, 1-for-2, 2-for-1 and 2-for-2 trade with every partner. Use whole rosters, not just the pools, and the same screening objective. Then run exact evaluation and the simulation on the best of them." The brute force (search.ts mode "bruteForce", a report switch the app never sets): every such trade within ${r.settings.maxPerSide} players a side, from every tradable player of yours and of theirs (after your filters), screened with the screening objective, the best ${b.keptPerPartner} a partner and ${thousands(b.exactEvaluationMax)} in all evaluated exactly, ${b.finalists} finalists played out on the ranking block's ${thousands(config.simulation.finalSims)} seasons, then ranked into its own list as the app ranks. **Raw**: its finalists by Overall (EG, B × P_complete, on the ranking block), past the guards (B > 0, the market guard) and the minimum chance as printed, before the list's variety rules, so near-duplicates count one each. **Capped**: its own card list. Each count reads "evaluated exactly / made a finalist / showed as a card (or among a card's offers, or dropped for a better version it shows)". Where a trade fell out of the app's search is read off the app's own rules, its candidates screened again on the same context (search.buildPools, partnerCandidates, screeningRules, shortlistOf). Section 3: the Thorough search (mode "thorough", the Trade Finder's switch: the same whole-roster trades with ${t.keptPerPartner} a partner and ${thousands(t.exactEvaluationMax)} in all evaluated exactly, plus trades with ${t.maxPerSide} players a side from each side's top ${t.threePool}, ${t.three.keptPerPartner} a partner and ${t.three.exactEvaluationMax} in all, ${t.finalists} finalists); "aim for under 60 seconds on Parker's computer in his 12-team league". Each search runs cold on a trade context of its own (context and search, in Node); the comparisons are deterministic (every context built from the same data, settings and moment plays the same seasons).`,
+    "",
+  );
+  const otherLabel = `${GOAL_WORDS[r.goals.goal]}${r.goals.reward ? ` (${prizesWords(r.goals.reward)})` : ""}`;
+  for (const [s, label] of [
+    [r.whole.title, GOAL_WORDS[r.settings.goal]],
+    [r.whole.other, otherLabel],
+  ] as const) {
+    if (!s) {
+      L.push(`**${label}**: the search stopped before ranking.`, "");
+      continue;
+    }
+    L.push(...wholeSearchLines({ ...s, label }, snapshot, teamName));
+  }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Loading (live through the app's caches, or the offline dump)
 
@@ -3707,7 +3761,7 @@ async function main(): Promise<void> {
   const anchors = [...report.anchors, ...report.premiumAnchors];
   console.log(
     scrubEverything(
-      `trade report written (${args.dump ? "offline" : "live"}) in ${ms(report.timing.total)}: ${c.shown} cards (Plan B ${c.planB}, injury-tagged received ${c.injuredGet}, Plan B boxes with one ${c.planBInjuredGet}); playoff weeks × ${report.model.playoffWeight} (${report.model.playoffWeightAuto?.basis ?? "?"}); search ${ms(report.runtime.search.total)} warm, ${thousands(report.result.counts.screened)} screened; top card Helps you ${top?.tradeScore ?? "–"}, Overall ${top?.overall ?? "–"}; ${GAP_TRADE.get.join(" + ")} card ${report.gap.card ?? "–"}; anchors ${anchors.filter((a) => a.pass).length}/${anchors.length}; baseline = LeagueModel.odds ${report.odds.baselineEqual ? "yes" : "NO"}${report.pre4c ? "; a dump from before the 4c adapter, put on the weekly reset order" : ""}; ${GOAL_WORDS[report.goals.goal]} (${report.goals.reward ? prizesWords(report.goals.reward) : "–"}): ω ${report.goals.omega.other}×, B₃ ${fmt(report.scale.b3[report.goals.goal]?.b3, 2)}, ${report.goals.commonTop} of the top ${GOAL_TOP} kept, ${helpsBothSummary(report.helpsBoth, report.settings.goal)}; ${ladderSummary(report.ladders, GOAL_WORDS[report.goals.goal])}`,
+      `trade report written (${args.dump ? "offline" : "live"}) in ${ms(report.timing.total)}: ${c.shown} cards (Plan B ${c.planB}, injury-tagged received ${c.injuredGet}, Plan B boxes with one ${c.planBInjuredGet}); playoff weeks × ${report.model.playoffWeight} (${report.model.playoffWeightAuto?.basis ?? "?"}); search ${ms(report.runtime.search.total)} warm, ${thousands(report.result.counts.screened)} screened; top card Helps you ${top?.tradeScore ?? "–"}, Overall ${top?.overall ?? "–"}; ${GAP_TRADE.get.join(" + ")} card ${report.gap.card ?? "–"}; anchors ${anchors.filter((a) => a.pass).length}/${anchors.length}; baseline = LeagueModel.odds ${report.odds.baselineEqual ? "yes" : "NO"}${report.pre4c ? "; a dump from before the 4c adapter, put on the weekly reset order" : ""}; ${GOAL_WORDS[report.goals.goal]} (${report.goals.reward ? prizesWords(report.goals.reward) : "–"}): ω ${report.goals.omega.other}×, B₃ ${fmt(report.scale.b3[report.goals.goal]?.b3, 2)}, ${report.goals.commonTop} of the top ${GOAL_TOP} kept, ${helpsBothSummary(report.helpsBoth, report.settings.goal)}; ${ladderSummary(report.ladders, GOAL_WORDS[report.goals.goal])}${report.whole ? `; ${wholeSummary(report.whole.title, GOAL_WORDS[report.settings.goal])}; ${wholeSummary(report.whole.other, GOAL_WORDS[report.goals.goal])}` : ""}`,
     ),
   );
 }
