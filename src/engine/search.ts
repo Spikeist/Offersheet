@@ -509,17 +509,20 @@ import { patternNote, type PatternInputs } from "./pattern";
 import { prizeDeltas } from "./reward";
 import { addGainExact } from "./teamValue";
 import { addedGiven, choosePlanB, givenCapSkip, planBCandidates, planBConfig, smallerAskOf, type PlanBConfig } from "./planB";
-import { choiceOffers, ladderFromChoice, ladderJobOfSearch, ladderNeighbors, offerFeasible, searchLadderChoiceSteps, type LadderChoice } from "./offers";
+import { choiceOffers, forcedOpenOk, ladderFromChoice, ladderJobOfSearch, ladderNeighbors, offerFeasible, searchLadderChoiceSteps, type LadderChoice } from "./offers";
 import { compareOverall, rankTrades, versionsOfSameTrade, type RankConfig, type RankedTrades, type RankOptions } from "./rank";
 import { defaultTradeSettings, normalizeTradeSettings, type TradeSettings } from "./settings";
 import type {
   DominatedTrade,
   HelpsBothList,
+  HigherEarlierOffer,
   MergedCards,
   MergedTrade,
+  NotPromoted,
   OfferLadder,
   PatternNote,
   PlanB,
+  PromotedTrade,
   TradeAsset,
   TradeEvaluation,
   TradeEvaluationCore,
@@ -587,9 +590,16 @@ export interface TradeSearchOptions {
   preferListed?: boolean;
   /**
    * Report and test switch (the app never sets it): false leaves out Checkpoint 7g's dropped versions (answer 3(c)). Default
-   * true. With every Checkpoint 7g switch off (these three) the search is Checkpoint 7f's, bit for bit (search.merge7g.test.ts).
+   * true. With every Checkpoint 7g switch off (these three) and Checkpoint 7h's promoteLastOffers off, the search is Checkpoint
+   * 7f's on Checkpoint 7h's config, bit for bit (search.merge7g.test.ts).
    */
   dropDominated?: boolean;
+  /**
+   * Report and test switch (the app never sets it): false leaves out Checkpoint 7h's promoted Last offers (planner reply to
+   * Checkpoint 7g, answer 3; the file header, "Promoted Last offers"), so a Last offer printing a higher Overall than its card
+   * stays its Last offer, as at Checkpoint 7g, and the merge works out only the ladders it reads. Default true.
+   */
+  promoteLastOffers?: boolean;
 }
 
 /** Gains closer than this are ties (float noise, not a tunable). */
@@ -1393,6 +1403,8 @@ export interface SearchState {
   readonly smallerAsks: boolean;
   readonly preferListed: boolean;
   readonly dropDominated: boolean;
+  /** Checkpoint 7h: whether a Last offer printing a higher Overall than its card is promoted (TradeSearchOptions.promoteLastOffers). */
+  readonly promoteLastOffers: boolean;
   /**
    * Versions on the screening block by key: the exact trades' (their screening numbers) and, since Checkpoint 7e, the ones
    * "How to offer it" evaluates (offers.ts adds them; a re-filter's state shares the map). Until then the steps'.
@@ -1421,6 +1433,12 @@ export interface SearchState {
    * offerLadderOfSearch works out the very ladder the merge read. Set on the state a result is registered with (resultOf).
    */
   readonly prefers?: ReadonlyMap<string, ReadonlySet<string>>;
+  /**
+   * Checkpoint 7h (the file header, "Promoted Last offers"): each promoted card's forced "Open with", the idea it was promoted
+   * from (by card key), so offers.ts offerLadderOfSearch works out the very ladder the merge read. Set on the state a result is
+   * registered with (resultOf).
+   */
+  readonly opens?: ReadonlyMap<string, string>;
 }
 
 const states = new WeakMap<TradeSearchResult, SearchState>();
@@ -1458,6 +1476,8 @@ interface Finished {
   ladders: Map<string, OfferLadder>;
   /** Checkpoint 7g (the file header, "Merged cards, Checkpoint 7g"): the shown cards' preferences (SearchState.prefers, TradeSearchResult.offerPrefer). */
   prefers: Map<string, ReadonlySet<string>>;
+  /** Checkpoint 7h (the file header, "Promoted Last offers"): the shown cards' forced Opens (SearchState.opens, TradeSearchResult.offerOpen). */
+  opens: Map<string, string>;
 }
 
 /** Two of rank.ts's dropped counts added up. */
@@ -1657,8 +1677,11 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
   // Helps-you order. Each list's rankings leave out the trades merged into one of its cards, which the filler rule reads as
   // kept (Checkpoint 7f: rank.ts RankOptions.shownElsewhere; the file header, "Merged cards").
   const keepBoth = (t: TradeEvaluation) => helpsBoth(t);
-  const overallOptions = (elsewhere: readonly TradeEvaluation[]): RankOptions => ({ minChance, givenCapExempt: forcedGive, shownElsewhere: elsewhere });
-  const bothOptions = (elsewhere: readonly TradeEvaluation[]): RankOptions => ({ minChance, givenCapExempt: forcedGive, order: "helps", keep: keepBoth, shownElsewhere: elsewhere });
+  // Checkpoint 7h: `exempt`, a list's promoted Last offers by key, each with the idea it was promoted from (rank.ts
+  // RankOptions.fillerExempt: never filler of it).
+  const exemptOf = (exempt?: ReadonlyMap<string, string>): Partial<RankOptions> => (exempt && exempt.size ? { fillerExempt: exempt } : {});
+  const overallOptions = (elsewhere: readonly TradeEvaluation[], exempt?: ReadonlyMap<string, string>): RankOptions => ({ minChance, givenCapExempt: forcedGive, shownElsewhere: elsewhere, ...exemptOf(exempt) });
+  const bothOptions = (elsewhere: readonly TradeEvaluation[], exempt?: ReadonlyMap<string, string>): RankOptions => ({ minChance, givenCapExempt: forcedGive, order: "helps", keep: keepBoth, shownElsewhere: elsewhere, ...exemptOf(exempt) });
   const without = (list: readonly TradeEvaluation[], merged: ReadonlyMap<string, unknown>): readonly TradeEvaluation[] => (merged.size ? list.filter((c) => !merged.has(c.key)) : list);
   // The merged trades with the numbers `numbers` gives (the ranking block's: as they are; or as printed).
   const mergedTrades = (merged: ReadonlyMap<string, unknown>, numbers: (t: TradeEvaluation) => TradeEvaluation): TradeEvaluation[] =>
@@ -1667,8 +1690,13 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
       return t ? [numbers(t)] : [];
     });
   const asRanked = (t: TradeEvaluation): TradeEvaluation => t;
-  const rankOverall = (merged: ReadonlyMap<string, unknown>): RankedTrades => rankTrades(without(regular, merged), value, caps, overallOptions(mergedTrades(merged, asRanked)));
-  const rankBoth = (merged: ReadonlyMap<string, unknown>): RankedTrades => rankTrades(without(all, merged), value, caps, bothOptions(mergedTrades(merged, asRanked)));
+  // Checkpoint 7h (the file header, "Promoted Last offers"): a list ranks its promoted Last offers too, with their numbers on the
+  // ranking block (`added`: the ones its own candidates don't hold already).
+  const withAdded = (base: readonly TradeEvaluation[], added: readonly TradeEvaluation[]): readonly TradeEvaluation[] => (added.length ? [...base, ...added] : base);
+  const rankOverall = (merged: ReadonlyMap<string, unknown>, added: readonly TradeEvaluation[] = [], exempt?: ReadonlyMap<string, string>): RankedTrades =>
+    rankTrades(without(withAdded(regular, added), merged), value, caps, overallOptions(mergedTrades(merged, asRanked), exempt));
+  const rankBoth = (merged: ReadonlyMap<string, unknown>, added: readonly TradeEvaluation[] = [], exempt?: ReadonlyMap<string, string>): RankedTrades =>
+    rankTrades(without(withAdded(all, added), merged), value, caps, bothOptions(mergedTrades(merged, asRanked), exempt));
   const noneMerged = new Map<string, MergedTrade>();
   const firstOverall = rankOverall(noneMerged);
   const firstBoth = rankBoth(noneMerged);
@@ -1697,6 +1725,8 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
   };
   let part: TradeSearchProgress["part"] = own ? "shown" : undefined;
   const progress = (): TradeSearchProgress => ({ stage: "rank", done: finished.size, total: Math.max(1, planned.size), ...(part ? { part } : {}) });
+  // A trade's exact evaluation: an exact trade's, or since Checkpoint 7h a ladder's version (a promoted Last offer: SearchState.versions).
+  const exactOf = (key: string): ExactTrade | undefined => exactByKey.get(key) ?? state.versions.get(key)?.x;
   function* shownRun(key: string): Generator<TradeSearchProgress, void, void> {
     if (!state.shownPass || !sim || state.shownByKey.has(key)) return;
     if (!own) {
@@ -1704,7 +1734,7 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
       if (ranking) state.shownByKey.set(key, ranking);
       return;
     }
-    const x = exactByKey.get(key);
+    const x = exactOf(key);
     if (!x) return;
     // A yield before each run too: a run on the shown block is the stage's longest unit of work (about 35–47 ms on Parker's
     // leagues in Node since Checkpoint 7f, continuing its ranking run; 45–61 before), so no slice holds a run and other work
@@ -1744,13 +1774,16 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
   const choices = new Map<string, LadderChoice | null>();
   // Checkpoint 7g (answer 3(b)): each card's preference, fixed when its ladder is first worked out (SearchState.prefers).
   const prefers = new Map<string, ReadonlySet<string>>();
+  // Checkpoint 7h (answer 3; "Promoted Last offers" in the file header): each promoted card's forced Open, the idea it was
+  // promoted from, set before its ladder is first worked out and fixed from then on (SearchState.opens), both lists'.
+  const opens = new Map<string, string>();
   let ladderSteps = 0;
   function* choiceOf(card: TradeEvaluation, prefer?: ReadonlySet<string>): Generator<TradeSearchProgress, LadderChoice | null, void> {
     const known = choices.get(card.key);
     if (known !== undefined) return known;
     if (prefer && prefer.size) prefers.set(card.key, prefer);
     mark("steps");
-    const it = searchLadderChoiceSteps(ladderJobOfSearch(state, card, prefers.get(card.key)));
+    const it = searchLadderChoiceSteps(ladderJobOfSearch(state, card, prefers.get(card.key), opens.get(card.key)));
     const was = part;
     part = "offers";
     let r = it.next();
@@ -1779,7 +1812,17 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
     released: Set<string>;
     restored: Set<string>;
     rounds: number;
+    /** Checkpoint 7h ("Promoted Last offers"): the list's promoted Last offers, by key, in the order they were promoted. */
+    promoted: Map<string, PromotedTrade>;
+    /** Their numbers on the ranking block, for those the list's own candidates don't hold (the list ranks them too). */
+    added: Map<string, TradeEvaluation>;
+    /** The ideas a chain of promotions left out, for good. */
+    superseded: Set<string>;
+    /** The Last offers printing a higher Overall than their card that weren't promoted, as the list's last pass found them. */
+    notPromoted: NotPromoted[];
   }
+  // Every trade's printed EG (B × P_complete on the printed numbers; −∞ without B): the Overall order on one block (one B₃).
+  const printedEg = (c: Pick<TradeEvaluationCore, "b" | "pComplete">): number => (c.b === null || !Number.isFinite(c.b) ? Number.NEGATIVE_INFINITY : c.b * c.pComplete);
   // The keys of `pool` that could be `card`'s offers by the rules on the numbers both print (offers.ts ladderNeighbors, each
   // kind a neighbor can be, and offerFeasible), each once, in `pool`'s order (Checkpoint 7f's test; preferredOf's `feasible`).
   const feasibleOf = (card: TradeEvaluation, pool: readonly TradeEvaluation[]): string[] => {
@@ -1877,35 +1920,156 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
   // ⚠️ when one of them held merged trades, the release rule runs at once, on the list without them, so the next round ranks
   // the trades given back before (c) reads the list again; and once a round merges none, drops none and gives no merged
   // trade back, a dropped version whose `by` is no longer a card of the list or a trade merged into one is re-pointed to
-  // another that beats it, else given back for good (the final review's E2, merge-c-by-can-leave).
+  // another that beats it, else given back for good (the final review's E2, merge-c-by-can-leave). Checkpoint 7h (the file
+  // header, "Promoted Last offers"): once a round merges none, drops none and gives nothing back, every card's ladder, and the
+  // cards whose Last offer prints a higher Overall than they do are promoted (promote), and the rounds go on; the release rule
+  // leaves out for good an idea whose promoted card was promoted in turn and that no card above it offers (`superseded`).
   function* settle(
     first: RankedTrades,
-    rank: (out: ReadonlyMap<string, unknown>) => RankedTrades,
-    options: (elsewhere: readonly TradeEvaluation[]) => RankOptions,
+    rank: (out: ReadonlyMap<string, unknown>, added: readonly TradeEvaluation[], exempt?: ReadonlyMap<string, string>) => RankedTrades,
+    options: (elsewhere: readonly TradeEvaluation[], exempt?: ReadonlyMap<string, string>) => RankOptions,
     list: "overall" | "helpsBoth",
     other: () => readonly TradeEvaluation[],
     otherHolders: () => ReadonlySet<string>,
+    base: ReadonlySet<string>,
   ): Generator<TradeSearchProgress, Settled, void> {
     const merged = new Map<string, MergedTrade>();
     const dominated = new Map<string, DominatedTrade>();
     const released = new Set<string>();
     const restored = new Set<string>();
-    // The trades out of the list's rankings (the filler rule's references): the merged ones and the dropped versions.
-    const outOf = (): ReadonlyMap<string, unknown> => (dominated.size ? new Map<string, unknown>([...merged, ...dominated]) : merged);
+    // Checkpoint 7h: the list's promotions, the promoted trades its candidates add, the ideas promoted (merged into their
+    // promoted card), the ideas a chain left out, and the Last offers its last pass didn't promote.
+    const promoted = new Map<string, PromotedTrade>();
+    const added = new Map<string, TradeEvaluation>();
+    const origins = new Set<string>();
+    const superseded = new Set<string>();
+    let notPromoted: NotPromoted[] = [];
+    // The trades out of the list's rankings (the filler rule's references): the merged ones and the dropped versions (and since
+    // Checkpoint 7h the ideas a chain of promotions left out).
+    const outOf = (): ReadonlyMap<string, unknown> =>
+      dominated.size || superseded.size ? new Map<string, unknown>([...merged, ...dominated, ...[...superseded].map((k): [string, unknown] => [k, true])]) : merged;
+    // Checkpoint 7h: each promoted Last offer with the idea it was promoted from, never its filler (rank.ts RankOptions.fillerExempt).
+    const exemptNow = (): ReadonlyMap<string, string> => new Map([...promoted.values()].map((p) => [p.key, p.from]));
     // The release rule on `cards` (the list as it stands): each merged trade's card is one on the list above it (a card merged
-    // or dropped later hands its own on to the one holding them: holderAbove), the others come back for good. Their keys.
+    // or dropped later hands its own on to the one holding them: holderAbove), the others come back for good. ⚠️ Since
+    // Checkpoint 7h (the lead's ruling for a chain of promotions: "the earlier version goes where the newest card's ladder rules
+    // place it, or leaves (counted)"): an idea merged into its promoted card, whose card was promoted in turn (merged into the
+    // newer card as its forced Open) and that no card above it offers, leaves the list for good (`superseded`) rather than
+    // coming back. Their keys, given back or left out.
     function* release(cards: readonly TradeEvaluation[]): Generator<TradeSearchProgress, string[], void> {
       const back: string[] = [];
+      const gone: string[] = [];
       for (const m of [...merged.values()]) {
         const holder = yield* holderAbove(m, cards);
         if (holder) merged.set(m.key, holder);
+        else if (origins.has(m.key) && origins.has(m.into)) gone.push(m.key);
         else back.push(m.key);
+      }
+      for (const key of gone) {
+        merged.delete(key);
+        superseded.add(key);
       }
       for (const key of back) {
         merged.delete(key);
         released.add(key);
       }
-      return back;
+      return [...back, ...gone];
+    }
+    // A trade's numbers on the ranking block (Checkpoint 7h: a promoted Last offer is a ladder's version, never simulated there
+    // unless the search ranked it or a Plan B box needed it), simulated once (finalByKey, as a Plan B candidate is), a progress
+    // unit; under the "offers" timing, the merge's own work.
+    function* rankingCoreOf(key: string): Generator<TradeSearchProgress, TradeEvaluationCore | null, void> {
+      const known = finalByKey.get(key);
+      if (known) return known;
+      const x = exactOf(key);
+      if (!x) return null;
+      yield progress();
+      mark("steps");
+      const core = simulateTrade(I, x, "final", settings.lambda, settings.protectValue, reward);
+      finalByKey.set(key, core);
+      mark("offers");
+      unit(`promote:${key}`);
+      yield progress();
+      return core;
+    }
+    // ⚠️ The promotion pass (Checkpoint 7h; planner reply to Checkpoint 7g, answer 3: "When an offer list finds a version with a
+    // higher Overall than the idea it sits under: that version becomes the idea; the original becomes its "Open with" step, the
+    // bigger ask."; the lead's rulings; the file header, "Promoted Last offers"). Every card's ladder first (choiceOf: a card
+    // whose ladder the merge didn't read gets the one its first open would give, with no preference, so its offers are the
+    // ones Checkpoint 7g showed when it was opened). Then, going down the cards by Overall as printed, each card whose Last
+    // offer prints a higher Overall (EG on the printed numbers) than it does is a candidate, unless (NotPromoted's reasons): the
+    // card is a merged trade given back ("released": never merged again); the Last offer is a card of the list already
+    // ("card": it stays, labeled on this card's offers as before); it's merged, dropped or left out on the list ("shown");
+    // another idea's promotion took it, this pass or before, or its ladder was worked out before without this card as its Open
+    // ("taken": a card's ladder, once worked out, is fixed, as its preference is: Checkpoint 7g's D11); or the card can't be its
+    // Open by the Open's other rules (offers.ts forcedOpenOk: "open"). Each candidate's Last offer gets its numbers on the
+    // ranking block (rankingCoreOf; its printed ones are the ladder's). ⚠️ Then (ours) the list is ranked as the next round
+    // would rank it, with every candidate promoted, and a candidate whose Last offer that ranking doesn't keep (the list's own
+    // rules: the given-player cap, most often, the throw-in being a player of mine other cards give too, or the partner's or
+    // the core's cap) isn't promoted ("rules"), until every candidate left is kept: its card stays, with that Last offer, so no
+    // round is spent promoting a version the list then drops and giving its card back (on smallLeague 1 at 10%, 7 of 7 promoted
+    // throw-ins gave a player of mine the top 3 cards give already). The rest are promoted: the Last offer joins the list's
+    // candidates, its forced Open the card (`opens`: offers.ts LadderJob.open, its ladder worked out with it), and the card is
+    // merged into it as its "open". Whether any was promoted.
+    function* promote(cards: readonly TradeEvaluation[]): Generator<TradeSearchProgress, boolean, void> {
+      const order = [...cards].sort(compareOverall);
+      for (const c of order) yield* choiceOf(c);
+      const listed = new Set(cards.map((c) => c.key));
+      const misses: NotPromoted[] = [];
+      let candidates: { card: TradeEvaluation; last: NonNullable<LadderChoice["last"]>; ranked: TradeEvaluation }[] = [];
+      const takenNow = new Set<string>();
+      for (const c of order) {
+        const last = choices.get(c.key)?.last;
+        if (!last || !(printedEg(last.printed) > printedEg(c) + EPS)) continue;
+        const p = last.printed.key;
+        const reason: NotPromoted["reason"] | null = released.has(c.key)
+          ? "released"
+          : listed.has(p)
+            ? "card"
+            : merged.has(p) || dominated.has(p) || superseded.has(p)
+              ? "shown"
+              : takenNow.has(p) || ((opens.has(p) || choices.has(p)) && opens.get(p) !== c.key)
+                ? "taken"
+                : !forcedOpenOk(last.printed, c, minChance)
+                  ? "open"
+                  : null;
+        if (reason) {
+          misses.push({ card: c.key, offer: p, list, reason });
+          continue;
+        }
+        const core = yield* rankingCoreOf(p);
+        if (!core) {
+          misses.push({ card: c.key, offer: p, list, reason: "taken" });
+          continue;
+        }
+        takenNow.add(p);
+        candidates.push({ card: c, last, ranked: bare(core) });
+      }
+      // The list as the next round ranks it, every candidate promoted; the ones it doesn't keep leave the candidates, until none.
+      for (;;) {
+        if (!candidates.length) break;
+        const out = new Map<string, unknown>([...outOf(), ...candidates.map((x): [string, unknown] => [x.card.key, true])]);
+        const add = [...added.values(), ...candidates.filter((x) => !base.has(x.ranked.key)).map((x) => x.ranked)];
+        const exempt = new Map([...exemptNow(), ...candidates.map((x): [string, string] => [x.ranked.key, x.card.key])]);
+        const kept = new Set(rank(out, add, exempt).trades.map((t) => t.key));
+        const next = candidates.filter((x) => kept.has(x.ranked.key));
+        if (next.length === candidates.length) break;
+        for (const x of candidates) if (!kept.has(x.ranked.key)) misses.push({ card: x.card.key, offer: x.ranked.key, list, reason: "rules" });
+        candidates = next;
+      }
+      for (const { card: c, last, ranked } of candidates) {
+        const p = ranked.key;
+        finalOfKey.set(p, ranked);
+        if (!base.has(p)) added.set(p, ranked);
+        if (own && !state.shownByKey.has(p)) state.shownByKey.set(p, last.printed);
+        opens.set(p, c.key);
+        merged.set(c.key, { key: c.key, into: p, kind: "open" });
+        origins.add(c.key);
+        promoted.set(p, { key: p, from: c.key, list, kind: last.kind });
+      }
+      mark("rank");
+      notPromoted = misses;
+      return candidates.length > 0;
     }
     // ⚠️ The give-back (the final review's E2): each dropped version whose `by` is no longer a card of the list (`cards`) or a
     // trade merged into one, the release rule having just placed every merged trade with a card of the list, is re-pointed to
@@ -1930,14 +2094,18 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
       return back;
     };
     // ⚠️ The rounds end (ours, as the release rule's): every round but the last merges a trade, drops a version, gives a merged
-    // trade back or gives a dropped version back, and each of the four happens to a trade at most once (a merged trade given
-    // back is never merged again, `released`; a dropped version given back is never dropped again, `restored`; a merged or
-    // dropped trade is out of the list, so nothing merges or drops it again meanwhile), so a list takes at most four rounds a
-    // trade, plus its last.
+    // trade back or gives a dropped version back (since Checkpoint 7h also promotes a Last offer, merging the idea it sat under
+    // into it, or leaves an idea out for good), and each of these happens to a trade at most once (a merged trade given back is
+    // never merged again, `released`, and a promotion merges the idea it promotes from, never one merged or given back before;
+    // a dropped version given back is never dropped again, `restored`; an idea left out never comes back, `superseded`; a merged
+    // or dropped trade is out of the list, so nothing merges or drops it again meanwhile; a Last offer is promoted to once, its
+    // forced Open fixed then, `opens`). The trades are finite (the finalists and the versions promoted, one a promotion), and each
+    // promotion raises the list's printed Overall at that place (the promoted Last offer prints a higher EG than the idea it
+    // replaces, so no chain of promotions comes back to a trade), so a list takes a bounded number of rounds, plus its last.
     let ranking = first;
     for (let rounds = 1; ; rounds++) {
       if (rounds > 1) {
-        ranking = rank(outOf());
+        ranking = rank(outOf(), [...added.values()], exemptNow());
         mark("rank");
       }
       for (const t of ranking.trades) {
@@ -1945,9 +2113,9 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
         unit(`card:${t.key}`);
         yield progress();
       }
-      const printedList = rankTrades(ranking.trades.map(printed), value, caps, options(mergedTrades(outOf(), printed)));
+      const printedList = rankTrades(ranking.trades.map(printed), value, caps, options(mergedTrades(outOf(), printed), exemptNow()));
       mark("rank");
-      const settled = (): Settled => ({ ranking, printed: printedList, merged, dominated, released, restored, rounds });
+      const settled = (): Settled => ({ ranking, printed: printedList, merged, dominated, released, restored, rounds, promoted, added, superseded, notPromoted });
       if (!state.mergeCards) return settled();
       const cards = printedList.trades;
       const listed = new Map(cards.map((c) => [c.key, c]));
@@ -1975,6 +2143,8 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
       }
       if ((yield* release(cards)).length) continue;
       if (state.dropDominated && giveBack(cards)) continue;
+      // Checkpoint 7h (answer 3): once a round merges none, drops none and gives nothing back, the promotions.
+      if (state.promoteLastOffers && (yield* promote(cards))) continue;
       return settled();
     }
   }
@@ -1991,15 +2161,21 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
     firstBothPrinted = rankTrades(firstBoth.trades.map(printed), value, caps, bothOptions([])).trades;
     mark("rank");
   }
-  const so = yield* settle(firstOverall, rankOverall, overallOptions, "overall", () => firstBothPrinted, () => new Set<string>());
-  const sb = yield* settle(firstBoth, rankBoth, bothOptions, "helpsBoth", () => so.printed.trades, () => new Set([...so.merged.values()].map((m) => m.into)));
+  const so = yield* settle(firstOverall, rankOverall, overallOptions, "overall", () => firstBothPrinted, () => new Set<string>(), new Set(regular.map((c) => c.key)));
+  const sb = yield* settle(firstBoth, rankBoth, bothOptions, "helpsBoth", () => so.printed.trades, () => new Set([...so.merged.values()].map((m) => m.into)), new Set(all.map((c) => c.key)));
   const ranked = so.ranking;
   const overall = so.printed;
   const both = sb.ranking;
   const bothShown = sb.printed;
-  // A list's trades out of its rankings (merged and, Checkpoint 7g, dropped): `few`, lowerWouldAdd and the pattern note rank without them.
-  const outOverall: ReadonlyMap<string, unknown> = new Map<string, unknown>([...so.merged, ...so.dominated]);
-  const outBoth: ReadonlyMap<string, unknown> = new Map<string, unknown>([...sb.merged, ...sb.dominated]);
+  // A list's trades out of its rankings (merged and, Checkpoint 7g, dropped; Checkpoint 7h, left out by a chain of promotions):
+  // `few`, lowerWouldAdd and the pattern note rank without them, and with its promoted Last offers (Checkpoint 7h).
+  const outOf = (s: Settled): ReadonlyMap<string, unknown> => new Map<string, unknown>([...s.merged, ...s.dominated, ...[...s.superseded].map((k): [string, unknown] => [k, true])]);
+  const outOverall = outOf(so);
+  const outBoth = outOf(sb);
+  const regularAdded = withAdded(regular, [...so.added.values()]);
+  const allAdded = withAdded(all, [...sb.added.values()]);
+  const exemptOverall = new Map([...so.promoted.values()].map((p) => [p.key, p.from]));
+  const exemptBoth = new Map([...sb.promoted.values()].map((p) => [p.key, p.from]));
 
   // A Plan B for every card (planB.ts; since Checkpoint 7e on a card with steps too, which no card has now), once per card,
   // in the printed order: the Overall list's cards first, then the "Helps both" list's that the Overall list doesn't show (a
@@ -2150,7 +2326,7 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
   for (const [key, choice] of choices) {
     const card = byKeyDone.get(key);
     if (!card) continue;
-    ladders.set(key, ladderFromChoice(ladderJobOfSearch(state, card, prefers.get(key)), choice));
+    ladders.set(key, ladderFromChoice(ladderJobOfSearch(state, card, prefers.get(key), opens.get(key)), choice));
     yield progress();
   }
   if (choices.size) mark("offers");
@@ -2158,32 +2334,49 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
   const bothCards = bothShown.trades.map((t) => byKeyDone.get(t.key) as TradeEvaluation);
   // The pattern note (pattern.ts): the same finalists without the given-player cap, never naming a must-include player, the
   // trades merged into an Overall card left out (Checkpoint 7f), and the versions dropped for a better one (Checkpoint 7g); it
-  // says how many of its trades the list itself shows. The Overall list's only.
-  const uncapped = rankTrades(without(regular, outOverall), value, { ...caps, perGivenPlayerInTop20: Number.POSITIVE_INFINITY }, overallOptions(mergedTrades(outOverall, asRanked)));
+  // says how many of its trades the list itself shows. The Overall list's only. Since Checkpoint 7h with the list's promoted
+  // Last offers, and without the ideas a chain of promotions left out.
+  const uncapped = rankTrades(without(regularAdded, outOverall), value, { ...caps, perGivenPlayerInTop20: Number.POSITIVE_INFINITY }, overallOptions(mergedTrades(outOverall, asRanked), exemptOverall));
   const pattern = patternNote({ ...patternInputsOf(I, uncapped.trades, forcedGive), shown });
   // "Few": the list shows fewer than minChanceFew trades, and a lower setting would show more (Any, the lowest, ranks the
   // same finalists with no minimum). And the "Helps both" list's lowerWouldAdd: the same finalists at Any would show more
   // trades that help both. ⚠️ "Would show more" compares the ranking at Any with the ranking at the minimum, both on the
   // ranking block's numbers (Checkpoint 7e): what the printed numbers take out of a list (the file header, "The shown pass")
   // they'd take out at Any too; ⚠️ and since Checkpoint 7f both without the trades merged at the minimum (with them as filler
-  // references), though Any's own merges could differ; since Checkpoint 7g likewise without the dropped versions.
+  // references), though Any's own merges could differ; since Checkpoint 7g likewise without the dropped versions; since
+  // Checkpoint 7h with the promoted Last offers (Any's own promotions could differ).
   const anyOf = (opts: RankOptions): RankOptions => ({ ...opts, minChance: 0 });
-  const few = minChance > 0 && shown.length < config.ranking.minChanceFew && rankTrades(without(regular, outOverall), value, caps, anyOf(overallOptions(mergedTrades(outOverall, asRanked)))).trades.length > ranked.trades.length;
-  const lowerWouldAdd = minChance > 0 && rankTrades(without(all, outBoth), value, caps, anyOf(bothOptions(mergedTrades(outBoth, asRanked)))).trades.length > both.trades.length;
+  const few = minChance > 0 && shown.length < config.ranking.minChanceFew && rankTrades(without(regularAdded, outOverall), value, caps, anyOf(overallOptions(mergedTrades(outOverall, asRanked), exemptOverall))).trades.length > ranked.trades.length;
+  const lowerWouldAdd = minChance > 0 && rankTrades(without(allAdded, outBoth), value, caps, anyOf(bothOptions(mergedTrades(outBoth, asRanked), exemptBoth))).trades.length > both.trades.length;
   mark("rank");
   // Checkpoint 7f: a list's merged trades qualified before the caps (each was one of its cards), so they count among its
   // qualifying trades (Phase 4c counted its folded cards so), and as `merged` among those its rules left out. Checkpoint 7g:
-  // so do its dropped versions (each was one of its cards), as `dominated`.
+  // so do its dropped versions (each was one of its cards), as `dominated`. So a list's qualifying count is its finalists' with
+  // no merge, its first ranking's (every trade the merge took out was a card, so it qualified: the same count Checkpoint 7g's
+  // sum gave), and since Checkpoint 7h (⚠️ ours) the promoted Last offers, which aren't finalists, aren't among them.
   const merging = state.mergeCards;
   const dropping = merging && state.dropDominated;
+  const promoting = merging && state.promoteLastOffers;
   const bothList: HelpsBothList = {
     trades: bothCards,
-    qualifying: both.qualifying + sb.merged.size + sb.dominated.size,
+    qualifying: firstBoth.qualifying,
     byChance: both.hidden.byChance,
     lowerWouldAdd,
     dropped: { ...addDropped(both.dropped, bothShown.dropped), ...(merging ? { merged: sb.merged.size } : {}), ...(dropping ? { dominated: sb.dominated.size } : {}) },
   };
   const simShown = new Set(cards.flatMap((t) => [t.key, ...(boxByKey.get(t.key) ? [(boxByKey.get(t.key) as PlanB).key] : [])]).filter((k) => state.shownByKey.has(k))).size;
+  // ⚠️ Checkpoint 7h (the lead's ruling): the Opens and Thens of the cards shown (a card on both lists once) that print a higher
+  // Overall than their card, counted, never promoted (their card is the smaller ask).
+  const higherEarlier: HigherEarlierOffer[] = [];
+  if (promoting) {
+    for (const t of cards) {
+      const choice = choices.get(t.key);
+      const card = printedOf(t);
+      if (!choice) continue;
+      const earlier = [...(choice.open && !choice.open.forced ? [{ kind: "open" as const, printed: choice.open.printed }] : []), ...choice.thens.map((x) => ({ kind: "then" as const, printed: x.printed }))];
+      for (const o of earlier) if (printedEg(o.printed) > printedEg(card) + EPS) higherEarlier.push({ card: t.key, offer: o.printed.key, kind: o.kind });
+    }
+  }
   const merged: MergedCards | null = merging
     ? {
         overall: [...so.merged.values()],
@@ -2192,17 +2385,27 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
         ladders: choices.size,
         released: so.released.size + sb.released.size,
         ...(dropping ? { dominated: [...so.dominated.values(), ...sb.dominated.values()], restored: so.restored.size + sb.restored.size } : {}),
+        ...(promoting
+          ? {
+              promoted: [...so.promoted.values(), ...sb.promoted.values()],
+              notPromoted: [...so.notPromoted, ...sb.notPromoted],
+              higherEarlier,
+              superseded: so.superseded.size + sb.superseded.size,
+            }
+          : {}),
       }
     : null;
   // The last event is the count itself: every unit planned is done by now (above), so it reads done = total (with nothing
   // planned at all, empty lists, one unit done of one). Until Checkpoint 7f it was set to done = total whatever the count.
   yield planned.size ? progress() : { ...progress(), done: 1 };
-  // Checkpoint 7g: the preferences of the cards the lists show (TradeSearchResult.offerPrefer, SearchState.prefers).
+  // Checkpoint 7g: the preferences of the cards the lists show (TradeSearchResult.offerPrefer, SearchState.prefers); Checkpoint
+  // 7h: their forced Opens (TradeSearchResult.offerOpen, SearchState.opens).
   const shownPrefers = new Map([...prefers].filter(([key]) => byKeyDone.has(key)));
+  const shownOpens = new Map([...opens].filter(([key]) => byKeyDone.has(key)));
   return {
     shown,
     hidden: { byBenefit: ranked.hidden.byBenefit + overall.hidden.byBenefit, byMarket: ranked.hidden.byMarket + overall.hidden.byMarket, byChance: ranked.hidden.byChance + overall.hidden.byChance },
-    qualifying: ranked.qualifying + so.merged.size + so.dominated.size,
+    qualifying: firstOverall.qualifying,
     dropped: { ...addDropped(ranked.dropped, overall.dropped), ...(merging ? { merged: so.merged.size } : {}), ...(dropping ? { dominated: so.dominated.size } : {}) },
     pattern,
     few,
@@ -2211,6 +2414,7 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
     merged,
     ladders,
     prefers: shownPrefers,
+    opens: shownOpens,
   };
 }
 
@@ -2270,10 +2474,12 @@ function resultOf(state: SearchState, done: Finished, timings: Record<string, nu
     ...(done.merged ? { merged: done.merged } : {}),
     // Each shown card's preference (Checkpoint 7g), for the page to send with a card's "How to offer it" (the worker's fallback).
     ...(done.prefers.size ? { offerPrefer: Object.fromEntries([...done.prefers].map(([key, keys]) => [key, [...keys].sort()])) } : {}),
+    // Each shown promoted card's forced Open (Checkpoint 7h), likewise.
+    ...(done.opens.size ? { offerOpen: Object.fromEntries(done.opens) } : {}),
   };
   // The state with this result's own ladders (the ones its merge read: offers.ts offerLadderOfSearch hands them back) and the
-  // preferences they were worked out with (Checkpoint 7g).
-  states.set(result, { ...state, ladders: done.ladders, prefers: done.prefers });
+  // preferences (Checkpoint 7g) and forced Opens (Checkpoint 7h) they were worked out with.
+  states.set(result, { ...state, ladders: done.ladders, prefers: done.prefers, opens: done.opens });
   return result;
 }
 
@@ -2443,6 +2649,7 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
     smallerAsks: opts.smallerAsks !== false,
     preferListed: opts.preferListed !== false,
     dropDominated: opts.dropDominated !== false,
+    promoteLastOffers: opts.promoteLastOffers !== false,
     versions: new Map<string, TradeVersion>(screened.map((s) => [s.core.key, { x: s.x, screen: s.core }])),
     finalByKey,
     shownByKey: new Map<string, TradeEvaluationCore>(),

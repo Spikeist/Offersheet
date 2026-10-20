@@ -668,6 +668,13 @@ export interface OfferStep {
   evaluation: TradeEvaluation;
   /** The step's message to send: the first step's pitch, a later step's a follow-up naming its version. */
   message: string;
+  /**
+   * Checkpoint 7h (planner reply to Checkpoint 7g, answer 3: "that version becomes the idea; the original becomes its "Open
+   * with" step, the bigger ask"; search.ts, "Promoted Last offers"): on a promoted card's "Open with", the idea it was promoted
+   * from, placed there whatever the Open's rule would pick (offers.ts, "The promoted card's Open"), so it can print under
+   * config.offers.openMinChance (never under the user's minimum chance). Absent on every other offer.
+   */
+  original?: true;
 }
 
 /**
@@ -724,6 +731,68 @@ export interface MergedCards {
    * again, never dropped again. Present with `dominated`.
    */
   restored?: number;
+  /**
+   * Checkpoint 7h (planner reply to Checkpoint 7g, answer 3: "No: promote it. When an offer list finds a version with a higher
+   * Overall than the idea it sits under: that version becomes the idea; the original becomes its "Open with" step, the bigger
+   * ask. Count how often this happens on Parker's leagues. It's a sign of what the search misses (section 2)."; search.ts,
+   * "Promoted Last offers"): each list's Last offers promoted to cards, in the order they were promoted (the idea each was
+   * promoted from is among `overall` or `helpsBoth` too, merged into it as its "open"). Absent with the rule off
+   * (TradeSearchOptions.promoteLastOffers, a report switch).
+   */
+  promoted?: PromotedTrade[];
+  /**
+   * Checkpoint 7h: the Last offers of the cards shown that print a higher Overall than their card but weren't promoted, each
+   * with why (search.ts, "Promoted Last offers"). Present with `promoted`.
+   */
+  notPromoted?: NotPromoted[];
+  /**
+   * ⚠️ Checkpoint 7h (the lead's ruling): the Opens and Thens of the cards shown (both lists, a card on both once) that print a
+   * higher Overall than their card, counted and never promoted (their card is the smaller ask, which the planner's "the original
+   * becomes its Open with step, the bigger ask" doesn't fit). Present with `promoted`.
+   */
+  higherEarlier?: HigherEarlierOffer[];
+  /**
+   * ⚠️ Checkpoint 7h (the lead's ruling): the ideas a chain of promotions left out (an idea promoted to its Last offer, whose
+   * card was promoted in turn, so the newest card's ladder, opening with the idea it was promoted from, doesn't hold it): out of
+   * their list for good. Present with `promoted`.
+   */
+  superseded?: number;
+}
+
+/**
+ * A card promoted from another card's Last offer (Checkpoint 7h; MergedCards.promoted): its key (the card now), the idea it sat
+ * under (`from`: merged into it as its forced "Open with", the bigger ask), the list, and the Last offer's kind (the card plus a
+ * throw-in, or a smaller ask).
+ */
+export interface PromotedTrade {
+  key: string;
+  from: string;
+  list: "overall" | "helpsBoth";
+  kind: "throwIn" | "smaller";
+}
+
+/**
+ * A Last offer that prints a higher Overall than its card but wasn't promoted (Checkpoint 7h; MergedCards.notPromoted): the card,
+ * its Last offer, the list and why: "card", the Last offer is already a card of the list (it stays, labeled on this card's
+ * offers: "Also shown as trade idea N."); "shown", it's merged into another card, dropped for a better version or left out by a
+ * chain of promotions on the list; "taken", another idea was promoted to it, or its ladder was worked out before without this
+ * card as its Open; "released", the card is a merged trade given back, never merged again; "open", the card can't be its Open by
+ * the Open's other rules (offers.ts forcedOpenOk: a Last offer tagged "Helps both" over a card that doesn't help both); ⚠️
+ * "rules", the list's own rules wouldn't keep the Last offer as a card (the given-player, partner or core cap, or the filler
+ * rule, on the ranking block), so the card stays with it as its Last offer.
+ */
+export interface NotPromoted {
+  card: string;
+  offer: string;
+  list: "overall" | "helpsBoth";
+  reason: "card" | "shown" | "taken" | "released" | "open" | "rules";
+}
+
+/** An Open or a Then printing a higher Overall than its card (Checkpoint 7h; MergedCards.higherEarlier), counted, not promoted. */
+export interface HigherEarlierOffer {
+  card: string;
+  offer: string;
+  kind: "open" | "then";
 }
 
 /**
@@ -930,6 +999,13 @@ export interface TradeSearchResult {
    * whose search the worker no longer keeps gets the very ladder its search kept. Absent when no card has one.
    */
   offerPrefer?: Record<string, string[]>;
+  /**
+   * Checkpoint 7h (planner reply to Checkpoint 7g, answer 3; search.ts, "Promoted Last offers"): each promoted card's forced
+   * "Open with", the idea it was promoted from (card key → that idea's key), for the cards the lists show. The page sends a
+   * card's with its "How to offer it" request (engine.worker.ts OffersSource.open), so a card whose search the worker no longer
+   * keeps gets the very ladder its search kept. Absent when no card shown has one.
+   */
+  offerOpen?: Record<string, string>;
 }
 
 /**

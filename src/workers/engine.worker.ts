@@ -78,7 +78,8 @@
  *   sends, its Plan B, are read and ignored: a Plan B can't be an offer by the rules, offers.ts "The candidates"; since
  *   Checkpoint 7g with the preference its search recorded for it, the source's `prefer`, TradeSearchResult.offerPrefer, part of
  *   the ladder's key there: offers.ts "Preferring the cards of its lists"; a request without it, an older page's, still
- *   answers, without one). ⚠️ A result the worker keeps answers for its cards whatever the request's
+ *   answers, without one; since Checkpoint 7h likewise a promoted card's forced Open, the source's `open`,
+ *   TradeSearchResult.offerOpen: offers.ts "The promoted card's Open"). ⚠️ A result the worker keeps answers for its cards whatever the request's
  *   settings or moment (no context is built for it): the offers are the card's as it was found, from the state that made it.
  *   ⚠️ An `offers` request never replaces the context the worker keeps for its searches, nor forgets the results it keeps
  *   (the review of wave D, D-ENG-8 and UI-D-4: opening a dimmed idea's offers while a newer search ran rebuilt the old
@@ -188,9 +189,10 @@ export interface WaiversRequest extends LeagueJobFields {
  * Trade Analyzer's card, by its proposal. `barred`, the keys no offer of it could be (its Plan B, which the page sent until
  * Checkpoint 7f), is still read so an older page's request answers, and ignored (the header, `offers`). `prefer` (Checkpoint
  * 7g), the versions its ladder prefers as its search recorded them (TradeSearchResult.offerPrefer), which the worker reads when
- * it no longer keeps that result; a request without it (an older page's) still answers.
+ * it no longer keeps that result; a request without it (an older page's) still answers. `open` (Checkpoint 7h), likewise the
+ * idea a promoted card was promoted from, its forced "Open with" (TradeSearchResult.offerOpen).
  */
-export type OffersSource = { kind: "search"; resultId: number; key: string; proposal?: TradeProposal; barred?: string[]; prefer?: string[] } | { kind: "analysis"; proposal: TradeProposal };
+export type OffersSource = { kind: "search"; resultId: number; key: string; proposal?: TradeProposal; barred?: string[]; prefer?: string[]; open?: string } | { kind: "analysis"; proposal: TradeProposal };
 
 /** A card's "How to offer it", offers in order (the header: Checkpoint 7e, item 4.1; src/engine/offers.ts). */
 export interface OffersRequest extends LeagueJobFields {
@@ -345,7 +347,8 @@ function isOffersSource(x: unknown): x is OffersSource {
     const proposalOk = x.proposal === undefined || isProposal(x.proposal);
     const barredOk = x.barred === undefined || (Array.isArray(x.barred) && x.barred.every((k) => typeof k === "string"));
     const preferOk = x.prefer === undefined || (Array.isArray(x.prefer) && x.prefer.every((k) => typeof k === "string"));
-    return typeof x.resultId === "number" && typeof x.key === "string" && x.key.length > 0 && proposalOk && barredOk && preferOk;
+    const openOk = x.open === undefined || (typeof x.open === "string" && x.open.length > 0);
+    return typeof x.resultId === "number" && typeof x.key === "string" && x.key.length > 0 && proposalOk && barredOk && preferOk && openOk;
   }
   return x.kind === "analysis" && isProposal(x.proposal);
 }
@@ -537,8 +540,10 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
     const ctx = offersContext(req, now, settings);
     const scope = src.kind === "analysis" ? "analysis" : "finder";
     const prefer = src.kind === "search" ? [...new Set(src.prefer ?? [])].sort() : [];
-    const made = ladderIn(ctx, `${scope}|${settingsFingerprint(settings, TRADE_SETTINGS)}|${JSON.stringify(proposal)}|${prefer.join(";")}`, () =>
-      offersOfProposal(ctx, proposal, { settings, page: scope, ...(prefer.length ? { prefer } : {}), ...timing }),
+    // Checkpoint 7h: a promoted card's forced Open (the source's `open`), in the ladder's key; never for the Analyzer's card.
+    const open = src.kind === "search" && src.open ? src.open : null;
+    const made = ladderIn(ctx, `${scope}|${settingsFingerprint(settings, TRADE_SETTINGS)}|${JSON.stringify(proposal)}|${prefer.join(";")}${open ? `|open:${open}` : ""}`, () =>
+      offersOfProposal(ctx, proposal, { settings, page: scope, ...(prefer.length ? { prefer } : {}), ...(open ? { open } : {}), ...timing }),
     );
     return made as OfferLadder;
   }

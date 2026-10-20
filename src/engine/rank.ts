@@ -139,6 +139,15 @@ export interface RankOptions {
    * that isn't legal or has no known B is ignored. Absent: none.
    */
   readonly shownElsewhere?: readonly TradeEvaluation[];
+  /**
+   * Checkpoint 7h (planner reply to Checkpoint 7g, answer 3; search.ts, "Promoted Last offers"): a promoted Last offer (the key)
+   * is never filler of the idea it was promoted from (the value), which is shown among its offers (one of `shownElsewhere`),
+   * nor of the one that idea was promoted from in turn (the chain, followed through this map). Promoted on the numbers they
+   * print (the promoted one's Overall the higher), the two can rank the other way round on the ranking block, where the
+   * promoted one, the idea plus a player of mine whose B stays within fillerCutoffFraction of it, would be its filler and
+   * leave. Absent: none.
+   */
+  readonly fillerExempt?: ReadonlyMap<string, string>;
 }
 
 const DEFAULT_RANK_CONFIG: RankConfig = {
@@ -327,9 +336,10 @@ function fillerOf(c: Candidate, k: Candidate, cutoff: number): boolean {
 
 /**
  * One greedy pass of the diversity rules (the file header, step 2) over `candidates` in the list's order; `elsewhere`, the
- * trades shown elsewhere (RankOptions.shownElsewhere), are kept trades for the filler rule alone.
+ * trades shown elsewhere (RankOptions.shownElsewhere), are kept trades for the filler rule alone, but for the pairs `exempt`
+ * names (Checkpoint 7h, RankOptions.fillerExempt: a promoted Last offer and the idea it was promoted from).
  */
-function diversify(candidates: readonly Candidate[], cfg: RankConfig, givenCap: number, elsewhere: readonly Candidate[]): { kept: Candidate[]; dropped: RankedTrades["dropped"] } {
+function diversify(candidates: readonly Candidate[], cfg: RankConfig, givenCap: number, elsewhere: readonly Candidate[], exempt?: (c: Candidate, k: Candidate) => boolean): { kept: Candidate[]; dropped: RankedTrades["dropped"] } {
   const dropped = { partnerCap: 0, core: 0, filler: 0, givenPlayer: 0 };
   const kept: Candidate[] = [];
   const perCore = new Map<string, number>();
@@ -338,7 +348,7 @@ function diversify(candidates: readonly Candidate[], cfg: RankConfig, givenCap: 
   const limit = Math.max(0, Math.floor(cfg.resultsShown));
   for (const c of candidates) {
     if (kept.length >= limit) break;
-    if (kept.some((k) => fillerOf(c, k, cfg.fillerCutoffFraction)) || elsewhere.some((k) => fillerOf(c, k, cfg.fillerCutoffFraction))) {
+    if (kept.some((k) => fillerOf(c, k, cfg.fillerCutoffFraction)) || elsewhere.some((k) => fillerOf(c, k, cfg.fillerCutoffFraction) && !exempt?.(c, k))) {
       dropped.filler++;
       continue;
     }
@@ -415,9 +425,22 @@ export function rankTrades(evaluations: readonly TradeEvaluation[], value: (asse
     };
   };
   const candidates: Candidate[] = shown.map(candidateOf);
-  // Checkpoint 7f: the trades shown elsewhere, for the filler rule alone (RankOptions.shownElsewhere).
+  // Checkpoint 7f: the trades shown elsewhere, for the filler rule alone (RankOptions.shownElsewhere); since Checkpoint 7h never
+  // the idea a candidate was promoted from, nor the one that idea was promoted from in turn (RankOptions.fillerExempt, its chain).
   const elsewhere: Candidate[] = (opts.shownElsewhere ?? []).filter((t) => t.illegal === null && isFiniteNumber(t.b)).map(candidateOf);
-  const pass = fillerRounds(candidates, cfg, givenCap, elsewhere);
+  const fromOf = opts.fillerExempt;
+  const notFiller =
+    fromOf && fromOf.size
+      ? (c: Candidate, k: Candidate): boolean => {
+          let from = fromOf.get(c.trade.key);
+          for (let i = 0; from !== undefined && i < fromOf.size; i++) {
+            if (from === k.trade.key) return true;
+            from = fromOf.get(from);
+          }
+          return false;
+        }
+      : undefined;
+  const pass = fillerRounds(candidates, cfg, givenCap, elsewhere, notFiller);
   return { trades: pass.kept.map((k) => k.trade), hidden, qualifying, dropped: pass.dropped, ...(opts.keep ? { notKept } : {}) };
 }
 
@@ -436,7 +459,7 @@ export function rankTrades(evaluations: readonly TradeEvaluation[], value: (asse
  * of one of them leaves in the pass itself (it is checked against them whatever the list's order), so it is never among the
  * cards that leave here, and none of them is a smaller trade a card can come back for.
  */
-function fillerRounds(candidates: readonly Candidate[], cfg: RankConfig, givenCap: number, elsewhere: readonly Candidate[]): { kept: Candidate[]; dropped: RankedTrades["dropped"] } {
+function fillerRounds(candidates: readonly Candidate[], cfg: RankConfig, givenCap: number, elsewhere: readonly Candidate[], exempt?: (c: Candidate, k: Candidate) => boolean): { kept: Candidate[]; dropped: RankedTrades["dropped"] } {
   const late = new Set<string>();
   const out = new Set<string>();
   const parents = new Map<string, Candidate[]>();
@@ -448,7 +471,7 @@ function fillerRounds(candidates: readonly Candidate[], cfg: RankConfig, givenCa
     }
     return ps;
   };
-  let pass = diversify(candidates, cfg, givenCap, elsewhere);
+  let pass = diversify(candidates, cfg, givenCap, elsewhere, exempt);
   for (;;) {
     // 1. Every kept card that is filler of an earlier one that stays, in Overall order.
     const stay: Candidate[] = [];
@@ -472,6 +495,7 @@ function fillerRounds(candidates: readonly Candidate[], cfg: RankConfig, givenCa
       cfg,
       givenCap,
       elsewhere,
+      exempt,
     );
   }
   const removed = new Set([...late, ...out]).size;

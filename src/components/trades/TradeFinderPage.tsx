@@ -237,11 +237,13 @@ export function runShown(progress: RunProgress | null, runTag: string | null, re
  * D-ENG-3). Since Checkpoint 7f no keys barred (until then its Plan B's: a Plan B can't be an offer by the rules, so the
  * engine bars nothing, offers.ts "The candidates"). Since Checkpoint 7g the versions its ladder prefers, as the result records
  * them (TradeSearchResult.offerPrefer; none when it has none), which the worker works the card out with in that case too, so
- * the offers are the ones its search kept.
+ * the offers are the ones its search kept. Since Checkpoint 7h likewise its forced Open, the idea it was promoted from
+ * (TradeSearchResult.offerOpen; none for a card the search didn't promote).
  */
-export function finderOffersSource(resultId: number, card: Pick<TradeCardView, "key" | "evaluation">, result?: Pick<TradeSearchResult, "offerPrefer"> | null): OffersSource {
+export function finderOffersSource(resultId: number, card: Pick<TradeCardView, "key" | "evaluation">, result?: Pick<TradeSearchResult, "offerPrefer" | "offerOpen"> | null): OffersSource {
   const prefer = result?.offerPrefer?.[card.key];
-  return { kind: "search", resultId, key: card.key, proposal: card.evaluation.proposal, ...(prefer && prefer.length ? { prefer: [...prefer] } : {}) };
+  const open = result?.offerOpen?.[card.key];
+  return { kind: "search", resultId, key: card.key, proposal: card.evaluation.proposal, ...(prefer && prefer.length ? { prefer: [...prefer] } : {}), ...(open ? { open } : {}) };
 }
 
 type FocusTo = "status" | "stop" | "again";

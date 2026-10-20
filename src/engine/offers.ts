@@ -241,6 +241,12 @@ export interface LadderJob {
    * prefers (search.ts preferredOf: cards of its lists the merge could fold into it). Absent or empty: none.
    */
   prefer?: ReadonlySet<string>;
+  /**
+   * Checkpoint 7h (planner reply to Checkpoint 7g, answer 3; the file header, "The promoted card's Open"): the key of the version
+   * this card's ladder opens with whatever the Open's rule would pick, the idea it was promoted from (search.ts, "Promoted Last
+   * offers"). Absent: none.
+   */
+  open?: string;
 }
 
 /** A candidate version of the card (ladderCandidates): a variant (another get side) or the lean version. */
@@ -618,7 +624,8 @@ export type LastOfferChoice = { kind: "throwIn"; add: string; proposal: TradePro
 
 /** The ladder's chosen versions before their words (buildOfferLadder; the report reads them too). */
 export interface LadderChoice {
-  open: { candidate: LadderCandidate; printed: TradeEvaluationCore } | null;
+  /** `forced` (Checkpoint 7h): the promoted card's Open, the idea it was promoted from (LadderJob.open), not the Open's rule's pick. */
+  open: { candidate: LadderCandidate; printed: TradeEvaluationCore; forced?: true } | null;
   thens: { candidate: LadderCandidate; printed: TradeEvaluationCore }[];
   last: LastOfferChoice | null;
   /** Every candidate the pre-screen let through that's legal, with its numbers on the screening block (the report's). */
@@ -720,12 +727,17 @@ function* choiceSteps(job: LadderJob, opts: LadderChoiceOptions, prefer: Readonl
   const passing = screened.filter((s) => stepPasses(s.version.screen, tagged) && helpsBetween(s.version.screen, cardScreen, null));
   const bar = openBar(job.settings.minChance);
 
-  // Open (preferring: the preferred candidates that pass first).
+  // Open: since Checkpoint 7h a promoted card's is the idea it was promoted from (forcedOpenSteps; the file header, "The promoted
+  // card's Open"); else the Open's rule (preferring: the preferred candidates that pass first, narrowed: narrowedPick).
   const openOk = (p: TradeEvaluationCore) => stepPasses(p, tagged) && inWindow(p, bar, card) && betweenForMe(p, card, null);
   const openPool = passing.filter((s) => inWindow(s.version.screen, bar, card)).sort((a, b) => byHelps(a.version.screen, b.version.screen));
-  let openHit = prefer ? yield* listedFirst(job, all, prefer, new Set(), openOk) : null;
-  if (!openHit) openHit = yield* firstPrinted(job, openPool, openOk);
-  let open: LadderChoice["open"] = openHit ? { candidate: openHit.s.candidate, printed: openHit.printed } : null;
+  let openHit = job.open ? yield* forcedOpenSteps(job, all) : null;
+  const forced = openHit !== null;
+  if (!openHit) {
+    const listed = prefer ? yield* listedFirst(job, all, prefer, new Set(), openOk) : null;
+    openHit = listed ? narrowedPick(listed, yield* firstPrinted(job, openPool, openOk)) : yield* firstPrinted(job, openPool, openOk);
+  }
+  let open: LadderChoice["open"] = openHit ? { candidate: openHit.s.candidate, printed: openHit.printed, ...(forced ? { forced: true as const } : {}) } : null;
 
   // Room: the suggested trade, then Open, then the Last offer, then as many Thens as fit.
   const room = ladderRoom(maxSteps, open !== null, last !== null);
@@ -733,7 +745,7 @@ function* choiceSteps(job: LadderJob, opts: LadderChoiceOptions, prefer: Readonl
   if (!room.last) last = null;
   let thensLeft = room.thens;
 
-  // Then, after the step before (preferring: the preferred candidates that pass first).
+  // Then, after the step before (preferring: the preferred candidates that pass first, narrowed: narrowedPick).
   const thens: LadderChoice["thens"] = [];
   let prev: { screen: TradeEvaluationCore; printed: TradeEvaluationCore } | null = open && openHit ? { screen: openHit.s.version.screen, printed: openHit.printed } : null;
   const used = new Set<string>(open ? [open.candidate.key] : []);
@@ -744,8 +756,8 @@ function* choiceSteps(job: LadderJob, opts: LadderChoiceOptions, prefer: Readonl
       .filter((s) => !used.has(s.candidate.key))
       .filter((s) => inWindow(s.version.screen, chanceOf(before.screen) + gain, card) && helpsBetween(s.version.screen, cardScreen, before.screen))
       .sort((a, b) => byHelps(a.version.screen, b.version.screen));
-    let hit = prefer ? yield* listedFirst(job, all, prefer, used, thenOk) : null;
-    if (!hit) hit = yield* firstPrinted(job, pool, thenOk);
+    const listed = prefer ? yield* listedFirst(job, all, prefer, used, thenOk) : null;
+    const hit = listed ? narrowedPick(listed, yield* firstPrinted(job, pool, thenOk)) : yield* firstPrinted(job, pool, thenOk);
     if (!hit) break;
     thens.push({ candidate: hit.s.candidate, printed: hit.printed });
     used.add(hit.s.candidate.key);
@@ -879,7 +891,68 @@ function* lastOfferSteps(job: LadderJob, tagged: boolean, prefer: ReadonlySet<st
   }
   const listedAsks = asks.filter((s) => prefer.has(s.candidate.key)).sort(byOverallThenKey);
   const listedAsk = yield* firstPrintedOf(job, listedAsks, smallerPrinted, Number.POSITIVE_INFINITY);
-  return higherOverall(listedThrowIn, listedAsk ? { kind: "smaller", proposal: listedAsk.s.candidate.proposal, printed: listedAsk.printed } : null) ?? usual;
+  // Checkpoint 7h (answer 4): the preferred pick only within config.offers.preferWithinHelps of the usual pick's Helps you.
+  return narrowedPick(higherOverall(listedThrowIn, listedAsk ? { kind: "smaller", proposal: listedAsk.s.candidate.proposal, printed: listedAsk.printed } : null), usual);
+}
+
+/**
+ * The narrowing (Checkpoint 7h; planner reply to Checkpoint 7g, answer 4: "Narrow the preference. Prefer an idea from the list
+ * only when its Helps you is within 3 points of the best version that meets the step's rules. Otherwise take the best
+ * version."; the file header, "Preferring the cards of its lists"): of a step's preferred pick (`listed`) and its usual pick
+ * (`usual`: the version the step's rules pick without the preference, held to them on the numbers it prints, as every pick is),
+ * the preferred one when there's no usual pick (only preferred versions meet the step's rules, so the best of them is the
+ * usual pick anyway) or its printed Helps you is at least the usual pick's less config.offers.preferWithinHelps; else the usual
+ * one. ⚠️ Ours, the lead's ruling: Helps you as printed at every step, the Last offer's too (whose own rule picks by Overall).
+ */
+export function narrowedPick<T extends { printed: Pick<TradeEvaluationCore, "tradeScore"> }>(listed: T | null, usual: T | null): T | null {
+  if (!listed) return usual;
+  if (!usual) return listed;
+  const within = config.offers.preferWithinHelps;
+  const hl = helpsOf(listed.printed);
+  const hu = helpsOf(usual.printed);
+  if (hl === null || hu === null) return usual;
+  return hl >= hu - within - EPS ? listed : usual;
+}
+
+/**
+ * Whether `original` can be `card`'s forced Open (Checkpoint 7h; the file header, "The promoted card's Open"), on the numbers
+ * both print: every rule of an Open but its least chance (config.offers.openMinChance or the minimum chance, openBar) and the
+ * preference: every step's rules (stepPasses: it helps me and passes the market guard, and helps both under a card tagged
+ * "Helps both"), a chance at least minAcceptGain under the card's, and better for me than the card (betweenForMe: a Helps you at
+ * least the card's at a higher B); and ⚠️ a chance at least the user's minimum chance (`minChance`: it was a card of the list,
+ * which printed at least that). Those hold by construction for a card whose Last offer is `card` (that offer prints a chance at
+ * least minAcceptGain above it, a lower B and a Helps you at most its), but the tag: search.ts promotes only when this holds.
+ */
+export function forcedOpenOk(card: TradeEvaluationCore, original: TradeEvaluationCore, minChance: number): boolean {
+  if (!stepPasses(original, helpsBoth(card))) return false;
+  if (chanceOf(original) > chanceOf(card) - config.search.steps.minAcceptGain + EPS) return false;
+  if (Number.isFinite(minChance) && chanceOf(original) < minChance - EPS) return false;
+  return betweenForMe(original, card, null);
+}
+
+/**
+ * The promoted card's Open (Checkpoint 7h; the file header, "The promoted card's Open"): the version LadderJob.open names, the
+ * candidate of `all` with that key when the card's ladder has one (its proposal in the candidate's order: the same in every
+ * path), else the trade its key names (proposalFromKey: its players in key order), evaluated exactly and played out on the
+ * card's block (the store's numbers when known: the search's, a card's, for the idea it was promoted from), held to
+ * forcedOpenOk; null when it can't be read, evaluated or held there (then the Open's own rule picks, as without it).
+ */
+function* forcedOpenSteps(job: LadderJob, all: readonly LadderCandidate[]): Generator<void, { s: Screened; printed: TradeEvaluationCore } | null, void> {
+  const key = job.open;
+  if (!key || key === job.card.key) return null;
+  let candidate = all.find((c) => c.key === key) ?? null;
+  if (!candidate) {
+    const proposal = proposalFromKey(key);
+    if (!proposal || proposal.partnerId !== job.card.proposal.partnerId) return null;
+    const mine = playerIds(job.card.proposal.give);
+    const sameGive = playerIds(proposal.give).length === mine.length && playerIds(proposal.give).every((id) => mine.includes(id));
+    candidate = { kind: sameGive ? "variant" : "lean", key, proposal };
+  }
+  const version = yield* versionSteps(job, candidate.proposal);
+  if (!version) return null;
+  const printed = yield* printedSteps(job, version);
+  if (!forcedOpenOk(job.card, printed, job.settings.minChance)) return null;
+  return { s: { candidate, version }, printed };
 }
 
 /** The ladder (the file header) from a job. */
@@ -896,12 +969,12 @@ export function buildOfferLadder(job: LadderJob, opts: LadderOptions = {}): Offe
  */
 export function ladderFromChoice(job: LadderJob, choice: LadderChoice | null): OfferLadder {
   const card = job.card;
-  const picked: { kind: OfferStepKind; evaluation: TradeEvaluation }[] = [];
-  if (choice?.open) picked.push({ kind: "open", evaluation: stepEvaluation(job, choice.open.printed, choice.open.candidate.proposal) });
+  const picked: { kind: OfferStepKind; evaluation: TradeEvaluation; original?: true }[] = [];
+  if (choice?.open) picked.push({ kind: "open", evaluation: stepEvaluation(job, choice.open.printed, choice.open.candidate.proposal), ...(choice.open.forced ? { original: true as const } : {}) });
   for (const t of choice?.thens ?? []) picked.push({ kind: "then", evaluation: stepEvaluation(job, t.printed, t.candidate.proposal) });
   picked.push({ kind: "suggested", evaluation: card });
   if (choice?.last) picked.push({ kind: "last", evaluation: stepEvaluation(job, choice.last.printed, choice.last.proposal) });
-  const steps: OfferStep[] = picked.map((p, i) => ({ kind: p.kind, evaluation: p.evaluation, message: i === 0 ? p.evaluation.pitch : followUp(job.I, p.evaluation.proposal) }));
+  const steps: OfferStep[] = picked.map((p, i) => ({ kind: p.kind, evaluation: p.evaluation, message: i === 0 ? p.evaluation.pitch : followUp(job.I, p.evaluation.proposal), ...(p.original ? { original: true as const } : {}) }));
   return { cardKey: card.key, steps };
 }
 
@@ -928,9 +1001,10 @@ const searchStores = new WeakMap<Map<string, TradeVersion>, LadderStore>();
  * The card prints from the shown block when the search ran its shown pass on a block of its own, else from the ranking block
  * (search.ts finish: the numbers it printed). Since Checkpoint 7g the search's switch for smaller asks (SearchState.smallerAsks)
  * and `prefer`, the versions its ladder prefers (search.ts preferredOf, as the merge read them; the file header, "Preferring the
- * cards of its lists"), never read from the state: a re-filter's merge reads its own.
+ * cards of its lists"), never read from the state: a re-filter's merge reads its own. Since Checkpoint 7h `open`, the idea a
+ * promoted card was promoted from (its forced Open: the file header, "The promoted card's Open"), likewise.
  */
-export function ladderJobOfSearch(state: SearchState, card: TradeEvaluation, prefer?: ReadonlySet<string>): LadderJob {
+export function ladderJobOfSearch(state: SearchState, card: TradeEvaluation, prefer?: ReadonlySet<string>, open?: string): LadderJob {
   const { I, settings } = state;
   const sim = I.sim;
   const own = state.shownPass && sim !== null && sim.blocks.shown !== sim.blocks.final;
@@ -953,12 +1027,22 @@ export function ladderJobOfSearch(state: SearchState, card: TradeEvaluation, pre
     printed: own ? "shown" : "final",
     smallerAsks: state.smallerAsks,
     ...(prefer && prefer.size ? { prefer } : {}),
+    ...(open ? { open } : {}),
   };
 }
 
 /** A preference as a key (Checkpoint 7g): its versions' keys, sorted, joined; "" for none. */
 export function preferKey(prefer: ReadonlySet<string> | undefined): string {
   return prefer && prefer.size ? [...prefer].sort().join(";") : "";
+}
+
+/**
+ * A ladder choice's key in a search's store (searchLadderChoiceSteps): the minimum chance, the card and its preference
+ * (Checkpoint 7g), and since Checkpoint 7h its forced Open when it has one (`|open:` and its key; a card without one keeps
+ * Checkpoint 7g's key).
+ */
+export function choiceKey(minChance: number, cardKey: string, prefer: ReadonlySet<string> | undefined, open?: string): string {
+  return `${minChance}|${cardKey}|${preferKey(prefer)}${open ? `|open:${open}` : ""}`;
 }
 
 /**
@@ -971,7 +1055,7 @@ export function preferKey(prefer: ReadonlySet<string> | undefined): string {
 export function* searchLadderChoiceSteps(job: LadderJob): Generator<void, LadderChoice | null, void> {
   const choices = job.store.choices;
   if (!choices) return yield* ladderChoiceSteps(job);
-  const key = `${job.settings.minChance}|${job.card.key}|${preferKey(job.prefer)}`;
+  const key = choiceKey(job.settings.minChance, job.card.key, job.prefer, job.open);
   if (choices.has(key)) return choices.get(key) ?? null;
   const choice = yield* ladderChoiceSteps(job);
   choices.set(key, choice);
@@ -1037,7 +1121,7 @@ export function offerLadderOfSearch(result: TradeSearchResult, key: string, opts
   const start = opts.clock?.();
   let ladder = state.ladders?.get(key);
   if (!ladder) {
-    const job = ladderJobOfSearch(state, card, state.prefers?.get(key));
+    const job = ladderJobOfSearch(state, card, state.prefers?.get(key), state.opens?.get(key));
     ladder = ladderFromChoice(job, ranOut(searchLadderChoiceSteps(job)));
   }
   const end = opts.clock?.();
@@ -1066,6 +1150,13 @@ export interface ProposalLadderOptions extends LadderOptions {
   prefer?: Iterable<string>;
   /** Checkpoint 7g: false leaves out the smaller asks' Last offer (LadderJob.smallerAsks; a test switch the app never sets). */
   smallerAsks?: boolean;
+  /**
+   * Checkpoint 7h (the file header, "The promoted card's Open"): the idea a Finder card was promoted from, its forced Open, as
+   * its search recorded it (TradeSearchResult.offerOpen, which the page sends for a card whose search the engine no longer
+   * keeps), so the ladder is the one the search kept; absent: none (every card the search didn't promote, and the Analyzer's
+   * card: the user built that trade, so nothing is promoted there).
+   */
+  open?: string;
 }
 
 /**
@@ -1118,6 +1209,7 @@ export function ladderJobOfProposal(ctx: TradeContext, proposal: TradeProposal, 
     printed: "shown",
     smallerAsks: opts.smallerAsks !== false,
     ...(prefer.size ? { prefer } : {}),
+    ...(opts.open ? { open: opts.open } : {}),
   };
 }
 
