@@ -1,7 +1,7 @@
 /**
  * check:browser's League step on the page's parts closed by default (Checkpoint 7h, the integration's track "league": toward
- * "about 8 screens", the positional-strength heatmap and Best available closed under their headings, my roster card closed like
- * the others): the contract (contracts.ts leagueSectionsProblems) on the page as it opens, after the step's taps and after it
+ * "about 8 screens", the team table ("Projected strength"), the positional-strength heatmap and Best available closed under
+ * their headings, my roster card closed like the others): the contract (contracts.ts leagueSectionsProblems) on the page as it opens, after the step's taps and after it
  * closes them again; the reader and the tap expressions compile with the page helpers; and the page's own markup carries what
  * they look for (LeagueView.tsx, DisclosureCard.tsx: each card's heading button with data-league-disclosure and aria-controls
  * naming its body, Best available's "Show all" with data-free-agents-all, my roster's summary with the You badge). The step's
@@ -15,12 +15,12 @@ import { LeagueView } from "@/components/league/LeagueView";
 import { NOW, leagueFixture } from "@/components/league/testFixtures";
 import { config } from "@/engine/config";
 import { buildLeagueView } from "@/lib/leagueView";
-import { LEAGUE_DISCLOSURES, leagueSectionsProblems, type LeagueSectionsRead } from "./contracts";
+import { LEAGUE_DISCLOSURES, leagueDisclosuresText, leagueSectionsProblems, type LeagueSectionsRead } from "./contracts";
 import { CARD_HELPERS, FREE_AGENTS_ALL, MY_ROSTER_SUMMARY, PAGE_HELPERS, READ_LEAGUE_SECTIONS, leagueDisclosure } from "./inPage";
 
 const card = (key: string, heading: string, open: boolean, over: Partial<LeagueSectionsRead["disclosures"][number]> = {}) => ({ key, heading, expanded: open, shown: open, focused: false, height: 44, ...over });
 const read = (open: boolean, over: Partial<LeagueSectionsRead> = {}): LeagueSectionsRead => ({
-  disclosures: [card("heatmap", "Positional strength", open), card("free-agents", "Best available", open)],
+  disclosures: [card("teams", "Projected strength", open), card("heatmap", "Positional strength", open), card("free-agents", "Best available", open)],
   myRoster: { open },
   showAll: { expanded: open, text: open ? "Show fewer" : "Show all 30" },
   height: 7_078,
@@ -37,21 +37,25 @@ describe("leagueSectionsProblems (Checkpoint 7h)", () => {
   });
 
   it("fails a card open on arrival, or not opened by the step", () => {
-    expect(leagueSectionsProblems(read(false, { disclosures: [card("heatmap", "Positional strength", true), card("free-agents", "Best available", false)] }), "closed", true)).toEqual([
+    expect(leagueSectionsProblems(read(false, { disclosures: [card("teams", "Projected strength", false), card("heatmap", "Positional strength", true), card("free-agents", "Best available", false)] }), "closed", true)).toEqual([
       "“Positional strength” is open (it should be closed by default)",
     ]);
-    expect(leagueSectionsProblems(read(true, { disclosures: [card("heatmap", "Positional strength", true), card("free-agents", "Best available", false)] }), "open", true)).toEqual(["“Best available” didn't open"]);
+    expect(leagueSectionsProblems(read(true, { disclosures: [card("teams", "Projected strength", false), card("heatmap", "Positional strength", true), card("free-agents", "Best available", false)] }), "open", true)).toEqual([
+      "“Projected strength” didn't open",
+      "“Best available” didn't open",
+    ]);
   });
 
   it("fails a missing card, a heading in other words, a control under 44 px, and a control that says one thing while its body shows another", () => {
     expect(leagueSectionsProblems(read(false, { disclosures: [card("free-agents", "Best available", false)] }), "closed", true)).toEqual([
+      "no “Projected strength” card with its own control (button[data-league-disclosure=\"teams\"])",
       "no “Positional strength” card with its own control (button[data-league-disclosure=\"heatmap\"])",
     ]);
-    expect(leagueSectionsProblems(read(false, { disclosures: [card("heatmap", "Strength", false), card("free-agents", "Best available", false, { height: 30 })] }), "closed", true)).toEqual([
+    expect(leagueSectionsProblems(read(false, { disclosures: [card("teams", "Projected strength", false), card("heatmap", "Strength", false), card("free-agents", "Best available", false, { height: 30 })] }), "closed", true)).toEqual([
       "the “heatmap” card's heading reads “Strength”, not “Positional strength”",
       "“Best available”'s control is 30 px tall (44 at least)",
     ]);
-    expect(leagueSectionsProblems(read(false, { disclosures: [card("heatmap", "Positional strength", false, { shown: true }), card("free-agents", "Best available", true, { shown: false })] }), "closed", true)).toEqual([
+    expect(leagueSectionsProblems(read(false, { disclosures: [card("teams", "Projected strength", false), card("heatmap", "Positional strength", false, { shown: true }), card("free-agents", "Best available", true, { shown: false })] }), "closed", true)).toEqual([
       "“Positional strength” says it's closed, but its body is shown",
       "“Best available” says it's open, but its body is hidden",
     ]);
@@ -69,7 +73,8 @@ describe("leagueSectionsProblems (Checkpoint 7h)", () => {
   });
 
   it("names the cards the League page closes by default", () => {
-    expect(LEAGUE_DISCLOSURES).toEqual({ heatmap: "Positional strength", "free-agents": "Best available" });
+    expect(LEAGUE_DISCLOSURES).toEqual({ teams: "Projected strength", heatmap: "Positional strength", "free-agents": "Best available" });
+    expect(leagueDisclosuresText()).toBe("“Projected strength”, “Positional strength” and “Best available”");
   });
 });
 
@@ -77,7 +82,7 @@ describe("the reader and the tap expressions (Checkpoint 7h)", () => {
   it("compile with the page helpers", () => {
     const body = (code: string) => `return (async () => {\n${PAGE_HELPERS}\n${CARD_HELPERS}\n${code}\n})`;
     expect(() => new Function(body(READ_LEAGUE_SECTIONS))).not.toThrow();
-    for (const expr of [MY_ROSTER_SUMMARY, FREE_AGENTS_ALL, leagueDisclosure("heatmap"), leagueDisclosure("free-agents")]) {
+    for (const expr of [MY_ROSTER_SUMMARY, FREE_AGENTS_ALL, leagueDisclosure("teams"), leagueDisclosure("heatmap"), leagueDisclosure("free-agents")]) {
       expect(() => new Function(body(`return ${expr};`))).not.toThrow();
       expect(() => new Function(body(`return ${expr}.getAttribute("aria-expanded") === "true";`))).not.toThrow();
     }

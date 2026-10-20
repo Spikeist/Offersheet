@@ -253,7 +253,7 @@ import type { AppRequest, PageEvent, PageSession } from "./page";
 import { finderShot, leagueShots, openedCardShot } from "./shots";
 // Checkpoint 7h, the integration's track "league": what the League step opens to read, and the contract on it.
 import { FREE_AGENTS_ALL, MY_ROSTER_SUMMARY, READ_LEAGUE_SECTIONS, leagueDisclosure } from "./inPage";
-import { LEAGUE_DISCLOSURES, leagueSectionsProblems, type LeagueSectionsRead } from "./contracts";
+import { LEAGUE_DISCLOSURES, leagueDisclosuresText, leagueSectionsProblems, type LeagueSectionsRead } from "./contracts";
 import { PHONE } from "./page";
 import { thoroughStep, waiverDetailsChecks, waiverPrizeOddsChecks, whatIfPrizeOddsChecks, whatIfStep } from "./steps7h";
 
@@ -1115,8 +1115,8 @@ type LeagueOpened = Array<{ expr: string; what: string }>;
 
 /**
  * The League page's parts closed by default (Checkpoint 7h, the integration's track "league": toward "about 8 screens"): as the
- * page opens, the positional-strength heatmap and Best available are closed under their headings (DisclosureCard.tsx: each
- * heading's 44 px button) and my roster card is closed like the others (contracts.ts leagueSectionsProblems "closed"), and the
+ * page opens, the team table ("Projected strength"), the positional-strength heatmap and Best available are closed under their
+ * headings (DisclosureCard.tsx: each heading's 44 px button; contracts.ts LEAGUE_DISCLOSURES) and my roster card is closed like the others (contracts.ts leagueSectionsProblems "closed"), and the
  * page's height is noted in phone screens (`screens`). Then the step opens what it reads with trusted taps, as a user would:
  * each card's heading, my roster's summary and Best available's "Show all" (so its scans read every free agent, not only the
  * best few a position), each tap keeping focus on its control; holds the result to the "open" contract and measures the layout
@@ -1132,7 +1132,7 @@ export async function openLeagueSections(ctx: StepContext, step: string): Promis
   report.check(
     step,
     closedProblems.length === 0,
-    `the page opens with “${LEAGUE_DISCLOSURES.heatmap}” and “${LEAGUE_DISCLOSURES["free-agents"]}” closed under their headings (44 px controls)${before.myRoster ? " and your roster card closed" : ""}: ${screens} phone screens of content`,
+    `the page opens with ${leagueDisclosuresText()} closed under their headings (44 px controls)${before.myRoster ? " and your roster card closed" : ""}: ${screens} phone screens of content`,
     "the League page doesn't open with its parts closed as it should",
     closedProblems,
   );

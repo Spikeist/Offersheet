@@ -15,10 +15,14 @@
  * page ("condense the team table's trade-chip pills: names on one line, the rest on tap"): a team's trade chips are one 44 px
  * disclosure button, "Trade chips: K. Williams, C. Hubbard, C. McCaffrey" (Chip.name), whose tap shows the pills as before
  * (what each is worth and to whom, what he costs his team, his tags), in the page while closed with the hidden attribute.
+ * Then, toward "about 8 screens" (the lead's call after the integration's track "league" measured it: 8.6–9.5 screens with the
+ * heatmap, Best available and my roster card closed): the whole card is closed by default, its heading the 44 px control that
+ * opens it (DisclosureCard.tsx, key "teams"); the table is in the page either way. The standings table above it stays open.
  */
 import { useId, useState } from "react";
 import { HARDER_TO_GET_TAG, STARTER_TAG, type Chip, type ChipTag as ChipTagView, type LeagueView } from "@/lib/leagueView";
-import { Badge, Card, CardTitle, cx } from "../ui";
+import { Badge, cx } from "../ui";
+import { DisclosureCard } from "./DisclosureCard";
 import { ValuesCredit } from "./ValuesCredit";
 import { WhyNote } from "./WhyNote";
 
@@ -117,8 +121,7 @@ export function TeamTable({ view }: { view: LeagueView }) {
   const nextLabel = view.heatmap.windowLabel.next.toLowerCase();
   const harderShown = view.teams.some((t) => t.chips.some((c) => c.tags.some((g) => g.kind === "harder")));
   return (
-    <Card>
-      <CardTitle eyebrow="Teams">Projected strength</CardTitle>
+    <DisclosureCard eyebrow="Teams" title="Projected strength" dataKey="teams">
       {/* relative: keeps the chips' screen-reader text inside this scroller, not widening the page. */}
       <div className="relative -mx-4 overflow-x-auto sm:mx-0">
         <table className="w-full min-w-[18rem] text-sm">
@@ -182,6 +185,6 @@ export function TeamTable({ view }: { view: LeagueView }) {
           {harderShown ? <LegendItem kind="chip" sample="J. Doe" tag={{ text: HARDER_TO_GET_TAG, kind: "harder" }} text="his manager will likely want a little extra for him" /> : null}
         </ul>
       </WhyNote>
-    </Card>
+    </DisclosureCard>
   );
 }

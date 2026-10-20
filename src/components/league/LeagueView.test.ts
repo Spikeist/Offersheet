@@ -357,6 +357,15 @@ describe("LeagueView remaining schedule (§8: each remaining week's risk)", () =
 });
 
 describe("LeagueView team table", () => {
+  it("is closed by default, its heading the 44 px control that opens it, the table in the page while closed (Checkpoint 7h)", () => {
+    const card = between(html, ">Teams<", "Lineup slots");
+    const control = /<h2 class="[^"]*"><button type="button" aria-expanded="false" aria-controls="([^"]+)" data-league-disclosure="teams" class="([^"]*)"><span class="[^"]*">Projected strength<\/span><span aria-hidden="true" class="[^"]*">▾<\/span><\/button><\/h2><div id="\1" hidden="" class="mt-3">/.exec(card);
+    expect(control).not.toBeNull();
+    expect(control?.[2]).toMatch(/(^|\s)min-h-11(\s|$)/);
+    expect(control?.[2]).toMatch(/(^|\s)w-full(\s|$)/);
+    expect(card).toContain("<caption class=\"sr-only\">Teams ranked by projected points per week");
+  });
+
   it("is a captioned table with a row header per team, mine badged", () => {
     const teams = between(html, "Projected strength", "Positional strength");
     expect(teams).toContain('<caption class="sr-only">Teams ranked by projected points per week, with each team&#x27;s needs and trade chips</caption>');

@@ -750,8 +750,17 @@ export function releaseLineProblems(lines: readonly string[], page: "league" | "
   return out;
 }
 
-/** The League page's cards closed by default (DisclosureCard.tsx), each by its key: the positional-strength heatmap, Best available. */
-export const LEAGUE_DISCLOSURES = { heatmap: "Positional strength", "free-agents": "Best available" } as const;
+/**
+ * The League page's cards closed by default (DisclosureCard.tsx), each by its key, in page order: the team table ("Projected
+ * strength": the lead's call toward "about 8 screens", after the integration), the positional-strength heatmap, Best available.
+ */
+export const LEAGUE_DISCLOSURES = { teams: "Projected strength", heatmap: "Positional strength", "free-agents": "Best available" } as const;
+
+/** The cards closed by default, named in the League step's words: “Projected strength”, “Positional strength” and “Best available”. */
+export const leagueDisclosuresText = (): string => {
+  const names = Object.values(LEAGUE_DISCLOSURES).map((h) => `“${h}”`);
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : (names[0] ?? "");
+};
 
 /** What inPage.ts READ_LEAGUE_SECTIONS reads (Checkpoint 7h, the integration's track "league"). */
 export interface LeagueSectionsRead {

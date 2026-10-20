@@ -25,7 +25,9 @@
  * Then, toward "about 8 screens" (the integration's track "league"): the positional-strength heatmap and "Best available" are
  * closed by default, each heading the 44 px control that opens it (DisclosureCard.tsx), and my roster card is closed like the
  * others (its summary line shows my points a week, ROS points and pickups; the "Returns from IR" block, the locks and the
- * Expected back selects are inside it). Waiver upgrades' untouchables line still offers the locks without opening it.
+ * Expected back selects are inside it). Waiver upgrades' untouchables line still offers the locks without opening it. Then
+ * (the lead's call, those steps leaving 8.6–9.5 screens): the team table ("Projected strength", TeamTable.tsx) is closed by
+ * default too, which brings Parker's four dumps to 7.3–8.3 screens; the standings table stays open (the page's core).
  *
  * Refresh stays focusable while it works (aria-disabled, clicks ignored), so keyboard focus never
  * drops to the page; `headingRef` lets the page move focus to the league's name after a Try again.
