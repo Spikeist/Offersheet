@@ -423,6 +423,9 @@ export async function thoroughStep(ctx: StepContext): Promise<void> {
     await sleep(300);
     state = await page.waitFor<string>(`!new URLSearchParams(location.search).get("partner") && ${FINDER_DONE}`, 300_000, "the Trade Finder for every team", 50).catch(() => "no answer");
   }
+  // A remembered search shows a tick after the page's status line can still read the last one's: let it settle, then again.
+  await sleep(800);
+  if (state === "done") state = await page.waitFor<string>(FINDER_DONE, 300_000, "the Trade Finder", 50).catch(() => "no answer");
   if (!report.check(step, state === "done", "the Trade Finder shows its ideas for every team", "the Trade Finder didn't show its ideas for every team")) return;
   const normal = await ideasOnPage(ctx);
   const summaryBefore = await page.run<string | null>(READ_FINDER_SUMMARY);
@@ -443,7 +446,7 @@ export async function thoroughStep(ctx: StepContext): Promise<void> {
   const stop = await page.waitFor<boolean>(`!!byText("button", "Stop")`, 15_000, "the Thorough search's Stop").catch(() => false);
   const started = Date.now();
   const finished = await page
-    .waitFor<string>(`engineSince(${from}).some((e) => e.type === "trades") && ${FINDER_DONE}`, THOROUGH_WAIT_MS, "the Thorough search", 100)
+    .waitFor<string>(`engineSince(${from}).some((e) => e.type === "trades" || e.type === "error") && ${FINDER_DONE}`, THOROUGH_WAIT_MS, "the Thorough search", 100)
     .catch((err: unknown) => `error: ${err instanceof Error ? err.message : "it didn't finish"}`);
   const wall = seconds(Date.now() - started);
   if (!report.check(step, finished === "done", "turned on, the Thorough search ran to the end", `the Thorough search didn't finish: ${finished.replace(/^error: /, "")}`)) return;
@@ -497,10 +500,16 @@ export async function thoroughStep(ctx: StepContext): Promise<void> {
   const again = await page
     .waitFor<string>(`(() => { const i = [...document.querySelectorAll("main input[type=checkbox]")].find((x) => { const l = x.closest("label"); return !!l && txt(l) === ${JSON.stringify(THOROUGH_LABEL)}; }); return !!i && !i.checked && ${FINDER_DONE} === "done" ? "done" : null; })()`, 60_000, "the normal search's ideas", 50)
     .catch(() => "no answer");
+  // The list as it was, read until it shows (the status line can read "done" a tick before the remembered ideas replace the
+  // Thorough search's), at most THOROUGH_BACK_MS from the tap.
+  let after = await ideasOnPage(ctx);
+  while (again === "done" && sameIdeasProblems(normal.ideas, after.ideas).length && Date.now() - back < THOROUGH_BACK_MS) {
+    await sleep(100);
+    after = await ideasOnPage(ctx);
+  }
   const backMs = Date.now() - back;
   await sleep(300);
   const searched = await page.run<boolean>(`return engineSince(${offFrom}).some((e) => e.type === "trades");`);
-  const after = await ideasOnPage(ctx);
   const summaryAfter = await page.run<string | null>(READ_FINDER_SUMMARY);
   const backProblems = [
     ...(again === "done" ? [] : ["the normal search's ideas didn't show again"]),
