@@ -8,7 +8,10 @@
  * config.search.bruteForce). The planner's words: "screen every 1-for-1, 1-for-2, 2-for-1 and 2-for-2 trade with every
  * partner. Use whole rosters, not just the pools, and the same screening objective. Then run exact evaluation and the
  * simulation on the best of them." and "Report how many of its top 10 and top 25 by Overall the normal search also found, the
- * best trade the normal search missed with its numbers".
+ * best trade the normal search missed with its numbers". Since the second review of Checkpoint 7h (search#1) the brute force
+ * and the Thorough search also evaluate exactly, and play out, every trade the app's search does (search.ts SearchState.
+ * normalChoice), so their rankings hold every trade the app's search could show: the counts below read how many of the
+ * whole-roster search's best trades the app's search found, never a trade the brute force missed.
  *
  * Two readings of "its top 10 and top 25 by Overall": `raw`, the brute force's finalists by EG (B × P_complete, Overall's
  * order) on the ranking block, past the §10 guards and the minimum chance as printed, before the list's variety rules (so
