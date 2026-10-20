@@ -77,7 +77,9 @@
  * the planner's "Other teams don't change. To see a real trade, use the Analyzer with a partner."; no offers, Plan B or
  * feedback). The mode is the address's (`?mode=whatif&remove=…&add=…`, player ids only: whatIfView.ts) until the switch is
  * pressed; both modes stay mounted (the other one hidden), and each one's draft holds while the address names the other mode
- * (an evaluation writes its own mode's address), so switching keeps each one's draft and result.
+ * (an evaluation writes its own mode's address), so switching keeps each one's draft and result: each mode reads its draft from
+ * the latest address that named it (WhatIfPanel.tsx useModeQuery; the review of Checkpoint 7h: a trade the address had
+ * prefilled, a card's "Open in Analyzer", had emptied once a what-if was evaluated, its result read as changed).
  */
 import Link from "next/link";
 import { useCallback, useEffect, useEffectEvent, useId, useMemo, useRef, useState, type Ref } from "react";
@@ -127,7 +129,7 @@ import { finderAddress, tradeEngine, useLeagueQuery } from "./finderMemory";
 import { HowToRead } from "./HowToRead";
 import { TradeCard } from "./TradeCard";
 import { LeagueLoading } from "./LeagueLoading";
-import { AnalyzerModeSwitch, WhatIfPanel } from "./WhatIfPanel";
+import { AnalyzerModeSwitch, WhatIfPanel, useModeQuery } from "./WhatIfPanel";
 
 export const ANALYZER_TITLE = "Trade Analyzer";
 export const NO_IMPORT_TEXT = "Connect your ESPN or Sleeper league to build and check your own trades. Leagues you import stay saved in this browser until you remove them.";
@@ -210,13 +212,15 @@ function LoadedAnalyzer({ current, query }: { current: Extract<CurrentLeagueRead
 
   const myTeamId = myTeam?.myTeamId ?? null;
   const league = pair && myTeamId ? pair.snapshot : null;
-  const prefill = useMemo(() => (league ? readAnalyzerDraft(query, league, myTeamId) : EMPTY_DRAFT), [league, query, myTeamId]);
-  // An edit holds while the address is the one it was made under, or names the same trade (Evaluate's own write), or (Checkpoint
-  // 7h) names a what-if (the other mode's evaluation wrote it: the trade being built waits for its mode).
-  const editHolds = edited !== null && (edited.query === query || draftKey(edited.draft) === draftKey(prefill) || readAnalyzerMode(query) === "whatif");
+  // Checkpoint 7h: the trade reads the latest address that named a trade (WhatIfPanel.tsx useModeQuery): the what-if's
+  // evaluation writes its own address, and the trade being built, from the address or edited, waits for its mode with its result.
+  const tradeQuery = useModeQuery(query, "trade");
+  const prefill = useMemo(() => (league ? readAnalyzerDraft(tradeQuery, league, myTeamId) : EMPTY_DRAFT), [league, tradeQuery, myTeamId]);
+  // An edit holds while that address is the one it was made under, or names the same trade (Evaluate's own write).
+  const editHolds = edited !== null && (edited.query === tradeQuery || draftKey(edited.draft) === draftKey(prefill));
   const draft = edited && editHolds ? edited.draft : prefill;
   // The address's trade opened from a card's Plan B (`?from=planB`): shown as one offer while it's the trade built (the header).
-  const planBKey = league && readAnalyzerFrom(query) === "planB" && draftProposal(prefill) ? draftKey(prefill) : null;
+  const planBKey = league && readAnalyzerFrom(tradeQuery) === "planB" && draftProposal(prefill) ? draftKey(prefill) : null;
   const fromOf = (d: AnalyzerDraft): AnalyzerFrom | null => (planBKey !== null && draftKey(d) === planBKey ? "planB" : null);
   const evalKey = (d: AnalyzerDraft): string => `${draftKey(d)}${fromOf(d) ? "|planB" : ""}`;
   const contextTag = pair && myTeamId && settings ? contextTagFor(pair.snapshot, pair.inputs.builtAt, myTeamId, settings) : null;
@@ -395,7 +399,7 @@ function LoadedAnalyzer({ current, query }: { current: Extract<CurrentLeagueRead
             draft={draft}
             summary={draftSummary(draft, league)}
             busy={busy}
-            onChange={(d) => setEdited({ draft: d, query })}
+            onChange={(d) => setEdited({ draft: d, query: tradeQuery })}
             onEvaluate={() => evaluate(draft, false)}
           />
         ) : null}

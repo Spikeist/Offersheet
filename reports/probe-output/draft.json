@@ -1,7 +1,7 @@
 {
   "platform": "draft",
-  "generatedAt": "2026-10-20T02:59:18.562Z",
-  "runtimeSeconds": 5,
+  "generatedAt": "2026-10-20T15:26:13.158Z",
+  "runtimeSeconds": 20.9,
   "meta": {
     "leagues": [
       {
@@ -17,16 +17,16 @@
     ],
     "samples": "reports/probe-output/draft.samples.md",
     "season": 2026,
-    "week": 6,
+    "week": 7,
     "timingsMs": {
-      "crosswalk": 257,
-      "sleeper": 172,
-      "espn": 399,
-      "ffc": 187,
-      "mfl": 19,
+      "crosswalk": 3450,
+      "sleeper": 9418,
+      "espn": 2089,
+      "ffc": 248,
+      "mfl": 706,
       "dynastyprocess": 4
     },
-    "requestCount": 60
+    "requestCount": 61
   },
   "itemStatus": {
     "XWALK": "warn",
@@ -37,8 +37,8 @@
     "DOCS": "ok"
   },
   "counts": {
-    "ok": 25,
-    "warn": 13,
+    "ok": 26,
+    "warn": 15,
     "fail": 0,
     "na": 6
   },
@@ -48,7 +48,7 @@
       "key": "XWALK.sources",
       "title": "Player ID crosswalk (the app's own, src/data/load.ts)",
       "status": "ok",
-      "summary": "Sleeper players: 7785 rows, fetched 2026-10-19T05:13:04.542Z (the app's cache); DynastyProcess player IDs: 12529 rows, fetched 2026-10-19T05:13:04.177Z (the app's cache)",
+      "summary": "Sleeper players: 7785 rows, fetched 2026-10-20T15:25:52.525Z; DynastyProcess player IDs: 12529 rows, fetched 2026-10-20T15:25:52.572Z",
       "evidence": [
         {
           "note": "ESPN and MFL ids map through it (canonical), Fantasy Football Calculator's names through matchByName (exact name, position and NFL team; one active player only)"
@@ -60,7 +60,7 @@
       "key": "SETUP.calendar",
       "title": "NFL calendar (Sleeper /state/nfl)",
       "status": "ok",
-      "summary": "season 2026, week 6 (regular); every season below comes from here, never a constant",
+      "summary": "season 2026, week 7 (regular); every season below comes from here, never a constant",
       "evidence": [
         {
           "url": "https://api.sleeper.app/v1/state/nfl",
@@ -68,10 +68,9 @@
           "path": "season, week, season_type",
           "sample": {
             "season": 2026,
-            "week": 6,
+            "week": 7,
             "season_type": "regular"
-          },
-          "note": "from cache (fetched 2026-10-20 02:49 UTC)"
+          }
         }
       ]
     },
@@ -99,8 +98,7 @@
             "adp_ppr": 2498,
             "adp_rookie": 0,
             "adp_std": 310
-          },
-          "note": "from cache (fetched 2026-10-19 22:35 UTC)"
+          }
         }
       ]
     },
@@ -128,8 +126,7 @@
               "player": "Ja'Marr Chase",
               "adp_ppr": 3.5
             }
-          ],
-          "note": "from cache (fetched 2026-10-19 22:35 UTC)"
+          ]
         }
       ]
     },
@@ -156,7 +153,7 @@
       "key": "PROJ.sleeper.season",
       "title": "Sleeper season projections (undocumented endpoint)",
       "status": "ok",
-      "summary": "644 of 3306 rows carry projected stats (WR 219, RB 143, TE 124, QB 78, K 45, DEF 32, FB 2, DB 1; 55 stat keys: scoreable with any league's rules, CLAUDE.md §5), pts_ppr on 642; the other rows are ADP only; company rotowire (Sleeper's projections come from that provider); gp TE 18, RB 18, WR 18, QB 18, K 18, FB 18, DB 18, CB 18, P 18, DEF 1; every row's last_modified within 18 s of 2026-10-19 07:50 UTC (rewritten as one batch: ⚠️ read as the daily ADP update, since the projection itself doesn't move, ADP.sleeper.updates); first by pts_ppr: Josh Allen 361.5, Jahmyr Gibbs 331.4, Lamar Jackson 326",
+      "summary": "644 of 3306 rows carry projected stats (WR 219, RB 143, TE 124, QB 78, K 45, DEF 32, FB 2, DB 1; 55 stat keys: scoreable with any league's rules, CLAUDE.md §5), pts_ppr on 642; the other rows are ADP only; company rotowire (Sleeper's projections come from that provider); gp TE 18, RB 18, WR 18, QB 18, K 18, FB 18, DB 18, CB 18, P 18, DEF 1; every row's last_modified within 15 s of 2026-10-20 07:50 UTC (rewritten as one batch: ⚠️ read as the daily ADP update, since the projection itself doesn't move, ADP.sleeper.updates); first by pts_ppr: Josh Allen 361.5, Jahmyr Gibbs 331.4, Lamar Jackson 326",
       "evidence": [
         {
           "url": "https://api.sleeper.app/projections/nfl/2026?season_type=regular&position[]=QB&position[]=RB&position[]=WR&position[]=TE&position[]=K&position[]=DEF",
@@ -180,8 +177,7 @@
               "rec_40p",
               "rec_5_9"
             ]
-          },
-          "note": "from cache (fetched 2026-10-19 22:35 UTC)"
+          }
         }
       ]
     },
@@ -190,7 +186,7 @@
       "key": "PROJ.sleeper.span",
       "title": "Sleeper season row in season: what it holds",
       "status": "warn",
-      "summary": "31 QBs with a season pts_ppr of 100+; median season ÷ Σ weekly pts_ppr: weeks 1–18 0.941, weeks 6–18 1.308, weeks 7–18 1.41 → none of the three sums, and the season row hasn't moved since 2026-09-30 (ADP.sleeper.updates): a fixed season total, ⚠️ read as the preseason projection, kept all season (gp 18: a full season) (⚠️ derived, one position). For a draft (before week 1) the season row is the season-long projection either way",
+      "summary": "31 QBs with a season pts_ppr of 100+; median season ÷ Σ weekly pts_ppr: weeks 1–18 0.938, weeks 7–18 1.383, weeks 8–18 1.527 → none of the three sums, and the season row hasn't moved since 2026-09-30 (ADP.sleeper.updates): a fixed season total, ⚠️ read as the preseason projection, kept all season (gp 18: a full season) (⚠️ derived, one position). For a draft (before week 1) the season row is the season-long projection either way",
       "evidence": [
         {
           "url": "https://api.sleeper.app/projections/nfl/2026/{week}?season_type=regular&position=QB",
@@ -199,23 +195,23 @@
             {
               "player": "Michael Penix",
               "season": 143.2,
-              "weeks1to18": 212,
-              "fromWeek": 168.9,
-              "afterWeek": 154.3
+              "weeks1to18": 214.3,
+              "fromWeek": 156.6,
+              "afterWeek": 141.6
             },
             {
               "player": "Caleb Williams",
               "season": 299.3,
-              "weeks1to18": 256.3,
-              "fromWeek": 219.4,
-              "afterWeek": 203.5
+              "weeks1to18": 252.7,
+              "fromWeek": 199.8,
+              "afterWeek": 182.2
             },
             {
               "player": "Bo Nix",
               "season": 295.7,
-              "weeks1to18": 293,
-              "fromWeek": 207,
-              "afterWeek": 192.7
+              "weeks1to18": 286.9,
+              "fromWeek": 186.6,
+              "afterWeek": 166.7
             }
           ]
         }
@@ -236,8 +232,7 @@
             "rows": 3308,
             "projected": 638,
             "adpKeys": 11
-          },
-          "note": "from cache (fetched 2026-10-19 22:35 UTC)"
+          }
         }
       ]
     },
@@ -256,8 +251,7 @@
             "rows": 3274,
             "projected": 0,
             "adpKeys": 0
-          },
-          "note": "from cache (fetched 2026-10-19 22:35 UTC)"
+          }
         }
       ]
     },
@@ -296,8 +290,7 @@
               "11": 7,
               "12": 4
             }
-          },
-          "note": "from cache (fetched 2026-10-20 02:49 UTC)"
+          }
         },
         {
           "url": "https://api.sleeper.app/v1/league/{leagueId}/drafts",
@@ -305,8 +298,7 @@
           "path": "[].{season,type,status}",
           "sample": [
             "2026 linear complete"
-          ],
-          "note": "from cache (fetched 2026-10-20 02:49 UTC)"
+          ]
         }
       ]
     },
@@ -346,8 +338,7 @@
               "position": "RB",
               "team": "SEA"
             }
-          ],
-          "note": "from cache (fetched 2026-10-20 02:49 UTC)"
+          ]
         }
       ]
     },
@@ -379,8 +370,7 @@
               "owner_id": 6,
               "previous_owner_id": 4
             }
-          ],
-          "note": "from cache (fetched 2026-10-20 02:49 UTC)"
+          ]
         }
       ]
     },
@@ -445,8 +435,7 @@
             "timePerSelection": 60,
             "type": "SNAKE",
             "pickOrder": "10 team ids"
-          },
-          "note": "from cache (fetched 2026-10-20 02:49 UTC)"
+          }
         }
       ]
     },
@@ -480,8 +469,7 @@
               "teamId": 2,
               "player": "Bijan Robinson"
             }
-          ],
-          "note": "from cache (fetched 2026-10-20 02:49 UTC)"
+          ]
         }
       ]
     },
@@ -513,17 +501,17 @@
       "key": "ADP.espn.current",
       "title": "ESPN ADP (ownership.averageDraftPosition), 2026",
       "status": "warn",
-      "summary": "500 of 500 pool players carry an ADP above 0 (from 1.8 to 170; 1 at that top value), with auctionValueAverage; ownership.leagueType 0: ONE ADP per player across ESPN's drafts, no format or league-size variant (⚠️ none seen among the fields). ESPN's own pre-draft ranks, by format: draftRanksByRankType STANDARD 499, PPR 499, ELIMINATION 500, SUPERFLEX 499 (rank and auctionValue per format: rankings, not ADP). ownership.date 2026-10-19 12:30 UTC – 2026-10-19 22:30 UTC (the block is refreshed daily; whether the ADP itself still moves isn't told)",
+      "summary": "500 of 500 pool players carry an ADP above 0 (from 1.8 to 170; 3 at that top value, ⚠️ read as a placeholder for players hardly drafted), with auctionValueAverage; ownership.leagueType 0: ONE ADP per player across ESPN's drafts, no format or league-size variant (⚠️ none seen among the fields). ESPN's own pre-draft ranks, by format: draftRanksByRankType STANDARD 499, PPR 499, ELIMINATION 500, SUPERFLEX 499 (rank and auctionValue per format: rankings, not ADP). ownership.date 2026-10-20 01:30 UTC – 2026-10-20 14:30 UTC (the block is refreshed daily; whether the ADP itself still moves isn't told)",
       "evidence": [
         {
-          "url": "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/2026/segments/0/leaguedefaults/3?scoringPeriodId=6&view=kona_player_info",
+          "url": "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/2026/segments/0/leaguedefaults/3?scoringPeriodId=7&view=kona_player_info",
           "status": 200,
           "path": "players[].player.ownership.{averageDraftPosition,auctionValueAverage,date,leagueType}, players[].player.draftRanksByRankType",
           "sample": [
             {
               "player": "Jahmyr Gibbs",
               "averageDraftPosition": 1.76,
-              "auctionValueAverage": 73.91,
+              "auctionValueAverage": 73.88,
               "ranks": {
                 "STANDARD": 1,
                 "PPR": 1,
@@ -533,8 +521,8 @@
             },
             {
               "player": "Bijan Robinson",
-              "averageDraftPosition": 3.31,
-              "auctionValueAverage": 64.4,
+              "averageDraftPosition": 3.38,
+              "auctionValueAverage": 63.58,
               "ranks": {
                 "STANDARD": 2,
                 "PPR": 2,
@@ -544,8 +532,8 @@
             },
             {
               "player": "Jaxon Smith-Njigba",
-              "averageDraftPosition": 5.45,
-              "auctionValueAverage": 63.51,
+              "averageDraftPosition": 5.41,
+              "auctionValueAverage": 63.07,
               "ranks": {
                 "STANDARD": 5,
                 "PPR": 6,
@@ -554,7 +542,7 @@
               }
             }
           ],
-          "note": "from cache (fetched 2026-10-19 22:35 UTC); X-Fantasy-Filter: espn-api's player-pool filter (FREEAGENT, WAIVERS, ONTEAM; sorted by percent owned), limit 500"
+          "note": "X-Fantasy-Filter: espn-api's player-pool filter (FREEAGENT, WAIVERS, ONTEAM; sorted by percent owned), limit 500"
         }
       ]
     },
@@ -563,10 +551,10 @@
       "key": "PROJ.espn.season",
       "title": "ESPN season projections (statSourceId 1, statSplitTypeId 0), 2026",
       "status": "ok",
-      "summary": "391 of 500 pool players carry one, with ESPN stat ids (scoreable with a league's rules through src/adapters/espn/scoringMap.ts) and appliedTotal (ESPN's default scoring on leaguedefaults: Phase 0, PROJ-E). In season it's the rest-of-season total (Phase 0: projected split 0 = the sum of weeks 4–18 on 452/452 players), so before week 1 it's the full season (⚠️ inferred: no preseason copy has been seen); first by appliedTotal: Jahmyr Gibbs 312.6, Ja'Marr Chase 264.7, Kenneth Walker III 261",
+      "summary": "389 of 500 pool players carry one, with ESPN stat ids (scoreable with a league's rules through src/adapters/espn/scoringMap.ts) and appliedTotal (ESPN's default scoring on leaguedefaults: Phase 0, PROJ-E). In season it's the rest-of-season total (Phase 0: projected split 0 = the sum of weeks 4–18 on 452/452 players), so before week 1 it's the full season (⚠️ inferred: no preseason copy has been seen); first by appliedTotal: Jahmyr Gibbs 312.6, Ja'Marr Chase 264.7, Kenneth Walker III 261",
       "evidence": [
         {
-          "url": "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/2026/segments/0/leaguedefaults/3?scoringPeriodId=6&view=kona_player_info",
+          "url": "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/2026/segments/0/leaguedefaults/3?scoringPeriodId=7&view=kona_player_info",
           "status": 200,
           "path": "players[].player.stats[statSourceId=1, statSplitTypeId=0, seasonId=2026].{appliedTotal,stats}",
           "sample": [
@@ -585,8 +573,7 @@
               "appliedTotal": 261,
               "statIds": 45
             }
-          ],
-          "note": "from cache (fetched 2026-10-19 22:35 UTC)"
+          ]
         }
       ]
     },
@@ -621,8 +608,7 @@
             "players": 500,
             "adp": 500,
             "seasonProj": 491
-          },
-          "note": "from cache (fetched 2026-10-19 22:35 UTC)"
+          }
         }
       ]
     },
@@ -901,7 +887,7 @@
       "key": "ADP.mfl.previous",
       "title": "MFL ADP export for 2025 (last season, the whole season's drafts)",
       "status": "ok",
-      "summary": "12 teams, PPR, redraft, real drafts: 457 players from 844 drafts; 10 teams, non-PPR, redraft, real drafts: 276 players from 206 drafts; updated 2026-10-20 02:50 UTC: past seasons stay available (a backtest of a draft strategy can use them)",
+      "summary": "12 teams, PPR, redraft, real drafts: 457 players from 844 drafts; 10 teams, PPR, redraft, real drafts: 354 players from 504 drafts; 10 teams, non-PPR, redraft, real drafts: 276 players from 206 drafts; updated 2026-10-20 02:50 UTC: past seasons stay available (a backtest of a draft strategy can use them)",
       "evidence": [
         {
           "url": "https://api.myfantasyleague.com/2025/export?TYPE=adp&FCOUNT=12&IS_PPR=1&IS_KEEPER=N&IS_MOCK=0&JSON=1",
@@ -913,6 +899,19 @@
             "first": {
               "id": "15281",
               "averagePick": 2.84
+            }
+          }
+        },
+        {
+          "url": "https://api.myfantasyleague.com/2025/export?TYPE=adp&FCOUNT=10&IS_PPR=1&IS_KEEPER=N&IS_MOCK=0&JSON=1",
+          "status": 200,
+          "path": "adp.{totalDrafts,timestamp,player[]}",
+          "sample": {
+            "players": 354,
+            "totalDrafts": 504,
+            "first": {
+              "id": "15281",
+              "averagePick": 2.52
             }
           }
         },
@@ -933,20 +932,45 @@
     },
     {
       "item": "ADP",
-      "key": "ADP.mfl.filters",
-      "title": "MFL ADP filters change the list (league size and PPR, 2025)",
+      "key": "ADP.mfl.size",
+      "title": "MFL ADP by league size (FCOUNT alone, 2025)",
       "status": "ok",
-      "summary": "12-team PPR redraft: 844 drafts; 10-team non-PPR redraft: 206 drafts; their first 30 players differ; over the first 150, Spearman 0.946 on 136 players, median gap 5.7 picks: a list per league size and format, from MFL's own leagues (⚠️ MFL's drafts lean to high-stakes and dynasty leagues, so its redraft ADP may differ from the casual market: ADP.agreement)",
+      "summary": "12-team PPR redraft: 844 drafts; 10-team PPR redraft: 504 drafts (only the league size (FCOUNT) changed); their first 30 players differ; over the first 150, Spearman 0.985 on 139 players, median gap 3.2 picks: the league size (FCOUNT) splits the list",
       "evidence": [
         {
           "path": "adp.totalDrafts, adp.player[].id",
           "sample": {
-            "12-ppr-redraft": 844,
-            "10-std-redraft": 206,
-            "rho": 0.946
+            "12-team PPR redraft": 844,
+            "10-team PPR redraft": 504,
+            "rho": 0.985
           }
         }
       ]
+    },
+    {
+      "item": "ADP",
+      "key": "ADP.mfl.ppr",
+      "title": "MFL ADP by scoring (IS_PPR alone, 2025)",
+      "status": "ok",
+      "summary": "10-team PPR redraft: 504 drafts; 10-team non-PPR redraft: 206 drafts (only the scoring (IS_PPR) changed); their first 30 players differ; over the first 150, Spearman 0.97 on 133 players, median gap 3.6 picks: the scoring (IS_PPR) splits the list",
+      "evidence": [
+        {
+          "path": "adp.totalDrafts, adp.player[].id",
+          "sample": {
+            "10-team PPR redraft": 504,
+            "10-team non-PPR redraft": 206,
+            "rho": 0.97
+          }
+        }
+      ]
+    },
+    {
+      "item": "ADP",
+      "key": "ADP.mfl.keeper",
+      "title": "MFL ADP for keeper and rookie drafts (IS_KEEPER)",
+      "status": "warn",
+      "summary": "api_info documents IS_KEEPER N (redraft), K (keeper) and R (rookie); only N was asked for (⚠️ documented, not checked with data)",
+      "evidence": []
     },
     {
       "item": "XWALK",
@@ -977,6 +1001,30 @@
             "mapped": 191,
             "of": 191
           }
+        }
+      ]
+    },
+    {
+      "item": "ADP",
+      "key": "ADP.mfl.qb",
+      "title": "MFL ADP: 1QB or superflex leagues (no QB-count filter)",
+      "status": "warn",
+      "summary": "api_info's adp export filters by PERIOD, FCOUNT, IS_PPR, IS_KEEPER, IS_MOCK, CUTOFF and DETAILS: none by QB count, so a list mixes 1QB and superflex leagues. Of the first QBs on its 12-team PPR redraft list, 2026: 9 of 12 sit closer to Sleeper's superflex ADP (adp_2qb) than to its 1QB ADP (adp_ppr), the first Josh Allen 4 (1QB 21.3, superflex 3.7) and Lamar Jackson 23.1 (1QB 31.4, superflex 9.4); 2025: 12 of 12 sit closer to Sleeper's superflex ADP (adp_2qb) than to its 1QB ADP (adp_ppr), the first Josh Allen 4.1 (1QB 18.5, superflex 1.5) and Lamar Jackson 9.2 (1QB 21.9, superflex 3.1). ⚠️ Not a 1QB list: its QBs go far earlier than in 1QB leagues",
+      "evidence": [
+        {
+          "path": "adp.player[] (QBs, positions from the crosswalk) against Sleeper's stats.adp_ppr and stats.adp_2qb",
+          "sample": [
+            {
+              "season": 2026,
+              "compared": 12,
+              "closerTo2qb": 9
+            },
+            {
+              "season": 2025,
+              "compared": 12,
+              "closerTo2qb": 12
+            }
+          ]
         }
       ]
     },
@@ -1134,7 +1182,7 @@
       "key": "ADP.agreement",
       "title": "How the ADP lists agree (the players in both lists' first 150)",
       "status": "warn",
-      "summary": "Sleeper adp_ppr 2026 vs ESPN ADP 2026: 129 players, Spearman 0.885, median gap 18.4 picks; Sleeper adp_ppr 2026 vs FFC PPR 12 2026: 28 players, Spearman 0.964, median gap 6.2 picks; Sleeper adp_ppr 2026 vs MFL 12 PPR redraft 2026: 122 players, Spearman 0.917, median gap 7.4 picks; Sleeper adp_ppr 2025 vs FFC PPR 12 2025: 121 players, Spearman 0.957, median gap 6.4 picks; Sleeper adp_ppr 2025 vs MFL 12 PPR redraft 2025: 124 players, Spearman 0.911, median gap 8 picks; ESPN ADP 2026 vs FFC PPR 12 2026: 29 players, Spearman 0.961, median gap 13.1 picks; ESPN ADP 2026 vs MFL 12 PPR redraft 2026: 120 players, Spearman 0.877, median gap 17.7 picks; FFC PPR 12 2026 vs MFL 12 PPR redraft 2026: 28 players, Spearman 0.947, median gap 5.1 picks; FFC PPR 12 2025 vs MFL 12 PPR redraft 2025: 112 players, Spearman 0.914, median gap 10.6 picks (⚠️ derived: lists of the same season only; each list in its own format and league mix; Sleeper's and ESPN's lists aren't by league size)",
+      "summary": "Sleeper adp_ppr 2026 vs ESPN ADP 2026: 129 players, Spearman 0.883, median gap 18.4 picks; Sleeper adp_ppr 2026 vs FFC PPR 12 2026: 28 players, Spearman 0.966, median gap 6 picks; Sleeper adp_ppr 2026 vs MFL 12 PPR redraft 2026: 122 players, Spearman 0.917, median gap 7.5 picks; Sleeper adp_ppr 2025 vs FFC PPR 12 2025: 121 players, Spearman 0.957, median gap 6.4 picks; Sleeper adp_ppr 2025 vs MFL 12 PPR redraft 2025: 124 players, Spearman 0.911, median gap 8 picks; ESPN ADP 2026 vs FFC PPR 12 2026: 29 players, Spearman 0.957, median gap 12.9 picks; ESPN ADP 2026 vs MFL 12 PPR redraft 2026: 120 players, Spearman 0.876, median gap 17.5 picks; FFC PPR 12 2026 vs MFL 12 PPR redraft 2026: 28 players, Spearman 0.947, median gap 5.1 picks; FFC PPR 12 2025 vs MFL 12 PPR redraft 2025: 112 players, Spearman 0.914, median gap 10.6 picks (⚠️ derived: lists of the same season only; each list in its own format and league mix; Sleeper's and ESPN's lists aren't by league size)",
       "evidence": [
         {
           "path": "each list's ADP by Sleeper id",
@@ -1142,12 +1190,12 @@
             {
               "pair": "Sleeper adp_ppr 2026 / ESPN ADP 2026",
               "common": 129,
-              "rho": 0.885
+              "rho": 0.883
             },
             {
               "pair": "Sleeper adp_ppr 2026 / FFC PPR 12 2026",
               "common": 28,
-              "rho": 0.964
+              "rho": 0.966
             },
             {
               "pair": "Sleeper adp_ppr 2026 / MFL 12 PPR redraft 2026",
@@ -1167,12 +1215,12 @@
             {
               "pair": "ESPN ADP 2026 / FFC PPR 12 2026",
               "common": 29,
-              "rho": 0.961
+              "rho": 0.957
             },
             {
               "pair": "ESPN ADP 2026 / MFL 12 PPR redraft 2026",
               "common": 120,
-              "rho": 0.877
+              "rho": 0.876
             },
             {
               "pair": "FFC PPR 12 2026 / MFL 12 PPR redraft 2026",
@@ -1193,10 +1241,10 @@
   "decisions": [],
   "questions": [],
   "requests": {
-    "total": 60,
-    "live": 2,
-    "fromCache": 58,
+    "total": 61,
+    "live": 33,
+    "fromCache": 28,
     "retried": 0,
-    "slowestMs": 209
+    "slowestMs": 1279
   }
 }

@@ -35,7 +35,7 @@ import {
   DEFAULT_WHAT_IF_FILTER,
   WHAT_IF_MAX,
   buildWhatIfView,
-  readAnalyzerMode,
+  modeQueryOf,
   readWhatIfDraft,
   whatIfChoices,
   whatIfDraftKey,
@@ -65,6 +65,21 @@ const TAG_CLASS: Record<NonNullable<AssetView["status"]>["tone"], string> = {
   warn: "bg-warn-bg text-warn-fg",
   danger: "bg-danger-bg text-danger-fg",
 };
+
+/**
+ * The address's query as one of the Analyzer's modes last read it (Checkpoint 7h's review: each mode reads its draft from the
+ * address, and an evaluation in one writes its own mode's address, which names nothing of the other's; read from that, a trade
+ * the address had prefilled, a Trade Finder card's "Open in Analyzer", emptied when a what-if was evaluated, and its result
+ * read as changed): the latest query that names `mode`, or "" while none has yet. Held in state and moved during render
+ * (React's pattern for state that follows a prop), so the draft stays the one its mode last read while the address names the
+ * other mode, and a new address of its own mode (a reload, a new link) is read at once.
+ */
+export function useModeQuery(query: string, mode: AnalyzerMode): string {
+  const [last, setLast] = useState(() => modeQueryOf("", query, mode));
+  const read = modeQueryOf(last, query, mode);
+  if (read !== last) setLast(read);
+  return read;
+}
 
 /**
  * The Analyzer's two modes (Checkpoint 7h): "Trade with a team" and "What if", a group of two 44 px toggle buttons (aria-pressed),
@@ -120,11 +135,13 @@ export function WhatIfPanel({
   lastNflWeek?: number | undefined;
   blendOn?: boolean | undefined;
 }) {
-  const prefill = useMemo(() => readWhatIfDraft(query, snapshot, myTeamId), [query, snapshot, myTeamId]);
-  // An edit holds while the address is the one it was made under, or names the same change (Evaluate's own write), or names no
-  // what-if (the trade mode's evaluation wrote it: the change being built waits for its mode).
+  // The change reads the latest address that named a what-if (useModeQuery): the trade mode's evaluation writes its own
+  // address, and the change being built, from the address or edited, waits for its mode with its result.
+  const whatIfQuery = useModeQuery(query, "whatif");
+  const prefill = useMemo(() => readWhatIfDraft(whatIfQuery, snapshot, myTeamId), [whatIfQuery, snapshot, myTeamId]);
+  // An edit holds while that address is the one it was made under, or names the same change (Evaluate's own write).
   const [edited, setEdited] = useState<{ draft: WhatIfDraft; query: string } | null>(null);
-  const editHolds = edited !== null && (edited.query === query || whatIfDraftKey(edited.draft) === whatIfDraftKey(prefill) || readAnalyzerMode(query) !== "whatif");
+  const editHolds = edited !== null && (edited.query === whatIfQuery || whatIfDraftKey(edited.draft) === whatIfDraftKey(prefill));
   const draft = edited && editHolds ? edited.draft : prefill;
   const [filter, setFilter] = useState<WhatIfFilter>(DEFAULT_WHAT_IF_FILTER);
   const choices = useMemo(() => whatIfChoices(snapshot, myTeamId, draft, filter), [snapshot, myTeamId, draft, filter]);
@@ -209,7 +226,7 @@ export function WhatIfPanel({
         filter={filter}
         summary={whatIfSummary(draft, snapshot)}
         busy={working}
-        onChange={(d) => setEdited({ draft: d, query })}
+        onChange={(d) => setEdited({ draft: d, query: whatIfQuery })}
         onFilter={setFilter}
         onEvaluate={() => evaluate(draft, false)}
       />

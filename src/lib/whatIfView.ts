@@ -83,6 +83,16 @@ export function readAnalyzerMode(search: string | null | undefined): AnalyzerMod
   return new URLSearchParams(search ?? "").get("mode") === "whatif" ? "whatif" : "trade";
 }
 
+/**
+ * The query a mode of the Analyzer reads its draft from (WhatIfPanel.tsx useModeQuery, pure): the address's when it names
+ * `mode`, else the last one that did (`last`, "" before any). Each mode's evaluation writes its own mode's address, which names
+ * nothing of the other's, so the other mode keeps reading the address it last had (the review of Checkpoint 7h: a trade a card's
+ * "Open in Analyzer" had prefilled emptied once a what-if was evaluated, and its result read as changed).
+ */
+export function modeQueryOf(last: string, query: string, mode: AnalyzerMode): string {
+  return readAnalyzerMode(query) === mode ? query : last;
+}
+
 /** A what-if being built: my players to take off and the players to put on (canonical ids, in the order picked). */
 export interface WhatIfDraft {
   remove: string[];

@@ -109,6 +109,49 @@ export function realSleeperAdp(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v) && v > 0 && v < SLEEPER_ADP_NONE;
 }
 
+/** A player's Sleeper ADP in 1QB PPR leagues (adp_ppr) and in superflex ones (adp_2qb): a real value, or null. */
+export interface SleeperAdpPair {
+  ppr: number | null;
+  twoQb: number | null;
+}
+
+/** Each player's 1QB and superflex ADP from Sleeper's season rows (the review of Checkpoint 7h: MFL's lists mix the two). */
+export function sleeperAdpPairs(rows: readonly SleeperStatRow[]): Map<string, SleeperAdpPair> {
+  const out = new Map<string, SleeperAdpPair>();
+  for (const r of rows) {
+    const ppr = r.stats?.adp_ppr;
+    const twoQb = r.stats?.adp_2qb;
+    const pair = { ppr: realSleeperAdp(ppr) ? ppr : null, twoQb: realSleeperAdp(twoQb) ? twoQb : null };
+    if (pair.ppr !== null || pair.twoQb !== null) out.set(r.player_id, pair);
+  }
+  return out;
+}
+
+/** One QB of an ADP list against Sleeper's 1QB and superflex ADP: which one his pick sits closer to. */
+export interface QbLean {
+  name: string;
+  adp: number;
+  ppr: number;
+  twoQb: number;
+  closerTo2qb: boolean;
+}
+
+/**
+ * The first `top` QBs of an ADP list (by its own ADP; ⚠️ positions from the crosswalk) that Sleeper rates in both formats, each
+ * with the format his pick sits closer to: a list whose QBs mostly sit closer to Sleeper's superflex ADP mixes superflex
+ * leagues in (the review of Checkpoint 7h: MFL's adp export has no QB-count filter).
+ */
+export function qbLeans(entries: readonly AdpEntry[], sleeper: ReadonlyMap<string, SleeperAdpPair>, top = 12): QbLean[] {
+  const out: QbLean[] = [];
+  for (const e of [...entries].filter((x) => x.pos === "QB").sort((a, b) => a.adp - b.adp)) {
+    if (out.length >= top) break;
+    const pair = e.canonical ? sleeper.get(e.canonical) : undefined;
+    if (!pair || pair.ppr === null || pair.twoQb === null) continue;
+    out.push({ name: e.name, adp: e.adp, ppr: pair.ppr, twoQb: pair.twoQb, closerTo2qb: Math.abs(e.adp - pair.twoQb) < Math.abs(e.adp - pair.ppr) });
+  }
+  return out;
+}
+
 export interface AdpKeyCount {
   key: string;
   /** Rows carrying the key at all. */
@@ -422,6 +465,8 @@ interface State {
   leagues: Array<{ label: string; access: string; source: string; notes?: string }>;
   /** This season's season-projection rows (the span check reads them). */
   seasonRows?: SleeperStatRow[];
+  /** Each season's Sleeper 1QB and superflex ADP by Sleeper id (ADP.mfl.qb reads them). */
+  sleeperAdp: Map<number, Map<string, SleeperAdpPair>>;
 }
 
 /** Evidence for a scripts/lib/http.ts result (URL as given: always a placeholder-only template here). */
@@ -497,6 +542,7 @@ async function sleeperSeasonProjections(p: ProbeContext, s: State): Promise<void
 
   // ---- ADP keys: formats (the key names) and how many rows carry a real value in each
   const counts = sleeperAdpKeyCounts(rows);
+  s.sleeperAdp.set(s.season, sleeperAdpPairs(rows));
   const real = counts.filter((c) => c.real > 0);
   const none = counts.filter((c) => c.real === 0);
   const sizeKeys = counts.filter((c) => /(^|_)(8|10|12|14|16)(_|$)/.test(c.key.slice(4)));
@@ -691,6 +737,7 @@ async function sleeperOtherSeasons(p: ProbeContext, s: State): Promise<void> {
       );
       continue;
     }
+    s.sleeperAdp.set(season, sleeperAdpPairs(rows));
     const withPts = rows.filter((r) => typeof r.stats?.pts_ppr === "number").sort((a, b) => (b.stats!.pts_ppr ?? 0) - (a.stats!.pts_ppr ?? 0));
     const modified = rows.map((r) => r.last_modified).filter((v): v is number => typeof v === "number");
     p.cl.add(
@@ -1305,6 +1352,8 @@ const MFL_VARIANTS: readonly MflVariant[] = [
 /** Last season's lists (api_info: PERIOD "is not valid for previous seasons"): the whole season's drafts. */
 const MFL_PREVIOUS_VARIANTS: readonly MflVariant[] = [
   { key: "12-ppr-redraft", title: "12 teams, PPR, redraft, real drafts", params: { FCOUNT: 12, IS_PPR: 1, IS_KEEPER: "N", IS_MOCK: 0 } },
+  // The review of Checkpoint 7h: the league size alone (against 12-ppr-redraft), then the scoring alone (against 10-std-redraft).
+  { key: "10-ppr-redraft", title: "10 teams, PPR, redraft, real drafts", params: { FCOUNT: 10, IS_PPR: 1, IS_KEEPER: "N", IS_MOCK: 0 } },
   { key: "10-std-redraft", title: "10 teams, non-PPR, redraft, real drafts", params: { FCOUNT: 10, IS_PPR: 0, IS_KEEPER: "N", IS_MOCK: 0 } },
 ];
 
@@ -1371,33 +1420,56 @@ async function mflSection(p: ProbeContext, s: State): Promise<void> {
     ...mflEvidence(s.season, MFL_VARIANTS, got),
   );
 
-  // ---- last season: the draft season's shape, and whether the filters split the list
+  // MFL's rule ("check for the 429 status and if you get it, cool things down a bit"): a 429 on either season's client stops
+  // the other too (each keeps its own flag: the review of Checkpoint 7h).
+  const coolDown = (): void => {
+    if (mfl.throttled || mflPrev.throttled) mfl.throttled = mflPrev.throttled = true;
+  };
+  coolDown();
+
+  // ---- last season: the draft season's shape, and whether each filter alone splits the list
   const prev = await mflVariants(p, mflPrev, MFL_PREVIOUS_VARIANTS);
+  coolDown();
   const a = prev.get("12-ppr-redraft")?.adp ?? null;
+  const c = prev.get("10-ppr-redraft")?.adp ?? null;
   const b = prev.get("10-std-redraft")?.adp ?? null;
   p.cl.add(
     "ADP",
     "ADP.mfl.previous",
     `MFL ADP export for ${last} (last season, the whole season's drafts)`,
-    a?.players.length && b?.players.length ? "ok" : a?.players.length || b?.players.length ? "warn" : "fail",
+    a?.players.length && b?.players.length && c?.players.length ? "ok" : a?.players.length || b?.players.length || c?.players.length ? "warn" : "fail",
     `${MFL_PREVIOUS_VARIANTS.map((v) => mflDescribe(v, prev.get(v.key))).join("; ")}; updated ${utcStamp(a?.updatedMs ?? b?.updatedMs ?? null)}: past seasons stay available (a backtest of a draft strategy can use them)`,
     ...mflEvidence(last, MFL_PREVIOUS_VARIANTS, prev),
   );
-  if (a?.players.length && b?.players.length) {
-    const ea = mflEntries(s, a);
-    const eb = mflEntries(s, b);
-    const ag = agreementOf({ label: "12 PPR", entries: ea }, { label: "10 std", entries: eb }, 150);
-    const firstA = a.players.slice(0, 30).map((x) => x.id).join(",");
-    const firstB = b.players.slice(0, 30).map((x) => x.id).join(",");
+  // One filter changed at a time (the review of Checkpoint 7h: the first run compared 12-team PPR with 10-team non-PPR, both at
+  // once, so the league size's effect couldn't be told from the scoring's).
+  const pair = (key: string, label: string, x: MflAdp | null, xLabel: string, y: MflAdp | null, yLabel: string, alone: string): void => {
+    if (!x?.players.length || !y?.players.length) {
+      p.cl.warn("ADP", key, label, `${xLabel} or ${yLabel} didn't answer: not compared (api_info documents ${alone})`);
+      return;
+    }
+    const ag = agreementOf({ label: xLabel, entries: mflEntries(s, x) }, { label: yLabel, entries: mflEntries(s, y) }, 150);
+    const firstX = x.players.slice(0, 30).map((q) => q.id).join(",");
+    const firstY = y.players.slice(0, 30).map((q) => q.id).join(",");
+    const differ = firstX !== firstY && x.totalDrafts !== y.totalDrafts;
     p.cl.add(
       "ADP",
-      "ADP.mfl.filters",
-      `MFL ADP filters change the list (league size and PPR, ${last})`,
-      firstA !== firstB && a.totalDrafts !== b.totalDrafts ? "ok" : "warn",
-      `12-team PPR redraft: ${a.totalDrafts ?? "?"} drafts; 10-team non-PPR redraft: ${b.totalDrafts ?? "?"} drafts; their first 30 players ${firstA === firstB ? "are the same in the same order" : "differ"}; over the first 150, Spearman ${fmt(ag.rho, 3)} on ${ag.common} players, median gap ${fmt(ag.medianGap, 1)} picks: a list per league size and format, from MFL's own leagues (⚠️ MFL's drafts lean to high-stakes and dynasty leagues, so its redraft ADP may differ from the casual market: ADP.agreement)`,
-      { path: "adp.totalDrafts, adp.player[].id", sample: { "12-ppr-redraft": a.totalDrafts, "10-std-redraft": b.totalDrafts, rho: ag.rho === null ? null : round(ag.rho, 3) } },
+      key,
+      label,
+      differ ? "ok" : "warn",
+      `${xLabel}: ${x.totalDrafts ?? "?"} drafts; ${yLabel}: ${y.totalDrafts ?? "?"} drafts (only ${alone} changed); their first 30 players ${firstX === firstY ? "are the same in the same order" : "differ"}; over the first 150, Spearman ${fmt(ag.rho, 3)} on ${ag.common} players, median gap ${fmt(ag.medianGap, 1)} picks${differ ? `: ${alone} splits the list` : `: ⚠️ ${alone} doesn't visibly split the list`}`,
+      { path: "adp.totalDrafts, adp.player[].id", sample: { [xLabel]: x.totalDrafts, [yLabel]: y.totalDrafts, rho: ag.rho === null ? null : round(ag.rho, 3) } },
     );
-  }
+  };
+  pair("ADP.mfl.size", `MFL ADP by league size (FCOUNT alone, ${last})`, a, "12-team PPR redraft", c, "10-team PPR redraft", "the league size (FCOUNT)");
+  pair("ADP.mfl.ppr", `MFL ADP by scoring (IS_PPR alone, ${last})`, c, "10-team PPR redraft", b, "10-team non-PPR redraft", "the scoring (IS_PPR)");
+  p.cl.add(
+    "ADP",
+    "ADP.mfl.keeper",
+    "MFL ADP for keeper and rookie drafts (IS_KEEPER)",
+    "warn",
+    "api_info documents IS_KEEPER N (redraft), K (keeper) and R (rookie); only N was asked for (⚠️ documented, not checked with data)",
+  );
 
   // ---- this season's 12-team PPR list (if MFL has one now), and last season's, for the samples, match rates and agreement
   const now = got.get("12-ppr-redraft")?.adp;
@@ -1418,7 +1490,25 @@ async function mflSection(p: ProbeContext, s: State): Promise<void> {
     matchRate(p, s, season === s.season ? "XWALK.mfl" : "XWALK.mfl.previous", `MFL ADP ${season} → Sleeper ids (crosswalk, by MFL id; ${units.length} MFL team units among the first ${top.length} left out: ids ${units.map((e) => e.sourceId).sort().join(", ") || "none"}, ⚠️ read as team defenses from MFL's id range, which need MFL's players export for their NFL team)`, top.filter((e) => !isMflTeamUnit(e.sourceId)), true, "warn");
   }
 
+  // ---- 1QB or superflex: api_info's adp export has no QB-count filter (the review of Checkpoint 7h)
+  const leans = ([[s.season, now], [last, a]] as const).flatMap(([season, list]) => {
+    const sleeper = s.sleeperAdp.get(season);
+    return list?.players.length && sleeper ? [{ season, leans: qbLeans(mflEntries(s, list), sleeper) }] : [];
+  });
+  if (leans.length) {
+    const lean = (x: QbLean) => `${x.name} ${fmt(x.adp, 1)} (1QB ${fmt(x.ppr, 1)}, superflex ${fmt(x.twoQb, 1)})`;
+    p.cl.add(
+      "ADP",
+      "ADP.mfl.qb",
+      "MFL ADP: 1QB or superflex leagues (no QB-count filter)",
+      "warn",
+      `api_info's adp export filters by PERIOD, FCOUNT, IS_PPR, IS_KEEPER, IS_MOCK, CUTOFF and DETAILS: none by QB count, so a list mixes 1QB and superflex leagues. Of the first QBs on its 12-team PPR redraft list, ${leans.map((l) => `${l.season}: ${l.leans.filter((x) => x.closerTo2qb).length} of ${l.leans.length} sit closer to Sleeper's superflex ADP (adp_2qb) than to its 1QB ADP (adp_ppr), the first ${l.leans.slice(0, 2).map(lean).join(" and ")}`).join("; ")}. ⚠️ Not a 1QB list: its QBs go far earlier than in 1QB leagues`,
+      { path: "adp.player[] (QBs, positions from the crosswalk) against Sleeper's stats.adp_ppr and stats.adp_2qb", sample: leans.map((l) => ({ season: l.season, compared: l.leans.length, closerTo2qb: l.leans.filter((x) => x.closerTo2qb).length })) },
+    );
+  }
+
   // ---- auction values
+  coolDown();
   try {
     const call = await p.timed("mfl", () => mfl.export("aav", {}, { ttlMs: ADP_TTL_MS, namespace: "draft-mfl", label: "MFL aav" }));
     const aav = call.error ? null : parseMflAav(call.rawJson);
@@ -1568,7 +1658,7 @@ async function writeSamples(p: ProbeContext, s: State, forbidden: readonly strin
 async function main(p: ProbeContext): Promise<void> {
   const argv = process.argv.slice(2);
   const ownDraft = flagValue(argv, "--sleeper-draft");
-  const s: State = { season: 0, week: 0, xw: null, lists: [], samples: [], leagues: [] };
+  const s: State = { season: 0, week: 0, xw: null, lists: [], samples: [], leagues: [], sleeperAdp: new Map() };
   p.cl.meta.leagues = s.leagues;
   await crosswalkSection(p, s);
   await sleeperSection(p, s, ownDraft);

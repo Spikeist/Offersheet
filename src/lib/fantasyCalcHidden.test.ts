@@ -23,7 +23,10 @@
  * 4.1): "How to offer it", each offer with its players, numbers, roster moves and message, and as a version the feedback asks
  * about; (item 3.4; the final review of Checkpoint 7e) Waiver upgrades' rated rows, whose Helps you counts trade value in a
  * redraft league and long-term value in a dynasty one, an open roster spot's row and a "No gain" row's line among them, on
- * every list (Checkpoint 7f: with the rows that don't help unfolded, as a tap on the fold shows them). Every name is made up.
+ * every list (Checkpoint 7f: with the rows that don't help unfolded, as a tap on the fold shows them). Checkpoint 7h (planner
+ * reply to Checkpoint 7g, section 4; the review of Checkpoint 7h): the Trade Analyzer's "What if", its form with the picker
+ * listing players and its result (a player put on over a full roster: a drop by legality), in a redraft and a dynasty league
+ * whose every value is distinctive. Every name is made up.
  */
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -39,9 +42,11 @@ import { AnalysisResult } from "@/components/trades/AnalyzerPage";
 import { HowToRead } from "@/components/trades/HowToRead";
 import { OffersPanel, TradeCard } from "@/components/trades/TradeCard";
 import { FinderControls, FinderFrame } from "@/components/trades/TradeFinderPage";
+import { WhatIfForm, WhatIfResultView } from "@/components/trades/WhatIfPanel";
 import { GLOOP_PREMIUM, evaluation, searchResult, steppedFull, tradeSnapshot } from "@/components/trades/testFixtures";
 import { helpsBoth, type HelpsScale } from "@/engine/benefit";
 import { config } from "@/engine/config";
+import { analyzeWhatIf, buildTradeContext } from "@/engine/evaluate";
 import { titleDeltas } from "@/engine/reward";
 import { explainTrade, type ExplainContext } from "@/engine/explain";
 import type { MarketInputs } from "@/engine/inputs";
@@ -58,6 +63,8 @@ import { buildImportReport } from "./importReport";
 import { buildLeagueView } from "./leagueView";
 import type { CardFeedback } from "./tradeView";
 import { buildWaiversView } from "./waiversView";
+import { ANY_SOURCE, buildWhatIfView, whatIfChoices } from "./whatIfView";
+import { contextBaseline } from "@/workers/engine.worker";
 import { buildAnalysisView, buildFinderView, buildLadderView, buildTradeCard, cardPress, cardVersions, fantasyCalcLookup, planBPitch } from "./tradeView";
 
 /**
@@ -529,21 +536,26 @@ describe("no trade value shows in Settings or the Import Report (planner reply t
   });
 });
 
+/**
+ * A made-up league (smallLeague 11) whose FantasyCalc list values every player 7,777 or 8,888, so the waiver credit W and
+ * every package total are distinctive too: redraft, or dynasty with long-term values (Waiver upgrades' blocks and What if's).
+ */
+const leagueOf = (leagueType: "redraft" | "dynasty") => {
+  const l = smallLeague(11, leagueType === "dynasty" ? { leagueType } : {});
+  const market = l.inputs.market;
+  if (!market) throw new Error("no values");
+  // Every player valued (none of our curve's estimates), so W is one of the two values too.
+  const values = Object.fromEntries(Object.keys(l.snapshot.players).map((id, i) => [id, i % 2 ? 7777 : 8888]));
+  const format = { ...market.format, isDynasty: leagueType === "dynasty" };
+  const inputs = { ...l.inputs, market: { ...market, format, values, topValue: 8888, ...(leagueType === "dynasty" ? { seasonValues: { ...values } } : {}) } };
+  return { snapshot: l.snapshot, inputs };
+};
+
 describe("no trade value shows in Waiver upgrades, whose Helps you counts it (Checkpoint 7e, item 3.4; the final review, live-fantasycalc-guard)", () => {
   // A made-up league rated as the League page rates its season list (400 seasons here), FantasyCalc's list every value 7,777
   // or 8,888, so the waiver credit W and every package total are distinctive too: a redraft league with "Protect my trade
   // value" on (the market term), and the same league as a dynasty one with long-term values (ΔDyn).
   const RATED = { ...config, waivers: { ...config.waivers, ratingScreenSims: 100, ratingFinishRows: 2 } };
-  const leagueOf = (leagueType: "redraft" | "dynasty") => {
-    const l = smallLeague(11, leagueType === "dynasty" ? { leagueType } : {});
-    const market = l.inputs.market;
-    if (!market) throw new Error("no values");
-    // Every player valued (none of our curve's estimates), so W is one of the two values too.
-    const values = Object.fromEntries(Object.keys(l.snapshot.players).map((id, i) => [id, i % 2 ? 7777 : 8888]));
-    const format = { ...market.format, isDynasty: leagueType === "dynasty" };
-    const inputs = { ...l.inputs, market: { ...market, format, values, topValue: 8888, ...(leagueType === "dynasty" ? { seasonValues: { ...values } } : {}) } };
-    return { snapshot: l.snapshot, inputs };
-  };
 
   for (const leagueType of ["redraft", "dynasty"] as const) {
     it(`${leagueType}: the rated rows, an open roster spot's and a “No gain” row's words, and every string of the view`, () => {
@@ -576,6 +588,36 @@ describe("no trade value shows in Waiver upgrades, whose Helps you counts it (Ch
       expect(text).toContain("Helps you");
       expect(text).toContain("Open roster spot");
       expect(text).toMatch(leagueType === "redraft" ? /the trade value you'd give up outweighs that/ : /the long-term value you'd give up outweighs that/);
+    });
+  }
+});
+
+describe("no trade value shows in the Analyzer's What if (Checkpoint 7h; planner reply to Checkpoint 7g, section 4; the review of Checkpoint 7h)", () => {
+  for (const leagueType of ["redraft", "dynasty"] as const) {
+    it(`${leagueType}: the form with the picker listing players, the result (two put on for one taken off: a drop by legality) and every string of the view`, () => {
+      const { snapshot, inputs } = leagueOf(leagueType);
+      const me = snapshot.myTeamId;
+      const mine = snapshot.teams.find((t) => t.id === me);
+      const other = snapshot.teams.find((t) => t.id !== me);
+      if (!me || !mine || !other) throw new Error("no teams");
+      const draft = { remove: mine.roster.slice(0, 1), add: other.roster.slice(0, 2) };
+      const ctx = buildTradeContext(snapshot, inputs, { now: TEST_NOW, scenarios: 0 });
+      const analysis = analyzeWhatIf(ctx, draft, { settings: defaultTradeSettings() });
+      const view = buildWhatIfView({ ...analysis, baseline: contextBaseline(ctx) }, snapshot);
+      if (!view.card) throw new Error(`no result: ${view.illegal ?? "no card"}`);
+      // The change is made: one more player than the roster had, so legality drops one (a roster move the card words).
+      expect(stringsOf(view).join(" ")).toMatch(/drop /);
+      const html = renderToStaticMarkup(createElement(WhatIfResultView, { view, stale: false }));
+      expectHidden(`What if (${leagueType})`, html);
+      for (const s of stringsOf(view)) expectHidden(`What if's view (${leagueType})`, s);
+      // The form, the picker listing the other team's players (positions, NFL teams and tags in words: no value).
+      const choices = whatIfChoices(snapshot, me, draft, { from: other.id, pos: "any", query: "" });
+      const form = renderToStaticMarkup(createElement(WhatIfForm, { choices, draft, filter: { from: other.id, pos: "any", query: "" }, summary: null, busy: false, onChange: noop, onFilter: noop, onEvaluate: noop }));
+      expect(form).toContain(snapshot.players[other.roster[2] as string]?.name ?? "");
+      expectHidden(`What if's form (${leagueType})`, form);
+      // Every source listed too.
+      const all = renderToStaticMarkup(createElement(WhatIfForm, { choices: whatIfChoices(snapshot, me, draft, { from: ANY_SOURCE, pos: "WR", query: "" }), draft, filter: { from: ANY_SOURCE, pos: "WR", query: "" }, summary: null, busy: false, onChange: noop, onFilter: noop, onEvaluate: noop }));
+      expectHidden(`What if's form, every source (${leagueType})`, all);
     });
   }
 });

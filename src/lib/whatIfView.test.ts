@@ -12,7 +12,7 @@ import { defaultTradeSettings, type TradeSettings } from "@/engine/settings";
 import { TEST_NOW, type TestLeagueSpec } from "@/engine/testLeague";
 import { flat, handLeague, type SeasonSpec } from "@/engine/trade.testing";
 import { contextBaseline } from "@/workers/engine.worker";
-import { HELPS_SCALE_TEXT } from "./tradeView";
+import { HELPS_SCALE_TEXT, readAnalyzerDraft } from "./tradeView";
 import {
   ANY_POSITION,
   ANY_SOURCE,
@@ -25,6 +25,7 @@ import {
   WHAT_IF_PROMPT,
   WHAT_IF_RESULTS_MAX,
   buildWhatIfView,
+  modeQueryOf,
   readAnalyzerMode,
   readWhatIfDraft,
   searchText,
@@ -90,6 +91,49 @@ describe("the mode and the address (player ids only)", () => {
     expect(whatIfSummary({ remove: [], add: ["fw", "ra2"] }, snapshot)).toBe("You take off nobody; you put on Testy McTest fw and Testy McTest ra2.");
     const jr: Pick<LeagueSnapshot, "players"> = { players: { ...snapshot.players, fw: { ...(snapshot.players.fw as NonNullable<LeagueSnapshot["players"][string]>), name: "Marvin Harrison Jr." } } };
     expect(whatIfSummary({ remove: [], add: ["fw"] }, jr)).toBe("You take off nobody; you put on Marvin Harrison Jr.");
+  });
+});
+
+describe("each mode reads the address it last had (the review of Checkpoint 7h; WhatIfPanel.tsx useModeQuery)", () => {
+  const { snapshot } = league();
+  const trade = { partnerId: "2", give: ["q1"], get: ["ra2"] };
+  const tradeAddress = "partner=2&give=q1&get=ra2";
+  const whatIf = { remove: ["q1"], add: ["fw"] };
+  const whatIfAddress = whatIfHref(whatIf).split("?")[1] as string;
+
+  it("a card's Open in Analyzer, then a what-if evaluated, then back: the trade is still the card's, and the what-if its own", () => {
+    let t = modeQueryOf("", tradeAddress, "trade");
+    let w = modeQueryOf("", tradeAddress, "whatif");
+    expect(readAnalyzerDraft(t, snapshot, "1")).toEqual(trade);
+    expect(readWhatIfDraft(w, snapshot, "1")).toEqual(EMPTY_WHAT_IF);
+    // The what-if's Evaluate writes its own address (history.replaceState): the trade keeps reading the one it had.
+    t = modeQueryOf(t, whatIfAddress, "trade");
+    w = modeQueryOf(w, whatIfAddress, "whatif");
+    expect(readAnalyzerDraft(t, snapshot, "1")).toEqual(trade);
+    expect(readWhatIfDraft(w, snapshot, "1")).toEqual(whatIf);
+    // The trade evaluated again writes its address: the what-if keeps its own.
+    t = modeQueryOf(t, tradeAddress, "trade");
+    w = modeQueryOf(w, tradeAddress, "whatif");
+    expect(readAnalyzerDraft(t, snapshot, "1")).toEqual(trade);
+    expect(readWhatIfDraft(w, snapshot, "1")).toEqual(whatIf);
+  });
+
+  it("the mirror: a what-if opened from its address, then a trade evaluated, then back", () => {
+    let w = modeQueryOf("", whatIfAddress, "whatif");
+    let t = modeQueryOf("", whatIfAddress, "trade");
+    expect(readWhatIfDraft(w, snapshot, "1")).toEqual(whatIf);
+    expect(readAnalyzerDraft(t, snapshot, "1")).toEqual({ partnerId: null, give: [], get: [] });
+    t = modeQueryOf(t, tradeAddress, "trade");
+    w = modeQueryOf(w, tradeAddress, "whatif");
+    expect(readWhatIfDraft(w, snapshot, "1")).toEqual(whatIf);
+    expect(readAnalyzerDraft(t, snapshot, "1")).toEqual(trade);
+  });
+
+  it("a new address of a mode's own (another card's link, a reload) is read at once", () => {
+    const other = "partner=3&give=wa1&get=wa3";
+    expect(modeQueryOf(tradeAddress, other, "trade")).toBe(other);
+    expect(modeQueryOf(whatIfAddress, "mode=whatif&remove=ra1", "whatif")).toBe("mode=whatif&remove=ra1");
+    expect(modeQueryOf(tradeAddress, other, "whatif")).toBe(tradeAddress);
   });
 });
 

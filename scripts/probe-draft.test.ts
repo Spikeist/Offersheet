@@ -13,8 +13,10 @@ import {
   parseFfc,
   parseMflAav,
   parseMflAdp,
+  qbLeans,
   realSleeperAdp,
   sleeperAdpKeyCounts,
+  sleeperAdpPairs,
   sleeperName,
   spanRows,
   spearman,
@@ -55,6 +57,28 @@ describe("Sleeper ADP fields", () => {
   it("names a row from its player, else its id", () => {
     expect(sleeperName(row("9", {}, { player: { first_name: "Puka", last_name: "Nacua" } } as Partial<SleeperStatRow>))).toBe("Puka Nacua");
     expect(sleeperName(row("9", {}))).toBe("9");
+  });
+});
+
+describe("1QB or superflex (the review of Checkpoint 7h: MFL's ADP has no QB-count filter)", () => {
+  it("keeps each player's 1QB (adp_ppr) and superflex (adp_2qb) ADP, a real value or null", () => {
+    const pairs = sleeperAdpPairs([row("qb", { adp_ppr: 21.3, adp_2qb: 3.7 }), row("rb", { adp_ppr: 5, adp_2qb: 999 }), row("none", { adp_ppr: 999, pts_ppr: 10 })]);
+    expect([...pairs]).toEqual([
+      ["qb", { ppr: 21.3, twoQb: 3.7 }],
+      ["rb", { ppr: 5, twoQb: null }],
+    ]);
+  });
+
+  it("reads which format each of a list's first QBs sits closer to, by the list's own ADP, leaving out those Sleeper doesn't rate both ways", () => {
+    const entry = (id: string, pos: string, adp: number): AdpEntry => ({ sourceId: `m${id}`, canonical: id, name: `Player ${id}`, pos, team: null, adp });
+    const sleeper = sleeperAdpPairs([row("a", { adp_ppr: 21.3, adp_2qb: 3.7 }), row("b", { adp_ppr: 40, adp_2qb: 30 }), row("c", { adp_ppr: 60, adp_2qb: 20 }), row("d", { adp_ppr: 70 })]);
+    const leans = qbLeans([entry("c", "QB", 61), entry("a", "QB", 4), entry("x", "RB", 1), entry("d", "QB", 50), entry("b", "QB", 32)], sleeper);
+    expect(leans.map((l) => [l.name, l.closerTo2qb])).toEqual([
+      ["Player a", true],
+      ["Player b", true],
+      ["Player c", false],
+    ]);
+    expect(qbLeans([entry("a", "QB", 4), entry("b", "QB", 32)], sleeper, 1)).toHaveLength(1);
   });
 });
 
