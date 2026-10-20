@@ -931,6 +931,20 @@ interface EspnPick {
   [k: string]: unknown;
 }
 
+/**
+ * A pick the crosswalk can't name: ESPN's team units have negative ids, -16000 − proTeamId a D/ST and (⚠️ read from the
+ * id range and its lineup slot, 1 = TQB) -15000 − proTeamId a team QB.
+ */
+export function espnUnnamed(id: number | undefined): string {
+  if (id === undefined) return "ESPN player ?";
+  if (id < 0) {
+    const unit = -id >= 16000 ? "D/ST" : -id >= 15000 ? "team QB" : null;
+    const team = unit ? ESPN_PRO_TEAMS[(-id) % 1000] : undefined;
+    if (unit && team) return `${team} ${unit} (ESPN id ${id})`;
+  }
+  return `ESPN player ${id}`;
+}
+
 async function espnSection(p: ProbeContext, s: State): Promise<void> {
   // The public test league is named in CLAUDE.md (§2.2), so it isn't registered with the redactor (the leak check would flag the spec); its URLs are shown as templates, as probe-espn.ts does.
   s.leagues.push({ label: "ESPN: the public test league named in CLAUDE.md §2.2", access: "no login (the league is viewable to the public)", source: "view=mDraftDetail with mSettings" });
@@ -962,7 +976,7 @@ async function espnSection(p: ProbeContext, s: State): Promise<void> {
   const named = (pk: EspnPick) => {
     const canonical = pk.playerId === undefined ? undefined : s.xw?.canonical("espn", String(pk.playerId));
     const f = sleeperFacts(s, canonical);
-    return f ? `${f.name}` : `ESPN player ${pk.playerId ?? "?"}`;
+    return f ? `${f.name}` : espnUnnamed(pk.playerId);
   };
   p.cl.add(
     "LIVE",
@@ -980,7 +994,7 @@ async function espnSection(p: ProbeContext, s: State): Promise<void> {
     headers: ["Pick", "Round", "Round pick", "Team id", "Player", "Pos", "Keeper"],
     rows: sorted.slice(0, 6).map((pk) => {
       const f = sleeperFacts(s, pk.playerId === undefined ? undefined : s.xw?.canonical("espn", String(pk.playerId)));
-      return [pk.overallPickNumber ?? null, pk.roundId ?? null, pk.roundPickNumber ?? null, pk.teamId ?? null, f?.name ?? `ESPN player ${pk.playerId ?? "?"}`, f?.pos ?? "?", pk.keeper ? "yes" : "no"];
+      return [pk.overallPickNumber ?? null, pk.roundId ?? null, pk.roundPickNumber ?? null, pk.teamId ?? null, f?.name ?? espnUnnamed(pk.playerId), f?.pos ?? "?", pk.keeper ? "yes" : "no"];
     }),
   });
   const cors = await corsCheck(leagueUrl, CORS_ORIGIN_APP);
@@ -1088,8 +1102,8 @@ async function espnPool(p: ProbeContext, s: State): Promise<void> {
         "ADP",
         "ADP.espn.previous",
         `ESPN player pool for ${season} (last season)`,
-        placeholder ? "fail" : "warn",
-        `still served: ${rows.length} players; ADP above 0 on ${adp.length}, ${distinctAdp} distinct value(s) (first: ${byAdp.slice(0, 3).map((r) => `${r.name} ${fmt(r.ownership?.averageDraftPosition)}`).join(", ") || "none"})${placeholder ? `: every player reads the same ${fmt(maxAdp)}, so last season's ADP isn't kept (a placeholder, the value a hardly drafted player reads this season, ADP.espn.current)` : ""}; season projections (split 0) on ${proj.length}, a non-zero total on ${projTotal.length}${weeklySums.length ? `; of the first ${weeklySums.length} of those, ${equalWeekly} equal the sum of the weekly projections this view returns (median ${fmt(median(weeklyLines), 0)} weekly line(s) a player at scoringPeriodId 1, so the sum can't tell)` : ""} (⚠️ what last season's season projections are, preseason or last update, can't be told; a backtest wants the preseason ones)`,
+        "warn",
+        `still served: ${rows.length} players; ADP above 0 on ${adp.length}, ${distinctAdp} distinct value(s) (first: ${byAdp.slice(0, 3).map((r) => `${r.name} ${fmt(r.ownership?.averageDraftPosition)}`).join(", ") || "none"})${placeholder ? `: every player reads the same ${fmt(maxAdp)}, so ESPN doesn't keep last season's ADP (a placeholder, the value a hardly drafted player reads this season, ADP.espn.current; ⚠️ not ❌: Sleeper, Fantasy Football Calculator and MFL keep theirs, ADP.sleeper / ADP.ffc.formats / ADP.mfl.previous)` : ""}; season projections (split 0) on ${proj.length}, a non-zero total on ${projTotal.length}${weeklySums.length ? `; of the first ${weeklySums.length} of those, ${equalWeekly} equal the sum of their ${season} weekly projections (a median of ${fmt(median(weeklyLines), 0)} weekly lines a player in this view): the season line isn't the weeks' sum as served now` : ""} (⚠️ what last season's season projections are, preseason or last update, can't be told; a backtest wants the preseason ones)`,
         ev(res, url, "players[].player.ownership.averageDraftPosition, players[].player.stats[statSourceId=1, statSplitTypeId=0]", { players: rows.length, adp: adp.length, seasonProj: proj.length }),
       );
     }
@@ -1190,7 +1204,7 @@ async function ffcSection(p: ProbeContext, s: State): Promise<void> {
     "ADP.ffc.teams",
     `Fantasy Football Calculator ADP by league size (PPR, ${last})`,
     lists.size === FFC_TEAM_SIZES.length && distinctDrafts === lists.size ? "ok" : lists.size ? "warn" : "fail",
-    `${sizes.join("; ")}; ${diffs.join("; ")}${distinctDrafts === lists.size ? ": each size has its own drafts, so a list per league size (✅ by the draft counts)" : ": the sizes share their drafts' count (⚠️ maybe one list for every size)"}`,
+    `${sizes.join("; ")}; ${diffs.join("; ")}${distinctDrafts === lists.size ? ": each size has its own drafts, so a list per league size (✅ by the draft counts)" : ": the teams parameter doesn't change the list (the same drafts in the same order for every size; the first run, on this season's October window, saw the same: meta.teams echoed 8, 10, 12 and 14 over one list of 109 drafts), so in practice one list per format whatever the league size (⚠️ the help article names a teams parameter but not its values; Fantasy Football Calculator's site may still split by size)"}`,
     { url: `${FFC_API}/ppr?teams={8|10|12|14}&year=${last}`, path: "meta.teams, meta.total_drafts, players[].adp", sample: sizes },
   );
 
@@ -1325,6 +1339,11 @@ function mflEvidence(year: number, variants: readonly MflVariant[], got: Map<str
   });
 }
 
+/** MFL's team units (team defenses and the like): four-digit ids starting with 0 (⚠️ read from the ids seen, 0501–0532 and 0716). */
+export function isMflTeamUnit(id: string): boolean {
+  return /^0\d{3}$/.test(id);
+}
+
 function mflEntries(s: State, adp: MflAdp): AdpEntry[] {
   return adp.players.map((x) => {
     const canonical = s.xw?.canonical("mfl", x.id);
@@ -1392,8 +1411,11 @@ async function mflSection(p: ProbeContext, s: State): Promise<void> {
       headers: ["#", "Player", "Pos", "Team", "Avg pick", "Min", "Max", "Drafts"],
       rows: entries.slice(0, SAMPLE_ROWS).map((e, i) => [i + 1, e.name, e.pos, e.team, list.players[i]?.averagePick ?? null, list.players[i]?.minPick ?? null, list.players[i]?.maxPick ?? null, list.players[i]?.draftsSelectedIn ?? null]),
     });
-    // The crosswalk's own position (an MFL id carries none): every position.
-    matchRate(p, s, season === s.season ? "XWALK.mfl" : "XWALK.mfl.previous", `MFL ADP ${season} → Sleeper ids (crosswalk, by MFL id)`, entries.slice(0, TOP_N), true, "warn");
+    // The crosswalk's own position (an MFL id carries none): every position but MFL's team units, which the crosswalk's
+    // id maps don't list (the app maps team defenses by NFL team code).
+    const top = [...entries].sort((x, y) => x.adp - y.adp).slice(0, TOP_N);
+    const units = top.filter((e) => isMflTeamUnit(e.sourceId));
+    matchRate(p, s, season === s.season ? "XWALK.mfl" : "XWALK.mfl.previous", `MFL ADP ${season} → Sleeper ids (crosswalk, by MFL id; ${units.length} MFL team units among the first ${top.length} left out: ids ${units.map((e) => e.sourceId).sort().join(", ") || "none"}, ⚠️ read as team defenses from MFL's id range, which need MFL's players export for their NFL team)`, top.filter((e) => !isMflTeamUnit(e.sourceId)), true, "warn");
   }
 
   // ---- auction values
