@@ -2524,10 +2524,23 @@ export function mergeSection(result: TradeSearchResult, unmerged: TradeSearchRes
     const offer = offerOf(n.card, n.offer);
     if (card && offer) out.notPromoted.push({ list: n.list, card, place: placeIn(listOf(n.list).cards, n.card), offer, reason: n.reason });
   }
-  for (const h of result.merged?.higherEarlier ?? []) {
-    const card = printedOfKey(h.card);
-    const offer = offerOf(h.card, h.offer);
-    if (card && offer) out.higherEarlier.push({ card, offer, kind: h.kind });
+  // ⚠️ The Opens and Thens printing a higher Overall than their card, on every card shown (a card on both lists once), each
+  // opened (offers.ts offerLadderOfSearch: the ladder the search kept, or its first open's): since the promotion checks each
+  // card's Last offer alone (search.ts, "Promoted Last offers": the cost), MergedCards.higherEarlier counts only the cards whose
+  // whole ladder the search worked out; the report opens the rest (the lead's ruling).
+  if (result.merged?.promoted) {
+    const eg = (e: Pick<TradeEvaluationCore, "b" | "pComplete">): number => (e.b === null || !Number.isFinite(e.b) ? Number.NEGATIVE_INFINITY : e.b * e.pComplete);
+    const opened = new Set<string>();
+    for (const l of lists) {
+      for (const card of l.cards) {
+        if (opened.has(card.key)) continue;
+        opened.add(card.key);
+        for (const step of offerLadderOfSearch(result, card.key)?.steps ?? []) {
+          const kind = step.kind === "then" ? "then" : step.kind === "open" && !step.original ? "open" : null;
+          if (kind && eg(step.evaluation) > eg(card) + EPS) out.higherEarlier.push({ card, offer: step.evaluation, kind });
+        }
+      }
+    }
   }
   return out;
 }
@@ -2564,7 +2577,7 @@ export function laddersOf(result: TradeSearchResult, cards: number, clock: () =>
     const ladder = offerLadderOfSearch(result, card.key);
     const took = clock() - t0;
     if (!ladder) return [];
-    const choice = ladderChoice(ladderJobOfSearch(state, card, state.prefers?.get(card.key)));
+    const choice = ladderChoice(ladderJobOfSearch(state, card, state.prefers?.get(card.key), state.opens?.get(card.key)));
     return [{ card, ladder, candidates: choice?.candidates ?? 0, screened: choice?.screened.length ?? 0, ms: [took], kept: state.ladders?.has(card.key) ?? false }];
   });
 }
@@ -2609,7 +2622,7 @@ export function ladderBetter(result: TradeSearchResult, cards: number): LadderBe
   const state = searchStateOf(result);
   if (!state) return [];
   return result.trades.slice(0, Math.max(0, Math.floor(cards))).map((card) => {
-    const job = ladderJobOfSearch(state, card, state.prefers?.get(card.key));
+    const job = ladderJobOfSearch(state, card, state.prefers?.get(card.key), state.opens?.get(card.key));
     const pre = ladderChoice(job);
     const choice = ladderChoice(job, { every: true });
     const chance = displayAcceptance(card.pComplete);
@@ -3495,11 +3508,14 @@ export function freedWords(freed: FreedBy, row: "merged" | "dropped" | "left"): 
   return freed === "merge" ? merge : freed === "drop" ? drop : `${merge} or ${drop}`;
 }
 
-/** Checkpoint 7h (answer 3): the promotions' counts in words, with "; " after them; none with the rule off. */
-export function promotedCounts(c: MergedCards): string {
+/**
+ * Checkpoint 7h (answer 3): the promotions' counts in words, with "; " after them; none with the rule off. `h`, the Opens and
+ * Thens printing a higher Overall than their card: section 11's own count, on every card shown, opened (mergeSection), by
+ * default the search's (MergedCards.higherEarlier: the cards whose whole ladder it worked out).
+ */
+export function promotedCounts(c: MergedCards, h: number = c.higherEarlier?.length ?? 0): string {
   if (!c.promoted) return "";
   const n = c.promoted.length;
-  const h = c.higherEarlier?.length ?? 0;
   return `${n} Last offer${n === 1 ? "" : "s"} promoted, ${c.notPromoted?.length ?? 0} printing a higher Overall not promoted, ${h} Open${h === 1 ? "" : "s"} or Then${h === 1 ? "" : "s"} printing a higher Overall (counted, not promoted)${c.superseded ? `, ${c.superseded} left out by a chain of promotions` : ""}; `;
 }
 
@@ -3522,7 +3538,7 @@ export function mergeLines(snapshot: LeagueSnapshot, m: MergeSection | null, tea
   const L: string[] = [
     `**Merged cards** (planner reply to Checkpoint 7e, decision 3: a card whose "How to offer it" holds a card of its list below it on Overall takes it among its offers, and the next idea takes its place; since Checkpoint 7g, planner reply to Checkpoint 7f, answer 3: (a) a Last offer can ask for fewer of their players, keeping at least ${share}% of the card's Overall; (b) a ladder prefers the versions on its lists; (c) a version at least as good on both Helps you and the chance as another version of the same trade drops it; since Checkpoint 7h, planner reply to Checkpoint 7g, answers 2–4: (a)'s bar ${share}%, (b) narrowed to a version within ${config.offers.preferWithinHelps} points of the step's usual pick's Helps you, and a Last offer printing a higher Overall than its card promoted to the idea, the original its “Open with”): ${
       c
-        ? `${c.overall.length} merged on the Overall list (${rounds(c.rounds.overall)}), ${c.helpsBoth.length} on "Helps both" (${rounds(c.rounds.helpsBoth)}); ${dropped} dropped for a better version of the same trade; ${promotedCounts(c)}${c.ladders} ladder${c.ladders === 1 ? "" : "s"} read by the merge, worked out during the search${m.ms === null ? "" : ` in ${ms(m.ms)} (its "offers" timing)`}${c.released ? `; ${c.released} given back (in no offers of a card above it)` : ""}`
+        ? `${c.overall.length} merged on the Overall list (${rounds(c.rounds.overall)}), ${c.helpsBoth.length} on "Helps both" (${rounds(c.rounds.helpsBoth)}); ${dropped} dropped for a better version of the same trade; ${promotedCounts(c, m.higherEarlier.length)}${c.ladders} ladder${c.ladders === 1 ? "" : "s"} read by the merge${c.lastOffers === undefined ? "" : ` or kept for a promoted card, and ${c.lastOffers} card${c.lastOffers === 1 ? "'s Last offer" : "s' Last offers"} alone (the promotion's check)`}, worked out during the search${m.ms === null ? "" : ` in ${ms(m.ms)} (its "offers" timing)`}${c.released ? `; ${c.released} given back (in no offers of a card above it)` : ""}`
         : "off"
     }. The lists' cards without the merge → with it: Overall ${m.cards.overall.without} → ${m.cards.overall.with}, "Helps both" ${m.cards.helpsBoth.without} → ${m.cards.helpsBoth.with}.`,
     "",
@@ -3536,7 +3552,7 @@ export function mergeLines(snapshot: LeagueSnapshot, m: MergeSection | null, tea
   const placeWords = (place: number | null) => (place === null ? "not on its list in the end" : `idea ${place}`);
   for (const p of m.promoted) L.push(`- Promoted (${list(p.list)}; answer 3): ${trade(p.card)}, ${placeWords(p.place)}, the Last offer (${p.kind === "throwIn" ? "a player of yours added" : "asking for fewer of their players"}) of ${trade(p.from)}${p.fromWas === null ? "" : ` (idea ${p.fromWas} without the merge)`}, now its “Open with”.`);
   if (m.notPromoted.length) L.push(`- Last offers printing a higher Overall than their card, not promoted: ${m.notPromoted.map((n) => `${list(n.list)} ${placeWords(n.place)}, ${trade(n.card)}: ${trade(n.offer)} (${NOT_PROMOTED_WORDS[n.reason]})`).join("; ")}.`);
-  if (m.higherEarlier.length) L.push(`- ⚠️ Opens and Thens printing a higher Overall than their card (counted, never promoted: the card is the smaller ask; the lead's ruling): ${m.higherEarlier.map((h) => `${trade(h.card)}: “${OFFER_WORDS[h.kind]}” ${trade(h.offer)}`).join("; ")}.`);
+  if (m.higherEarlier.length) L.push(`- ⚠️ Opens and Thens printing a higher Overall than their card (counted on the cards shown, each opened; never promoted: the card is the smaller ask; the lead's ruling): ${m.higherEarlier.map((h) => `${trade(h.card)}: “${OFFER_WORDS[h.kind]}” ${trade(h.offer)}`).join("; ")}.`);
   if (m.smallerLast.length) L.push(`- Last offers that ask for fewer of their players (answer 3(a)): ${m.smallerLast.map((x) => `${list(x.list)} idea ${x.place}, ${trade(x.card)}: ${trade(x.offer)}, ${x.share === null ? "–" : `${fmt(100 * x.share, 1)}%`} of its Overall${x.merged ? (x.was !== null ? " (a card without the merge)" : " (merged)") : ""}`).join("; ")}.`);
   if (m.preferred.length) L.push(`- Ladders a preference changed (answer 3(b): a version on the list preferred where more than one meets a step's rules): ${m.preferred.map((x) => `${list(x.list)} idea ${x.place}, ${trade(x.card)}: ${x.usual.length ? x.usual.map(offer).join(", ") : "no offers"} → ${x.preferring.map(offer).join(", ")} (${x.held.length} preferred version${x.held.length === 1 ? "" : "s"} held)`).join("; ")}.`);
   if (m.cameIn.length) L.push(`- Came in: ${m.cameIn.map((x) => `${list(x.list)} idea ${x.place}, ${trade(x.card)}`).join("; ")}.`);
