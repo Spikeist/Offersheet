@@ -22,9 +22,18 @@
  * - Each league's Finder address (its partner filter: rememberFinderAddress) for the Analyzer's "Back to the Trade
  *   Finder", and each league's Finder sort, so a return shows the ideas in the order left (Checkpoint 7c's "Helps both"
  *   too: its list is the remembered search's own, TradeSearchResult.helpsBoth, so it shows again without a search).
+ * - Each league's "Thorough search" switch as its Finder was left (rememberThorough; Checkpoint 7h, the review of its
+ *   page: the switch was page state, so the trip to the Analyzer and back turned it off, showed the normal search's ideas
+ *   and lost the idea to come back to, whose search was the Thorough one). Like the sort: off in a new tab or after a
+ *   reload, and never saved with the league's settings.
+ * - How long each normal search took here (rememberSearchTime: TradeSearchResult.timings.total of a search that ran in
+ *   full, never a re-filter's, which ranks the same ideas in a few milliseconds and replaces them under the same key), by
+ *   its key: the Thorough search's "about N seconds" scales it (engine thorough.ts thoroughSeconds), and the time survives
+ *   the trip to the Analyzer, which builds the Finder afresh (the review of Checkpoint 7h's page).
  * - Where to come back to: the idea whose "Open in Analyzer" was used, and which of its links (the card's own or its
  *   "If they say no, try:" one: Phase 4b) (rememberReturn). The Finder's next search start takes it (takeReturnTarget,
- *   once): when it shows that search's ideas again, it brings that link back into view with focus on it.
+ *   once): when it shows that search's ideas again, it opens the panel holding that link (Checkpoint 7h: the card's
+ *   Details, or the "How to offer it" holding its Plan B box) and brings the link back into view with focus on it.
  * - Whose address it is (useLeagueQuery, the one hook here; ⚠️ review of track ML): a trade page's address names teams
  *   and players of the league it was opened or written under (`?partner=&give=&get=`), and ESPN numbers teams 1..N in
  *   every league, so another league would read them as its own: the Finder would filter on that league's team, the
@@ -108,6 +117,35 @@ export function rememberedSort(leagueId: string): TradeSort | null {
   return sorts.get(leagueId) ?? null;
 }
 
+const thoroughOn = new Set<string>();
+
+/** A league's "Thorough search" switch as its Finder leaves it (the header: this tab only, never the league's settings). */
+export function rememberThorough(leagueId: string, on: boolean): void {
+  if (on) thoroughOn.add(leagueId);
+  else thoroughOn.delete(leagueId);
+}
+
+/** Whether a league's Finder was left with the Thorough search on (false in a new tab: the normal search). */
+export function rememberedThorough(leagueId: string): boolean {
+  return thoroughOn.has(leagueId);
+}
+
+/** Search times remembered (a display choice: enough for the partner filters and settings looked at in a visit). */
+export const KEPT_SEARCH_TIMES = 16;
+
+let searchTimes: { key: string; ms: number }[] = [];
+
+/** How long a search under `key` took in full here (the header; ignored unless a positive number of milliseconds), the newest kept. */
+export function rememberSearchTime(key: string, ms: number): void {
+  if (!(Number.isFinite(ms) && ms > 0)) return;
+  searchTimes = [{ key, ms }, ...searchTimes.filter((t) => t.key !== key)].slice(0, KEPT_SEARCH_TIMES);
+}
+
+/** How long the search under `key` took here when it last ran in full, or null. */
+export function searchTimeOf(key: string): number | null {
+  return searchTimes.find((t) => t.key === key)?.ms ?? null;
+}
+
 let back: { key: string; cardKey: string; href: string | null } | null = null;
 
 /**
@@ -116,6 +154,17 @@ let back: { key: string; cardKey: string; href: string | null } | null = null;
  */
 export function rememberReturn(key: string, cardKey: string, href?: string): void {
   back = { key, cardKey, href: href ?? null };
+}
+
+/**
+ * "Open in Analyzer" used on an idea (TradeFinderPage.tsx): the idea and link to come back to in the search under `search.key`
+ * (rememberReturn), and the league's Thorough search switch as that search had it (`search.thorough`), so coming back shows
+ * that search's ideas, where the idea is (Checkpoint 7h, the review of its page: an idea shown dimmed while a search with the
+ * switch flipped runs is the other search's).
+ */
+export function rememberOpened(leagueId: string, search: { key: string; thorough: boolean }, cardKey: string, href?: string): void {
+  rememberReturn(search.key, cardKey, href);
+  rememberThorough(leagueId, search.thorough);
 }
 
 /** The idea and link to come back to in the search under `key` (null for another search); taken once either way. */
@@ -179,5 +228,7 @@ export function resetFinderMemory(): void {
   searches = [];
   addresses.clear();
   sorts.clear();
+  thoroughOn.clear();
+  searchTimes = [];
   back = null;
 }

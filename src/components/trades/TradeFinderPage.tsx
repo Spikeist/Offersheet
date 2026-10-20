@@ -64,8 +64,17 @@
  * settings but the minimum chance, and partner) and still hold (no kickoff since, the same deadline readings:
  * src/workers/freshness.ts) shows them again at once instead of searching, in the sort the page was left in; the
  * Analyzer's "Back to the Trade Finder" returns to this page's address, partner included; and when the user left through
- * an idea's "Open in Analyzer" (its own, or its Plan B's), that link comes back into view with focus on
- * it.
+ * an idea's "Open in Analyzer" (its own, or its Plan B's), that link comes back into view with focus on it. Since
+ * Checkpoint 7h a card opens closed and those links sit in its panels (the card's own in Details, its Plan B's in "How to
+ * offer it"), so the card comes back with the panel holding the link open, as the user had it (returnPanelOf: TradeCard's
+ * detailsOpen or offersOpen, at mount), and the link is revealed only when it shows (revealIdea; the review of Checkpoint 7h's
+ * page: in a closed panel it took no scroll and no focus, and the results' heading didn't get it either). While "How to offer
+ * it" works its offers out above a Plan B box, the link is kept in view (keepInView). "Search again" and "Try again" search
+ * afresh for the search they were pressed on only (Retry; the review of Checkpoint 7h's page, thoroughui#1: the attempt was
+ * page-wide, so after one press no switch flip or partner showed its kept ideas: each searched again). How a search ended
+ * (its ideas, a stop, a failure) shows only while the page stays on that search (outcomeKept): coming back to it later, the
+ * page shows it starting again, or the ideas this tab kept for it, never that earlier end (the second review of Checkpoint
+ * 7h's page: a failed or stopped search's card came back over its new run, with no progress bar and no Stop).
  *
  * "How to offer it" (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1): a card's offers in order are worked out in
  * the engine worker when its disclosure opens (onOffers: engineClient.ts offers, the card by the id of the request whose
@@ -78,14 +87,17 @@
  * the result still gives the offers the search kept.
  *
  * "Thorough search" (Checkpoint 7h; planner reply to Checkpoint 7g, section 3: "For people willing to wait for the most complete
- * search"): a switch under the controls, off by default and ⚠️ not saved (page state only: a reload, another league, is back to
- * the normal search). On, the search is search.ts's Thorough one (engine.worker.ts TradesRequest.thorough: whole rosters, 3
- * players a side whatever the max-per-side setting, a bigger funnel), with its own key in the search memory (searchKeyFor's
- * `thorough`), so its ideas are kept for the session like a normal search's, and turning it off shows the normal search's again
- * at once. Before it starts, the switch's help says roughly how long it takes (thoroughHelp: "about N seconds", engine
- * thorough.ts thoroughSeconds, from this tab's last normal search for the same partner filter, else a default rate); it runs with
- * the usual progress bar and Stop. What its ideas were found with (Done.settings: thoroughSettings) is what "How to offer it"
- * asks with, and the settings line says up to 3 players a side.
+ * search"): a switch under the controls, off by default and ⚠️ not saved with the league's settings: this tab remembers it per
+ * league as it does the sort (finderMemory.ts rememberThorough; the review of Checkpoint 7h's page: as page state the trip to the
+ * Analyzer and back turned it off), so a reload or a new tab is back to the normal search. On, the search is search.ts's
+ * Thorough one (engine.worker.ts TradesRequest.thorough: whole rosters, 3 players a side whatever the max-per-side setting, a
+ * bigger funnel), with its own key in the search memory (searchKeyFor's `thorough`), so its ideas are kept for the session
+ * like a normal search's, and turning it off shows the normal search's again at once. Before it starts, the switch's help says
+ * roughly how long it takes (thoroughHelp: "about N seconds", engine thorough.ts thoroughSeconds, by scope: one partner or every
+ * team, from how long the normal search for the same partner filter took in this tab, finderMemory.ts searchTimeOf, else a
+ * default rate), and so does the progress card while it runs (searchTimeNote; the review of Checkpoint 7h's page, thoroughui#2:
+ * it said "It usually takes a few seconds"); it runs with the usual progress bar and Stop. What its ideas were found with
+ * (Done.settings: thoroughSettings) is what "How to offer it" asks with, and the settings line says up to 3 players a side.
  *
  * "Now or after this week" (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.2): once the search answers, the engine worker
  * works out what each card's Helps you would be if done after this week's games, and each card shows "Helps you 37 now · 41 if
@@ -150,7 +162,21 @@ import { revealResult } from "../reveal";
 import { saveFeedbackPress, useSavedFeedback } from "../settings/useFeedback";
 import { changeSavedSettings, useSavedLeagueSettings } from "../settings/useLeagueSettings";
 import { Callout, Card, FOCUS_TARGET, Spinner, buttonClass, cx, inputClass } from "../ui";
-import { recallSearchEntry, rememberFinderAddress, rememberReturn, rememberSearch, rememberSort, rememberedSort, takeReturnTarget, tradeEngine, useLeagueQuery } from "./finderMemory";
+import {
+  recallSearchEntry,
+  rememberFinderAddress,
+  rememberOpened,
+  rememberSearch,
+  rememberSearchTime,
+  rememberSort,
+  rememberThorough,
+  rememberedSort,
+  rememberedThorough,
+  searchTimeOf,
+  takeReturnTarget,
+  tradeEngine,
+  useLeagueQuery,
+} from "./finderMemory";
 import { HowToRead } from "./HowToRead";
 import { LeagueLoading } from "./LeagueLoading";
 import { SearchProgress } from "./SearchProgress";
@@ -221,6 +247,58 @@ export function searchTagFor(args: Parameters<typeof searchKeyFor>[0] & { attemp
 }
 
 /**
+ * "Search again" and "Try again" (the header; the review of Checkpoint 7h's page, thoroughui#1): the search key they were
+ * pressed on and how many times. They search afresh for that key alone: any other key's attempt is 0, a search that shows
+ * the ideas this tab kept for it (finderMemory.ts), and the page lets a retry go once its search is for another key
+ * (retryHeld), so coming back to that key shows the ideas its fresh search found instead of searching again.
+ */
+export type Retry = { key: string; n: number };
+
+/** The attempt for the search under `key` (part of its tag): the presses made on that key, else 0 (it may recall kept ideas). */
+export function attemptFor(retry: Retry | null, key: string | null): number {
+  return retry !== null && key !== null && retry.key === key ? retry.n : 0;
+}
+
+/** The retry after "Search again" or "Try again" is pressed on the search under `key`. */
+export function retryPressed(retry: Retry | null, key: string): Retry {
+  return { key, n: attemptFor(retry, key) + 1 };
+}
+
+/** The retry the page keeps while its search is for `key`: the same, or none once the search is for another key. */
+export function retryHeld(retry: Retry | null, key: string | null): Retry | null {
+  return retry !== null && retry.key !== key ? null : retry;
+}
+
+/**
+ * How the page's search ended (Outcome: the ideas found, a stop, a failure; the header), as the page keeps it when its search's
+ * tag goes from `from` to `to` (searchTagFor's): kept while the tag stays, gone once it changes (the second review of Checkpoint
+ * 7h's page). An end answers the run the page made while it stayed on that tag; coming back to a tag, the page starts its
+ * search again or shows the ideas this tab kept for it (finderMemory.ts). Kept, an earlier run's end showed over that search:
+ * since a retry holds for its own search only (Retry), a switch flip away and back returns to the tag of the run that failed or
+ * was stopped, and its card ("The trade search didn't finish", read out again as an alert, or "You stopped the search.") came
+ * back while the search started for it ran with no progress bar and no Stop, its button starting that search over. It goes as
+ * the page leaves the tag rather than when the search starts again a tick later, so that card never shows for a moment either.
+ */
+export function outcomeKept<O>(outcome: O | null, from: string | null, to: string | null): O | null {
+  return from === to ? outcome : null;
+}
+
+/** How the page's search ended, as it shows for the search under `tag` (searchTagFor's): the end under that tag, else none (the search runs). */
+export function currentOutcome<O extends { tag: string }>(outcome: O | null, tag: string | null): O | null {
+  return outcome !== null && outcome.tag === tag ? outcome : null;
+}
+
+/**
+ * Which panel of a card holds the "Open in Analyzer" link a return from the Analyzer names (`href`; the header): "How to offer
+ * it" for its Plan B box's link, else Details, which holds the card's own (the one revealIdea falls back to when `href` names
+ * neither, or is absent: the idea's first link). Coming back, the card opens that panel at mount, as the user had it open
+ * (Checkpoint 7h: a Trade Finder card opens closed).
+ */
+export function returnPanelOf(card: Pick<TradeCardView, "analyzerHref" | "planB">, href: string | null): "details" | "offers" {
+  return href !== null && card.planB !== null && href === card.planB.analyzerHref && href !== card.analyzerHref ? "offers" : "details";
+}
+
+/**
  * Whether ideas found need ranking again for the minimum chance shown (the header): they were ranked at another one.
  * A search that stopped before ranking (no TradeSearchResult.filter) holds for any minimum.
  */
@@ -276,13 +354,31 @@ type FocusTo = "status" | "stop" | "again";
 type Done = { tag: string; key: string; kind: "done"; result: TradeSearchResult; partnerId: string | null; nowIso: string; goal: Goal; settings: TradeSettings; thorough?: boolean };
 type Outcome = Done | { tag: string; kind: "error"; message: string } | { tag: string; kind: "stopped" };
 
+/**
+ * Where coming back from the Analyzer lands (the header; finderMemory.ts takeReturnTarget): the idea (its key) whose "Open in
+ * Analyzer" was used and that link's address (null: the idea's first link), in the ideas of the search tagged `tag` (shown
+ * again at once, or once a re-filter has ranked them at the minimum chance shown).
+ */
+type ReturnTo = { tag: string; cardKey: string; href: string | null };
+
+/** The idea a return from the Analyzer brings back (FinderFrame's `reveal`): its key and the link's address. */
+export type RevealTarget = Pick<ReturnTo, "cardKey" | "href">;
+
 /** The page's state for its status line and body (pure: FinderBody renders it; tests render each). */
 export type FinderState =
   | { kind: "fetching" }
   | { kind: "fetchError"; message: string; onRetry: () => void }
   | { kind: "noTeam" }
   | { kind: "settings" }
-  | { kind: "searching"; progress: ProgressView; onStop: () => void; previous: FinderView | null; refilter?: boolean }
+  | {
+      kind: "searching";
+      progress: ProgressView;
+      onStop: () => void;
+      previous: FinderView | null;
+      refilter?: boolean;
+      /** A Thorough search running: about how long it takes, as its switch said (SearchProgress's time line; thoroughui#2). */
+      thoroughSeconds?: number;
+    }
   | { kind: "stopped"; onAgain: () => void; previous: FinderView | null }
   | { kind: "error"; message: string; onRetry: () => void; previous: FinderView | null }
   | { kind: "done"; view: FinderView };
@@ -342,11 +438,22 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
   const [picked, setPicked] = useState<{ id: string | null; query: string } | null>(null);
   // The sort this league's page was left in, in this tab (finderMemory.ts), else Overall.
   const [sort, setSort] = useState<TradeSort>(() => rememberedSort(leagueId) ?? "overall");
-  const [attempt, setAttempt] = useState(0);
+  // "Search again" and "Try again": the search they were pressed on and how many times (Retry; the header).
+  const [retry, setRetry] = useState<Retry | null>(null);
   // Why the minimum chance couldn't be saved (the store put the page back), or null.
   const [minChanceError, setMinChanceError] = useState<string | null>(null);
-  // The Thorough search switch (Checkpoint 7h; the header): page state only, never saved.
-  const [thorough, setThorough] = useState(false);
+  // The Thorough search switch (Checkpoint 7h; the header): as this league's Finder was left in this tab (finderMemory.ts), else
+  // off; never saved with the league's settings.
+  const [thorough, setThorough] = useState(() => rememberedThorough(leagueId));
+  // Coming back from the Analyzer: the idea whose "Open in Analyzer" was used (and which link), in the ideas of the search that
+  // shows them again: its card opens the panel holding the link at mount, and the link comes back into view (see the header).
+  const [returnTo, setReturnTo] = useState<ReturnTo | null>(null);
+  // The return target once its link has been brought back (written by the reveal's effect, below): the ideas re-filtered or
+  // sorted after that let it go, so their cards open as any card does (forgetReturn).
+  const revealedRef = useRef<ReturnTo | null>(null);
+  const forgetReturn = () => {
+    if (returnTo !== null && revealedRef.current === returnTo) setReturnTo(null);
+  };
 
   const myTeamId = myTeam?.myTeamId ?? null;
   const league = pair && myTeamId ? pair.snapshot : null;
@@ -365,6 +472,12 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
   const pickSort = (value: TradeSort) => {
     setSort(value);
     rememberSort(leagueId, value);
+    // A sort can leave the card a return brought back out of the list and bring it back: it opens closed then.
+    forgetReturn();
+  };
+  const pickThorough = (on: boolean) => {
+    setThorough(on);
+    rememberThorough(leagueId, on);
   };
   // The minimum chance: saved with the league's settings; the page's copy changes at once, and the ideas are re-filtered.
   const pickMinChance = (value: number) => {
@@ -374,10 +487,22 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
     });
   };
   const searchKey = pair && myTeamId && settings ? searchKeyFor({ snapshot: pair.snapshot, builtAt: pair.inputs.builtAt, myTeamId, settings, partnerId, thorough }) : null;
-  // The normal search's key for the same filter: its time on this device sizes the Thorough search's estimate (the header).
+  // The normal search's key for the same filter: its time on this device sizes the Thorough search's estimate (the header),
+  // as this tab remembers it (finderMemory.ts searchTimeOf): read when the page opens (coming back from the Analyzer with the
+  // switch on, its help says the same number as before), and noted again when a search starts and when a normal one finishes.
   const normalKey = pair && myTeamId && settings ? searchKeyFor({ snapshot: pair.snapshot, builtAt: pair.inputs.builtAt, myTeamId, settings, partnerId }) : null;
-  const [normalTime, setNormalTime] = useState<{ key: string; ms: number } | null>(null);
+  const [normalTime, setNormalTime] = useState<{ key: string; ms: number } | null>(() => {
+    const ms = normalKey ? searchTimeOf(normalKey) : null;
+    return normalKey && ms !== null ? { key: normalKey, ms } : null;
+  });
+  // A retry holds for its own search only (Retry): one for another key goes, so coming back to that key recalls its ideas.
+  const heldRetry = retryHeld(retry, searchKey);
+  if (heldRetry !== retry) setRetry(heldRetry);
+  const attempt = attemptFor(heldRetry, searchKey);
   const searchTag = searchKey ? `${searchKey}|${attempt}` : null;
+  // Roughly how long a Thorough search takes here (engine thorough.ts thoroughSeconds, by scope: one partner or every team): the
+  // switch's help says it before it starts, and the progress card while it runs (the header).
+  const estimate = league ? thoroughSeconds(normalTime && normalTime.key === normalKey ? normalTime.ms : null, partnerId ? 1 : Math.max(1, league.teams.length - 1)) : null;
 
   // The Analyzer's "Back to the Trade Finder" comes back to this address, partner included (finderMemory.ts).
   useEffect(() => {
@@ -386,11 +511,18 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
 
   // The search, in the trade pages' engine worker (finderMemory.ts tradeEngine: this league's, shared with the Analyzer, never disposed here).
   const handleRef = useRef<TradeSearchHandle | null>(null);
-  // Coming back from the Analyzer: the idea whose "Open in Analyzer" was used (and which link), to bring back into view when its search's ideas show.
-  const returnRef = useRef<{ tag: string; cardKey: string; href: string | null } | null>(null);
   // `searching`: a re-filter the worker answers with a new search (the header), so the status line says it searches.
   const [progress, setProgress] = useState<RunProgress | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+  // The search tag the page was on at its last render: once its search is for another tag (a switch flip, another partner, a
+  // retry, new settings or league data), how the last search ended goes at once (outcomeKept; see the header), so coming back
+  // to that tag shows its search starting again, or its kept ideas, never the earlier run's stop or failure.
+  const [outcomeFor, setOutcomeFor] = useState(searchTag);
+  if (outcomeFor !== searchTag) {
+    setOutcomeFor(searchTag);
+    const kept = outcomeKept(outcome, outcomeFor, searchTag);
+    if (kept !== outcome) setOutcome(kept);
+  }
   // The last ideas found (kept when a later search runs, stops or fails: shown dimmed for the same partner).
   const [lastDone, setLastDone] = useState<Done | null>(null);
 
@@ -400,12 +532,6 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
       prev && prev.tag === tag && prev.view.percent === view.percent && prev.view.label === view.label && !!prev.searching === searching ? prev : { tag, view, searching },
     );
 
-  // A normal search's time on this device, for the Thorough search's estimate (the header; its timings are the search's own).
-  const noteNormalTime = (done: Done) => {
-    const took = done.result.timings?.total;
-    if (!done.thorough && typeof took === "number" && took > 0) setNormalTime({ key: done.key, ms: took });
-  };
-
   const startSearch = useEffectEvent((tag: string, key: string) => {
     if (!pair || !myTeamId || !settings) return undefined;
     const job = { snapshot: pair.snapshot, model: pair.inputs, myTeamId, settings, partnerId, ...(thorough ? { thorough: true } : {}) };
@@ -413,22 +539,28 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
     const ranWith = thorough ? thoroughSettings(settings) : settings;
     // Search again and Try again search; a page-started search may show what it found before.
     const recall = attempt === 0;
+    // The normal search for this filter (the Thorough search's estimate reads its time here).
+    const timeKey = normalKey;
     let live = true;
     // A tick later, so React StrictMode's first run (development) is cancelled before it starts.
     const timer = setTimeout(() => {
       const back = takeReturnTarget(key);
       const nowMs = Date.now();
+      // How long the normal search for this filter took when it last ran in full here, whichever search this is (a recalled
+      // Thorough one included: coming back from the Analyzer the page starts afresh), for the Thorough search's estimate.
+      const took = timeKey ? searchTimeOf(timeKey) : null;
+      if (timeKey && took !== null) setNormalTime({ key: timeKey, ms: took });
       // The ideas this search found before in this tab, while they still hold (finderMemory.ts): shown again at once
       // (re-filtered next when they were ranked at another minimum chance).
       const known = recall ? recallSearchEntry(key, (iso) => contextStillValid(Date.parse(iso), nowMs, job.model, job.snapshot)) : null;
       if (known) {
-        returnRef.current = back ? { tag, ...back } : null;
         const done: Done = { tag, key, kind: "done", result: known.result, partnerId: job.partnerId, nowIso: known.nowIso, goal: job.settings.goal, settings: ranWith, thorough };
+        setReturnTo(back ? { tag, cardKey: back.cardKey, href: back.href } : null);
         setOutcome(done);
         setLastDone(done);
-        noteNormalTime(done);
         return;
       }
+      setReturnTo(null);
       const nowIso = new Date(nowMs).toISOString();
       setProgress({ tag, view: progressView(null) });
       const handle = tradeEngine(leagueId).searchTrades({ ...job, nowIso }, (p) => {
@@ -437,13 +569,16 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
       handleRef.current = handle;
       handle.promise.then(
         (result) => {
-          // Remembered even when a newer search took over meanwhile: these ideas are this search's.
+          // Remembered even when a newer search took over meanwhile: these ideas are this search's, and so is its time (a
+          // normal search's: the Thorough search's estimate scales it; finderMemory.ts).
           rememberSearch(key, nowIso, result);
+          const ran = result.timings?.total;
+          if (!thorough && typeof ran === "number") rememberSearchTime(key, ran);
           if (!live) return;
           const done: Done = { tag, key, kind: "done", result, partnerId: job.partnerId, nowIso, goal: job.settings.goal, settings: ranWith, thorough };
           setOutcome(done);
           setLastDone(done);
-          noteNormalTime(done);
+          if (!thorough && typeof ran === "number" && ran > 0) setNormalTime({ key, ms: ran });
         },
         (err: unknown) => {
           if (!live || (err instanceof EngineError && err.cancelled)) return;
@@ -464,7 +599,7 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
     return startSearch(searchTag, searchKey);
   }, [searchTag, searchKey]);
 
-  const current = outcome && outcome.tag === searchTag ? outcome : null;
+  const current = currentOutcome(outcome, searchTag);
   const doneResult = current?.kind === "done" ? current : null;
   // The minimum chance changed since these ideas were ranked (the header): the worker ranks them again.
   const minChance = settings?.minChance;
@@ -479,6 +614,9 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
     const step = refilterProgress(done.thorough === true);
     // A tick later, as a search starts (StrictMode's first run is cancelled before it starts).
     const timer = setTimeout(() => {
+      // Ideas a return from the Analyzer already brought back are ranked again: their cards open as any card does. (A return
+      // whose ideas are re-filtered first keeps its target for them.)
+      forgetReturn();
       const nowIso = new Date().toISOString();
       setProgress({ tag, ...step(null) });
       const h = tradeEngine(leagueId).refilterTrades({ ...job, nowIso }, (p) => {
@@ -534,20 +672,33 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
   // The ideas shown are done once they're ranked at the minimum shown (not while a re-filter runs).
   const shownDone = doneResult && !refilterTag ? doneResult : null;
 
-  useEffect(() => {
-    if (!shownDone) return;
-    // Coming back from the Analyzer: the "Open in Analyzer" link used, back in view and focused (see the header).
-    const back = returnRef.current;
-    returnRef.current = null;
-    if (back && back.tag === shownDone.tag && revealIdea(back.cardKey, back.href)) return;
+  // Coming back from the Analyzer to these ideas: the idea and link to bring back (its card opens the panel holding the link at
+  // mount: Results' `reveal`), until a re-filter or a sort lets it go (forgetReturn).
+  const reveal = returnTo !== null && shownDone !== null && returnTo.tag === shownDone.tag ? returnTo : null;
+  // Read when the ideas show (the target is set with them, in one render, or kept while a re-filter ranks them first), and
+  // used once.
+  const revealOnShow = useEffectEvent((done: Done) => {
+    const back = returnTo !== null && returnTo.tag === done.tag && revealedRef.current !== returnTo ? returnTo : null;
+    if (back) revealedRef.current = back;
+    // Coming back from the Analyzer: the "Open in Analyzer" link used, back in view and focused (see the header), and kept
+    // in view while the card settles.
+    const link = back ? revealIdea(back.cardKey, back.href) : null;
+    if (link) return keepInView(link, KEEP_IN_VIEW_MS);
     // Focus left on nothing, on the status line or on a control that went away (Stop; a dimmed card's button) → the results.
     const active = document.activeElement;
     if (!active || active === document.body || active === statusRef.current || !active.isConnected) resultsRef.current?.focus({ preventScroll: true });
+    return undefined;
+  });
+  useEffect(() => {
+    if (!shownDone) return;
+    return revealOnShow(shownDone);
   }, [shownDone]);
 
   const again = () => {
+    if (!searchKey) return;
     moveFocus("stop");
-    setAttempt((a) => a + 1);
+    const key = searchKey;
+    setRetry((r) => retryPressed(r, key));
   };
   const stop = () => {
     if (!searchTag) return;
@@ -598,13 +749,17 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
   const shownReward = shownRewardOf(shownOutcome?.result, shownOutcome?.goal);
   const share = useMemo(() => (league ? feedbackShareContext(league, shownReward) : null), [league, shownReward]);
   const onFeedback = useCallback((evaluation: TradeEvaluation, change: FeedbackChange) => saveFeedbackPress({ leagueKey, evaluation, change, share }), [leagueKey, share]);
-  // "Open in Analyzer" remembers the idea and the link used, to come back to it (finderMemory.ts).
+  // "Open in Analyzer" remembers the idea and the link used, to come back to it (finderMemory.ts), and the switch as the search
+  // whose ideas it's in had it: ⚠️ ours (the review of Checkpoint 7h's page): an idea shown dimmed while a search with the
+  // switch flipped runs is the other search's, and coming back shows its ideas, as left, rather than starting that search over
+  // (a Thorough one takes the better part of a minute) and losing the idea to come back to.
   const shownKey = shownOutcome?.key ?? null;
+  const shownThorough = shownOutcome?.thorough === true;
   const onOpenAnalyzer = useCallback(
     (cardKey: string, href?: string) => {
-      if (shownKey) rememberReturn(shownKey, cardKey, href);
+      if (shownKey) rememberOpened(leagueId, { key: shownKey, thorough: shownThorough }, cardKey, href);
     },
-    [shownKey],
+    [shownKey, shownThorough, leagueId],
   );
   // "How to offer it" (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1): a card's offers, asked of this league's engine
   // worker when its disclosure opens (engineClient.ts offers: the card by the id of the request whose result holds it,
@@ -642,9 +797,10 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
   else if (current?.kind === "error") state = { kind: "error", message: current.message, onRetry: again, previous: view };
   else if (shownDone && view) state = { kind: "done", view };
   else {
-    // A re-filter the worker answers with a new search says so (the header).
+    // A re-filter the worker answers with a new search says so (the header), and a Thorough search's progress card says about
+    // how long it takes, as its switch does (thoroughui#2; a re-filter only ranks again, so the usual line).
     const run = runShown(progress, refilterTag ?? searchTag, refilterTag !== null);
-    state = { kind: "searching", progress: run.view, onStop: stop, previous: view, refilter: run.refilter };
+    state = { kind: "searching", progress: run.view, onStop: stop, previous: view, refilter: run.refilter, ...(thorough && !run.refilter && estimate !== null ? { thoroughSeconds: estimate } : {}) };
   }
 
   const controls =
@@ -662,8 +818,8 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
         minChanceError={minChanceError}
         summary={settingsSummary(thorough ? thoroughSettings(settings) : settings, league.platform, league.settings.leagueType)}
         thorough={thorough}
-        onThorough={setThorough}
-        thoroughSeconds={thoroughSeconds(normalTime && normalTime.key === normalKey ? normalTime.ms : null, partnerId ? 1 : Math.max(1, league.teams.length - 1))}
+        onThorough={pickThorough}
+        thoroughSeconds={estimate ?? undefined}
       />
     ) : null;
 
@@ -685,23 +841,61 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
       onFeedback={onFeedback}
       onOpenAnalyzer={onOpenAnalyzer}
       onOffers={onOffers}
+      reveal={reveal}
     />
   );
 }
 
 /**
  * Brings back into view the idea (its TradeEvaluation.key) whose "Open in Analyzer" was used, with focus on that link
- * (the one with `href`: the card's own or its Plan B's; else the idea's first), the way the user left
- * it; false when that idea isn't shown.
+ * (the one with `href`: the card's own or its Plan B's; else the idea's first), the way the user left it: the link, or null
+ * when that idea isn't shown or the link can't be (Checkpoint 7h: it sits in a panel of the card, which opens at mount for
+ * this return, returnPanelOf; a link in a closed panel takes no scroll and no focus, so the page focuses the results' heading
+ * instead).
  */
-function revealIdea(cardKey: string, href: string | null): boolean {
+export function revealIdea(cardKey: string, href: string | null): HTMLElement | null {
   const item = [...document.querySelectorAll<HTMLElement>("li[data-trade-key]")].find((li) => li.dataset.tradeKey === cardKey);
   const links = item ? [...item.querySelectorAll<HTMLElement>(`a[href^="${ANALYZER_PATH}?"]`)] : [];
   const link = (href ? links.find((a) => a.getAttribute("href") === href) : undefined) ?? links[0] ?? null;
-  if (!link) return false;
+  if (!link || !isShown(link)) return null;
   link.scrollIntoView({ block: "center" });
   link.focus({ preventScroll: true });
-  return true;
+  return document.activeElement === link ? link : null;
+}
+
+/** Whether an element shows (none of its ancestors hidden), where the browser can tell (checkVisibility), else by its boxes. */
+function isShown(el: HTMLElement): boolean {
+  return typeof el.checkVisibility === "function" ? el.checkVisibility() : el.getClientRects().length > 0;
+}
+
+/** How long a link brought back from the Analyzer is kept in view while its card settles (keepInView; display only). */
+const KEEP_IN_VIEW_MS = 3000;
+
+/**
+ * Keeps a link brought back into view (revealIdea) in view while its card settles, for `ms` milliseconds: a Plan B box's link
+ * sits under "How to offer it", whose offers are worked out after the card opens it and push the box down, and a card's own
+ * link under its Details, which its "now or after this week" line can still join. Whenever the card's size changes, a link
+ * that still has focus and has gone off the screen comes back to its middle. It stops early once the user scrolls, taps or
+ * types, or focus moves on; the returned function stops it (the page going away).
+ */
+function keepInView(link: HTMLElement, ms: number): () => void {
+  const card = link.closest<HTMLElement>("li[data-trade-key]");
+  if (!card || typeof ResizeObserver !== "function") return () => undefined;
+  const observer = new ResizeObserver(() => {
+    if (document.activeElement !== link) return stop();
+    const box = link.getBoundingClientRect();
+    if (box.top < 0 || box.bottom > window.innerHeight) link.scrollIntoView({ block: "center" });
+  });
+  const inputs = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
+  const timer = setTimeout(stop, ms);
+  function stop() {
+    observer.disconnect();
+    clearTimeout(timer);
+    for (const type of inputs) window.removeEventListener(type, stop);
+  }
+  for (const type of inputs) window.addEventListener(type, stop, { passive: true });
+  observer.observe(card);
+  return stop;
 }
 
 /**
@@ -879,6 +1073,11 @@ interface FrameProps {
   onOpenAnalyzer?: ((cardKey: string, href?: string) => void) | undefined;
   /** "How to offer it" (Checkpoint 7e, item 4.1): works a card's offers out when its disclosure opens (TradeCard's `onOffers`); absent: no card shows it. */
   onOffers?: ((card: TradeCardView) => Promise<LadderView>) | undefined;
+  /**
+   * Coming back from the Analyzer to the ideas shown (the header): the idea whose "Open in Analyzer" was used and that link's
+   * address. Its card opens the panel holding the link at mount (returnPanelOf), as the user had it; absent or null: none.
+   */
+  reveal?: RevealTarget | null | undefined;
 }
 
 /**
@@ -886,7 +1085,7 @@ interface FrameProps {
  * keeps the element and each new text is announced. It shows with a spinner while the page waits, and is read to
  * screen readers only otherwise.
  */
-export function FinderFrame({ state, teamName, leagueType = "redraft", facts, timing, controls, statusRef, resultsRef, againRef, stopRef, records, leagueKey, snapshot, onFeedback, onOpenAnalyzer, onOffers }: FrameProps) {
+export function FinderFrame({ state, teamName, leagueType = "redraft", facts, timing, controls, statusRef, resultsRef, againRef, stopRef, records, leagueKey, snapshot, onFeedback, onOpenAnalyzer, onOffers, reveal }: FrameProps) {
   const text = finderStatus(state);
   const waiting = state.kind === "fetching" || state.kind === "settings";
   // The ideas on screen (dimmed ones included): a card whose long-term values are missing says Helps you counts this season only.
@@ -937,13 +1136,14 @@ export function FinderFrame({ state, teamName, leagueType = "redraft", facts, ti
         onFeedback={onFeedback}
         onOpenAnalyzer={onOpenAnalyzer}
         onOffers={onOffers}
+        reveal={reveal}
       />
       <HowToRead leagueType={leagueType} valuesOn={facts?.valuesOn ?? true} longTermOn={longTermOn} blendOn={facts?.blendOn ?? true} helpsScale={shown?.helpsScale ?? null} reward={shown?.reward ?? null} />
     </div>
   );
 }
 
-function FinderBody({ state, resultsRef, againRef, stopRef, records, leagueKey, snapshot, onFeedback, onOpenAnalyzer, onOffers }: Omit<FrameProps, "teamName" | "leagueType" | "facts" | "timing" | "controls" | "statusRef">) {
+function FinderBody({ state, resultsRef, againRef, stopRef, records, leagueKey, snapshot, onFeedback, onOpenAnalyzer, onOffers, reveal }: Omit<FrameProps, "teamName" | "leagueType" | "facts" | "timing" | "controls" | "statusRef">) {
   const previous =
     (state.kind === "searching" || state.kind === "stopped" || state.kind === "error") && state.previous ? (
       <div className="opacity-60 transition-opacity">
@@ -983,7 +1183,7 @@ function FinderBody({ state, resultsRef, againRef, stopRef, records, leagueKey, 
     case "searching":
       return (
         <div className="space-y-4">
-          <SearchProgress view={state.progress} onStop={state.onStop} stopRef={stopRef} />
+          <SearchProgress view={state.progress} onStop={state.onStop} stopRef={stopRef} thoroughSeconds={state.thoroughSeconds} />
           {previous}
         </div>
       );
@@ -1016,7 +1216,18 @@ function FinderBody({ state, resultsRef, againRef, stopRef, records, leagueKey, 
       );
     case "done":
       return (
-        <Results view={state.view} records={records} leagueKey={leagueKey} snapshot={snapshot} onFeedback={onFeedback} onOpenAnalyzer={onOpenAnalyzer} onOffers={onOffers} headingRef={resultsRef} headingText="Trade ideas" />
+        <Results
+          view={state.view}
+          records={records}
+          leagueKey={leagueKey}
+          snapshot={snapshot}
+          onFeedback={onFeedback}
+          onOpenAnalyzer={onOpenAnalyzer}
+          onOffers={onOffers}
+          headingRef={resultsRef}
+          headingText="Trade ideas"
+          reveal={reveal}
+        />
       );
   }
 }
@@ -1025,7 +1236,8 @@ function FinderBody({ state, resultsRef, againRef, stopRef, records, leagueKey, 
  * The ideas found: my odds before any trade and what they count, what "Helps you" sums up, the count, the pattern note
  * and the few-ideas line above the list, the cards (or why there are none), what was left out on purpose, notes and
  * warnings. Each card's item carries its key (data-trade-key), so a return from the Analyzer can bring it back into
- * view. Memoized: the progress bar re-renders the page while a new search runs, and these cards don't change.
+ * view: the card it names (`reveal`) opens the panel holding the link used at mount (returnPanelOf). Memoized: the progress
+ * bar re-renders the page while a new search runs, and these cards don't change.
  */
 const Results = memo(function Results({
   view,
@@ -1037,6 +1249,7 @@ const Results = memo(function Results({
   onOffers,
   headingRef,
   headingText,
+  reveal,
 }: {
   view: FinderView;
   records: FeedbackRecord[] | undefined;
@@ -1047,6 +1260,7 @@ const Results = memo(function Results({
   onOffers?: FrameProps["onOffers"];
   headingRef?: Ref<HTMLHeadingElement> | undefined;
   headingText: string;
+  reveal?: FrameProps["reveal"];
 }) {
   // Each card's place in the list shown (1 = first), for the offers of "How to offer it" that are other cards (the lead's
   // call, wave D: "Also shown as trade idea 2.", TradeCard's `places`); this sort's, so it follows a re-sort.
@@ -1099,19 +1313,24 @@ const Results = memo(function Results({
       ) : (
         // Whether every card's "now or after this week" numbers are in (FinderView.nowOrLater; `npm run check:browser` waits on it).
         <ol className="space-y-4" data-now-or-later={view.nowOrLater}>
-          {view.cards.map((card, i) => (
-            <li key={card.key} data-trade-key={card.key}>
-              <TradeCard
-                card={card}
-                rank={i + 1}
-                feedback={cardFeedback(records, leagueKey, card.key, snapshot ?? undefined)}
-                onFeedback={(change) => onFeedback(card.evaluation, change)}
-                onOpenAnalyzer={onOpenAnalyzer ? (href: string) => onOpenAnalyzer(card.key, href) : undefined}
-                onOffers={onOffers}
-                places={places}
-              />
-            </li>
-          ))}
+          {view.cards.map((card, i) => {
+            // The card a return from the Analyzer names opens the panel holding the link used (the others open closed).
+            const panel = reveal && reveal.cardKey === card.key ? returnPanelOf(card, reveal.href) : null;
+            return (
+              <li key={card.key} data-trade-key={card.key}>
+                <TradeCard
+                  card={card}
+                  rank={i + 1}
+                  feedback={cardFeedback(records, leagueKey, card.key, snapshot ?? undefined)}
+                  onFeedback={(change) => onFeedback(card.evaluation, change)}
+                  onOpenAnalyzer={onOpenAnalyzer ? (href: string) => onOpenAnalyzer(card.key, href) : undefined}
+                  onOffers={onOffers}
+                  places={places}
+                  {...(panel === "details" ? { detailsOpen: true } : panel === "offers" ? { offersOpen: true } : {})}
+                />
+              </li>
+            );
+          })}
         </ol>
       )}
       {view.hidden ? <p className="text-sm text-muted">{view.hidden}</p> : null}

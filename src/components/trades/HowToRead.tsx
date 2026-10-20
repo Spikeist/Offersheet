@@ -222,20 +222,26 @@ export const THOROUGH_HEADING = "Thorough search";
  * "Whole rosters"; the Trade Finder's switch, TradeFinderPage.tsx): what it adds over the normal search (every trade of up to 2
  * players a side across whole rosters, trades with config.search.thorough.maxPerSide players on a side from the top
  * config.search.thorough.threePool of each roster, config.search.thorough.finalists ideas played out where the normal search
- * plays out config.search.finalists), about how long (config.search.thorough.estimate.workRatio times a normal search, the
- * switch's own estimate), that its ideas stay for the visit (the page's search memory: TradeFinderPage.tsx searchKeyFor's
- * "|thorough") and that the switch isn't saved (page state). The Trade Finder's only: the Analyzer has no search.
+ * plays out config.search.finalists), about how long (config.search.thorough.estimate's work ratios, one partner's to every
+ * team's, times a normal search: the switch's own estimates, thorough.ts thoroughSeconds; the second review of Checkpoint 7h's
+ * page: it named every team's alone, "about 6 times", beside a one-partner switch that said 4 times its normal search), that its
+ * ideas stay for the visit (the page's search memory: TradeFinderPage.tsx searchKeyFor's "|thorough") and that the switch isn't
+ * saved: this tab keeps it as it was left, a new tab or a reload is the usual search (finderMemory.ts rememberThorough; the
+ * review of Checkpoint 7h's page). The Trade Finder's only: the Analyzer has no search.
  */
 export function thoroughWords(): string {
   const t = config.search.thorough;
   const three: number = t.maxPerSide;
   const pool: number = t.threePool;
-  const ratio: number = t.estimate.workRatio;
+  const ratios: number[] = [t.estimate.onePartner.workRatio, t.estimate.workRatio];
+  const low = Math.min(...ratios);
+  const high = Math.max(...ratios);
+  const times = low === high ? fmtNum(high, 1) : `${fmtNum(low, 1)} to ${fmtNum(high, 1)}`;
   return (
     `checks more trades than the usual search: every trade of up to 2 players a side with every team, from whole rosters, plus trades with ${three} players on a side ` +
     `from your ${pool} and their ${pool} best players, and it plays out the best ${fmtNum(t.finalists, 0)} ideas where the usual search plays out ${fmtNum(config.search.finalists, 0)}. ` +
-    `It takes about ${ratio} times as long (the switch says about how many seconds before it starts), with the same progress bar and Stop. ` +
-    `Its ideas stay for this visit, like the usual search's, and turning it off shows the usual search's ideas again at once. The switch isn't saved: the Trade Finder always starts with the usual search.`
+    `It takes about ${times} times as long (the switch says about how many seconds before it starts), with the same progress bar and Stop. ` +
+    `Its ideas stay for this visit, like the usual search's, and turning it off shows the usual search's ideas again at once. The switch isn't saved: this tab keeps it as you left it (coming back from the Analyzer too), and a new tab or a reload starts with the usual search.`
   );
 }
 

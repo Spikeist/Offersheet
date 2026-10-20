@@ -463,12 +463,14 @@ export function offersStateFor(on: boolean, open: boolean, answer: Pick<OffersAn
  * in the background once it had been opened). One request per evaluation and attempt, shared by both askers; each answer
  * kept for the evaluation and attempt it was asked for, so a page that builds the card again for the same evaluation (a sort,
  * the "now or after this week" numbers arriving) keeps it. The card it's worded for is the latest one built (`latest`).
+ * `openAtFirst` opens it at mount (TradeCardProps.offersOpen), after which it's the user's.
  */
 function useOffers(
   card: TradeCardView,
   onOffers: ((card: TradeCardView) => Promise<LadderView>) | undefined,
+  openAtFirst = false,
 ): { state: OffersState; open: boolean; toggle: (open: boolean) => void; retry: () => void; versions: () => Promise<readonly VersionChoice[]> } {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(openAtFirst);
   const [attempt, setAttempt] = useState(0);
   const [answers, setAnswers] = useState<readonly OffersAnswer[]>([]);
   const latest = useRef(card);
@@ -663,9 +665,15 @@ export interface TradeCardProps {
    * Trade Finder card closed); absent: open without a `rank` (the Analyzer's card has none), closed with one.
    */
   detailsOpen?: boolean;
+  /**
+   * Whether "How to offer it" is open at first (Checkpoint 7h, the review of its page: the Trade Finder's card a return from
+   * the Analyzer names, when its Plan B's "Open in Analyzer" was used, comes back with that panel open, as the user had it, and
+   * asks for its offers as an opened one does); absent: closed.
+   */
+  offersOpen?: boolean;
 }
 
-export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedback, showAnalyzerLink = true, onOpenAnalyzer, onOffers, places, detailsOpen }: TradeCardProps) {
+export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedback, showAnalyzerLink = true, onOpenAnalyzer, onOffers, places, detailsOpen, offersOpen }: TradeCardProps) {
   const headingId = useId();
   const detailsId = useId();
   const offersId = useId();
@@ -676,7 +684,7 @@ export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedbac
   // "How to offer it": once its offers are in, they're the versions the feedback asks about (with Plan B's); until then (nor
   // failed) a first outcome pressed asks for them first (the review of wave D, UI-D-1).
   const offersOn = !!(card.offers && onOffers);
-  const offers = useOffers(card, offersOn ? onOffers : undefined);
+  const offers = useOffers(card, offersOn ? onOffers : undefined, offersOpen);
   const ladder = offers.state.kind === "done" ? offers.state.ladder : null;
   const versions = ladder ? cardVersions(card, ladder) : card.versions;
   const loadVersions = offersOn && offers.state.kind !== "done" && offers.state.kind !== "failed" ? offers.versions : undefined;
