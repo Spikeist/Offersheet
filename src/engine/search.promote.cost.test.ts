@@ -12,8 +12,9 @@
  * lastOf: a card whose Last offer alone was checked counts as having its ladder fixed without a preference): on 49 the "Helps
  * both" list's card's Last offer is an Overall card checked so, and on 57 an Overall card of an earlier round, each "taken"
  * (promote's "taken" reason without `lastOnly` promotes it: the merge records differ); on 51 a later round's merge reads such a
- * card (choiceOf honoring a preference for it gives it one: the preferences differ). Mutations caught: those two. Not caught:
- * searchLastOfferSteps with the card's "Helps both" tag left out (no card here needs it).
+ * card (choiceOf honoring a preference for it gives it one: the preferences differ); on 9 a card tagged "Helps both" whose
+ * Last offer the tag decides. Mutations caught: those two guards (49 and 57; 51), and searchLastOfferSteps with the card's
+ * "Helps both" tag left out (9).
  */
 import { isDeepStrictEqual } from "node:util";
 import { describe, expect, it } from "vitest";
@@ -58,6 +59,7 @@ describe("the promotion checks each card's Last offer alone (Checkpoint 7h)", { 
     { seed: 24, teams: 6, minChance: 0.1 },
     { seed: 1, teams: 6, minChance: 0.1 },
     { seed: 3, teams: 12, minChance: 0 },
+    { seed: 9, teams: 6, minChance: 0.1 },
     { seed: 49, teams: 6, minChance: 0.1 },
     { seed: 51, teams: 6, minChance: 0.1 },
     { seed: 57, teams: 6, minChance: 0.1 },
