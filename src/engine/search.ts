@@ -353,7 +353,8 @@
  * search, bit for bit (search.merge7g.test.ts).
  * - (a) The smaller ask (offers.ts, "The candidates" and "4. Last offer"): a card's Last offer is the throw-in or a smaller ask
  *   (the card's players of mine for part of its players of theirs), whichever prints the higher Overall, a smaller ask held to
- *   at least config.offers.lastMinOverallShare (80%) of the card's unrounded Overall besides the Last offer's other rules. The
+ *   at least config.offers.lastMinOverallShare (80%; 75% since Checkpoint 7h, planner reply to Checkpoint 7g, answer 2) of
+ *   the card's unrounded Overall besides the Last offer's other rules. The
  *   merge reads a card's smaller asks among the cards of its list (offers.ts ladderNeighbors kind "smaller", offerFeasible
  *   "smaller"), so a shape-(i) pair merges when the bigger card's Last offer takes the smaller ask (smallLeague 24, 25 and 56 at
  *   10%). On Parker's league 1, Oct 14, his "Helps both" card Marvin Harrison Jr. + Breece Hall → Dallas Goedert + Christian
@@ -388,7 +389,9 @@
  *   fallback carries the card's preference (TradeSearchResult.offerPrefer, the page's OffersSource.prefer, offers.ts
  *   ProposalLadderOptions.prefer); the Trade Analyzer's card has no list and no preference, so
  *   its ladder for a Finder card's trade can differ through it (offers.ts, "The pre-screen"). preferListed false works the
- *   ladders out as at Checkpoint 7f (takenAsBefore).
+ *   ladders out as at Checkpoint 7f (takenAsBefore). Since Checkpoint 7h (planner reply to Checkpoint 7g, answer 4) narrowed:
+ *   a preferred version is taken at a step only when its printed Helps you is within config.offers.preferWithinHelps (3) of
+ *   the step's usual pick's (offers.ts narrowedPick; offers.ts, "Preferring the cards of its lists").
  * - (c) Dropped versions (dominatedOf; settle): once a round merges none, each card of the list that another version of the
  *   same trade (rank.ts versionsOfSameTrade, the filler rule's relation) beats on the printed numbers leaves (beatsVersion: at
  *   least as good on both Helps you as printed and the chance P_complete as printed, its nearest 5% and "<5%" under every step,
@@ -410,6 +413,51 @@
  *   trade is merged, given back from a merge, dropped and given back from a drop at most once each, and every round but the
  *   last does one of the four. Counts: dropped.dominated on both lists, qualifying counting them (each was a card),
  *   MergedCards.dominated (each with its `by` and list) and restored.
+ *
+ * Promoted Last offers, Checkpoint 7h (planner reply to Checkpoint 7g, answer 3: "No: promote it. When an offer list finds a
+ * version with a higher Overall than the idea it sits under: that version becomes the idea; the original becomes its "Open
+ * with" step, the bigger ask. Count how often this happens on Parker's leagues. It's a sign of what the search misses (section
+ * 2)."; the lead's rulings; settle's promote). A report and test switch, TradeSearchOptions.promoteLastOffers (default true;
+ * false gives Checkpoint 7g's rule: SearchState.promoteLastOffers).
+ * - ⚠️ What's promoted (the lead's ruling): a card's Last offer (a throw-in or a smaller ask) that prints a higher unrounded
+ *   Overall (EG on the printed numbers) than its card: its card is "the bigger ask" the planner describes. An Open or a Then
+ *   printing a higher Overall than its card (its card is then the smaller ask, which the planner's wording doesn't fit) is
+ *   counted (MergedCards.higherEarlier, the cards shown) and never promoted.
+ * - When: in each list's rounds, once a round merges none, drops none and gives nothing back. Then every card of the list has
+ *   its ladder worked out (choiceOf: the one its first open gives, kept, so the first open is instant), and going down the
+ *   cards by Overall as printed each card whose Last offer prints the higher Overall is a candidate, unless (NotPromoted's
+ *   reasons): the card is a merged trade given back ("released"); the Last offer is a card of the list already ("card": both
+ *   stay, the offer labeled "Also shown as trade idea N." as before); it's merged, dropped or left out on the list ("shown");
+ *   another idea's promotion took it, or its ladder was worked out before without this card as its Open ("taken": a card's
+ *   ladder is fixed once worked out, as its preference is); or the card can't be its Open by the Open's other rules
+ *   ("open": offers.ts forcedOpenOk, a Last offer tagged "Helps both" over a card that doesn't help both). ⚠️ Ours: then the
+ *   list is ranked as the next round would rank it, with every candidate promoted, and a candidate whose Last offer that
+ *   ranking doesn't keep (the list's own rules: the given-player cap most often, the throw-in being a player of mine other
+ *   cards give too; the partner's or the core's cap; the filler rule) isn't promoted ("rules"), until every candidate left is
+ *   kept, so no round is spent promoting a version the list then drops and giving its card back.
+ * - The promotion: the Last offer joins the list's candidates (its numbers on the ranking block: rankingCoreOf, simulated once
+ *   as a Plan B candidate is when it isn't a finalist, finalByKey; its printed numbers the ladder's, SearchState.shownByKey),
+ *   with its forced Open the card (`opens`, SearchState.opens, TradeSearchResult.offerOpen: offers.ts LadderJob.open, "The
+ *   promoted card's Open"), and the card is merged into it as its "open" (MergedCards.promoted, each with its list and kind).
+ *   A promoted card is never filler of the idea it came from, nor of that idea's own origin (rank.ts
+ *   RankOptions.fillerExempt): promoted on the printed numbers, the two can rank the other way on the ranking block, where the
+ *   card plus a throw-in whose B stays within the filler cutoff would be filler and leave. The rounds go on: the release and
+ *   give-back rules apply to the trades merged into it as to any, and a promoted card's own Last offer printing a higher
+ *   Overall still is promoted in turn (its forced Open the newer card's), so a chain of promotions can run. ⚠️ In a chain
+ *   (the lead's ruling: "the earlier version goes where the newest card's ladder rules place it, or leaves (counted)") the
+ *   earlier idea, merged into the card that was then promoted, stays merged when a card above it offers it (holderAbove, as
+ *   any merged trade), else leaves the list for good (MergedCards.superseded) rather than coming back.
+ * - The rounds end: a promotion merges an idea never merged or given back before, each Last offer is promoted to at most
+ *   once (its forced Open fixed then), and each raises the list's printed Overall at that place (the promoted Last offer
+ *   prints a higher EG than the idea it replaces), so no chain comes back to a trade; the trades are finite (the finalists and
+ *   one version a promotion).
+ * - Counts: MergedCards.promoted, notPromoted (as each list's last pass found them), higherEarlier and superseded; the
+ *   qualifying counts stay the first ranking's (every trade the merge took out was a card), ⚠️ so a promoted Last offer,
+ *   never a finalist, isn't among them. `few`, lowerWouldAdd and the pattern note rank with each list's promoted Last offers
+ *   and without the ideas left out. Plan B reads a promoted card's original as one of its list's merged trades. The cost:
+ *   every card's ladder is worked out (Checkpoint 7g worked out only those the merge read), under the "offers" timing.
+ *   ⚠️ A card's ladder worked out by the promotion pass carries no preference, and a ladder is fixed once worked out, so a
+ *   card that a later round would have given a preference keeps its ladder without one.
  *
  * Re-filtering (planner reply to Checkpoint 4b, change 10: "re-filter instantly from the finalists, without re-running the
  * search"): a finished search keeps its finalists and caches (searchStateOf: the result object → its state; null when the

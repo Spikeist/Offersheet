@@ -672,6 +672,40 @@ describe("the “Helps both” list (Checkpoint 7c; planner reply to Checkpoint 
   });
 });
 
+describe("promoted Last offers (Checkpoint 7h: RankOptions.fillerExempt)", () => {
+  // An idea merged into the Last offer promoted from it (its "Open with"): a filler reference, as any merged trade.
+  const f = config.ranking.fillerCutoffFraction;
+  const original = tradeEvaluation({ key: "original", partnerId: "7", b: 5, pComplete: 0.6, give: ["p1"], get: ["p20"] });
+  // The promoted card: the original plus a player of mine whose B stays within the filler cutoff of it, ranked below it here.
+  const promoted = tradeEvaluation({ key: "promoted", partnerId: "7", b: 5 * (1 + f) - 0.01, pComplete: 0.5, give: ["p1", "p2"], get: ["p20"] });
+  const other = tradeEvaluation({ key: "other", partnerId: "8", b: 2, pComplete: 0.5, give: ["p3"], get: ["p30"] });
+
+  it("a promoted card is never filler of the idea it came from, though any other variant of that idea still is", () => {
+    const cfg = { ...rankCfg(), perCore: 10 };
+    expect(keys(rankTrades([promoted, other], byNumber, cfg, { shownElsewhere: [original] }).trades)).toEqual(["other"]);
+    const exempt = new Map([["promoted", "original"]]);
+    const r = rankTrades([promoted, other], byNumber, cfg, { shownElsewhere: [original], fillerExempt: exempt });
+    expect(keys(r.trades)).toEqual(["promoted", "other"]);
+    expect(r.dropped.filler).toBe(0);
+    const another = { ...promoted, key: "another", give: [...promoted.proposal.give] };
+    expect(keys(rankTrades([another, other], byNumber, cfg, { shownElsewhere: [original], fillerExempt: exempt }).trades)).toEqual(["other"]);
+  });
+
+  it("nor of the idea that one was promoted from in turn (the chain); an empty map is no exemption", () => {
+    const cfg = { ...rankCfg(), perCore: 10 };
+    const middle = tradeEvaluation({ key: "middle", partnerId: "7", b: 5.2, pComplete: 0.55, give: ["p1", "p4"], get: ["p20"] });
+    const newest = tradeEvaluation({ key: "newest", partnerId: "7", b: 5 * (1 + f) - 0.01, pComplete: 0.5, give: ["p1", "p2", "p4"], get: ["p20"] });
+    const chain = new Map([
+      ["newest", "middle"],
+      ["middle", "original"],
+    ]);
+    expect(keys(rankTrades([newest, other], byNumber, cfg, { shownElsewhere: [original, middle], fillerExempt: chain }).trades)).toEqual(["newest", "other"]);
+    // Without the chain's second link the newest is filler of the original again.
+    expect(keys(rankTrades([newest, other], byNumber, cfg, { shownElsewhere: [original], fillerExempt: new Map([["newest", "middle"]]) }).trades)).toEqual(["other"]);
+    expect(keys(rankTrades([promoted, other], byNumber, cfg, { shownElsewhere: [original], fillerExempt: new Map() }).trades)).toEqual(["other"]);
+  });
+});
+
 function rankCfg(): RankConfig {
   return {
     perPartnerInTop20: config.ranking.perPartnerInTop20,

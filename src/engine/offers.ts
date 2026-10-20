@@ -119,14 +119,16 @@
  *      variants, and on 7 of 1,023 synthetic cards the ladder told the user to send the worse deal first; ENG-7E-1 above for
  *      an equal one). ⚠️ It keeps its rule on B (the lead's call, D4), which meets the planner's: B at least minBShare of the
  *      card's at a higher chance makes EG at least that share of the card's, and Overall, concave in EG from 0, keeps at
- *      least that share too, so every throw-in Last offer keeps 80% of the card's Overall; the rule only leaves out
- *      throw-ins that keep 80% of the Overall while giving up more of Helps you;
+ *      least that share too, so every throw-in Last offer keeps 80% of the card's Overall, more than the smaller ask's
+ *      lastMinOverallShare (75% since Checkpoint 7h); the rule only leaves out throw-ins that keep that share of the Overall
+ *      while giving up more of Helps you;
  *    - a smaller ask ("The candidates"), each evaluated exactly with the screening simulation (the search's own version when
  *      it has one), kept on the screening block when it helps me (and both teams under a card tagged "Helps both") and
  *      prints a chance at least 5 points above the card's (the chance doesn't depend on the seasons), the highest Overall
  *      first (EG on the screening block, then the key), then held on its printed numbers to the same chance and Helps you
  *      rules and to an Overall, ⚠️ unrounded (overallOf: what the printed Overall rounds), at least
- *      config.offers.lastMinOverallShare of the card's (overallShareOk), at most config.offers.tries of them;
+ *      config.offers.lastMinOverallShare of the card's (overallShareOk; 75% since Checkpoint 7h, planner reply to Checkpoint
+ *      7g, answer 2: "Use 75%."; 80% at Checkpoint 7g), at most config.offers.tries of them;
  *    then whichever of the two prints the higher Overall (EG on the printed block: one B₃, the unrounded Overall's order), a
  *    tie going to the throw-in (⚠️ the lead's call, D6: no throw-in Last offer that already showed changes because of the
  *    comparison). Its label is "Last offer" either way, and its message the follow-up naming its version.
@@ -153,6 +155,27 @@
  * be any throw-in of mine, past the pre-screen: ladderNeighbors lists them all when the search prefers). The Trade Analyzer's
  * card has no list, so no preference (its ladder for a Finder card's trade can differ through it: "The pre-screen"); a Finder
  * card worked out from its trade (the worker's fallback) carries the one its search recorded (ProposalLadderOptions.prefer).
+ * The narrowing (Checkpoint 7h; planner reply to Checkpoint 7g, answer 4: "Narrow the preference. Prefer an idea from the list
+ * only when its Helps you is within 3 points of the best version that meets the step's rules. Otherwise take the best
+ * version."; narrowedPick): at each step of the preferring ladder the step's usual pick is worked out too (the version its
+ * rules pick without the preference, held to them on the numbers it prints, as every pick is), and the preferred pick is taken
+ * only when its printed Helps you is at least the usual pick's less config.offers.preferWithinHelps (3); otherwise the usual
+ * pick. When only preferred versions meet the step's rules the usual pick is the best of them anyway (no usual pick: the
+ * preferred one). ⚠️ The lead's ruling: Helps you as printed at every step, the Last offer's too (whose own order is by
+ * Overall). The rest of the preference stays (leaves only, the cross-list guard, the preferring ladder kept only when it
+ * holds more of them, fixed per card, carried to the worker's fallback).
+ *
+ * The promoted card's Open (Checkpoint 7h; planner reply to Checkpoint 7g, answer 3: "When an offer list finds a version with
+ * a higher Overall than the idea it sits under: that version becomes the idea; the original becomes its "Open with" step, the
+ * bigger ask."; search.ts, "Promoted Last offers"): a search's card promoted from another card's Last offer carries that card's
+ * key (LadderJob.open), and its ladder opens with it whatever the Open's rule (and the narrowing) would pick (forcedOpenSteps;
+ * OfferStep.original): its exact evaluation and its numbers on the card's block (the store's, known already), held to every
+ * rule of an Open but its least chance (forcedOpenOk: it can print under config.offers.openMinChance, ⚠️ never under the
+ * user's minimum chance, as a card of the list never did), which hold by construction (it printed the higher B, and a chance
+ * at least minAcceptGain under its Last offer's) but for "Helps both" (search.ts promotes only when forcedOpenOk holds). The
+ * Thens and the Last offer follow by the usual rules, after it. When the idea can't be read or evaluated, the Open's own rule
+ * picks, as without it. The worker's fallback carries it (ProposalLadderOptions.open, TradeSearchResult.offerOpen); the Trade
+ * Analyzer's card never has one (the user built that trade).
  *
  * Each step carries its own evaluation (OfferStep.evaluation: its proposal in its own order, its printed numbers, its roster
  * moves and its words, evaluate.ts withWords), and its message: the first step's pitch (explain.ts: what the partner gains,

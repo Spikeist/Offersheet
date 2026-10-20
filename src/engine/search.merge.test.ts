@@ -26,7 +26,7 @@ import { rankCaps, runRefilter, runTradeSearch, searchStateOf, type SearchState 
 import { defaultTradeSettings, type TradeSettings } from "./settings";
 import { TEST_NOW } from "./testLeague";
 import { smallLeague } from "./trade.testing";
-import type { MergedTrade, OfferLadder, TradeEvaluation, TradeEvaluationCore, TradeSearchProgress, TradeSearchResult } from "./tradeModel";
+import type { MergedTrade, OfferLadder, PromotedTrade, TradeEvaluation, TradeEvaluationCore, TradeSearchProgress, TradeSearchResult } from "./tradeModel";
 
 const bare = (c: TradeEvaluationCore): TradeEvaluation => ({ ...c, reasons: [], pitch: "" });
 const at = (minChance: number): TradeSettings => ({ ...defaultTradeSettings(), minChance });
@@ -50,6 +50,21 @@ function contextOf(seed: number, teams: number): TradeContext {
     contexts.set(key, ctx);
   }
   return ctx;
+}
+
+/**
+ * A ladder with the partner's numbers (`them`) to 12 significant digits, every other number as it is. ⚠️ Since Checkpoint 7h
+ * every card's ladder is kept (search.ts, "Promoted Last offers"), not only those the merge read, and on smallLeague 8 (12 teams,
+ * Any) one card's ladder on a fresh context differs from the search's in the last bits of the partner's odds changes
+ * (them.dCH and them.dPrizes, 3e-18): the search's run on the shown block continues its ranking run (Checkpoint 7f), the fresh
+ * context's plays all 20,000 seasons, and the partner's numbers aren't bit for bit there (the same with the promotions off,
+ * when that ladder is worked out on demand: a finding of Checkpoint 7h's track "answers", for the lead). The printed Helps them
+ * is the same.
+ */
+function ulpsInThem(ladder: OfferLadder | null): unknown {
+  const round = (v: unknown): unknown =>
+    typeof v === "number" && Number.isFinite(v) ? Number(v.toPrecision(12)) : Array.isArray(v) ? v.map(round) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, round(x)])) : v;
+  return JSON.parse(JSON.stringify(ladder, (k, v) => (k === "them" ? round(v) : v)));
 }
 
 /** Each list with its merged trades (TradeSearchResult.merged). */
@@ -80,23 +95,34 @@ function expectNoneBelowHeld(r: TradeSearchResult, where: string): number {
  * without the "Helps both" extras; the "Helps both" list in Helps-you order, the trades that help both), without `merged`'s
  * trades, which the filler rule reads as kept, then ranked again on the numbers the cards print.
  */
-function byHand(st: SearchState, minChance: number, merged: { overall: readonly string[]; helpsBoth: readonly string[] }): { overall: string[]; helpsBoth: string[] } {
+function byHand(
+  st: SearchState,
+  minChance: number,
+  merged: { overall: readonly string[]; helpsBoth: readonly string[] },
+  promoted: readonly PromotedTrade[] = [],
+): { overall: string[]; helpsBoth: string[] } {
+  // Checkpoint 7h (search.ts, "Promoted Last offers"): each list ranks its promoted Last offers too (their ranking numbers, which
+  // the search keeps in finalByKey), each never filler of the idea it came from (rank.ts RankOptions.fillerExempt).
+  const promotedOf = (name: PromotedTrade["list"]) => promoted.filter((p) => p.list === name);
   // `merged`: each list's trades out of its rankings (merged into a card, or since Checkpoint 7g dropped for a better version).
   const value = assetValue(st.I);
   const caps = rankCaps({ relaxed: false, onePartner: st.onePartner });
   const extras = new Set(st.helpsBothExtras);
   const all = st.finals.map(bare);
   const printed = (t: TradeEvaluation) => bare(st.shownByKey.get(t.key) ?? t);
-  const list = (pool: TradeEvaluation[], gone: readonly string[], opts: Parameters<typeof rankTrades>[3]) => {
+  const list = (base: TradeEvaluation[], gone: readonly string[], opts: Parameters<typeof rankTrades>[3], ups: readonly PromotedTrade[]) => {
     const out = new Set(gone);
+    const known = new Set(base.map((t) => t.key));
+    const pool = [...base, ...ups.filter((p) => !known.has(p.key)).map((p) => bare(st.finalByKey.get(p.key) as TradeEvaluationCore))];
     const elsewhere = all.filter((t) => out.has(t.key));
+    const exempt = ups.length ? { fillerExempt: new Map(ups.map((p) => [p.key, p.from])) } : {};
     const ranking = rankTrades(
       pool.filter((t) => !out.has(t.key)),
       value,
       caps,
-      { ...opts, shownElsewhere: elsewhere },
+      { ...opts, shownElsewhere: elsewhere, ...exempt },
     );
-    return keysOf(rankTrades(ranking.trades.map(printed), value, caps, { ...opts, shownElsewhere: elsewhere.map(printed) }).trades);
+    return keysOf(rankTrades(ranking.trades.map(printed), value, caps, { ...opts, shownElsewhere: elsewhere.map(printed), ...exempt }).trades);
   };
   const base = { minChance, givenCapExempt: st.forcedGive };
   return {
@@ -104,8 +130,9 @@ function byHand(st: SearchState, minChance: number, merged: { overall: readonly 
       all.filter((t) => !extras.has(t.key)),
       merged.overall,
       base,
+      promotedOf("overall"),
     ),
-    helpsBoth: list(all, merged.helpsBoth, { ...base, order: "helps", keep: (t) => helpsBoth(t) }),
+    helpsBoth: list(all, merged.helpsBoth, { ...base, order: "helps", keep: (t) => helpsBoth(t) }, promotedOf("helpsBoth")),
   };
 }
 
@@ -169,7 +196,10 @@ describe("merged cards (Checkpoint 7f; planner reply to Checkpoint 7e, decision 
       expectNoneBelowHeld(r, `${lg.seed}`);
       // 3. Each list by hand: the finalists without the merged trades (filler references), ranked again as printed.
       const dropped = (list: string) => keysOf((merged.dominated ?? []).filter((d) => d.list === list));
-      const hand = byHand(st, lg.minChance, { overall: [...keysOf(merged.overall), ...dropped("overall")], helpsBoth: [...keysOf(merged.helpsBoth), ...dropped("helpsBoth")] });
+      // Since Checkpoint 7h with the promoted Last offers (no idea left out by a chain of them on these leagues: a fact of the
+      // synthetic data, so the lists by hand need no keys of theirs).
+      expect(merged.superseded ?? 0).toBe(0);
+      const hand = byHand(st, lg.minChance, { overall: [...keysOf(merged.overall), ...dropped("overall")], helpsBoth: [...keysOf(merged.helpsBoth), ...dropped("helpsBoth")] }, merged.promoted ?? []);
       expect(keysOf(r.trades)).toEqual(hand.overall);
       expect(keysOf(r.helpsBoth?.trades ?? [])).toEqual(hand.helpsBoth);
       // The merged trades qualified (each was a card), so they count among the qualifying ones, as without the merge.
@@ -204,10 +234,11 @@ describe("merged cards (Checkpoint 7f; planner reply to Checkpoint 7e, decision 
       for (const [key, kept] of st.ladders ?? new Map<string, OfferLadder>()) {
         const card = cards.find((t) => t.key === key) as TradeEvaluation;
         const prefer = st.prefers?.get(key);
-        expect(buildOfferLadder(ladderJobOfSearch(st, card, prefer)), key).toEqual(kept);
-        expect(offerLadderOfProposal(fresh, card.proposal, { settings, page: "finder", ...(prefer ? { prefer } : {}) }), key).toEqual(kept);
+        const open = st.opens?.get(key);
+        expect(buildOfferLadder(ladderJobOfSearch(st, card, prefer, open)), key).toEqual(kept);
+        expect(ulpsInThem(offerLadderOfProposal(fresh, card.proposal, { settings, page: "finder", ...(prefer ? { prefer } : {}), ...(open ? { open } : {}) })), key).toEqual(ulpsInThem(kept));
         const other = buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 8 });
-        const job = ladderJobOfProposal(other, card.proposal, { settings, page: "finder", ...(prefer ? { prefer } : {}) }) as LadderJob;
+        const job = ladderJobOfProposal(other, card.proposal, { settings, page: "finder", ...(prefer ? { prefer } : {}), ...(open ? { open } : {}) }) as LadderJob;
         const I = tradeInternals(other);
         for (const s of kept.steps) {
           if (s.kind === "suggested") continue;
@@ -217,7 +248,7 @@ describe("merged cards (Checkpoint 7f; planner reply to Checkpoint 7e, decision 
           if ("illegal" in x) throw new Error(`${key}: ${x.illegal}`);
           job.store.versions.set(s.evaluation.key, { x, screen: simulateTrade(I, x, "screen", settings.lambda, settings.protectValue, rewardFor(I, settings)) });
         }
-        expect(buildOfferLadder(job), `${key} (versions in another order)`).toEqual(kept);
+        expect(ulpsInThem(buildOfferLadder(job)), `${key} (versions in another order)`).toEqual(ulpsInThem(kept));
       }
       // Offers whose players were reversed on a side (two or more there): a fact of the synthetic data.
       expect(reordered, `smallLeague ${lg.seed}: offers with two players on a side`).toBeGreaterThan(0);

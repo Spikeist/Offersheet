@@ -8,6 +8,8 @@
  * release rule) while X2 stays X1's; round 4 shows X3 again and merges none. Then the list rule holds (no card's offers hold
  * a card of its list below it, every merged trade an offer of a card above it), the counts and progress add up, and a
  * re-filter there and back equals a fresh search under the same plan (synthetic leagues: made-up players, placeholder teams).
+ * Since Checkpoint 7h it runs without the promoted Last offers too (TradeSearchOptions.promoteLastOffers false: the promotion
+ * pass would work out every card's ladder through the plan's made-up ones; search.promote.test.ts has its own tests).
  * Since Checkpoint 7g the plan runs without the dropped versions (TradeSearchOptions.dropDominated false: on smallLeague 48 the
  * rule drops a version in a round of its own, its own path, which search.dominated.test.ts drives on the league's real
  * ladders: a dropped card that held a merged trade gives it back), and its merge goes top-down (preferListed, the app's).
@@ -86,7 +88,7 @@ describe("the merge's release rule: a merged trade whose card is merged in turn,
     expect([x1, x2, x3].some((k) => both.has(k))).toBe(false);
     const cards = { x1, x2, x3 };
     const progress: TradeSearchProgress[] = [];
-    const r = underPlan(cards, () => runTradeSearch(ctx, { settings: at(MIN), dropDominated: false }, (p) => progress.push(p)));
+    const r = underPlan(cards, () => runTradeSearch(ctx, { settings: at(MIN), dropDominated: false, promoteLastOffers: false }, (p) => progress.push(p)));
     const st = searchStateOf(r) as SearchState;
     const merged = r.merged;
     if (!merged) throw new Error("no merge");
@@ -142,11 +144,11 @@ describe("the merge's release rule: a merged trade whose card is merged in turn,
   it("deterministic under the plan, and a re-filter there and back equals a fresh search, the trade given back included", () => {
     const [x1, x2, x3] = plain.trades.map((t) => t.key) as [string, string, string];
     const cards = { x1, x2, x3 };
-    const r = underPlan(cards, () => runTradeSearch(ctx, { settings: at(MIN), dropDominated: false }));
-    const again = underPlan(cards, () => runTradeSearch(buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 8 }), { settings: at(MIN), dropDominated: false }));
+    const r = underPlan(cards, () => runTradeSearch(ctx, { settings: at(MIN), dropDominated: false, promoteLastOffers: false }));
+    const again = underPlan(cards, () => runTradeSearch(buildTradeContext(league.snapshot, league.inputs, { now: TEST_NOW, scenarios: 8 }), { settings: at(MIN), dropDominated: false, promoteLastOffers: false }));
     expect(again).toEqual(r);
     const there = underPlan(cards, () => runRefilter(ctx, searchStateOf(r) as SearchState, { minChance: 0 }));
-    expect(there).toEqual(underPlan(cards, () => runTradeSearch(ctx, { settings: at(0), dropDominated: false })));
+    expect(there).toEqual(underPlan(cards, () => runTradeSearch(ctx, { settings: at(0), dropDominated: false, promoteLastOffers: false })));
     const back = underPlan(cards, () => runRefilter(ctx, searchStateOf(there) as SearchState, { minChance: MIN }));
     expect(back).toEqual(r);
   });

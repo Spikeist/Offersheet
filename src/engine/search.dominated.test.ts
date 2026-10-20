@@ -13,6 +13,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { printedAcceptance } from "./acceptance";
+import { config } from "./config";
 import { buildTradeContext, type TradeContext } from "./evaluate";
 import { offerLadderOfSearch } from "./offers";
 import { dominatedByCard } from "./planB";
@@ -38,6 +39,24 @@ function contextOf(seed: number, teams: number): TradeContext {
   return ctx;
 }
 const searches = new Map<string, TradeSearchResult>();
+/**
+ * ⚠️ A search under Checkpoint 7g's rules (config.offers.lastMinOverallShare 0.8, the preference unnarrowed, no promoted Last
+ * offers): Checkpoint 7h's answers 2–4 change which trades the rounds below read (on smallLeague 48 the narrowing makes 1001 →
+ * 1017 1001 → 1018's Then, not its Open, and with Team 2 a promotion gives a third trade back), so these pin the rule's paths
+ * as Checkpoint 7g found them; the rule itself is the same.
+ */
+function search7g(seed: number, teams: number, minChance: number, extra: { dropDominated?: boolean; partnerId?: string } = {}): TradeSearchResult {
+  const offers = config.offers as { lastMinOverallShare: number; preferWithinHelps: number };
+  const original = { share: offers.lastMinOverallShare, within: offers.preferWithinHelps };
+  try {
+    offers.lastMinOverallShare = 0.8;
+    offers.preferWithinHelps = Number.POSITIVE_INFINITY;
+    return runTradeSearch(contextOf(seed, teams), { settings: at(minChance), promoteLastOffers: false, ...extra });
+  } finally {
+    offers.lastMinOverallShare = original.share;
+    offers.preferWithinHelps = original.within;
+  }
+}
 function search(seed: number, teams: number, minChance: number, extra: { dropDominated?: boolean; mergeCards?: boolean; partnerId?: string } = {}): TradeSearchResult {
   const key = `${seed}|${teams}|${minChance}|${JSON.stringify(extra)}`;
   let r = searches.get(key);
@@ -236,14 +255,15 @@ describe("dropped versions on whole searches", { timeout: 900_000 }, () => {
     // back in that very round (and 1007 → 1017 + 1018 with it), and the next round ranks them before (c) reads the list again.
     // Read rounds later, as before, they took the given-player cap's places and pushed off 1001 → 1017 + 1018 (89 / 10%), which
     // 1001 + 1006 → 1017 + 1018 (88 / 10%) had been dropped for: neither showed. Now the latter shows, no version given back after.
-    const r48 = search(48, 6, 0.1, { partnerId: "2" });
+    // ⚠️ Under Checkpoint 7g's rules (search7g).
+    const r48 = search7g(48, 6, 0.1, { partnerId: "2" });
     dropsHold(r48, "48 (Team 2)");
     expect(r48.trades.map((t) => t.key)).toContain("2|give:1001,1006|get:1017,1018");
     expect(r48.merged?.released).toBe(2);
     expect(r48.merged?.restored).toBe(0);
     // smallLeague 29, Team 5, at Any: 1002 + 1005 → 1056 is dropped for 1005 → 1056, which a later round drops for 1002 + 1005 →
     // 1051 + 1056; that one beats the first too, so its `by` is re-pointed to it (it read 1005 → 1056, a card no more).
-    const r29 = search(29, 6, 0, { partnerId: "5" });
+    const r29 = search7g(29, 6, 0, { partnerId: "5" });
     dropsHold(r29, "29 (Team 5) at Any");
     expect(r29.merged?.dominated).toContainEqual({ key: "5|give:1002,1005|get:1056", by: "5|give:1002,1005|get:1051,1056", list: "overall" });
     expect(r29.merged?.dominated).toContainEqual({ key: "5|give:1005|get:1056", by: "5|give:1002,1005|get:1051,1056", list: "overall" });
@@ -271,8 +291,9 @@ describe("dropped versions on whole searches", { timeout: 900_000 }, () => {
   });
 
   it("smallLeague 48 (10%): the dropped card held a merged trade, which comes back as a card (the release rule, the lead's D18; since the final review's E2 in the round of the drop)", () => {
-    const r = search(48, 6, 0.1);
-    const plain = search(48, 6, 0.1, { dropDominated: false });
+    // ⚠️ Under Checkpoint 7g's rules (search7g).
+    const r = search7g(48, 6, 0.1);
+    const plain = search7g(48, 6, 0.1, { dropDominated: false });
     const holder = "2|give:1001|get:1018";
     const held = "2|give:1001|get:1017";
     expect(plain.merged?.overall).toContainEqual({ key: held, into: holder, kind: "open" });
