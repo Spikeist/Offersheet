@@ -69,6 +69,15 @@
  *
  * Accessibility: the partner is a labeled native select; each side's players are a fieldset of native checkboxes
  * (44 px rows; position, NFL team and injury in words); one status line (role="status") announces each evaluation.
+ *
+ * "What if" (Checkpoint 7h; planner reply to Checkpoint 7g, section 4: "Pick players to take off your roster and any players to
+ * put on it, from any team or from free agency. There's no partner and no chance they accept."): once the league is in with a
+ * team of mine, a 44 px switch ("Trade with a team" | "What if": WhatIfPanel.tsx AnalyzerModeSwitch) above the form; the
+ * what-if mode is WhatIfPanel.tsx (its own form, status line and result: my odds before → after, Helps you on my odds alone,
+ * the planner's "Other teams don't change. To see a real trade, use the Analyzer with a partner."; no offers, Plan B or
+ * feedback). The mode is the address's (`?mode=whatif&remove=…&add=…`, player ids only: whatIfView.ts) until the switch is
+ * pressed; both modes stay mounted (the other one hidden), and each one's draft holds while the address names the other mode
+ * (an evaluation writes its own mode's address), so switching keeps each one's draft and result.
  */
 import Link from "next/link";
 import { useCallback, useEffect, useEffectEvent, useId, useMemo, useRef, useState, type Ref } from "react";
@@ -106,6 +115,7 @@ import {
   type TradeCardView,
   type ValueFacts,
 } from "@/lib/tradeView";
+import { readAnalyzerMode, type AnalyzerMode } from "@/lib/whatIfView";
 import type { AnalyzerResult } from "@/workers/engine.worker";
 import { NoImportCard } from "../NoImportCard";
 import { leagueTag, useCurrentLeague, useSavedLeagueInputs } from "../league/useLeagueInputs";
@@ -117,6 +127,7 @@ import { finderAddress, tradeEngine, useLeagueQuery } from "./finderMemory";
 import { HowToRead } from "./HowToRead";
 import { TradeCard } from "./TradeCard";
 import { LeagueLoading } from "./LeagueLoading";
+import { AnalyzerModeSwitch, WhatIfPanel } from "./WhatIfPanel";
 
 export const ANALYZER_TITLE = "Trade Analyzer";
 export const NO_IMPORT_TEXT = "Connect your ESPN or Sleeper league to build and check your own trades. Leagues you import stay saved in this browser until you remove them.";
@@ -200,8 +211,9 @@ function LoadedAnalyzer({ current, query }: { current: Extract<CurrentLeagueRead
   const myTeamId = myTeam?.myTeamId ?? null;
   const league = pair && myTeamId ? pair.snapshot : null;
   const prefill = useMemo(() => (league ? readAnalyzerDraft(query, league, myTeamId) : EMPTY_DRAFT), [league, query, myTeamId]);
-  // An edit holds while the address is the one it was made under, or names the same trade (Evaluate's own write).
-  const editHolds = edited !== null && (edited.query === query || draftKey(edited.draft) === draftKey(prefill));
+  // An edit holds while the address is the one it was made under, or names the same trade (Evaluate's own write), or (Checkpoint
+  // 7h) names a what-if (the other mode's evaluation wrote it: the trade being built waits for its mode).
+  const editHolds = edited !== null && (edited.query === query || draftKey(edited.draft) === draftKey(prefill) || readAnalyzerMode(query) === "whatif");
   const draft = edited && editHolds ? edited.draft : prefill;
   // The address's trade opened from a card's Plan B (`?from=planB`): shown as one offer while it's the trade built (the header).
   const planBKey = league && readAnalyzerFrom(query) === "planB" && draftProposal(prefill) ? draftKey(prefill) : null;
@@ -321,6 +333,13 @@ function LoadedAnalyzer({ current, query }: { current: Extract<CurrentLeagueRead
 
   const status = busy ? "Evaluating the trade…" : failure ? "" : resultView ? analysisStatus(resultView) : "";
 
+  // Checkpoint 7h (the header, "What if"): the mode the address names (whatIfView.ts readAnalyzerMode), until the switch is
+  // pressed under it; an address written since (an evaluation's) names its own. The switch shows once the league is in with a
+  // team of mine, and both modes stay mounted, so switching keeps each one's draft and result.
+  const [modeEdit, setModeEdit] = useState<{ mode: AnalyzerMode; query: string } | null>(null);
+  const mode: AnalyzerMode = modeEdit && modeEdit.query === query ? modeEdit.mode : readAnalyzerMode(query);
+  const whatIfReady = !!(pair && settings && myTeamId && contextTag);
+
   return (
     <div className="space-y-6">
       <header>
@@ -338,65 +357,88 @@ function LoadedAnalyzer({ current, query }: { current: Extract<CurrentLeagueRead
         </p>
       </header>
 
-      {/* Always mounted, so each evaluation is announced; above the form, so the address's trade shows it's being evaluated near the top. */}
-      <p role="status" className={busy ? "flex items-center gap-3 text-sm font-semibold text-muted" : "sr-only"}>
-        {busy ? <Spinner /> : null}
-        {busy ? " " : null}
-        {status}
-      </p>
+      {/* Checkpoint 7h: the two modes, once the league is in with a team of mine (the header, "What if"). */}
+      {whatIfReady ? <AnalyzerModeSwitch mode={mode} onChange={(m) => setModeEdit({ mode: m, query })} /> : null}
 
-      {!pair && fetchError ? (
-        <div className="space-y-4">
-          <Callout tone="danger" role="alert" title="We couldn't load your league's projections">
-            {fetchError}
-          </Callout>
-          <button type="button" onClick={retryFetch} className={buttonClass("primary")}>
-            Try again
-          </button>
-        </div>
-      ) : !pair || !settings ? (
-        <p className="flex items-center gap-3 text-muted">
-          <Spinner /> {pair ? "Loading your settings…" : "Loading projections…"}
+      {/* The trade: hidden, still mounted, while the what-if shows (its draft and result wait for it). */}
+      <div hidden={mode === "whatif" && whatIfReady} className="space-y-6">
+        {/* Always mounted, so each evaluation is announced; above the form, so the address's trade shows it's being evaluated near the top. */}
+        <p role="status" className={busy ? "flex items-center gap-3 text-sm font-semibold text-muted" : "sr-only"}>
+          {busy ? <Spinner /> : null}
+          {busy ? " " : null}
+          {status}
         </p>
-      ) : !myTeamId ? (
-        <Callout tone="warn" title="Which team is yours?">
-          <p>Pick your team on the Import Report to build trades.</p>
-          <Link href="/import#your-team" className="mt-1 inline-flex min-h-11 items-center font-bold underline underline-offset-2">
-            Pick your team
-          </Link>
-        </Callout>
-      ) : choices && league ? (
-        <AnalyzerForm
-          choices={choices}
-          draft={draft}
-          summary={draftSummary(draft, league)}
-          busy={busy}
-          onChange={(d) => setEdited({ draft: d, query })}
-          onEvaluate={() => evaluate(draft, false)}
-        />
-      ) : null}
 
-      {failure ? (
-        <div ref={failureRef}>
-          <Callout tone="danger" role="alert" title="The trade couldn't be evaluated">
-            {failure}
+        {!pair && fetchError ? (
+          <div className="space-y-4">
+            <Callout tone="danger" role="alert" title="We couldn't load your league's projections">
+              {fetchError}
+            </Callout>
+            <button type="button" onClick={retryFetch} className={buttonClass("primary")}>
+              Try again
+            </button>
+          </div>
+        ) : !pair || !settings ? (
+          <p className="flex items-center gap-3 text-muted">
+            <Spinner /> {pair ? "Loading your settings…" : "Loading projections…"}
+          </p>
+        ) : !myTeamId ? (
+          <Callout tone="warn" title="Which team is yours?">
+            <p>Pick your team on the Import Report to build trades.</p>
+            <Link href="/import#your-team" className="mt-1 inline-flex min-h-11 items-center font-bold underline underline-offset-2">
+              Pick your team
+            </Link>
           </Callout>
+        ) : choices && league ? (
+          <AnalyzerForm
+            choices={choices}
+            draft={draft}
+            summary={draftSummary(draft, league)}
+            busy={busy}
+            onChange={(d) => setEdited({ draft: d, query })}
+            onEvaluate={() => evaluate(draft, false)}
+          />
+        ) : null}
+
+        {failure ? (
+          <div ref={failureRef}>
+            <Callout tone="danger" role="alert" title="The trade couldn't be evaluated">
+              {failure}
+            </Callout>
+          </div>
+        ) : null}
+        {resultView ? (
+          <AnalysisResult
+            view={resultView}
+            stale={stale}
+            sectionRef={sectionRef}
+            headingRef={resultRef}
+            records={records}
+            leagueKey={leagueKey}
+            snapshot={league}
+            leagueType={league?.settings.leagueType}
+            facts={facts}
+            onFeedback={onFeedback}
+            onOffers={stale ? undefined : onOffers}
+          />
+        ) : null}
+      </div>
+
+      {/* Checkpoint 7h: the what-if (WhatIfPanel.tsx), hidden, still mounted, while the trade shows. */}
+      {whatIfReady && pair && myTeamId && settings && contextTag ? (
+        <div hidden={mode !== "whatif"}>
+          <WhatIfPanel
+            leagueId={leagueId}
+            snapshot={pair.snapshot}
+            model={pair.inputs}
+            myTeamId={myTeamId}
+            settings={settings}
+            query={query}
+            contextTag={contextTag}
+            lastNflWeek={lastNflWeek}
+            blendOn={blendOn}
+          />
         </div>
-      ) : null}
-      {resultView ? (
-        <AnalysisResult
-          view={resultView}
-          stale={stale}
-          sectionRef={sectionRef}
-          headingRef={resultRef}
-          records={records}
-          leagueKey={leagueKey}
-          snapshot={league}
-          leagueType={league?.settings.leagueType}
-          facts={facts}
-          onFeedback={onFeedback}
-          onOffers={stale ? undefined : onOffers}
-        />
       ) : null}
     </div>
   );
