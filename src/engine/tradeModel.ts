@@ -748,9 +748,18 @@ export interface MergedCards {
   /**
    * ⚠️ Checkpoint 7h (the lead's ruling): the Opens and Thens of the cards shown (both lists, a card on both once) that print a
    * higher Overall than their card, counted and never promoted (their card is the smaller ask, which the planner's "the original
-   * becomes its Open with step, the bigger ask" doesn't fit). Present with `promoted`.
+   * becomes its Open with step, the bigger ask" doesn't fit). Present with `promoted`. ⚠️ Since the promotion checks each card's
+   * Last offer alone (search.ts, "Promoted Last offers": the lead's ruling on its cost), only on the cards whose whole ladder
+   * the search worked out (`ladders`: the ones the merge read and the promoted cards); a report counts them on the cards it
+   * opens (trade-report.ts section 11).
    */
   higherEarlier?: HigherEarlierOffer[];
+  /**
+   * Checkpoint 7h (the promotion's cost; search.ts, "Promoted Last offers"): the cards whose Last offer alone the promotion
+   * worked out, their whole ladder left to their first open (as at Checkpoint 7g). Present with `promoted`; 0 with
+   * TradeSearchOptions.promoteFullLadders (a report switch: every card's whole ladder, `ladders` counting them).
+   */
+  lastOffers?: number;
   /**
    * ⚠️ Checkpoint 7h (the lead's ruling): the ideas a chain of promotions left out (an idea promoted to its Last offer, whose
    * card was promoted in turn, so the newest card's ladder, opening with the idea it was promoted from, doesn't hold it): out of
