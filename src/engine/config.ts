@@ -705,6 +705,17 @@ export const config = {
     /** Get pool H (planner addendum to Checkpoint 3, §2): the top getPool untagged players by MV_add(me, j), plus the top this many "Harder to get" ones. */
     getPoolTagged: 3,
     /**
+     * Checkpoint 7h (planner reply to Checkpoint 7g, section 2: "If the normal search misses any top-10 trade: propose the
+     * smallest change that finds it"; search.ts getPoolPicker): each partner's get pool H also holds its IR players with a
+     * model, after the top getPool and getPoolTagged, whatever they'd add to my lineup. An IR player adds nothing to my lineup
+     * now (MV_add 0), but taking him can make a trade work: he moves from their IR slot to mine, so the player of mine they
+     * receive (often one on my IR) takes their freed slot and nobody has to be dropped. The brute force's best trade on Parker's
+     * first league (Oct 15, both settings: Alec Pierce, on his IR, for Ollie Gordon II and Jonah Coleman, Team 4's IR player) is
+     * found this way; about 2% more trades screened (the search track's measurements, Checkpoint 7h's report). false: Checkpoint
+     * 7g's pools.
+     */
+    getPoolIr: true,
+    /**
      * Throw-ins and their rules (planner addendum to Checkpoint 3, §4; since Checkpoint 7e, planner reply to Checkpoint 7d,
      * item 4.1, "How to offer it": offers in order, src/engine/offers.ts, and its `offers` block below). A throw-in is one of
      * my players whose loss costs me at most throwInMaxCost ROS lineup points against my free-agent-optimized roster, in

@@ -20,7 +20,13 @@
  *   (targetPositions non-empty: only those; never avoidPositions; the K/D/ST/IDP rule): the top getPool players not
  *   tagged "Harder to get" for P (evaluate.harderToGetFor: e ≥ harderToGetMin, a top-12 player who is P's #1 or #2;
  *   planner addendum to Checkpoint 3, §2, lead decision N2) plus the top getPoolTagged tagged ones (star trades are still
- *   evaluated, and rank on their honest acceptance), in MV_add order ∪ P's must-include players.
+ *   evaluated, and rank on their honest acceptance), in MV_add order ∪ P's must-include players. Since Checkpoint 7h
+ *   (config.search.getPoolIr; planner reply to Checkpoint 7g, section 2: "propose the smallest change that finds it") P's IR
+ *   players with a model follow the top, by id, whatever they'd add to my lineup: an IR player adds nothing now (MV_add 0),
+ *   but taking him moves him from P's IR slot to mine, so a player of mine P receives (often one on my IR) takes the freed
+ *   slot and nobody has to be dropped. The brute force's best trade on Parker's first league (Oct 15, both settings: Alec
+ *   Pierce, on his IR, for Ollie Gordon II and Jonah Coleman, Team 4's IR player, MV_add 0) is found this way, at about 2%
+ *   more trades screened.
  * - Must-include ids on no team's active roster (or IR) are ignored (a note); must-include players on two or more other teams:
  *   no trade can hold them all (no trades, a note); one partner's: only that partner is searched; mine: every
  *   candidate contains them (and the given-player cap skips them: "Must-include players of mine" below). opts.partnerId
@@ -411,6 +417,40 @@
  *   last does one of the four. Counts: dropped.dominated on both lists, qualifying counting them (each was a card),
  *   MergedCards.dominated (each with its `by` and list) and restored.
  *
+ * Whole rosters (Checkpoint 7h; planner reply to Checkpoint 7g, sections 2 and 3; TradeSearchOptions.mode). The normal search
+ * ("normal", the default, everything above) screens trades from the pools G and H. Two other modes screen whole rosters:
+ * - "bruteForce" (section 2's test: "screen every 1-for-1, 1-for-2, 2-for-1 and 2-for-2 trade with every partner. Use whole
+ *   rosters, not just the pools, and the same screening objective. Then run exact evaluation and the simulation on the best of
+ *   them."; a report switch the app never sets): the pools are whole rosters after the user's own filters (wholePoolsOf: every
+ *   tradable player of mine with a model but my untouchables and the positions left out, my must-include players whatever
+ *   they are, G first; every tradable player of each partner's after the position filters, H first, its must-include players
+ *   last); every trade of up to 2 players a side within maxPerSide is a candidate (wholeRosterCandidates: no beam, no
+ *   exhaustive cut), each screened once, then the same screening rules (the g window, the dominance pruning), the lean
+ *   companions and the helps-both lane, exact evaluation, the screening and final simulations and everything after, with a
+ *   funnel generous enough that its top 25 is solid (config.search.bruteForce: 100 a partner, 1,000 in all evaluated exactly,
+ *   150 finalists; the normal search's 30, 200 and 60; on Parker's dumps the brute force's top 25 by EG sat at most 82nd in
+ *   their partner's screening order and 443rd overall).
+ * - "thorough" (section 3: the Trade Finder's "Thorough search" switch): the brute force's candidates and funnel for trades of
+ *   up to 2 players a side, plus trades with 3 players on a side (src/engine/thorough.ts thoroughSettings: up to
+ *   config.search.thorough.maxPerSide a side, ⚠️ whatever the max-per-side setting, ours: the planner's definition holds them)
+ *   from bigger pools (my top threePool by surplus score with my trade chips and must-include players; each partner's top
+ *   threePool by MV_add(me, j), ⚠️ "Harder to get" or not, ours: a star is what a 3-for-1 asks for): each of
+ *   config.search.thorough.shapes (3-for-1 and 1-for-3 from the first 15, 3-for-2 and 2-for-3 from the first 8, 3-for-3 from
+ *   the first 6: ⚠️ ours, sized to the time aim) in full, and each partner's best `beam` two-player trades extended once by one
+ *   more player from those pools, as the beams extend. ⚠️ Its trades with 3 on a side are kept apart in the funnel
+ *   (SearchFunnel.three: their own 40 a partner and 400 in all, on top of the others'; with one keep their bigger lineup gains
+ *   crowded the best 2-player trades out of exact evaluation, so it showed fewer good cards than the brute force), and 120
+ *   finalists. Aim: under 60 s in the browser on Parker's 12-team league (Checkpoint 7h's report has the times).
+ * - Screening that many trades: my half of a screen first (evaluate.ts screenMyHalf: my side after the trade by screening's
+ *   legality, my EV ΔROS), the partner's half (screenTheirHalf: its side, the quick chance, the objective) only when my ΔROS is
+ *   above 0; a trade with my ΔROS at or below 0 has an objective at or below 0 (the quick chance is at least the clamp's floor),
+ *   so it's deferred (WholeCandidates.deferred) and priced only where screening's rules could read it (wholeRulesOf): when a
+ *   keep (each class's own, with SearchFunnel.three) isn't filled by trades above 3 × EPS, and the lean versions of the trades
+ *   the dominance pruning could drop with one (objective at most EPS). So the ruled trades a keep reads are the ones screening
+ *   every candidate in full gives (search.whole.test.ts); about 60% of the candidates never get their partner's half priced.
+ * - SearchState.mode records it; a re-filter ranks the same finalists (it equals a fresh search in that mode). The Trade
+ *   Finder sends the Thorough search's flag through the worker (engine.worker.ts TradesRequest.thorough).
+ *
  * Re-filtering (planner reply to Checkpoint 4b, change 10: "re-filter instantly from the finalists, without re-running the
  * search"): a finished search keeps its finalists and caches (searchStateOf: the result object → its state; null when the
  * search stopped before ranking, whose result holds for any minimum), and refilterSearch ranks them again with another
@@ -736,12 +776,9 @@ export function getPoolOf(I: TradeInternals, settings: TradeSettings, partner: T
  */
 function mvAddScorer(I: TradeInternals, settings: TradeSettings): (p: TeamState, forced: readonly string[]) => { id: string; mv: number }[] {
   const me = I.me as TeamState;
-  const excluded = new Set<Pos>(settings.includeKDefIdp ? [] : config.market.tradeSearchExcluded);
   const tradableOf = (t: TeamState): readonly string[] => (I.irOn ? [...t.roster, ...t.ir] : t.roster);
-  const target = new Set<Pos>(settings.targetPositions);
-  const avoid = new Set<Pos>(settings.avoidPositions);
   const addValue = addValueOf(I.league);
-  const wanted = (pos: Pos | undefined) => pos !== undefined && !excluded.has(pos) && !avoid.has(pos) && (target.size === 0 || target.has(pos));
+  const wanted = positionsWanted(settings);
   // A partner's IR player comes to me as a returner when I'd have an open IR slot (⚠️ judged before any trade: my IR as it
   // stands) and the slot takes his status (evaluate.ts rule 5): MV_add is then what he adds to V*(me)'s lineups, no drop.
   const myIrOpen = I.irOn && me.ir.length < Math.max(0, Math.floor(I.snapshot.settings.irSlots));
@@ -766,11 +803,15 @@ function mvAddScorer(I: TradeInternals, settings: TradeSettings): (p: TeamState,
   };
 }
 
-/** getPoolOf's work for any number of partners, its per-call parts made once (buildPools). */
+/**
+ * getPoolOf's work for any number of partners, its per-call parts made once (buildPools). Since Checkpoint 7h
+ * (config.search.getPoolIr; the file header, "Pools"): the partner's IR players with a model the top didn't take follow it.
+ */
 function getPoolPicker(I: TradeInternals, settings: TradeSettings): (p: TeamState, forced: readonly string[]) => string[] {
   const getPool = Math.max(0, Math.floor(config.search.getPool));
   const getPoolTagged = Math.max(0, Math.floor(config.search.getPoolTagged));
   const score = mvAddScorer(I, settings);
+  const wanted = positionsWanted(settings);
   return (p, forced) => {
     const scored = score(p, forced);
     // The top getPool untagged and the top getPoolTagged tagged, kept in MV_add order.
@@ -780,8 +821,21 @@ function getPoolPicker(I: TradeInternals, settings: TradeSettings): (p: TeamStat
     for (const x of scored) {
       if (harderToGetFor(I, p.id, x.id) ? tagged++ < getPoolTagged : untagged++ < getPool) top.push(x.id);
     }
-    return [...top, ...forced];
+    // Checkpoint 7h: then the partner's IR players with a model, whatever they'd add to my lineup (by id).
+    const ir =
+      config.search.getPoolIr && I.irOn
+        ? [...new Set(p.ir)].filter((id) => !forced.includes(id) && !top.includes(id) && I.league.table.rows.has(id) && wanted(I.league.table.rows.get(id)?.pos)).sort()
+        : [];
+    return [...top, ...ir, ...forced];
   };
+}
+
+/** The position filters of the search's pools (targetPositions, avoidPositions, the K/D/ST/IDP rule): whether a position is wanted. */
+function positionsWanted(settings: TradeSettings): (pos: Pos | undefined) => boolean {
+  const excluded = new Set<Pos>(settings.includeKDefIdp ? [] : config.market.tradeSearchExcluded);
+  const target = new Set<Pos>(settings.targetPositions);
+  const avoid = new Set<Pos>(settings.avoidPositions);
+  return (pos) => pos !== undefined && !excluded.has(pos) && !avoid.has(pos) && (target.size === 0 || target.has(pos));
 }
 
 /** Notes that hold for the whole search: positions left out, picks deferred, B's own (benefit.benefitNotes). */
