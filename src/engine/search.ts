@@ -693,6 +693,13 @@ export interface TradeSearchOptions {
    */
   mode?: SearchMode;
   /**
+   * Checkpoint 7h (memory; the file header, "Whole rosters", "Memory"): in the whole-roster modes, whether the scenario lineups
+   * the search's own exact evaluations and ladders memoize in the context's optimizer are let go, every
+   * config.search.thorough.memoTrimEvery exact evaluations and once the search is done. Default true; false keeps them (a test
+   * switch: the same result either way, only the memory and the time differ). The normal search never trims.
+   */
+  trimMemos?: boolean;
+  /**
    * Report and test switch (the app never sets it): false leaves out Checkpoint 7h's promoted Last offers (planner reply to
    * Checkpoint 7g, answer 3; the file header, "Promoted Last offers"), so a Last offer printing a higher Overall than its card
    * stays its Last offer, as at Checkpoint 7g, and the merge works out only the ladders it reads. Default true.
@@ -2997,6 +3004,13 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
   mark("setup");
   if (pools.stop) return stopped(notes);
   yield { stage: "setup", done: 1, total: 1 };
+  // Checkpoint 7h (the file header, "Whole rosters", "Memory"): a whole-roster search lets go of the scenario lineups its own
+  // exact evaluations and ladders memoize (the optimizer's scenario memo back to its size now), so the context keeps what it
+  // kept before the search.
+  const memos = mode !== "normal" && opts.trimMemos !== false ? I.league.optimizer : null;
+  const memoMark = memos ? memos.scenarioMemoSize() : 0;
+  const trimEvery = Math.max(1, Math.floor(config.search.thorough.memoTrimEvery));
+  const trimMemos = (): void => memos?.trimScenarioMemo(memoMark);
 
   // Screening (§12 step 2): beams and exhaustive candidates per partner; since Checkpoint 7h, in the whole-roster modes, every
   // trade across whole rosters (the file header, "Whole rosters").
@@ -3070,8 +3084,10 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
     const s = chosen[i] as Screened;
     const x = evaluateExact(I, { partnerId: s.partnerId, give: players(s.give), get: players(s.get) }, maxPerSide);
     if (!("illegal" in x)) exact.push(x);
+    if ((i + 1) % trimEvery === 0) trimMemos();
     yield { stage: "exact", done: i + 1, total: chosen.length };
   }
+  trimMemos();
   counts.exact = exact.length;
   mark("exact");
 
@@ -3159,6 +3175,7 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
     exactByKey: new Map<string, ExactTrade>(screened.map((s) => [s.core.key, s.x])),
   };
   const done = yield* finish(state, settings, mark);
+  trimMemos();
   timer.end();
   return resultOf(state, done, timings);
 }

@@ -800,6 +800,11 @@ export const config = {
        * searched (the browser's ×1.24 of those runs: 5.7 and 4.1 s a partner), rounded up to `roundTo` seconds.
        */
       estimate: { workRatio: 6, secondsPerPartner: 5, roundTo: 5 },
+      /**
+       * Checkpoint 7h (memory only; search.ts TradeSearchOptions.trimMemos): a whole-roster search lets go of the scenario
+       * lineups its exact evaluations memoize every memoTrimEvery exact evaluations (and once it's done).
+       */
+      memoTrimEvery: 25,
     },
   },
 

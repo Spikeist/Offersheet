@@ -391,6 +391,19 @@ export interface RosterOptimizer {
    * rosters a run passed through, V*'s own included. Null when the optimizer doesn't judge in scenario lineups.
    */
   scenarioValuesOf(roster: readonly string[], stream?: StreamSpec): ScenarioValues | null;
+  /**
+   * Checkpoint 7h (memory only; search.ts, "Whole rosters": a Thorough search's exact evaluations memoized about 4,000
+   * rosters' scenario lineups, some 130 KB each, about 550 MB on Parker's 12-team league, kept as long as the context): how
+   * many rosters' scenario lineups the memo holds (scenarioValuesOf's and the scenario-judged runs'), in the order they were
+   * memoized.
+   */
+  scenarioMemoSize(): number;
+  /**
+   * The scenario memo cut back to its first `size` rosters (the ones memoized later go). Speed only: a roster that's gone is
+   * worked out again when next needed, bit for bit the same (scenarioValues, or scenarioValuesAfterMove, which equals it).
+   * Never call it while a run is under way (callers trim between their own evaluations).
+   */
+  trimScenarioMemo(size: number): void;
 }
 
 /**
@@ -1423,5 +1436,14 @@ export function createOptimizer(setup: OptimizerSetup, cfg: OptimizerConfig = op
   };
 
   const scenarioValuesOf = (roster: readonly string[], stream: StreamSpec = NO_STREAM): ScenarioValues | null => (judgeScen ? scenEval(roster, stream).values : null);
-  return { optimize, reoptimize, rerunMoves, evaluate, setup, cfg, stats, judgesScenarios: judgeScen, scenarioValuesOf };
+  // The memo only ever grows between trims, and a Map keeps insertion order (a set on a key it holds doesn't move it), so
+  // its first `size` keys are the rosters memoized while it held at most `size`.
+  const scenarioMemoSize = (): number => scenMemo.size;
+  const trimScenarioMemo = (size: number): void => {
+    const keep = Math.max(0, Math.floor(size));
+    if (scenMemo.size <= keep) return;
+    let i = 0;
+    for (const key of [...scenMemo.keys()]) if (i++ >= keep) scenMemo.delete(key);
+  };
+  return { optimize, reoptimize, rerunMoves, evaluate, setup, cfg, stats, judgesScenarios: judgeScen, scenarioValuesOf, scenarioMemoSize, trimScenarioMemo };
 }
