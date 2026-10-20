@@ -750,6 +750,49 @@ export function releaseLineProblems(lines: readonly string[], page: "league" | "
   return out;
 }
 
+/** The League page's cards closed by default (DisclosureCard.tsx), each by its key: the positional-strength heatmap, Best available. */
+export const LEAGUE_DISCLOSURES = { heatmap: "Positional strength", "free-agents": "Best available" } as const;
+
+/** What inPage.ts READ_LEAGUE_SECTIONS reads (Checkpoint 7h, the integration's track "league"). */
+export interface LeagueSectionsRead {
+  disclosures: Array<{ key: string | null; heading: string; expanded: boolean; shown: boolean; focused: boolean; height: number }>;
+  /** My roster card; null when there's none (no team picked). */
+  myRoster: { open: boolean } | null;
+  /** Best available's "Show all" button; null when every position fits. */
+  showAll: { expanded: boolean; text: string } | null;
+  height: number;
+}
+
+/**
+ * What's wrong with the League page's open and closed parts (Checkpoint 7h; the integration's track "league": the heatmap and
+ * Best available closed by default with their headings visible and a 44 px control, my roster card closed like the others):
+ * `state` "closed" is the page as it opens (and as the League step leaves it, so the clutter-3 shot is the page as it opens),
+ * "open" after the step's taps (every card, my roster and every free agent shown, so its checks read them). Each card: its
+ * heading's words, its control at least 44 px tall, expanded exactly when its body shows. `mine`: a team is picked, so my roster
+ * card must be there. Empty when all is right.
+ */
+export function leagueSectionsProblems(read: LeagueSectionsRead, state: "closed" | "open", mine: boolean): string[] {
+  const out: string[] = [];
+  for (const [key, heading] of Object.entries(LEAGUE_DISCLOSURES)) {
+    const d = read.disclosures.find((x) => x.key === key);
+    if (!d) {
+      out.push(`no “${heading}” card with its own control (button[data-league-disclosure="${key}"])`);
+      continue;
+    }
+    if (d.heading !== heading) out.push(`the “${key}” card's heading reads “${d.heading}”, not “${heading}”`);
+    if (d.height < 43.5) out.push(`“${heading}”'s control is ${d.height} px tall (44 at least)`);
+    if (d.expanded !== d.shown) out.push(`“${heading}” says it's ${d.expanded ? "open" : "closed"}, but its body is ${d.shown ? "shown" : "hidden"}`);
+    else if (state === "closed" && d.expanded) out.push(`“${heading}” is open (it should be closed by default)`);
+    else if (state === "open" && !d.expanded) out.push(`“${heading}” didn't open`);
+  }
+  if (mine && !read.myRoster) out.push("no roster card carries the You badge");
+  else if (read.myRoster && state === "closed" && read.myRoster.open) out.push("your roster card is open (it should be closed by default, like the others)");
+  else if (read.myRoster && state === "open" && !read.myRoster.open) out.push("your roster card didn't open");
+  if (read.showAll && read.showAll.expanded !== (state === "open")) out.push(`Best available's “${read.showAll.text}” is ${read.showAll.expanded ? "expanded" : "collapsed"}`);
+  if (read.showAll && !/^Show (?:all \d+|fewer)$/.test(read.showAll.text)) out.push(`Best available's button reads “${read.showAll.text}”`);
+  return out;
+}
+
 /** One offer of a card's "How to offer it" as the page prints it (Checkpoint 7e; inPage.ts offersData). */
 export interface OfferRead {
   /** Its label: "Open with", "Then", "The suggested trade" ("The trade you built" in the Analyzer), "Last offer". */

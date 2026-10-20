@@ -302,7 +302,7 @@ function FreeAgents({ view }: ViewProps) {
             ))}
           </div>
           {more ? (
-            <button type="button" aria-expanded={all} onClick={() => setAll((a) => !a)} className={cx(buttonClass("secondary", "sm"), "mt-3 min-h-11")}>
+            <button type="button" aria-expanded={all} data-free-agents-all="" onClick={() => setAll((a) => !a)} className={cx(buttonClass("secondary", "sm"), "mt-3 min-h-11")}>
               {all ? "Show fewer" : `Show all ${total}`}
               <span className="sr-only"> free agents</span>
             </button>
