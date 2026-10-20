@@ -161,7 +161,11 @@ describe("How to read: the Thorough search's paragraph (the Trade Finder's only)
     expect(words).toContain("every trade of up to 2 players a side with every team, from whole rosters");
     expect(words).toContain(`trades with ${t.maxPerSide} players on a side from your ${t.threePool} and their ${t.threePool} best players`);
     expect(words).toContain(`plays out the best ${t.finalists} ideas where the usual search plays out ${config.search.finalists}`);
-    expect(words).toContain(`about ${t.estimate.workRatio} times as long`);
+    // About how long by both of the switch's estimates, one partner's ratio to every team's (the second review of Checkpoint 7h's
+    // page: "about 6 times as long", every team's alone, beside a one-partner switch that says 4 times its normal search).
+    expect(t.estimate.onePartner.workRatio).toBeLessThan(t.estimate.workRatio);
+    expect(words).toContain(`It takes about ${t.estimate.onePartner.workRatio} to ${t.estimate.workRatio} times as long (the switch says about how many seconds before it starts)`);
+    expect(words).not.toContain(`about ${t.estimate.workRatio} times as long`);
     expect(words).toContain("Its ideas stay for this visit");
     expect(words).toContain("The switch isn't saved");
     // The review of Checkpoint 7h's page: this tab keeps it as left (the trip to the Analyzer included), never "always" the usual search.
