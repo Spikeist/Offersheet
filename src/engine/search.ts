@@ -534,7 +534,13 @@
  *   while the idea was counted as not promoted ("released") too. ⚠️ Ours: a chain's earlier promotion stands while the newer
  *   one does; when the newest is undone the whole chain is (each earlier card's idea no longer merged into it), and the idea it
  *   left out for good comes back, given back as a merged trade is (undonePromotions: none of 620 synthetic searches scanned for
- *   it undid a chain, 3 undid a single promotion, so search.promote.undo.test.ts drives it on made-up records).
+ *   it undid a chain, 3 undid a single promotion, so search.promote.undo.test.ts drives it on made-up records). ⚠️ Ours, too
+ *   (the second review's verifier): the forced Open, the ladder and the preference are the search's, both lists' (a card on
+ *   both lists has one ladder, and both lists promote a Last offer only from the same idea), so they go only once no list's
+ *   promotion of the card stands (finish's `promotedOn`): a "Helps both" list undoing its own promotion of a pair the Overall
+ *   list's promotion still shows leaves that card its forced Open and its ladder, the idea it came from among its offers
+ *   (search.promote.crosslist.test.ts drives it with a made-up ladder: about 1,750 traced searches had a pair promoted on both
+ *   lists once and a "Helps both" undo once, never both together).
  * - The rounds end: a promotion merges an idea never merged or given back before, each Last offer is promoted to at most
  *   once (its forced Open fixed then; one undone never again), and each raises the list's printed Overall at that place (the
  *   promoted Last offer prints a higher EG than the idea it replaces), so no chain comes back to a trade; the trades are finite
@@ -2457,6 +2463,14 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
   // fixed so: a later merge that reads one works it out without a preference (choiceOf), and the promotion reads them as
   // worked out ("taken"), as it would have read the whole ladders.
   const lastOnly = new Set<string>();
+  // ⚠️ Checkpoint 7h's second review (offers#3, found by its verifier): each promoted card's lists whose promotion of it stands
+  // (settle's promote adds its list, its undo takes it away). The forced Open, the ladder and the preference above are both
+  // lists' (a card on both lists has one ladder, and both lists promote a Last offer only from the same idea: "taken"
+  // otherwise), so an undo clears them only once no list's promotion of the card stands. Cleared at once, the "Helps both" list
+  // undoing its own promotion of a pair the Overall list's promotion still shows took that card's forced Open and its ladder
+  // away, and the idea it came from, merged into it as its "open" on the Overall list, showed nowhere there (smallLeague 30,
+  // Team 3, Any, with a made-up ladder: search.promote.crosslist.test.ts).
+  const promotedOn = new Map<string, Set<"overall" | "helpsBoth">>();
   // A ladder's steps (offers.ts ladderChoiceSteps or searchLastOfferSteps) as the search's: a progress unit and a yield each,
   // `part` "offers" meanwhile, under the "offers" timing.
   function* ladderRun<T>(it: Generator<void, T, void>): Generator<TradeSearchProgress, T, void> {
@@ -2697,7 +2711,8 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
     // merged into a card shown in its own right), the rest leave the list (and a chain's card the release rule gave back isn't
     // counted as given back: it's no card). Its ladder, worked out with the forced Open, goes too (a card on both lists has one
     // ladder: the other list works it out again, without one), and it's never promoted to again (`undone`: "taken"). The idea it
-    // came from is given back (or held by a card above it) by the release rule.
+    // came from is given back (or held by a card above it) by the release rule. ⚠️ The forced Open, the ladder and the preference
+    // are both lists' (`promotedOn`): while the other list's promotion of the card stands they stay, as that list shows them.
     const undo = (p: string): void => {
       const record = promoted.get(p);
       if (!record) return;
@@ -2708,6 +2723,10 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
       merged.delete(p);
       dominated.delete(p);
       if (!base.has(p)) released.delete(p);
+      const standsOn = promotedOn.get(p);
+      standsOn?.delete(list);
+      if (standsOn?.size) return;
+      promotedOn.delete(p);
       opens.delete(p);
       if (choices.delete(p)) discardedLadders++;
       prefers.delete(p);
@@ -2807,6 +2826,7 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
         merged.set(c.key, { key: c.key, into: p, kind: "open" });
         origins.add(c.key);
         promoted.set(p, { key: p, from: c.key, list, kind: last.kind });
+        promotedOn.set(p, new Set([...(promotedOn.get(p) ?? []), list]));
       }
       mark("rank");
       notPromoted = misses;
