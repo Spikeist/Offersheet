@@ -17,8 +17,8 @@
  *    375 × 812 px phone (page.ts).
  * 3. Runs the steps (steps.ts): Connect and the public-link import, the Import Report and the team (--team <id>, else
  *    the report's own choice), the League page, the Trade Finder's full search (timed, with the engine's per-stage
- *    timings), a card's buttons, the Trade Analyzer, Settings, then the public pages (Home, Privacy, Terms, Feedback, a
- *    missing page) and the site's files and security headers (Part B; they need no league, so they run even when the
+ *    timings), a card's buttons, the Trade Analyzer, its "What if", Waiver upgrades, the Thorough search (Checkpoint 7h:
+ *    steps7h.ts), Settings, then the public pages (Home, Privacy, Terms, Feedback, a missing page) and the site's files and security headers (Part B; they need no league, so they run even when the
  *    import failed): no sideways scrolling, tap targets of at least 44 px, the header's first row on a 320 px phone,
  *    no console errors, CSP violations or failed requests, and "Harder to get" never on my own players. With
  *    --second-league (Phase 4c), also a second league (the public ESPN test league, args.ts SECOND_LEAGUE) added with
