@@ -357,6 +357,23 @@ describe("the trade search request (M12: time slices, progress, Stop)", () => {
     expect(h.searches.map((s) => s.opts?.partnerId)).toEqual(["5", null]);
   });
 
+  it("runs the Thorough search when asked (Checkpoint 7h), the normal one otherwise, and a re-filter that searches afresh keeps it", () => {
+    const h = harness();
+    h.handle(trades(1, { thorough: true }));
+    h.runAll();
+    h.handle(trades(2));
+    h.runAll();
+    h.handle(trades(3, { thorough: false }));
+    h.runAll();
+    h.handle(refilterReq(4, -1, 0.3, { thorough: true }));
+    h.runAll();
+    expect(h.searches.map((s) => s.opts?.mode ?? "normal")).toEqual(["thorough", "normal", "normal", "thorough"]);
+    expect(h.searches[1]?.opts && "mode" in h.searches[1].opts).toBe(false);
+    // A flag that isn't a boolean isn't a request.
+    h.handle({ ...trades(5), thorough: "yes" });
+    expect(h.posted.at(-1)).toEqual({ type: "error", id: 5, message: ENGINE_ERROR_MESSAGE, detail: "Not an engine request." });
+  });
+
   it("stops at the next slice when cancelled: a 'cancelled' reply, and no more work or replies for it", () => {
     const h = harness({ steps: 20 });
     h.handle(trades(1));

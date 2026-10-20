@@ -20,7 +20,13 @@
  *   (targetPositions non-empty: only those; never avoidPositions; the K/D/ST/IDP rule): the top getPool players not
  *   tagged "Harder to get" for P (evaluate.harderToGetFor: e ≥ harderToGetMin, a top-12 player who is P's #1 or #2;
  *   planner addendum to Checkpoint 3, §2, lead decision N2) plus the top getPoolTagged tagged ones (star trades are still
- *   evaluated, and rank on their honest acceptance), in MV_add order ∪ P's must-include players.
+ *   evaluated, and rank on their honest acceptance), in MV_add order ∪ P's must-include players. Since Checkpoint 7h
+ *   (config.search.getPoolIr; planner reply to Checkpoint 7g, section 2: "propose the smallest change that finds it") P's IR
+ *   players with a model follow the top, by id, whatever they'd add to my lineup: an IR player adds nothing now (MV_add 0),
+ *   but taking him moves him from P's IR slot to mine, so a player of mine P receives (often one on my IR) takes the freed
+ *   slot and nobody has to be dropped. The brute force's best trade on Parker's first league (Oct 15, both settings: Alec
+ *   Pierce, on his IR, for Ollie Gordon II and Jonah Coleman, Team 4's IR player, MV_add 0) is found this way, at about 2%
+ *   more trades screened.
  * - Must-include ids on no team's active roster (or IR) are ignored (a note); must-include players on two or more other teams:
  *   no trade can hold them all (no trades, a note); one partner's: only that partner is searched; mine: every
  *   candidate contains them (and the given-player cap skips them: "Must-include players of mine" below). opts.partnerId
@@ -411,6 +417,40 @@
  *   last does one of the four. Counts: dropped.dominated on both lists, qualifying counting them (each was a card),
  *   MergedCards.dominated (each with its `by` and list) and restored.
  *
+ * Whole rosters (Checkpoint 7h; planner reply to Checkpoint 7g, sections 2 and 3; TradeSearchOptions.mode). The normal search
+ * ("normal", the default, everything above) screens trades from the pools G and H. Two other modes screen whole rosters:
+ * - "bruteForce" (section 2's test: "screen every 1-for-1, 1-for-2, 2-for-1 and 2-for-2 trade with every partner. Use whole
+ *   rosters, not just the pools, and the same screening objective. Then run exact evaluation and the simulation on the best of
+ *   them."; a report switch the app never sets): the pools are whole rosters after the user's own filters (wholePoolsOf: every
+ *   tradable player of mine with a model but my untouchables and the positions left out, my must-include players whatever
+ *   they are, G first; every tradable player of each partner's after the position filters, H first, its must-include players
+ *   last); every trade of up to 2 players a side within maxPerSide is a candidate (wholeRosterCandidates: no beam, no
+ *   exhaustive cut), each screened once, then the same screening rules (the g window, the dominance pruning), the lean
+ *   companions and the helps-both lane, exact evaluation, the screening and final simulations and everything after, with a
+ *   funnel generous enough that its top 25 is solid (config.search.bruteForce: 100 a partner, 1,000 in all evaluated exactly,
+ *   150 finalists; the normal search's 30, 200 and 60; on Parker's dumps the brute force's top 25 by EG sat at most 82nd in
+ *   their partner's screening order and 443rd overall).
+ * - "thorough" (section 3: the Trade Finder's "Thorough search" switch): the brute force's candidates and funnel for trades of
+ *   up to 2 players a side, plus trades with 3 players on a side (src/engine/thorough.ts thoroughSettings: up to
+ *   config.search.thorough.maxPerSide a side, ⚠️ whatever the max-per-side setting, ours: the planner's definition holds them)
+ *   from bigger pools (my top threePool by surplus score with my trade chips and must-include players; each partner's top
+ *   threePool by MV_add(me, j), ⚠️ "Harder to get" or not, ours: a star is what a 3-for-1 asks for): each of
+ *   config.search.thorough.shapes (3-for-1 and 1-for-3 from the first 15, 3-for-2 and 2-for-3 from the first 8, 3-for-3 from
+ *   the first 6: ⚠️ ours, sized to the time aim) in full, and each partner's best `beam` two-player trades extended once by one
+ *   more player from those pools, as the beams extend. ⚠️ Its trades with 3 on a side are kept apart in the funnel
+ *   (SearchFunnel.three: their own 40 a partner and 400 in all, on top of the others'; with one keep their bigger lineup gains
+ *   crowded the best 2-player trades out of exact evaluation, so it showed fewer good cards than the brute force), and 120
+ *   finalists. Aim: under 60 s in the browser on Parker's 12-team league (Checkpoint 7h's report has the times).
+ * - Screening that many trades: my half of a screen first (evaluate.ts screenMyHalf: my side after the trade by screening's
+ *   legality, my EV ΔROS), the partner's half (screenTheirHalf: its side, the quick chance, the objective) only when my ΔROS is
+ *   above 0; a trade with my ΔROS at or below 0 has an objective at or below 0 (the quick chance is at least the clamp's floor),
+ *   so it's deferred (WholeCandidates.deferred) and priced only where screening's rules could read it (wholeRulesOf): when a
+ *   keep (each class's own, with SearchFunnel.three) isn't filled by trades above 3 × EPS, and the lean versions of the trades
+ *   the dominance pruning could drop with one (objective at most EPS). So the ruled trades a keep reads are the ones screening
+ *   every candidate in full gives (search.whole.test.ts); about 60% of the candidates never get their partner's half priced.
+ * - SearchState.mode records it; a re-filter ranks the same finalists (it equals a fresh search in that mode). The Trade
+ *   Finder sends the Thorough search's flag through the worker (engine.worker.ts TradesRequest.thorough).
+ *
  * Re-filtering (planner reply to Checkpoint 4b, change 10: "re-filter instantly from the finalists, without re-running the
  * search"): a finished search keeps its finalists and caches (searchStateOf: the result object → its state; null when the
  * search stopped before ranking, whose result holds for any minimum), and refilterSearch ranks them again with another
@@ -491,6 +531,8 @@ import {
   partnerCalibrationOf,
   proposalKey,
   rewardFor,
+  screenMyHalf,
+  screenTheirHalf,
   screenTrade,
   simulateTrade,
   tradeInternals,
@@ -512,6 +554,7 @@ import { addedGiven, choosePlanB, givenCapSkip, planBCandidates, planBConfig, sm
 import { choiceOffers, ladderFromChoice, ladderJobOfSearch, ladderNeighbors, offerFeasible, searchLadderChoiceSteps, type LadderChoice } from "./offers";
 import { compareOverall, rankTrades, versionsOfSameTrade, type RankConfig, type RankedTrades, type RankOptions } from "./rank";
 import { defaultTradeSettings, normalizeTradeSettings, type TradeSettings } from "./settings";
+import { thoroughSettings } from "./thorough";
 import type {
   DominatedTrade,
   HelpsBothList,
@@ -590,7 +633,17 @@ export interface TradeSearchOptions {
    * true. With every Checkpoint 7g switch off (these three) the search is Checkpoint 7f's, bit for bit (search.merge7g.test.ts).
    */
   dropDominated?: boolean;
+  /**
+   * Checkpoint 7h (planner reply to Checkpoint 7g, sections 2 and 3; the file header, "Whole rosters"): "normal" (the default),
+   * "thorough" (the Trade Finder's "Thorough search" switch: every 1- and 2-player trade across whole rosters, trades with 3
+   * players a side from bigger pools, a bigger funnel) or "bruteForce" (section 2's test, a report switch the app never sets:
+   * every trade of up to 2 players a side across whole rosters, a funnel generous enough that its top 25 is solid).
+   */
+  mode?: SearchMode;
 }
+
+/** The search's mode (TradeSearchOptions.mode; the file header, "Whole rosters"). */
+export type SearchMode = "normal" | "bruteForce" | "thorough";
 
 /** Gains closer than this are ties (float noise, not a tunable). */
 const EPS = 1e-9;
@@ -714,17 +767,18 @@ export function getPoolOf(I: TradeInternals, settings: TradeSettings, partner: T
   return I.me ? getPoolPicker(I, settings)(partner, forced) : [];
 }
 
-/** getPoolOf's work for any number of partners, its per-call parts made once (buildPools). */
-function getPoolPicker(I: TradeInternals, settings: TradeSettings): (p: TeamState, forced: readonly string[]) => string[] {
+/**
+ * A partner's tradable players (active roster and, with IR returners, IR) after the position filters (targetPositions,
+ * avoidPositions, the K/D/ST/IDP rule), never `forced`, each with what he'd add to my lineup (MV_add(me, j), EV; an IR
+ * player an open IR slot of mine would take priced as a returner), those above 0 only, most first (ties: the smaller id):
+ * getPoolPicker's ranking, and (Checkpoint 7h) the thorough search's bigger pools ("Whole rosters"). Its per-call parts made
+ * once.
+ */
+function mvAddScorer(I: TradeInternals, settings: TradeSettings): (p: TeamState, forced: readonly string[]) => { id: string; mv: number }[] {
   const me = I.me as TeamState;
-  const excluded = new Set<Pos>(settings.includeKDefIdp ? [] : config.market.tradeSearchExcluded);
   const tradableOf = (t: TeamState): readonly string[] => (I.irOn ? [...t.roster, ...t.ir] : t.roster);
-  const target = new Set<Pos>(settings.targetPositions);
-  const avoid = new Set<Pos>(settings.avoidPositions);
   const addValue = addValueOf(I.league);
-  const wanted = (pos: Pos | undefined) => pos !== undefined && !excluded.has(pos) && !avoid.has(pos) && (target.size === 0 || target.has(pos));
-  const getPool = Math.max(0, Math.floor(config.search.getPool));
-  const getPoolTagged = Math.max(0, Math.floor(config.search.getPoolTagged));
+  const wanted = positionsWanted(settings);
   // A partner's IR player comes to me as a returner when I'd have an open IR slot (⚠️ judged before any trade: my IR as it
   // stands) and the slot takes his status (evaluate.ts rule 5): MV_add is then what he adds to V*(me)'s lineups, no drop.
   const myIrOpen = I.irOn && me.ir.length < Math.max(0, Math.floor(I.snapshot.settings.irSlots));
@@ -745,6 +799,21 @@ function getPoolPicker(I: TradeInternals, settings: TradeSettings): (p: TeamStat
       if (mv > EPS) scored.push({ id, mv });
     }
     scored.sort((a, b) => (Math.abs(b.mv - a.mv) > EPS ? b.mv - a.mv : a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    return scored;
+  };
+}
+
+/**
+ * getPoolOf's work for any number of partners, its per-call parts made once (buildPools). Since Checkpoint 7h
+ * (config.search.getPoolIr; the file header, "Pools"): the partner's IR players with a model the top didn't take follow it.
+ */
+function getPoolPicker(I: TradeInternals, settings: TradeSettings): (p: TeamState, forced: readonly string[]) => string[] {
+  const getPool = Math.max(0, Math.floor(config.search.getPool));
+  const getPoolTagged = Math.max(0, Math.floor(config.search.getPoolTagged));
+  const score = mvAddScorer(I, settings);
+  const wanted = positionsWanted(settings);
+  return (p, forced) => {
+    const scored = score(p, forced);
     // The top getPool untagged and the top getPoolTagged tagged, kept in MV_add order.
     let untagged = 0;
     let tagged = 0;
@@ -752,8 +821,21 @@ function getPoolPicker(I: TradeInternals, settings: TradeSettings): (p: TeamStat
     for (const x of scored) {
       if (harderToGetFor(I, p.id, x.id) ? tagged++ < getPoolTagged : untagged++ < getPool) top.push(x.id);
     }
-    return [...top, ...forced];
+    // Checkpoint 7h: then the partner's IR players with a model, whatever they'd add to my lineup (by id).
+    const ir =
+      config.search.getPoolIr && I.irOn
+        ? [...new Set(p.ir)].filter((id) => !forced.includes(id) && !top.includes(id) && I.league.table.rows.has(id) && wanted(I.league.table.rows.get(id)?.pos)).sort()
+        : [];
+    return [...top, ...ir, ...forced];
   };
+}
+
+/** The position filters of the search's pools (targetPositions, avoidPositions, the K/D/ST/IDP rule): whether a position is wanted. */
+function positionsWanted(settings: TradeSettings): (pos: Pos | undefined) => boolean {
+  const excluded = new Set<Pos>(settings.includeKDefIdp ? [] : config.market.tradeSearchExcluded);
+  const target = new Set<Pos>(settings.targetPositions);
+  const avoid = new Set<Pos>(settings.avoidPositions);
+  return (pos) => pos !== undefined && !excluded.has(pos) && !avoid.has(pos) && (target.size === 0 || target.has(pos));
 }
 
 /** Notes that hold for the whole search: positions left out, picks deferred, B's own (benefit.benefitNotes). */
@@ -944,6 +1026,291 @@ export function* partnerCandidates(I: TradeInternals, partner: TeamState, pool: 
   return [...all.values()];
 }
 
+// ---------------------------------------------------------------------------------------------
+// Whole rosters (Checkpoint 7h; the file header, "Whole rosters")
+
+/**
+ * One partner's whole-roster pools (Checkpoint 7h; the file header, "Whole rosters"): every tradable player of mine and of the
+ * partner's, after the user's own filters, each side's must-include players among them (and in `forcedGive`, `forcedGet`);
+ * `three`, the thorough search's bigger pools for its trades with 3 players a side (null in the brute force).
+ */
+export interface WholePool {
+  give: readonly string[];
+  forcedGive: readonly string[];
+  get: readonly string[];
+  forcedGet: readonly string[];
+  three: { give: readonly string[]; get: readonly string[] } | null;
+}
+
+/**
+ * The whole-roster pools of every partner `pools` searches (Checkpoint 7h; the file header, "Whole rosters"), from the normal
+ * pools buildPools made (their partners, must-include players, notes and stops stand): mine, every active and IR player of
+ * mine with a model but my untouchables and the positions left out (P, K, D/ST and IDP unless includeKDefIdp), my
+ * must-include players whatever they are (buildPools: even untouchable ones), in order: G (buildPools' give pool), then the
+ * others by surplus score (ties: the smaller id); a partner's, every active and IR player of theirs with a model after the
+ * position filters (targetPositions, avoidPositions, the K/D/ST/IDP rule), in order: H (getPoolPicker's, its must-include
+ * players aside), then the others above 0 by MV_add(me, j), then the rest by id, its must-include players last. With
+ * `three` (the thorough search; config.search.thorough.threePool players a side): my top `three` by surplus score with my
+ * trade chips and must-include players (buildPools' rule for G with a bigger pool), and each partner's top `three` by
+ * MV_add(me, j) above 0, tagged "Harder to get" or not (⚠️ ours: a star is what a 3-for-1 asks for), with its must-include
+ * players.
+ */
+export function wholePoolsOf(I: TradeInternals, settings: TradeSettings, pools: Pick<Pools, "partners" | "give" | "forcedGive" | "get">, three: number | null): Map<string, WholePool> {
+  const me = I.me as TeamState;
+  const out = new Map<string, WholePool>();
+  if (!pools.partners.length) return out;
+  const excluded = new Set<Pos>(settings.includeKDefIdp ? [] : config.market.tradeSearchExcluded);
+  const untouchable = new Set(settings.untouchables);
+  const target = new Set<Pos>(settings.targetPositions);
+  const avoid = new Set<Pos>(settings.avoidPositions);
+  const wanted = (pos: Pos | undefined) => pos !== undefined && !excluded.has(pos) && !avoid.has(pos) && (target.size === 0 || target.has(pos));
+  const tradableOf = (t: TeamState): readonly string[] => [...new Set(I.irOn ? [...t.roster, ...t.ir] : t.roster)];
+  const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+  const myModel = I.model.teams[me.index];
+  const surplus = (id: string) => myModel?.players[id]?.surplusScore ?? Number.NEGATIVE_INFINITY;
+  const mine = tradableOf(me)
+    .filter((id) => I.league.table.rows.has(id) && !untouchable.has(id) && !excluded.has(I.league.posOf(id) as Pos))
+    .sort((a, b) => surplus(b) - surplus(a) || byId(a, b));
+  const give = [...new Set([...pools.give, ...mine])];
+  const chips = (myModel?.chips ?? []).map((c) => c.playerId).filter((id) => me.roster.includes(id) && mine.includes(id));
+  const threeGive = three === null ? null : [...new Set([...mine.slice(0, three), ...chips, ...pools.forcedGive])];
+  const score = mvAddScorer(I, settings);
+  for (const p of pools.partners) {
+    const H = pools.get.get(p.id) ?? { pool: [], forced: [] };
+    const forced = H.forced;
+    const scored = score(p, forced).map((x) => x.id);
+    const rest = tradableOf(p)
+      .filter((id) => !forced.includes(id) && wanted(I.league.table.rows.get(id)?.pos))
+      .sort(byId);
+    const get = [...new Set([...H.pool.filter((id) => !forced.includes(id)), ...scored, ...rest]), ...forced];
+    out.set(p.id, {
+      give,
+      forcedGive: pools.forcedGive,
+      get,
+      forcedGet: forced,
+      three: threeGive === null || three === null ? null : { give: threeGive, get: [...scored.slice(0, three), ...forced] },
+    });
+  }
+  return out;
+}
+
+/**
+ * My half of a screen at or under this (my EV ΔROS) leaves the partner's half for later (the file header, "Whole rosters"):
+ * such a trade's objective, myΔROS × a quick chance of at least config.acceptance.pAcceptClamp[0], is at most 0.
+ */
+const DEFER_AT_OR_BELOW = 0;
+
+/** The whole-roster candidates of one partner (wholeRosterCandidates): screened in full, and deferred. */
+export interface WholeCandidates {
+  /** Every legal candidate screened in full (both halves), each once. */
+  full: Screened[];
+  /**
+   * The candidates my half priced at or below DEFER_AT_OR_BELOW (legal on my side), each once, not priced on the partner's side
+   * (wholeRulesOf prices them when the keep could reach them).
+   */
+  deferred: { key: string; give: string[]; get: string[] }[];
+}
+
+/** The thorough search's 3-a-side candidates (config.search.thorough): its shapes and its beam. */
+export interface ThreeConfig {
+  /** Each shape: players a side and how many of each side's `three` pool its sides come from (their first `top`). */
+  shapes: readonly { give: number; get: number; top: number }[];
+  /** The best this many two-player trades (2-for-1, 1-for-2, 2-for-2), each extended by one more player from the `three` pools. */
+  beam: number;
+}
+
+/**
+ * One partner's whole-roster candidates (Checkpoint 7h; the file header, "Whole rosters"): every 1-for-1, 1-for-2, 2-for-1 and
+ * 2-for-2 within maxPerSide from the whole pools (WholePool give and get, every side holding the must-include players), each
+ * screened once by key: my half first (evaluate.ts screenMyHalf), the partner's (screenTheirHalf) only when my half may help
+ * me (my EV ΔROS above DEFER_AT_OR_BELOW), the others deferred. Then with `three` and maxPerSide ≥ 3 (the thorough search):
+ * each of its shapes with 3 players a side from the first `top` of each side's `three` pool (the must-include players in every
+ * one, not counted among them), screened the same way; then the best `beam` two-player trades screened in full (by the
+ * objective, then the key) extended once by one more player, as the beams extend (partnerCandidates): every single addition
+ * from my `three` pool and from theirs screened in full (a deferred one priced now), and the pairExtensionTop best of each
+ * side paired, never past maxPerSide. `tally.screened` counts the candidates (a trade reached twice once). It yields after
+ * every SCREEN_BATCH screens. Deterministic.
+ */
+export function* wholeRosterCandidates(I: TradeInternals, partner: TeamState, pool: WholePool, maxPerSide: number, tally: { screened: number }, three: ThreeConfig | null = null): Generator<void, WholeCandidates, void> {
+  const full = new Map<string, Screened>();
+  const deferred = new Map<string, { key: string; give: string[]; get: string[] }>();
+  const illegal = new Set<string>();
+  let sinceYield = 0;
+  const keyOf = (give: readonly string[], get: readonly string[]) => proposalKey({ partnerId: partner.id, give: players(give), get: players(get) });
+  /** A candidate screened once: both halves when my half may help me, else deferred. */
+  const lazy = (give: readonly string[], get: readonly string[]): void => {
+    const key = keyOf(give, get);
+    if (full.has(key) || deferred.has(key) || illegal.has(key)) return;
+    tally.screened++;
+    sinceYield++;
+    const half = screenMyHalf(I, give, get);
+    if (!half) {
+      illegal.add(key);
+      return;
+    }
+    if (half.myDelta <= DEFER_AT_OR_BELOW) {
+      deferred.set(key, { key, give: [...give], get: [...get] });
+      return;
+    }
+    const s = screenTheirHalf(I, partner, give, get, half, key);
+    if (s) full.set(key, s);
+    else illegal.add(key);
+  };
+  /** A candidate screened in full (the beam reads its objective): a deferred one priced now. */
+  const priced = (give: readonly string[], get: readonly string[]): Screened | null => {
+    const key = keyOf(give, get);
+    const known = full.get(key);
+    if (known) return known;
+    if (illegal.has(key)) return null;
+    const waiting = deferred.get(key);
+    if (waiting) deferred.delete(key);
+    else {
+      tally.screened++;
+      sinceYield++;
+    }
+    const s = screenTrade(I, partner, waiting?.give ?? give, waiting?.get ?? get, key);
+    if (s) full.set(key, s);
+    else illegal.add(key);
+    return s;
+  };
+  const { forcedGive, forcedGet } = pool;
+  const giveOthers = pool.give.filter((id) => !forcedGive.includes(id));
+  const getOthers = pool.get.filter((id) => !forcedGet.includes(id));
+  const sizes = [1, 2].filter((n) => n <= maxPerSide);
+  for (const g of sizes) {
+    for (const h of sizes) {
+      const gets = sidesOf(forcedGet, getOthers, h);
+      for (const give of sidesOf(forcedGive, giveOthers, g)) {
+        for (const get of gets) {
+          lazy(give, get);
+          if (sinceYield >= SCREEN_BATCH) {
+            sinceYield = 0;
+            yield;
+          }
+        }
+      }
+    }
+  }
+  if (three && pool.three && maxPerSide >= 3) {
+    const threeGive = pool.three.give.filter((id) => !forcedGive.includes(id));
+    const threeGet = pool.three.get.filter((id) => !forcedGet.includes(id));
+    for (const shape of three.shapes) {
+      if (shape.give > maxPerSide || shape.get > maxPerSide) continue;
+      const top = Math.max(0, Math.floor(shape.top));
+      const gets = sidesOf(forcedGet, threeGet.slice(0, top), shape.get);
+      for (const give of sidesOf(forcedGive, threeGive.slice(0, top), shape.give)) {
+        for (const get of gets) {
+          lazy(give, get);
+          if (sinceYield >= SCREEN_BATCH) {
+            sinceYield = 0;
+            yield;
+          }
+        }
+      }
+    }
+    // The beam: the best two-player trades screened in full, each extended by one more player (partnerCandidates's extend).
+    const pairTop = Math.max(0, Math.floor(config.search.pairExtensionTop));
+    const seeds = [...full.values()]
+      .filter((s) => s.give.length <= 2 && s.get.length <= 2 && s.give.length + s.get.length >= 3)
+      .sort(byObjective)
+      .slice(0, Math.max(0, Math.floor(three.beam)));
+    for (const s of seeds) {
+      const singlesGive: Screened[] = [];
+      const singlesGet: Screened[] = [];
+      if (s.give.length < maxPerSide) {
+        for (const g of pool.three.give) {
+          if (s.give.includes(g)) continue;
+          const x = priced([...s.give, g], s.get);
+          if (x) singlesGive.push(x);
+        }
+      }
+      if (s.get.length < maxPerSide) {
+        for (const h of pool.three.get) {
+          if (s.get.includes(h)) continue;
+          const x = priced(s.give, [...s.get, h]);
+          if (x) singlesGet.push(x);
+        }
+      }
+      const bestGive = [...singlesGive].sort(byObjective).slice(0, pairTop);
+      const bestGet = [...singlesGet].sort(byObjective).slice(0, pairTop);
+      for (const g of bestGive) {
+        const addG = g.give.find((id) => !s.give.includes(id)) as string;
+        for (const h of bestGet) {
+          const addH = h.get.find((id) => !s.get.includes(id)) as string;
+          lazy([...s.give, addG], [...s.get, addH]);
+        }
+      }
+      if (sinceYield >= SCREEN_BATCH) {
+        sinceYield = 0;
+        yield;
+      }
+    }
+  }
+  return { full: [...full.values()], deferred: [...deferred.values()] };
+}
+
+/**
+ * Screening's rules on one partner's whole-roster candidates (Checkpoint 7h; the file header, "Whole rosters"): the deferred
+ * candidates priced (evaluate.ts screenTrade) where a keep or a pruning could read them, so the rules give what they'd give
+ * with every candidate priced in full. A trade with my EV ΔROS at or under 0 has an objective at or under 0, so it ranks
+ * strictly below the keep's last trade when that one's objective is above 3 × EPS (byObjective's ties are within EPS); else
+ * the deferred candidates of that keep are priced (with SearchFunnel.three, each class's keep on its own: the trades with 3
+ * players on a side, and the others). And the dominance pruning reads a trade's lean versions (dominancePruned): a deferred
+ * one (objective ≤ 0) can drop only a trade whose objective is at most EPS, so those trades' lean versions are priced first.
+ * Returns the trades screened in full (the list leanCompanions reads) and the ruled ones (screeningRules with `cheap`), with
+ * how many deferred ones were priced (`priced`). Yields after every SCREEN_BATCH prices.
+ */
+export function* wholeRulesOf(
+  I: TradeInternals,
+  partner: TeamState,
+  found: WholeCandidates,
+  cheap: ((id: string) => boolean) | null,
+  funnel: Pick<SearchFunnel, "keptPerPartner" | "three">,
+): Generator<void, { list: Screened[]; ruled: Screened[]; priced: number }, void> {
+  const list = [...found.full];
+  const waiting = new Map(found.deferred.map((d) => [d.key, d]));
+  let priced = 0;
+  let sinceYield = 0;
+  const price = (key: string) => {
+    const d = waiting.get(key);
+    if (!d) return;
+    waiting.delete(key);
+    priced++;
+    const s = screenTrade(I, partner, d.give, d.get, key);
+    if (s) list.push(s);
+  };
+  if (cheap && waiting.size) {
+    for (const s of found.full) {
+      if (s.objective > EPS || s.give.length < 2) continue;
+      for (const id of s.give) {
+        if (!cheap(id)) continue;
+        price(proposalKey({ partnerId: s.partnerId, give: players(s.give.filter((x) => x !== id)), get: players(s.get) }));
+      }
+    }
+  }
+  let ruled = screeningRules(list, cheap);
+  // Each keep's class (all trades in one, without SearchFunnel.three), and whether its trades above 3 × EPS fill it.
+  const classes: { of: (s: Pick<Screened, "give" | "get">) => boolean; keep: number }[] = funnel.three
+    ? [
+        { of: (s) => !hasThree(s), keep: funnel.keptPerPartner },
+        { of: hasThree, keep: funnel.three.keptPerPartner },
+      ]
+    : [{ of: () => true, keep: funnel.keptPerPartner }];
+  const short = classes.filter((c) => ruled.filter((s) => c.of(s) && s.objective > 3 * EPS).length < Math.max(0, Math.floor(c.keep)));
+  if (short.length && waiting.size) {
+    for (const [key, d] of [...waiting]) {
+      if (!short.some((c) => c.of(d))) continue;
+      price(key);
+      if (++sinceYield >= SCREEN_BATCH) {
+        sinceYield = 0;
+        yield;
+      }
+    }
+    ruled = screeningRules(list, cheap);
+  }
+  return { list, ruled, priced };
+}
+
 /**
  * Whether a player is worth at most the waiver credit W (raw perception values; a player without one counts 0): "a player
  * of mine worth at most W" in the dominance pruning (lead decision N11; dominancePruned), the bar of Phase 4c's neutral
@@ -988,11 +1355,55 @@ export function screeningRules(list: readonly Screened[], cheap: ((id: string) =
   return cheap ? dominancePruned(inWindow, cheap) : inWindow;
 }
 
-/** The shortlist from each partner's candidates past screening's rules (shortlistOf, without the rules). */
-function shortlistFrom(ruled: readonly (readonly Screened[])[]): Screened[] {
-  const shortlist: Screened[] = [];
-  for (const list of ruled) shortlist.push(...[...list].sort(byObjective).slice(0, Math.max(0, Math.floor(config.search.keptPerPartner))));
-  return shortlist.sort(byObjective).slice(0, Math.max(0, Math.floor(config.search.exactEvaluationMax)));
+/**
+ * A search's funnel (Checkpoint 7h; the file header, "Whole rosters"): each partner's best keptPerPartner by the screening
+ * objective, the best exactEvaluationMax over all partners evaluated exactly, and the finalists simulated on the ranking block.
+ */
+export interface SearchFunnel {
+  keptPerPartner: number;
+  exactEvaluationMax: number;
+  finalists: number;
+  /**
+   * The thorough search's trades with 3 players on a side, kept apart (the file header, "Whole rosters": with one keep, their
+   * bigger lineup gains crowded the best 2-player trades out of the shortlist): each partner's best keptPerPartner of them,
+   * and the best exactEvaluationMax over all partners, on top of the others' own. Absent: one keep for every trade.
+   */
+  three?: { keptPerPartner: number; exactEvaluationMax: number };
+}
+
+/** The funnel of a mode: config.search's (the normal search), config.search.bruteForce's or config.search.thorough's. */
+export function funnelOf(mode: SearchMode = "normal"): SearchFunnel {
+  if (mode === "thorough") {
+    const t = config.search.thorough;
+    return { keptPerPartner: t.keptPerPartner, exactEvaluationMax: t.exactEvaluationMax, finalists: t.finalists, three: { ...t.three } };
+  }
+  const c = mode === "bruteForce" ? config.search.bruteForce : config.search;
+  return { keptPerPartner: c.keptPerPartner, exactEvaluationMax: c.exactEvaluationMax, finalists: c.finalists };
+}
+
+/** Whether a trade has 3 or more players on a side (SearchFunnel.three's trades). */
+const hasThree = (s: Pick<Screened, "give" | "get">): boolean => s.give.length >= 3 || s.get.length >= 3;
+
+/** The shortlist from each partner's candidates past screening's rules (shortlistOf, without the rules), by `funnel` (default the normal search's). */
+function shortlistFrom(ruled: readonly (readonly Screened[])[], funnel: SearchFunnel = funnelOf()): Screened[] {
+  const pick = (lists: readonly (readonly Screened[])[], kept: number, max: number): Screened[] => {
+    const shortlist: Screened[] = [];
+    for (const list of lists) shortlist.push(...[...list].sort(byObjective).slice(0, Math.max(0, Math.floor(kept))));
+    return shortlist.sort(byObjective).slice(0, Math.max(0, Math.floor(max)));
+  };
+  const three = funnel.three;
+  if (!three) return pick(ruled, funnel.keptPerPartner, funnel.exactEvaluationMax);
+  const twos = pick(
+    ruled.map((list) => list.filter((s) => !hasThree(s))),
+    funnel.keptPerPartner,
+    funnel.exactEvaluationMax,
+  );
+  const threes = pick(
+    ruled.map((list) => list.filter(hasThree)),
+    three.keptPerPartner,
+    three.exactEvaluationMax,
+  );
+  return [...twos, ...threes].sort(byObjective);
 }
 
 /**
@@ -1194,9 +1605,10 @@ export function* leanCompanions(
  * config.search.finalists trades. `onePartner` (the file header, "One partner"): no per-partner cap at all; the per-core,
  * given-player and filler rules stay.
  */
-export function rankCaps(opts: { relaxed: boolean; onePartner: boolean }): RankConfig {
+export function rankCaps(opts: { relaxed: boolean; onePartner: boolean; finalists?: number }): RankConfig {
   const loosen = opts.relaxed ? 1 : 0;
-  const finalists = Math.max(0, Math.floor(config.search.finalists));
+  // Checkpoint 7h: the funnel's finalists (SearchFunnel; default config.search.finalists, the normal search's).
+  const finalists = Math.max(0, Math.floor(opts.finalists ?? config.search.finalists));
   return {
     perPartnerInTop20: opts.onePartner ? Number.POSITIVE_INFINITY : config.ranking.perPartnerInTop20 + loosen,
     partnerCapTop: opts.relaxed ? Math.max(config.ranking.partnerCapTop, finalists) : config.ranking.partnerCapTop,
@@ -1229,11 +1641,11 @@ const byBThenEg = (a: TradeEvaluationCore, b: TradeEvaluationCore): number => (M
  * screening numbers: the first config.search.finalists that rankTrades keeps with its caps relaxed by one (finalistsOf),
  * then, while room is left, the best others by EG (ties: the key) that aren't hidden by default.
  */
-function rankedFinalistsOf(cores: readonly TradeEvaluationCore[], value: (asset: TradeAsset) => number, onePartner: boolean, forcedGive: readonly string[]): Set<string> {
-  const maxFinalists = Math.max(0, Math.floor(config.search.finalists));
+function rankedFinalistsOf(cores: readonly TradeEvaluationCore[], value: (asset: TradeAsset) => number, onePartner: boolean, forcedGive: readonly string[], finalists: number = config.search.finalists): Set<string> {
+  const maxFinalists = Math.max(0, Math.floor(finalists));
   // Relaxed by one (review of track E, item 3): at 1,000 seasons the order is noisy, and the strict caps dropped trades the
   // 5,000-season numbers rank near the top. The strict rules apply in the final ranking.
-  const pre = rankTrades(cores.map(bare), value, rankCaps({ relaxed: true, onePartner }), { givenCapExempt: forcedGive });
+  const pre = rankTrades(cores.map(bare), value, rankCaps({ relaxed: true, onePartner, finalists }), { givenCapExempt: forcedGive });
   const keys = new Set(pre.trades.map((t) => t.key));
   const rest = cores.filter((c) => !keys.has(c.key) && !hiddenAt(c)).sort(byEgThenKey);
   for (const c of rest) {
@@ -1285,8 +1697,10 @@ export function finalistsOf(
   onePartner = false,
   forcedGive: readonly string[] = [],
   lane: ReadonlySet<string> = new Set<string>(),
+  finalists: number = config.search.finalists,
 ): { keys: Set<string>; extras: string[]; displaced: string[]; hidden: { byBenefit: number; byMarket: number } } {
-  const keys = rankedFinalistsOf(cores, value, onePartner, forcedGive);
+  // Checkpoint 7h: `finalists`, the funnel's (SearchFunnel; default config.search.finalists, the normal search's).
+  const keys = rankedFinalistsOf(cores, value, onePartner, forcedGive, finalists);
   // "Helps both": since Checkpoint 7d each candidate from the helps-both lane widens the room by one (⚠️ the lead's call;
   // review of the lane, LANE-2): as the plain top 20, the lane's long shots took a likelier trade's place (smallLeague 13 at
   // 10%: seven lane trades under 5% as printed entered the 20, and the list went from 2 cards to 1). Every trade the 20 would
@@ -1307,7 +1721,7 @@ export function finalistsOf(
   const displaced: string[] = [];
   if (lane.size) {
     const byKey = new Map(cores.map((c) => [c.key, c]));
-    for (const k of rankedFinalistsOf(cores.filter((c) => !lane.has(c.key)), value, onePartner, forcedGive)) {
+    for (const k of rankedFinalistsOf(cores.filter((c) => !lane.has(c.key)), value, onePartner, forcedGive, finalists)) {
       const helps = byKey.get(k)?.them?.helps;
       if (keys.has(k) || typeof helps !== "number" || !Number.isFinite(helps)) continue;
       keys.add(k);
@@ -1393,6 +1807,11 @@ export interface SearchState {
   readonly smallerAsks: boolean;
   readonly preferListed: boolean;
   readonly dropDominated: boolean;
+  /**
+   * Checkpoint 7h (the file header, "Whole rosters"): the search's mode (TradeSearchOptions.mode), its funnel's finalists
+   * among what it decided; absent on a state made before (the normal search). A re-filter ranks the same finalists.
+   */
+  readonly mode?: SearchMode;
   /**
    * Versions on the screening block by key: the exact trades' (their screening numbers) and, since Checkpoint 7e, the ones
    * "How to offer it" evaluates (offers.ts adds them; a re-filter's state shares the map). Until then the steps'.
@@ -2285,7 +2704,12 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
   const I = tradeInternals(ctx);
   const timer = stageTimer(opts.clock);
   const { timings, mark } = timer;
-  const settings = normalizeTradeSettings(opts.settings ?? defaultTradeSettings());
+  // Checkpoint 7h (the file header, "Whole rosters"): the mode, its settings (the Thorough search's players a side:
+  // thorough.ts thoroughSettings) and its funnel.
+  const mode: SearchMode = opts.mode ?? "normal";
+  const normalized = normalizeTradeSettings(opts.settings ?? defaultTradeSettings());
+  const settings = mode === "thorough" ? thoroughSettings(normalized) : normalized;
+  const funnel = funnelOf(mode);
   // The reward every B of the search is weighed by (Checkpoint 7c: the goal and prizes; the context's own when they match).
   const reward = rewardFor(I, settings);
   const counts = { screened: 0, exact: 0, simScreen: 0, simFinal: 0 };
@@ -2320,24 +2744,53 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
   if (pools.stop) return stopped(notes);
   yield { stage: "setup", done: 1, total: 1 };
 
-  // Screening (§12 step 2): beams and exhaustive candidates per partner.
+  // Screening (§12 step 2): beams and exhaustive candidates per partner; since Checkpoint 7h, in the whole-roster modes, every
+  // trade across whole rosters (the file header, "Whole rosters").
   const maxPerSide = settings.maxPerSide;
   const perPartner: Screened[][] = [];
-  for (let pi = 0; pi < pools.partners.length; pi++) {
-    const partner = pools.partners[pi] as TeamState;
-    const H = pools.get.get(partner.id) as { pool: string[]; forced: string[] };
-    const it = partnerCandidates(I, partner, { give: pools.give, forcedGive: pools.forcedGive, get: H.pool, forcedGet: H.forced }, maxPerSide, counts, { exhaustive: opts.exhaustive !== false });
-    let r = it.next();
-    while (!r.done) {
-      yield { stage: "screening", done: pi, total: pools.partners.length };
-      r = it.next();
+  let ruled: Screened[][];
+  if (mode === "normal") {
+    for (let pi = 0; pi < pools.partners.length; pi++) {
+      const partner = pools.partners[pi] as TeamState;
+      const H = pools.get.get(partner.id) as { pool: string[]; forced: string[] };
+      const it = partnerCandidates(I, partner, { give: pools.give, forcedGive: pools.forcedGive, get: H.pool, forcedGet: H.forced }, maxPerSide, counts, { exhaustive: opts.exhaustive !== false });
+      let r = it.next();
+      while (!r.done) {
+        yield { stage: "screening", done: pi, total: pools.partners.length };
+        r = it.next();
+      }
+      perPartner.push(r.value);
+      yield { stage: "screening", done: pi + 1, total: pools.partners.length };
     }
-    perPartner.push(r.value);
-    yield { stage: "screening", done: pi + 1, total: pools.partners.length };
+    // Screening's rules (the g window, the dominance pruning: N11), then the shortlist and the lean companions below.
+    ruled = perPartner.map((list) => screeningRules(list, atMostWaiverCredit(I)));
+  } else {
+    const thorough = mode === "thorough";
+    const whole = wholePoolsOf(I, settings, pools, thorough ? Math.max(0, Math.floor(config.search.thorough.threePool)) : null);
+    const three: ThreeConfig | null = thorough ? { shapes: config.search.thorough.shapes, beam: config.search.thorough.beam } : null;
+    const cheap = atMostWaiverCredit(I);
+    ruled = [];
+    for (let pi = 0; pi < pools.partners.length; pi++) {
+      const partner = pools.partners[pi] as TeamState;
+      const it = wholeRosterCandidates(I, partner, whole.get(partner.id) as WholePool, maxPerSide, counts, three);
+      let r = it.next();
+      while (!r.done) {
+        yield { stage: "screening", done: pi, total: pools.partners.length };
+        r = it.next();
+      }
+      // Screening's rules, the deferred candidates priced where the keep or a pruning could read them (wholeRulesOf).
+      const rules = wholeRulesOf(I, partner, r.value, cheap, funnel);
+      let q = rules.next();
+      while (!q.done) {
+        yield { stage: "screening", done: pi, total: pools.partners.length };
+        q = rules.next();
+      }
+      perPartner.push(q.value.list);
+      ruled.push(q.value.ruled);
+      yield { stage: "screening", done: pi + 1, total: pools.partners.length };
+    }
   }
-  // Screening's rules (the g window, the dominance pruning: N11), the shortlist, then the lean companions (the file header).
-  const ruled = perPartner.map((list) => screeningRules(list, atMostWaiverCredit(I)));
-  const shortlist = shortlistFrom(ruled);
+  const shortlist = shortlistFrom(ruled, funnel);
   function* companionsOf(trades: readonly Screened[], skip?: ReadonlySet<string>): Generator<TradeSearchProgress, Screened[], void> {
     if (opts.leanCompanions === false || !trades.length) return [];
     const it = leanCompanions(I, trades, perPartner, pools, undefined, skip);
@@ -2401,6 +2854,7 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
     onePartner,
     pools.forcedGive,
     new Set([...lane.trades, ...laneCompanions].map((s) => s.key)),
+    funnel.finalists,
   );
   // Only the "Helps both" list ranks the extras and (Checkpoint 7d) the finalists the lane displaced (finish).
   const helpsBothExtras = [...extras, ...laneDisplaced];
@@ -2443,6 +2897,7 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
     smallerAsks: opts.smallerAsks !== false,
     preferListed: opts.preferListed !== false,
     dropDominated: opts.dropDominated !== false,
+    ...(mode !== "normal" ? { mode } : {}),
     versions: new Map<string, TradeVersion>(screened.map((s) => [s.core.key, { x: s.x, screen: s.core }])),
     finalByKey,
     shownByKey: new Map<string, TradeEvaluationCore>(),

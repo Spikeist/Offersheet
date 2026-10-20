@@ -77,6 +77,16 @@
  * the request carries the versions the card's ladder prefers (TradeSearchResult.offerPrefer), so a worker that no longer keeps
  * the result still gives the offers the search kept.
  *
+ * "Thorough search" (Checkpoint 7h; planner reply to Checkpoint 7g, section 3: "For people willing to wait for the most complete
+ * search"): a switch under the controls, off by default and ⚠️ not saved (page state only: a reload, another league, is back to
+ * the normal search). On, the search is search.ts's Thorough one (engine.worker.ts TradesRequest.thorough: whole rosters, 3
+ * players a side whatever the max-per-side setting, a bigger funnel), with its own key in the search memory (searchKeyFor's
+ * `thorough`), so its ideas are kept for the session like a normal search's, and turning it off shows the normal search's again
+ * at once. Before it starts, the switch's help says roughly how long it takes (thoroughHelp: "about N seconds", engine
+ * thorough.ts thoroughSeconds, from this tab's last normal search for the same partner filter, else a default rate); it runs with
+ * the usual progress bar and Stop. What its ideas were found with (Done.settings: thoroughSettings) is what "How to offer it"
+ * asks with, and the settings line says up to 3 players a side.
+ *
  * "Now or after this week" (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.2): once the search answers, the engine worker
  * works out what each card's Helps you would be if done after this week's games, and each card shows "Helps you 37 now · 41 if
  * done after this week's games." as its numbers arrive (engineClient.ts laterLinesOf, read with useSyncExternalStore), when the
@@ -97,6 +107,7 @@ import Link from "next/link";
 import { memo, useCallback, useEffect, useEffectEvent, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type Ref } from "react";
 import type { LeagueSettings, LeagueSnapshot } from "@/engine/model";
 import type { Goal, TradeSettings } from "@/engine/settings";
+import { thoroughSeconds, thoroughSettings } from "@/engine/thorough";
 import type { TradeEvaluation, TradeSearchProgress, TradeSearchResult, TradeSort } from "@/engine/tradeModel";
 import { EngineError, laterLinesOf, searchResultIdOf, watchLaterLines, type TradeSearchHandle } from "@/lib/engineClient";
 import { feedbackShareContext, shownRewardOf, type FeedbackSaveResult } from "@/lib/feedbackShare";
@@ -188,9 +199,21 @@ export function searchKeyFor(args: {
   myTeamId: string;
   settings: TradeSettings;
   partnerId: string | null;
+  /** Checkpoint 7h: the Thorough search (a key of its own; absent or false: the normal search's key, as before). */
+  thorough?: boolean;
 }): string {
-  return `${leagueTag(args.snapshot)}|${args.builtAt}|${args.myTeamId}|${settingsFingerprint(args.settings, SEARCH_SETTINGS)}|${args.partnerId ?? "*"}`;
+  return `${leagueTag(args.snapshot)}|${args.builtAt}|${args.myTeamId}|${settingsFingerprint(args.settings, SEARCH_SETTINGS)}|${args.partnerId ?? "*"}${args.thorough ? "|thorough" : ""}`;
 }
+
+/**
+ * The Thorough search switch's help (the header; Checkpoint 7h): what it does, and roughly how long it takes (`seconds`:
+ * engine thorough.ts thoroughSeconds).
+ */
+export function thoroughHelp(seconds: number): string {
+  return `Checks every trade of up to 2 players a side with every team, plus trades with 3 players a side, and plays out more of them. Takes about ${seconds} seconds.`;
+}
+
+export const THOROUGH_LABEL = "Thorough search";
 
 /** One search: what it's for (searchKeyFor) and the attempt (Search again, Try again). */
 export function searchTagFor(args: Parameters<typeof searchKeyFor>[0] & { attempt: number }): string {
@@ -248,7 +271,7 @@ type FocusTo = "status" | "stop" | "again";
 
 /** Ideas found: the search's tag and key, the result, its partner, the moment it was for and the goal B was weighted by. */
 /** A search or re-filter that answered, with the settings and time it ran with (`settings`: what "How to offer it" asks with, Checkpoint 7e). */
-type Done = { tag: string; key: string; kind: "done"; result: TradeSearchResult; partnerId: string | null; nowIso: string; goal: Goal; settings: TradeSettings };
+type Done = { tag: string; key: string; kind: "done"; result: TradeSearchResult; partnerId: string | null; nowIso: string; goal: Goal; settings: TradeSettings; thorough?: boolean };
 type Outcome = Done | { tag: string; kind: "error"; message: string } | { tag: string; kind: "stopped" };
 
 /** The page's state for its status line and body (pure: FinderBody renders it; tests render each). */
@@ -320,6 +343,8 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
   const [attempt, setAttempt] = useState(0);
   // Why the minimum chance couldn't be saved (the store put the page back), or null.
   const [minChanceError, setMinChanceError] = useState<string | null>(null);
+  // The Thorough search switch (Checkpoint 7h; the header): page state only, never saved.
+  const [thorough, setThorough] = useState(false);
 
   const myTeamId = myTeam?.myTeamId ?? null;
   const league = pair && myTeamId ? pair.snapshot : null;
@@ -346,7 +371,10 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
       if (!saved.ok) setMinChanceError(saved.message);
     });
   };
-  const searchKey = pair && myTeamId && settings ? searchKeyFor({ snapshot: pair.snapshot, builtAt: pair.inputs.builtAt, myTeamId, settings, partnerId }) : null;
+  const searchKey = pair && myTeamId && settings ? searchKeyFor({ snapshot: pair.snapshot, builtAt: pair.inputs.builtAt, myTeamId, settings, partnerId, thorough }) : null;
+  // The normal search's key for the same filter: its time on this device sizes the Thorough search's estimate (the header).
+  const normalKey = pair && myTeamId && settings ? searchKeyFor({ snapshot: pair.snapshot, builtAt: pair.inputs.builtAt, myTeamId, settings, partnerId }) : null;
+  const [normalTime, setNormalTime] = useState<{ key: string; ms: number } | null>(null);
   const searchTag = searchKey ? `${searchKey}|${attempt}` : null;
 
   // The Analyzer's "Back to the Trade Finder" comes back to this address, partner included (finderMemory.ts).
@@ -370,9 +398,17 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
       prev && prev.tag === tag && prev.view.percent === view.percent && prev.view.label === view.label && !!prev.searching === searching ? prev : { tag, view, searching },
     );
 
+  // A normal search's time on this device, for the Thorough search's estimate (the header; its timings are the search's own).
+  const noteNormalTime = (done: Done) => {
+    const took = done.result.timings?.total;
+    if (!done.thorough && typeof took === "number" && took > 0) setNormalTime({ key: done.key, ms: took });
+  };
+
   const startSearch = useEffectEvent((tag: string, key: string) => {
     if (!pair || !myTeamId || !settings) return undefined;
-    const job = { snapshot: pair.snapshot, model: pair.inputs, myTeamId, settings, partnerId };
+    const job = { snapshot: pair.snapshot, model: pair.inputs, myTeamId, settings, partnerId, ...(thorough ? { thorough: true } : {}) };
+    // What the ideas are found with (Checkpoint 7h: the Thorough search's players a side), for "How to offer it".
+    const ranWith = thorough ? thoroughSettings(settings) : settings;
     // Search again and Try again search; a page-started search may show what it found before.
     const recall = attempt === 0;
     let live = true;
@@ -385,9 +421,10 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
       const known = recall ? recallSearchEntry(key, (iso) => contextStillValid(Date.parse(iso), nowMs, job.model, job.snapshot)) : null;
       if (known) {
         returnRef.current = back ? { tag, ...back } : null;
-        const done: Done = { tag, key, kind: "done", result: known.result, partnerId: job.partnerId, nowIso: known.nowIso, goal: job.settings.goal, settings: job.settings };
+        const done: Done = { tag, key, kind: "done", result: known.result, partnerId: job.partnerId, nowIso: known.nowIso, goal: job.settings.goal, settings: ranWith, thorough };
         setOutcome(done);
         setLastDone(done);
+        noteNormalTime(done);
         return;
       }
       const nowIso = new Date(nowMs).toISOString();
@@ -401,9 +438,10 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
           // Remembered even when a newer search took over meanwhile: these ideas are this search's.
           rememberSearch(key, nowIso, result);
           if (!live) return;
-          const done: Done = { tag, key, kind: "done", result, partnerId: job.partnerId, nowIso, goal: job.settings.goal, settings: job.settings };
+          const done: Done = { tag, key, kind: "done", result, partnerId: job.partnerId, nowIso, goal: job.settings.goal, settings: ranWith, thorough };
           setOutcome(done);
           setLastDone(done);
+          noteNormalTime(done);
         },
         (err: unknown) => {
           if (!live || (err instanceof EngineError && err.cancelled)) return;
@@ -432,7 +470,7 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
 
   const startRefilter = useEffectEvent((tag: string, done: Done) => {
     if (!pair || !myTeamId || !settings) return undefined;
-    const job = { snapshot: pair.snapshot, model: pair.inputs, myTeamId, settings, partnerId: done.partnerId, result: done.result };
+    const job = { snapshot: pair.snapshot, model: pair.inputs, myTeamId, settings, partnerId: done.partnerId, result: done.result, ...(done.thorough ? { thorough: true } : {}) };
     let live = true;
     let handle: TradeSearchHandle | null = null;
     // Its progress is the ranking's alone, unless the worker has to search afresh (any other stage).
@@ -453,7 +491,7 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
           // The same search's ideas at the new minimum, under the same key (finderMemory.ts).
           rememberSearch(done.key, nowIso, result);
           if (!live) return;
-          const next: Done = { ...done, result, nowIso, settings: job.settings };
+          const next: Done = { ...done, result, nowIso, settings: done.thorough ? thoroughSettings(job.settings) : job.settings };
           setOutcome(next);
           setLastDone(next);
         },
@@ -493,6 +531,7 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
 
   // The ideas shown are done once they're ranked at the minimum shown (not while a re-filter runs).
   const shownDone = doneResult && !refilterTag ? doneResult : null;
+
   useEffect(() => {
     if (!shownDone) return;
     // Coming back from the Analyzer: the "Open in Analyzer" link used, back in view and focused (see the header).
@@ -617,7 +656,10 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
         onMinChance={pickMinChance}
         minChanceNote={minChanceNote(league.settings.tradeReview)}
         minChanceError={minChanceError}
-        summary={settingsSummary(settings, league.platform, league.settings.leagueType)}
+        summary={settingsSummary(thorough ? thoroughSettings(settings) : settings, league.platform, league.settings.leagueType)}
+        thorough={thorough}
+        onThorough={setThorough}
+        thoroughSeconds={thoroughSeconds(normalTime && normalTime.key === normalKey ? normalTime.ms : null, partnerId ? 1 : Math.max(1, league.teams.length - 1))}
       />
     ) : null;
 
@@ -675,6 +717,9 @@ export function FinderControls({
   minChanceNote = null,
   minChanceError = null,
   summary,
+  thorough,
+  onThorough,
+  thoroughSeconds: seconds,
 }: {
   snapshot: Pick<LeagueSnapshot, "teams">;
   myTeamId: string;
@@ -688,7 +733,13 @@ export function FinderControls({
   minChanceNote?: string | null | undefined;
   minChanceError?: string | null | undefined;
   summary: string;
+  /** Checkpoint 7h: the Thorough search switch (the header); absent: not shown. */
+  thorough?: boolean | undefined;
+  onThorough?: ((on: boolean) => void) | undefined;
+  /** Roughly how long a Thorough search takes here (engine thorough.ts thoroughSeconds). */
+  thoroughSeconds?: number | undefined;
 }) {
+  const thoroughId = useId();
   const others = snapshot.teams.filter((t) => t.id !== myTeamId);
   const noteId = useId();
   const errorId = useId();
@@ -769,6 +820,24 @@ export function FinderControls({
           ) : null}
         </div>
       </div>
+      {onThorough ? (
+        <div className="mt-3">
+          <label className="inline-flex min-h-11 cursor-pointer items-center gap-3 text-sm font-bold">
+            <input
+              type="checkbox"
+              role="switch"
+              aria-describedby={thoroughId}
+              checked={thorough === true}
+              onChange={(e) => onThorough(e.target.checked)}
+              className="size-5 shrink-0 accent-brand"
+            />
+            {THOROUGH_LABEL}
+          </label>
+          <p id={thoroughId} className="text-xs text-muted">
+            {thoroughHelp(seconds ?? thoroughSeconds(null, 1))}
+          </p>
+        </div>
+      ) : null}
       <p className="mt-3 text-sm text-muted">
         {summary}{" "}
         <Link href="/settings" className={linkClass}>
