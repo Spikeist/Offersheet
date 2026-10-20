@@ -431,6 +431,7 @@ import { acceptance, hotPlayers, hotTerm, hotWeeks, holeFeature, laterBeforeDead
 import {
   benefit,
   benefitNotes,
+  benefitWin,
   futureValuesLoaded,
   helpsScale,
   helpsScaleNotes,
@@ -460,7 +461,7 @@ import { FULL_POOL, applyStep, fillCount, poolRestriction, returnersOf, rosterKe
 import { leaguePremiums, perceivedPackage, premiumFacts } from "./premium";
 import { activeSpots, irAfterTrade, irEligibleStatuses, type Displacement, type FinalLineups } from "./returners";
 import { buildSimSetup, oddsSkippedWarning, pickupSeasonModel, seasonOddsWith, shownSimsOf, type SeasonModel, type SimSetupResult } from "./season";
-import { paysWeekly, prizeStillMovable, rewardOf, runPrizeDeltas, type PrizeOdds, type Reward } from "./reward";
+import { paysWeekly, prizeStillMovable, rewardOf, runPrizeDeltas, type PrizeDeltas, type PrizeOdds, type Reward } from "./reward";
 import { PRIZE_KEYS, defaultTradeSettings, normalizeTradeSettings, type ProtectValue, type TradeSettings } from "./settings";
 import { simNormals, simulateSeason, type SimNormals, type SimProgress, type SimResult, type SimTeamOdds } from "./sim";
 import {
@@ -486,7 +487,7 @@ import {
   type TableRow,
   type WeeklyScore,
 } from "./teamValue";
-import type { AssumedMove, AssumedRelease, LaterNumbers, NearTieRelease, OddsBefore, OpenSpot, PartnerNumbers, PickupOf, RosterChange, RosterMove, RosterMoves, SlotChange, TradeAsset, TradeDetail, TradeEvaluation, TradeEvaluationCore, TradeProposal } from "./tradeModel";
+import type { AssumedMove, AssumedRelease, InjuryTag, LaterNumbers, NearTieRelease, OddsBefore, OpenSpot, PartnerNumbers, PickupOf, RosterChange, RosterMove, RosterMoves, SlotChange, TradeAsset, TradeDetail, TradeEvaluation, TradeEvaluationCore, TradeProposal } from "./tradeModel";
 
 /** Gains closer than this are ties or zero (float noise, not a tunable). */
 const EPS = 1e-9;
@@ -4092,4 +4093,282 @@ export function analyzeTrade(ctx: TradeContext, proposal: TradeProposal, opts: A
   // Since Checkpoint 7e (planner reply to Checkpoint 7d, item 4.1) no "Offer first / if they say no" steps: the card's "How to
   // offer it" is worked out when it's opened (src/engine/offers.ts offerLadderOfProposal, the engine worker's `offers`).
   return { evaluation: withWords(I, core), illegal: null, notes, helpsScale, reward };
+}
+
+// ---------------------------------------------------------------------------------------------
+// "What if" (Checkpoint 7h; planner reply to Checkpoint 7g, section 4)
+
+/**
+ * A "What if" in the Trade Analyzer (Checkpoint 7h; planner reply to Checkpoint 7g, section 4: "Parker wants to compare any
+ * players and see how his odds move. … Pick players to take off your roster and any players to put on it, from any team or
+ * from free agency. There's no partner and no chance they accept. Roster rules apply as usual."; analyzeWhatIf): canonical
+ * player ids, each list in the order the user picked them.
+ */
+export interface WhatIfProposal {
+  /** My players to take off: each on my active roster or IR (a taxi player can't be, as in a trade). */
+  remove: string[];
+  /**
+   * Players to put on my roster: each on another team's active roster or IR, or a free agent the league's data lists
+   * (LeagueSnapshot.freeAgents); never one already mine, nor another team's taxi player (as in a trade).
+   */
+  add: string[];
+}
+
+/**
+ * A what-if, evaluated (analyzeWhatIf): my numbers only, all from one run on the shown block (20,000 seasons, the cards'), and
+ * the roster moves they assume. No partner's numbers, no chance they accept, no Overall, no offers, no Plan B.
+ */
+export interface WhatIfEvaluation {
+  /** whatIfKey: the players taken off and put on, sorted. */
+  key: string;
+  proposal: WhatIfProposal;
+  /**
+   * B on my odds alone (⚠️ the lead's reading of the planner's "Helps you": nothing is traded, so no trade-value term, and no
+   * long-term term in a dynasty or keeper league): B_win under the call's reward (benefit.benefitWin: "What does your league
+   * reward?" with the league's prizes), in percentage points; null without odds.
+   */
+  b: number | null;
+  /** Helps you on `b3`: round(100 × (1 − e^(−B / B₃))) when B > 0; null otherwise (the page prints 0 for B ≤ 0, "—" without B). */
+  tradeScore: number | null;
+  /**
+   * B₃ on the season's scale (whatIfScaleOf: the B_win of +3 points a week under the same reward, the shown block's
+   * calibration run, floored as every B₃; never mixed with long-term value), so 63 is as good as adding 3 points a week to my
+   * lineup for the rest of the season in every league type. Null without odds.
+   */
+  b3: number | null;
+  /** The seasons behind the numbers: the shown block's (config.simulation.shownSims); 0 without odds. */
+  sims: number;
+  /** Changes in my P(playoffs), P(title) (null when the league's title odds are unknown) and expected wins; null without odds. */
+  dPO: number | null;
+  dCH: number | null;
+  dEW: number | null;
+  /** Every prize component's change on the same run (reward.ts PrizeDeltas, TradeEvaluation.dPrizes' rules); null without odds. */
+  dPrizes: PrizeDeltas | null;
+  /**
+   * My odds before the change when they aren't the League page's headline (TradeEvaluation.before's rule, Checkpoint 7e item
+   * 2.1): my baseline with the either-way moves this change's roster finds worth making on it too. Absent: the headline.
+   */
+  before?: OddsBefore;
+  /** My average weekly starting points' change over the remaining regular-season weeks, and the playoff weeks (TradeEvaluation.dPPW's). */
+  dPPW: number;
+  dPPWPlayoffs: number;
+  /** ROS points (§6 step 7) of the players taken off and put on. */
+  ros: { removed: number; added: number };
+  /** My active roster the numbers assume: after the roster rules and my free-agent pickups (streaming rows and returners aside). */
+  roster: string[];
+  /** Every roster move the numbers assume, in order, and those made either way (myRosterMoves: TradeEvaluation.myMoves' rules). */
+  myMoves: RosterMoves;
+  /** Every injury-tagged player taken off ("give") or put on ("get"), as a trade card's tags (explain.injuryTags). */
+  tagged: InjuryTag[];
+  detail: {
+    myTeamId: string;
+    /** My projected points by week before and after (TradeDetail.weekly's: the starting lineup's, for rosNoteOf). */
+    weekly: { week: number; before: number; after: number }[];
+    /** My win chance by week before and after (TradeDetail.winChance's rules); absent without odds. */
+    winChance?: NonNullable<TradeDetail["winChance"]>;
+    /** Plain-English notes about this what-if (the week in progress, odds missing, the scale's floor, a player without projections). */
+    notes: string[];
+  };
+}
+
+/** analyzeWhatIf's answer (TradeAnalysis's shape). */
+export interface WhatIfAnalysis {
+  /** The evaluation; null when the change can't be made or nothing can be evaluated (no team picked). */
+  evaluation: WhatIfEvaluation | null;
+  /** Why the change can't be made, in plain English (null when it can). */
+  illegal: string | null;
+  /** Plain-English notes (the context's that apply to a what-if, and this change's). */
+  notes: string[];
+  /** The scale Helps you was scored on (whatIfScaleOf), for the tooltip; null without odds. Absent without an evaluation. */
+  helpsScale?: HelpsScale | null;
+  /** The reward B was weighed by (rewardFor: the call's goal and prizes), for the top-N odds line. Absent without an evaluation. */
+  reward?: Reward;
+}
+
+/** The context's notes as a what-if says them (whatIfContextNotes): it isn't a trade, so none says "trade". */
+export const WHAT_IF_NO_TEAM_NOTE = "Pick your team on the Import Report to compare players.";
+export const WHAT_IF_NO_WEEKS_NOTE = "No weeks are left in this season, so no roster change can move your odds.";
+export const WHAT_IF_NO_ODDS_NOTE = "Your playoff odds couldn't be worked out from this league's schedule, so this change can't be scored.";
+export const WHAT_IF_SEASON_OVER_NOTE = "Your season's over, so no roster change can help this year.";
+
+/**
+ * The context's notes (TradeContext.notes) as a what-if reads them: the same facts in a what-if's words, and ⚠️ the trade
+ * deadline's left out (ours: a what-if compares rosters, a free-agent move as well as a trade, and the deadline stops neither
+ * the comparison nor a pickup).
+ */
+function whatIfContextNotes(notes: readonly string[]): string[] {
+  const words = new Map<string, string | null>([
+    [NO_TEAM_NOTE, WHAT_IF_NO_TEAM_NOTE],
+    [NO_WEEKS_NOTE, WHAT_IF_NO_WEEKS_NOTE],
+    [NO_ODDS_NOTE, WHAT_IF_NO_ODDS_NOTE],
+    [SEASON_OVER_NOTE, WHAT_IF_SEASON_OVER_NOTE],
+    [DEADLINE_PASSED_NOTE, null],
+  ]);
+  return notes.flatMap((n) => {
+    const w = words.has(n) ? words.get(n) : n;
+    return w ? [w] : [];
+  });
+}
+
+/** WhatIfEvaluation.key: the players taken off and put on, each list sorted ("whatif|remove:a,b|add:c"). */
+export function whatIfKey(p: Pick<WhatIfProposal, "remove" | "add">): string {
+  const ids = (xs: readonly string[]) => [...new Set(xs)].sort(byId).join(",");
+  return `whatif|remove:${ids(p.remove)}|add:${ids(p.add)}`;
+}
+
+/**
+ * Why a what-if can't be evaluated before any roster rule (proposalProblem's for a trade), or null: no team picked; more than
+ * `maxPerSide` players taken off or put on (the Analyzer's config.search.analyzerMaxPerSide, ⚠️ ours: a trade's side limit for
+ * each list); a player picked twice; a player taken off who isn't on my active roster or IR (IR only while IR players are
+ * tradable, TradeContextOptions.irReturners); a player put on who's mine already, on another team's taxi squad (or IR under
+ * irReturners false), or neither on a roster nor among the free agents the league's data lists. An empty what-if is legal: it
+ * changes nothing (the page asks for a player first).
+ */
+export function whatIfProblem(I: TradeInternals, p: Pick<WhatIfProposal, "remove" | "add">, maxPerSide: number): string | null {
+  const me = I.me;
+  if (!me) return WHAT_IF_NO_TEAM_NOTE;
+  if (p.remove.length > maxPerSide || p.add.length > maxPerSide) {
+    const most = `${maxPerSide} ${maxPerSide === 1 ? "player" : "players"}`;
+    return `You can take off at most ${most} and put on at most ${most} here.`;
+  }
+  const seen = new Set<string>();
+  for (const id of [...p.remove, ...p.add]) {
+    if (seen.has(id)) return `${playerName(I, id)} is picked twice.`;
+    seen.add(id);
+  }
+  for (const id of p.remove) {
+    if (me.roster.includes(id) || (I.irOn && me.ir.includes(id))) continue;
+    if (me.team.taxi.includes(id)) return `${playerName(I, id)} is on your taxi squad: only active-roster and IR players can be taken off here.`;
+    if (me.ir.includes(id)) return `${playerName(I, id)} is on your IR: only active-roster players can be taken off here.`;
+    return `${playerName(I, id)} isn't on your ${I.irOn ? "active roster or IR" : "active roster"}.`;
+  }
+  for (const id of p.add) {
+    if (me.roster.includes(id) || me.ir.includes(id) || me.team.taxi.includes(id)) return `${playerName(I, id)} is already on your roster.`;
+    const owner = I.teams.find((t) => t !== me && (t.roster.includes(id) || t.ir.includes(id) || t.team.taxi.includes(id)));
+    if (owner) {
+      if (owner.roster.includes(id) || (I.irOn && owner.ir.includes(id))) continue;
+      const name = teamName(I, owner.id);
+      return owner.team.taxi.includes(id)
+        ? `${playerName(I, id)} is on ${name}'s taxi squad: only active-roster and IR players can be put on here.`
+        : `${playerName(I, id)} is on ${name}'s IR: only active-roster players can be put on here.`;
+    }
+    if (I.snapshot.freeAgents.includes(id)) continue;
+    return `${playerName(I, id)} isn't on a roster or among the free agents in this league's data.`;
+  }
+  return null;
+}
+
+/**
+ * "Helps you"'s scale for a what-if (WhatIfEvaluation.b3): benefit.helpsScale on the shown block's "Helps you" calibration run
+ * (SimState.calibration, the League model's) under `reward`, with no long-term mix (dynastyTotal null: the B it scores is my odds
+ * alone), so B₃ is B_win₃ floored and the tooltip says the season's words (+3 points a week reads 63). Null without odds or my team.
+ */
+export function whatIfScaleOf(I: Pick<TradeInternals, "sim" | "me" | "snapshot">, reward: Reward): HelpsScale | null {
+  if (!I.sim || !I.me) return null;
+  return helpsScale(I.sim.calibration, { leagueType: I.snapshot.settings.leagueType, myPPlayoffs: I.sim.base.shown.pPlayoffs, lambda: null, reward, dynastyTotal: null });
+}
+
+/**
+ * The Trade Analyzer's "What if" (Checkpoint 7h; planner reply to Checkpoint 7g, section 4; the lead's design): my roster with
+ * `proposal.remove` taken off and `proposal.add` put on, every other team as it stands.
+ * - My side exactly as my side of a trade (evaluateExact, tradeSides): legality from my roster as it stands (legalSide: rules
+ *   1–5, the players taken off as given and the ones put on as received: a drop when the roster or a position is over its limit,
+ *   never one of my untouchables nor a player put on; a fill at a position given up for each roster spot opened; a player put
+ *   on from another team's IR into an open IR slot when his status takes one), its adds from my own pool (TeamState.pool,
+ *   excl(me): every other team keeps its baseline pickups), then my free-agent optimizer V*(after) from the result, in the
+ *   lineups B is measured in, never dropping a legality add or one of my untouchables (as after a trade) and ⚠️ never a player
+ *   put on (ours: the user asked about having him; after a trade my pickups may drop a player received, myRosterMoves'
+ *   "droppedIn"). ⚠️ A player taken off goes nowhere (ours): no other team gets him, and he isn't a free agent my pickups
+ *   could take back. ⚠️ A player put on from another team stays on it too, and a free agent another team's baseline picks up
+ *   stays its pickup (the lead's: "Other teams stay as they are"; the simulation reads each team's own lineup).
+ * - Item 2.1's either-way moves as for a trade (eitherWayMoves): a pickup my roster after the change makes that clears the
+ *   pickup bar on my baseline too is in both versions, so the numbers start from that "before" (WhatIfEvaluation.before).
+ * - One run on the shown block with my row alone replaced (runSim with no partner: every other team's row is its baseline's),
+ *   against the baseline's run (LeagueModel.odds, the League page's headline) or the "before"'s: ΔPO, ΔCH, ΔEW, the prize
+ *   components, my win chance by week. B = B_win under the call's reward (no trade-value or long-term term: nothing is
+ *   traded), Helps you on the season's B₃ (whatIfScaleOf).
+ * - The roster moves the numbers assume (myRosterMoves, a trade's words with no partner), ROS points taken off and put on,
+ *   the injury tags, ΔPPW.
+ * An empty what-if is the baseline itself (every change exactly 0). Deterministic: no clock, the context's seeded seasons.
+ */
+export function analyzeWhatIf(ctx: TradeContext, proposal: WhatIfProposal, opts: Pick<AnalyzeOptions, "settings"> = {}): WhatIfAnalysis {
+  const I = tradeInternals(ctx);
+  const notes = whatIfContextNotes(I.notes);
+  const me = I.me;
+  if (!me) return { evaluation: null, illegal: null, notes };
+  const settings = normalizeTradeSettings(opts.settings ?? defaultTradeSettings());
+  const maxPerSide = Math.max(1, Math.floor(config.search.analyzerMaxPerSide));
+  const remove = [...proposal.remove];
+  const add = [...proposal.add];
+  const problem = whatIfProblem(I, { remove, add }, maxPerSide);
+  if (problem) return { evaluation: null, illegal: problem, notes };
+  // My side as in a trade (the doc above): legality from my roster as it stands, from my own pool, then V*(after).
+  const legal = legalSide(I, me, me.roster, remove, add, "exact", "You", "none", me.pool);
+  if ("illegal" in legal) return { evaluation: null, illegal: legal.illegal, notes };
+  const putOn = add.filter((id) => legal.roster.includes(id));
+  const keep = [...new Set([...(I.openSpotFill === "bestAny" ? [] : legal.change.adds), ...me.keep, ...putOn])];
+  const run = I.league.optimizer.optimize(legal.roster, legal.spec, undefined, me.pool, keep);
+  const mine = sideEval(I, me, run, legal.spec);
+  const either = I.eitherWay ? eitherWayMoves(I, me, run) : [];
+  const beforeRun = either.length ? eitherWayRun(I, me, either) : null;
+  const before = beforeRun ? sideEval(I, me, beforeRun) : me.base;
+  const weeks = I.league.lp.weeks.weeks;
+  const reward = rewardOn(I, rewardFor(I, settings));
+
+  let dPO: number | null = null;
+  let dCH: number | null = null;
+  let dEW: number | null = null;
+  let dPrizes: PrizeDeltas | null = null;
+  let winChance: NonNullable<TradeDetail["winChance"]> | undefined;
+  let oddsBefore: OddsBefore | undefined;
+  if (I.sim) {
+    // One run on the shown block, my row alone replaced, against the baseline's run there (or the "before"'s).
+    const base = beforeRun ? beforeOddsOf(I, before, "shown") : I.sim.base.shown;
+    if (beforeRun) oddsBefore = { pPlayoffs: base.pPlayoffs, pTitle: base.pTitle, prizes: { ...base.prizes } };
+    const after = runSim(I, mine, null, "shown");
+    dPO = after.pPlayoffs - base.pPlayoffs;
+    dCH = after.pTitle !== null && base.pTitle !== null ? after.pTitle - base.pTitle : null;
+    dEW = after.expWins - base.expWins;
+    dPrizes = runPrizeDeltas(base.prizes, after.prizes, I.sim.highScores);
+    winChance = winChanceOf(base, after);
+  }
+  const { bWin, titleMissing } = benefitWin(dPO, dPrizes, config.benefit, reward);
+  const scale = whatIfScaleOf(I, reward);
+  const b3 = scale?.b3 ?? null;
+
+  const rosOf = (ids: readonly string[]) => ids.reduce((s, id) => s + (I.league.lp.players[id]?.ros.total ?? 0), 0);
+  const here: string[] = [];
+  if (I.inProgress && I.model.inProgressWeek !== null) here.push(`Week ${I.model.inProgressWeek} is under way: these odds play it with today's rosters, with and without this change.`);
+  // ⚠️ Ours: a player put on without projections counts nothing (as a trade's), which the page says rather than leave a puzzle.
+  for (const id of add) if (!I.league.table.rows.has(id)) here.push(`${playerName(I, id)} has no projections here, so he adds nothing to these numbers.`);
+  here.push(...benefitNotes({ titleMissing, dynMissing: false }, reward), ...helpsScaleNotes(scale));
+
+  const evaluation: WhatIfEvaluation = {
+    key: whatIfKey({ remove, add }),
+    proposal: { remove, add },
+    b: bWin,
+    tradeScore: tradeScore(bWin, b3),
+    b3,
+    sims: I.sim ? I.sim.blocks.shown.sims : 0,
+    dPO,
+    dCH,
+    dEW,
+    dPrizes,
+    ...(oddsBefore ? { before: oddsBefore } : {}),
+    dPPW: ppw(mine.lv, weeks, I.regWeeks) - ppw(before.lv, weeks, I.regWeeks),
+    dPPWPlayoffs: ppw(mine.lv, weeks, I.poWeeks) - ppw(before.lv, weeks, I.poWeeks),
+    ros: { removed: rosOf(remove), added: rosOf(add) },
+    roster: [...run.roster],
+    // No partner: nobody claims a pickup of mine ahead of me (an empty set: myRosterMoves' "taken" never applies).
+    myMoves: myRosterMoves(I, me, { give: remove, get: add }, legal, run, either, { mine, before }, new Set()),
+    tagged: injuryTags({ give: players(remove), get: players(add) }, I.snapshot.players, tagContextOf(I)),
+    detail: {
+      myTeamId: me.id,
+      weekly: weeks.map((week, w) => ({ week, before: before.score.mean[w] as number, after: mine.score.mean[w] as number })),
+      ...(winChance ? { winChance } : {}),
+      notes: here,
+    },
+  };
+  for (const n of here) if (!notes.includes(n)) notes.push(n);
+  return { evaluation, illegal: null, notes, helpsScale: scale, reward };
 }

@@ -89,6 +89,11 @@
  *   sliced: on Parker's leagues the first open of a top card takes a few tenths of a second in Node (⚠️ about ×1.24 in the
  *   browser; its candidates pre-screened since the review of wave D: offers.ts), and a search or re-filter under way waits
  *   for it.
+ * - `whatif` (Checkpoint 7h; planner reply to Checkpoint 7g, section 4, "What if" comparisons): the Trade Analyzer's what-if
+ *   (src/engine/evaluate.ts analyzeWhatIf): my players taken off and others put on, every other team as it stands, on the same
+ *   evaluation context as `analyze` (the cached one when it holds). One reply: `whatif` (or `error`), with my odds before any
+ *   change (contextBaseline), as `analysis` carries them. One piece of work, not sliced (one run on the shown block, about
+ *   50 ms on Parker's leagues in Node, once the context is built).
  * - `cancel` { id }: stops that search or re-filter (a `cancelled` reply follows); anything else is ignored.
  *
  * The evaluation context (evaluate.ts buildTradeContext: projections, scenarios, every team's free-agent-
@@ -111,7 +116,7 @@
  * handler on its main thread when the browser has no Worker support (src/lib/engineClient.ts). The listener
  * is registered only when this module runs as a worker.
  */
-import { analyzeTrade, buildTradeContext, laterNumbers, tradeInternals, withWords, type TradeAnalysis, type TradeContext, type TradeInternals } from "@/engine/evaluate";
+import { analyzeTrade, analyzeWhatIf, buildTradeContext, laterNumbers, tradeInternals, withWords, type TradeAnalysis, type TradeContext, type TradeInternals, type WhatIfAnalysis, type WhatIfProposal } from "@/engine/evaluate";
 import type { ModelInputs } from "@/engine/inputs";
 import { buildLeagueModel, buildLeagueModelWithContext, rateWaiverUpgrades, type BuildLeagueModelOptions, type LeagueModelBuild } from "@/engine/league";
 import type { LeagueModel, WaiverUpgrades } from "@/engine/leagueModel";
@@ -181,6 +186,12 @@ export interface WaiversRequest extends LeagueJobFields {
   type: "waivers";
 }
 
+/** The Trade Analyzer's "What if" (the header: Checkpoint 7h): my players to take off and the players to put on. */
+export interface WhatIfRequest extends LeagueJobFields {
+  type: "whatif";
+  proposal: WhatIfProposal;
+}
+
 /**
  * Which card "How to offer it" is for (the header, `offers`): a Trade Finder card, by the id of the search or re-filter whose
  * result holds it (engineClient.ts searchResultIdOf; -1 when unknown) and its key (TradeEvaluation.key), with (the review of
@@ -204,7 +215,7 @@ export interface CancelRequest {
   id: number;
 }
 
-export type EngineRequest = LeagueRequest | TradesRequest | RefilterRequest | AnalyzeRequest | WaiversRequest | OffersRequest | CancelRequest;
+export type EngineRequest = LeagueRequest | TradesRequest | RefilterRequest | AnalyzeRequest | WaiversRequest | OffersRequest | WhatIfRequest | CancelRequest;
 
 /** My odds before any trade, every team at its free-agent-optimized roster: the search's TradeSearchResult.baseline. */
 export type BaselineOdds = TradeSearchResult["baseline"];
@@ -216,12 +227,17 @@ export type BaselineOdds = TradeSearchResult["baseline"];
  */
 export type AnalyzerResult = TradeAnalysis & { baseline: BaselineOdds | null };
 
+/** The Trade Analyzer's what-if reply (the header, `whatif`): the evaluation (evaluate.ts analyzeWhatIf) and my odds before any change (contextBaseline). */
+export type WhatIfResult = WhatIfAnalysis & { baseline: BaselineOdds | null };
+
 export type EngineResponse =
   | { type: "league"; id: number; result: LeagueModel }
   /** A search under way: the stage and how far it is (the progress bar). */
   | { type: "progress"; id: number; progress: TradeSearchProgress }
   | { type: "trades"; id: number; result: TradeSearchResult }
   | { type: "analysis"; id: number; result: AnalyzerResult }
+  /** The Trade Analyzer's what-if (the header, `whatif`: Checkpoint 7h). */
+  | { type: "whatif"; id: number; result: WhatIfResult }
   /** The rated "Waiver upgrades" (null without my team). */
   | { type: "waivers"; id: number; result: WaiverUpgrades | null }
   /** A card's "How to offer it" (the header, `offers`: Checkpoint 7e). */
@@ -311,6 +327,8 @@ export interface EngineHandlerDeps {
    */
   offersOfSearch?: typeof offerLadderOfSearch;
   offersOfProposal?: typeof offerLadderOfProposal;
+  /** The Trade Analyzer's what-if (the header, `whatif`; evaluate.ts analyzeWhatIf; tests pass fakes). */
+  whatIf?: typeof analyzeWhatIf;
   /** Milliseconds for the engine's stage timings (performance.now in the browser); also times the search's slices. */
   clock?: () => number;
   /** Runs `fn` once the messages already waiting have been handled (default setTimeout 0). */
@@ -350,7 +368,13 @@ function isOffersSource(x: unknown): x is OffersSource {
   return x.kind === "analysis" && isProposal(x.proposal);
 }
 
-function isJob(x: unknown): x is LeagueRequest | TradesRequest | RefilterRequest | AnalyzeRequest | WaiversRequest | OffersRequest {
+/** A what-if that crossed the message boundary (WhatIfProposal): two lists of player ids (the engine judges the rest). */
+export function isWhatIfProposal(x: unknown): x is WhatIfProposal {
+  const ids = (xs: unknown) => Array.isArray(xs) && xs.every((id) => typeof id === "string" && id.length > 0);
+  return isRecord(x) && ids(x.remove) && ids(x.add);
+}
+
+function isJob(x: unknown): x is LeagueRequest | TradesRequest | RefilterRequest | AnalyzeRequest | WaiversRequest | OffersRequest | WhatIfRequest {
   if (!isRecord(x)) return false;
   const r = x as Partial<LeagueJobFields> & { type?: unknown; partnerId?: unknown; proposal?: unknown; of?: unknown; source?: unknown };
   const common =
@@ -368,6 +392,7 @@ function isJob(x: unknown): x is LeagueRequest | TradesRequest | RefilterRequest
   if (r.type === "refilter") return partnerOk && typeof r.of === "number";
   if (r.type === "analyze") return isProposal(r.proposal);
   if (r.type === "offers") return isOffersSource(r.source);
+  if (r.type === "whatif") return isWhatIfProposal(r.proposal);
   return false;
 }
 
@@ -466,6 +491,8 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
   const laterSource = deps.laterSource ?? laterSourceOf;
   const offersOfSearch = deps.offersOfSearch ?? offerLadderOfSearch;
   const offersOfProposal = deps.offersOfProposal ?? offerLadderOfProposal;
+  // Read when a `whatif` request comes (tests that mock the engine's module needn't list it).
+  const whatIf = (...args: Parameters<typeof analyzeWhatIf>) => (deps.whatIf ?? analyzeWhatIf)(...args);
   const schedule = deps.schedule ?? defaultSchedule;
   const sliceClock = deps.clock ?? defaultClock;
   const sliceMs = deps.sliceMs ?? SEARCH_SLICE_MS;
@@ -559,7 +586,7 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
     return ctx;
   }
 
-  function contextFor(req: TradesRequest | RefilterRequest | AnalyzeRequest, now: Date, settings: TradeSettings): TradeContext {
+  function contextFor(req: TradesRequest | RefilterRequest | AnalyzeRequest | WhatIfRequest, now: Date, settings: TradeSettings): TradeContext {
     const key = contextKey(req, settings);
     const nowMs = now.getTime();
     if (cached && cached.key === key && contextStillValid(cached.builtForMs, nowMs, req.model, req.snapshot)) return cached.ctx;
@@ -817,6 +844,15 @@ export function createEngineHandler(post: (response: EngineResponse) => void, de
       case "offers":
         try {
           post({ type: "offers", id, result: offersFor(message, now, settings) });
+        } catch (err) {
+          fail(id, err);
+        }
+        return;
+      case "whatif":
+        try {
+          // The Analyzer's own context (the cached one when it holds), so a what-if after a search or an evaluation costs one run.
+          const ctx = contextFor(message, now, settings);
+          post({ type: "whatif", id, result: { ...whatIf(ctx, message.proposal, { settings }), baseline: baselineOf(ctx) } });
         } catch (err) {
           fail(id, err);
         }
