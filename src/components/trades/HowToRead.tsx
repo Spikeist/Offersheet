@@ -119,10 +119,20 @@ const offersCountWords = (n: number): string => `${n} ${n === 1 ? "offer" : "off
  * always offered there (smallLeague 4 and 42: offered as a Then where it fits the Open). "more", not "a little more" (ours):
  * nothing bounds how much more the version passed over helps (5 points of Helps you and 20 of the chance on that 12-team
  * league). "Below this one on Overall" as the merge reads it, on the "Helps both" list too, which goes by Helps you. The
- * Analyzer's card has no list, so no preference, and its words don't change.
+ * Analyzer's card has no list, so no preference, and its words don't change. Since Checkpoint 7h (planner reply to Checkpoint 7g,
+ * answer 4: "Prefer an idea from the list only when its Helps you is within 3 points of the best version that meets the step's
+ * rules."; offers.ts narrowedPick) only when it helps you nearly as much, within config.offers.preferWithinHelps points of Helps
+ * you of the version the rules alone would pick.
  */
-export const PREFER_LISTED_WORDS =
-  "When another idea below this one on Overall fits one of these offers, it can be offered there even if another version helps you more or, for the “Last offer”, has a higher Overall, so it shows among this idea's offers rather than as an idea of its own.";
+export const PREFER_LISTED_WORDS = `When another idea below this one on Overall fits one of these offers, it can be offered there when its Helps you is within ${config.offers.preferWithinHelps} of the version the rules alone would pick, even if that version helps you more or, for the “Last offer”, has a higher Overall, so it shows among this idea's offers rather than as an idea of its own.`;
+
+/**
+ * Promoted Last offers in words, the Trade Finder's (Checkpoint 7h; planner reply to Checkpoint 7g, answer 3: "When an offer list
+ * finds a version with a higher Overall than the idea it sits under: that version becomes the idea; the original becomes its
+ * "Open with" step, the bigger ask."; the lead's ruling: the Last offer only, the one sentence; search.ts, "Promoted Last
+ * offers"). The Analyzer's card promotes nothing (the user built that trade), so its words don't change.
+ */
+export const PROMOTED_WORDS = "When an idea's “Last offer” would do better on Overall than the idea itself, that version shows as the idea instead, with the original as its “Open with”.";
 
 /**
  * "How to offer it" in words, after the paragraph's bold heading (Checkpoint 7e; planner reply to Checkpoint 7d, item 4.1):
@@ -140,7 +150,9 @@ export const PREFER_LISTED_WORDS =
  * of the Overall: offers.ts, "4. Last offer"), on both pages; and the Finder says a version of the same trade at least as good
  * on both Helps you and the chance shows alone (search.ts, "Merged cards, Checkpoint 7g"). The final review of Checkpoint 7g
  * (the lead's ruling W1): the Finder says, after its merge sentence, that an idea below this one on Overall can take one of
- * these offers over a version the rules alone would pick (PREFER_LISTED_WORDS: answer 3(b)'s preference).
+ * these offers over a version the rules alone would pick (PREFER_LISTED_WORDS: answer 3(b)'s preference). Checkpoint 7h
+ * (planner reply to Checkpoint 7g, answers 2–4): the smaller ask's share 75% (read from config), the preference narrowed
+ * (PREFER_LISTED_WORDS), and the Finder's sentence on promoted Last offers (PROMOTED_WORDS).
  */
 export function offersWords(page: HowToReadPage): string {
   const analyzer = page === "analyzer";
@@ -158,7 +170,7 @@ export function offersWords(page: HowToReadPage): string {
     : `works out, when you open it on an idea that helps you, up to ${offersCountWords(config.offers.maxSteps)} to the same team, in order:`;
   const tail = analyzer
     ? `When no other version makes a better first offer, it says to offer the trade as it is. A trade opened from a trade idea's “${PLAN_B_HEADING}” is shown as one offer instead: they've just turned down a trade with the same team.`
-    : `When an idea's offers include another idea below it on Overall, the list shows only the higher one, and the other is among its offers. ${PREFER_LISTED_WORDS} When two ideas are versions of the same trade and one is at least as good on both Helps you and the chance, only that one shows. An offer can still be an idea above it on Overall whose own offers don't include this one; it then says so, with that idea's place (“${planBAlsoText(2)}”). The idea's own “${PLAN_B_HEADING}” trade is never one of its offers. When no other version makes a better first offer, it says to offer the trade as it is.`;
+    : `When an idea's offers include another idea below it on Overall, the list shows only the higher one, and the other is among its offers. ${PROMOTED_WORDS} ${PREFER_LISTED_WORDS} When two ideas are versions of the same trade and one is at least as good on both Helps you and the chance, only that one shows. An offer can still be an idea above it on Overall whose own offers don't include this one; it then says so, with that idea's place (“${planBAlsoText(2)}”). The idea's own “${PLAN_B_HEADING}” trade is never one of its offers. When no other version makes a better first offer, it says to offer the trade as it is.`;
   return `${lead} ${steps} ${each} ${tail}`;
 }
 

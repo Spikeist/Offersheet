@@ -248,8 +248,19 @@ describe("the “Helps both” list (TradeSearchResult.helpsBoth)", { timeout: 1
         trades: x.trades.map(({ them: _them, ...t }) => (void _them, t)),
         counts: { ...x.counts, simFinal: 0, simShown: 0 },
         helpsBoth: undefined,
-        merged: x.merged && { ...x.merged, helpsBoth: [], rounds: { ...x.merged.rounds, helpsBoth: 0 }, dominated: x.merged.dominated?.filter((d) => d.list === "overall") },
+        // Since Checkpoint 7h the promotions too (each list's own), and the ladders' count (every card's of both lists).
+        merged: x.merged && {
+          ...x.merged,
+          helpsBoth: [],
+          rounds: { ...x.merged.rounds, helpsBoth: 0 },
+          dominated: x.merged.dominated?.filter((d) => d.list === "overall"),
+          ladders: 0,
+          promoted: x.merged.promoted?.filter((p) => p.list === "overall"),
+          notPromoted: x.merged.notPromoted?.filter((n) => n.list === "overall"),
+          higherEarlier: x.merged.higherEarlier?.filter((h) => overallKeys(x).has(h.card)),
+        },
         offerPrefer: Object.fromEntries(Object.entries(x.offerPrefer ?? {}).filter(([k]) => overallKeys(x).has(k))),
+        offerOpen: Object.fromEntries(Object.entries(x.offerOpen ?? {}).filter(([k]) => overallKeys(x).has(k))),
       });
       expect(strip(r), `seed ${seed}`).toEqual(strip(plain));
     }

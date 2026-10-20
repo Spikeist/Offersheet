@@ -96,7 +96,10 @@ describe("the trade search (§12; M6–M8)", { timeout: 60_000 }, () => {
     // Checkpoint 7e: the trades the lists show (cards and Plan B boxes, each once) on the shown block, and the shown pass's own timing.
     expect(c.simShown).toBeGreaterThanOrEqual(result.trades.length);
     expect(c.simShown).toBeLessThanOrEqual(st.shownByKey.size);
-    expect(Object.keys(result.timings)).toEqual(["setup", "screening", "exact", "simScreen", "simFinal", "rank", "steps", "shown", "total"]);
+    // Since Checkpoint 7h every card's ladder is worked out (search.ts, "Promoted Last offers"), so the "offers" timing shows
+    // whenever a list has a card.
+    expect(result.trades.length).toBeGreaterThan(0);
+    expect(Object.keys(result.timings)).toEqual(["setup", "screening", "exact", "simScreen", "simFinal", "rank", "steps", "shown", "offers", "total"]);
     // Without a clock, no timings.
     expect(search({ partnerId: "2", settings: settingsWith({ maxPerSide: 1 }) }).timings).toEqual({});
   });

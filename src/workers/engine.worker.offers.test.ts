@@ -312,6 +312,30 @@ describe("the worker's 'How to offer it' (Checkpoint 7e, item 4.1)", () => {
     expect(h.reply(7)).toMatchObject({ type: "error", id: 7, detail: "Not an engine request." });
   });
 
+  it("Checkpoint 7h: a card whose result isn't kept is worked out with the forced Open its search recorded (the source's `open`), which keys its ladder; a request without it still answers, without one; one whose `open` isn't a string isn't a source; the Analyzer's card never has one", () => {
+    const h = harness();
+    answer(h, 1);
+    const open = "6|give:101|get:202,203,204";
+    h.handle(offers(2, { kind: "search", resultId: -1, key: KEY_A, proposal, open }));
+    expect(h.reply(2)).toMatchObject({ type: "offers", id: 2 });
+    expect(h.byProposal[0]?.opts?.open).toBe(open);
+    // The same forced Open: the ladder kept; none: worked out again, without one.
+    h.handle(offers(3, { kind: "search", resultId: -1, key: KEY_A, proposal, open }));
+    expect(h.byProposal).toHaveLength(1);
+    h.handle(offers(4, { kind: "search", resultId: -1, key: KEY_A, proposal }));
+    expect(h.byProposal).toHaveLength(2);
+    expect(h.byProposal[1]?.opts?.open).toBeUndefined();
+    h.handle(offers(5, { kind: "analysis", proposal }));
+    expect(h.byProposal[2]?.opts?.open).toBeUndefined();
+    for (const [id, bad] of [
+      [6, 7],
+      [7, ""],
+    ] as const) {
+      h.handle(offers(id, { kind: "search", resultId: -1, key: KEY_A, open: bad } as unknown as OffersSource));
+      expect(h.reply(id)).toMatchObject({ type: "error", id, detail: "Not an engine request." });
+    }
+  });
+
   it("⚠️ an offers request never replaces the context the searches use nor forgets the kept results: its own context waits aside (the review of wave D, D-ENG-8 and UI-D-4)", () => {
     const h = harness();
     const old = { ...settings, streamPositions: ["K" as const] };

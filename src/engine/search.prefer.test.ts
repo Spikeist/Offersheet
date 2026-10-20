@@ -12,6 +12,7 @@
  * found on this tree.
  */
 import { describe, expect, it } from "vitest";
+import { config } from "./config";
 import { buildTradeContext, type TradeContext } from "./evaluate";
 import { choiceOffers, heldOf, ladderChoicesOf, ladderJobOfSearch, offerLadderOfProposal, offerLadderOfSearch, preferKey } from "./offers";
 import { compareOverall } from "./rank";
@@ -165,9 +166,15 @@ describe("the preferring ladder, kept only when it holds more of the preferred v
   });
 
   it("smallLeague 4 and 42 (10%): the usual ladder holds the listed version as a Then; preferring it would make it the Open and drop the Open before it, holding no more, so the usual ladder stays (the lead's D9)", () => {
-    for (const [seed, cardKey, listedKey] of [
-      [4, "5|give:1004,1012|get:1052", "5|give:1012|get:1052"],
-      [42, "2|give:1007,1011|get:1016,1024", "2|give:1007,1011|get:1014"],
+    // ⚠️ Since Checkpoint 7h the preference is narrowed (config.offers.preferWithinHelps; offers.ts narrowedPick): on smallLeague
+    // 4 the listed version prints Helps you 64 against the usual Open's 67, within 3, so preferring it still makes it the Open
+    // (D9 keeps the usual ladder); on 42 it prints 78 against 82, more than 3 under, so the preferring ladder is the usual one.
+    // The D9 rule is pinned at Checkpoint 7g's unnarrowed preference (preferWithinHelps without bound), both leagues.
+    const within = config.offers as { preferWithinHelps: number };
+    const original = within.preferWithinHelps;
+    for (const [seed, cardKey, listedKey, narrowed] of [
+      [4, "5|give:1004,1012|get:1052", "5|give:1012|get:1052", false],
+      [42, "2|give:1007,1011|get:1016,1024", "2|give:1007,1011|get:1014", true],
     ] as const) {
       const r = search(seed, 6, 0.1);
       const st = searchStateOf(r) as SearchState;
@@ -175,20 +182,47 @@ describe("the preferring ladder, kept only when it holds more of the preferred v
       if (!c) throw new Error(`smallLeague ${seed} no longer shows ${cardKey}: find another card`);
       const prefer = st.prefers?.get(cardKey);
       expect(prefer && [...prefer]).toEqual([listedKey]);
+      try {
+        within.preferWithinHelps = Number.POSITIVE_INFINITY;
+        const { usual, preferring } = ladderChoicesOf(ladderJobOfSearch(st, c, prefer));
+        expect(choiceOffers(usual).find((o) => o.key === listedKey)?.kind).toBe("then");
+        expect(choiceOffers(preferring)).toEqual([{ key: listedKey, kind: "open" }]);
+        expect(choiceOffers(usual).length).toBeGreaterThan(choiceOffers(preferring).length);
+      } finally {
+        within.preferWithinHelps = original;
+      }
       const { usual, preferring } = ladderChoicesOf(ladderJobOfSearch(st, c, prefer));
-      expect(choiceOffers(usual).find((o) => o.key === listedKey)?.kind).toBe("then");
-      expect(choiceOffers(preferring)).toEqual([{ key: listedKey, kind: "open" }]);
-      expect(choiceOffers(usual).length).toBeGreaterThan(choiceOffers(preferring).length);
+      if (narrowed) expect(choiceOffers(preferring)).toEqual(choiceOffers(usual));
+      else expect(choiceOffers(preferring)).toEqual([{ key: listedKey, kind: "open" }]);
       expect((offerLadderOfSearch(r, cardKey) as OfferLadder).steps.map((s) => s.evaluation.key)).toEqual([...choiceOffers(usual).filter((o) => o.kind !== "last").map((o) => o.key), cardKey, ...choiceOffers(usual).filter((o) => o.kind === "last").map((o) => o.key)]);
     }
   });
 
-  it("12-team 1 (Any): the lean \"Helps both\" pair merges, the lean one the bigger one's Open, where without the preference both stay with a label (Checkpoint 7f's shape (ii))", () => {
+  it("12-team 1 (Any): the lean \"Helps both\" pair merges, the lean one the bigger one's Open, where without the preference both stay with a label (Checkpoint 7f's shape (ii)); since Checkpoint 7h's narrowing it doesn't (the lean one prints 68, more than 3 under the usual Open's 73)", () => {
     const big = "9|give:1004,1011|get:1098,1100";
     const lean = "9|give:1004|get:1098,1100";
+    const within = config.offers as { preferWithinHelps: number };
+    const original = within.preferWithinHelps;
+    let unnarrowed: TradeSearchResult;
+    try {
+      within.preferWithinHelps = Number.POSITIVE_INFINITY;
+      unnarrowed = runTradeSearch(freshContext(1, 12), { settings: at(0) });
+    } finally {
+      within.preferWithinHelps = original;
+    }
+    expect(unnarrowed.merged?.helpsBoth).toContainEqual({ key: lean, into: big, kind: "open" });
+    expect((unnarrowed.helpsBoth?.trades ?? []).map((t) => t.key)).not.toContain(lean);
+    // Narrowed (Checkpoint 7h, answer 4): the big one's usual Open, 9|give:1004,1011|get:1101,1108, prints Helps you 73, the
+    // lean one 68, more than config.offers.preferWithinHelps under it, so the big one opens with the usual Open and both stay.
     const r = search(1, 12, 0);
-    expect(r.merged?.helpsBoth).toContainEqual({ key: lean, into: big, kind: "open" });
-    expect((r.helpsBoth?.trades ?? []).map((t) => t.key)).not.toContain(lean);
+    expect(r.merged?.helpsBoth ?? []).not.toContainEqual({ key: lean, into: big, kind: "open" });
+    const rKeys = (r.helpsBoth?.trades ?? []).map((t) => t.key);
+    expect(rKeys).toContain(big);
+    expect(rKeys).toContain(lean);
+    const bigOpen = (offerLadderOfSearch(r, big) as OfferLadder).steps.find((s) => s.kind === "open");
+    expect(bigOpen?.evaluation.key).toBe("9|give:1004,1011|get:1101,1108");
+    const leanPrinted = (searchStateOf(r) as SearchState).shownByKey.get(lean) as TradeEvaluation;
+    expect((bigOpen?.evaluation.tradeScore as number) - (leanPrinted.tradeScore as number)).toBeGreaterThan(config.offers.preferWithinHelps);
     const plain = search(1, 12, 0, { preferListed: false });
     const keys = (plain.helpsBoth?.trades ?? []).map((t) => t.key);
     expect(keys).toContain(big);

@@ -4,8 +4,9 @@
  * 7f's on this tree, bit for bit, against values stored from HEAD 7ad0e4a by running these very searches there: each list's
  * cards with B, P_complete, Helps you, Overall, Plan B and offers, the merge, the counts; a change that moves any of them, with
  * the switches off, fails here, as reward.pinned.test.ts's stored values do), Checkpoint 7f's invariants with all three on at
- * config.offers.lastMinOverallShare 0.8 and again at 0.75 (the planner may pick it: no card's offers hold a card of its list below
- * it on Overall, every merged trade is an offer of a card above it), and re-filters equal to fresh searches. Synthetic leagues
+ * config.offers.lastMinOverallShare 0.8 and again at 0.75 (the planner's pick since Checkpoint 7h: no card's offers hold a card of
+ * its list below it on Overall, every merged trade is an offer of a card above it; since Checkpoint 7h with the promoted Last
+ * offers too, a promoted card's original among them, merged as its "open"), and re-filters equal to fresh searches. Synthetic leagues
  * (trade.testing.ts smallLeague: made-up players, placeholder teams): smallLeague 24 and 48 at 10%, 12-team 1 at Any, where all
  * three rules act (facts of the synthetic data, found on this tree).
  */
@@ -119,7 +120,9 @@ const LEAGUES: Record<keyof typeof HEAD, { seed: number; teams: number; minChanc
   small48: { seed: 48, teams: 6, minChance: 0.1 },
   twelve1: { seed: 1, teams: 12, minChance: 0 },
 };
-const OFF = { smallerAsks: false, preferListed: false, dropDominated: false } as const;
+// Since Checkpoint 7h also its promoted Last offers off (TradeSearchOptions.promoteLastOffers), so the stored values still pin
+// Checkpoint 7f's search (the 7g switches off read neither config.offers.lastMinOverallShare nor preferWithinHelps).
+const OFF = { smallerAsks: false, preferListed: false, dropDominated: false, promoteLastOffers: false } as const;
 const at = (minChance: number): TradeSettings => ({ ...defaultTradeSettings(), minChance });
 
 const contexts = new Map<string, TradeContext>();

@@ -66,5 +66,10 @@ describe("the Trade Finder's cards get the list's places (the lead's call, wave 
     expect(withPrefer.kind === "search" && withPrefer.prefer).not.toBe(prefer);
     expect("prefer" in finderOffersSource(7, card, { offerPrefer: { other: ["x"] } })).toBe(false);
     expect("prefer" in finderOffersSource(7, card, result)).toBe(false);
+    // Checkpoint 7h: a promoted card's forced Open as its result records it (TradeSearchResult.offerOpen); none without one.
+    const open = "6|give:105|get:200,201";
+    expect(finderOffersSource(7, card, { offerOpen: { [card.key]: open, other: "x" } })).toEqual({ kind: "search", resultId: 7, key: card.key, proposal: card.evaluation.proposal, open });
+    expect("open" in finderOffersSource(7, card, { offerOpen: { other: "x" } })).toBe(false);
+    expect("open" in finderOffersSource(7, card, result)).toBe(false);
   });
 });

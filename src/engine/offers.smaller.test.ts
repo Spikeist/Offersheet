@@ -1,7 +1,7 @@
 /**
  * The Last offer's smaller ask (Checkpoint 7g; planner reply to Checkpoint 7f, answer 3(a): "The Last offer can be either the
  * throw-in or a smaller ask, whichever has the higher Overall. It must be at least 5 points likelier and keep at least 80% of the
- * suggested trade's Overall."; offers.ts, "The candidates" and "4. Last offer"): the smaller asks (offers.ts smallerAsks), the
+ * suggested trade's Overall."; 75% since Checkpoint 7h, planner reply to Checkpoint 7g, answer 2; offers.ts, "The candidates" and "4. Last offer"): the smaller asks (offers.ts smallerAsks), the
  * rule on made-up numbers (offerFeasible "smaller" at the bar, each other rule failing alone, higherOverall's tie), every card's
  * Last offer on whole searches (its shape, its rules on the numbers it prints, the higher Overall of the two kinds, both ways),
  * ladderNeighbors' "smaller" kind, and Plan B's narrow rule (a box is never a smaller ask its card's Last offer could take; one
@@ -104,7 +104,8 @@ describe("smallerAsks: the card's players of mine for each proper, non-empty par
 
 describe("the rule on made-up numbers", { timeout: 300_000 }, () => {
   it("offerFeasible \"smaller\": likelier by minAcceptGain, a lower B, Helps you at most the card's, and an unrounded Overall at least lastMinOverallShare of the card's (just under: no; at it: yes)", () => {
-    expect(SHARE).toBe(0.8);
+    // 75% since Checkpoint 7h (planner reply to Checkpoint 7g, answer 2: "Use 75%."; 80% at Checkpoint 7g).
+    expect(SHARE).toBe(0.75);
     // A card with room above its chance (a fact of the synthetic data).
     const k = cardsOf(search(24, 6, 0.1)).find((t) => t.pComplete < 0.6 && (t.tradeScore as number) > 10) as TradeEvaluation;
     expect(k).toBeDefined();
@@ -116,8 +117,11 @@ describe("the rule on made-up numbers", { timeout: 300_000 }, () => {
     expect(overallOf(version(SHARE)) as number).toBeCloseTo(SHARE * kOverall, 9);
     expect(offerFeasible(k, version(SHARE), "smaller", 0.1)).toBe(true);
     expect(offerFeasible(k, version(SHARE - 0.0001), "smaller", 0.1)).toBe(false);
-    expect(overallShareOk(version(0.7999), k)).toBe(false);
-    expect(overallShareOk(version(0.75), k, 0.75)).toBe(true);
+    expect(overallShareOk(version(0.7499), k)).toBe(false);
+    expect(overallShareOk(version(0.75), k)).toBe(true);
+    // Checkpoint 7g's 80% read as before when passed.
+    expect(overallShareOk(version(0.7999), k, 0.8)).toBe(false);
+    expect(overallShareOk(version(0.8), k, 0.8)).toBe(true);
     // The other rules, each failing alone. Not likelier enough: the card's own chance, with B made for 90% of its Overall at that
     // chance, so the share, B and Helps you rules pass and only the chance fails (the final review, merge-a-test-higher-overall-
     // unpinned: the version at its old chance and B kept 73% of the Overall, under the share too). A B as high as the card's. A
