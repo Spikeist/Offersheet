@@ -779,6 +779,22 @@ describe("LeagueView free agents and the explainer", () => {
     expect(between(html, "Best available", "How these numbers work")).not.toContain("Lineup cost");
   });
 
+  it("shows the best config.leaguePage.freeAgentsShown a position, the rest behind one 44 px “Show all” (Checkpoint 7h, the lead's step 3)", () => {
+    const f = leagueFixture();
+    const view = buildLeagueView({ ...f, myTeamSource: "platform", timeZone: "America/Chicago", now: NOW });
+    const shown = config.leaguePage.freeAgentsShown;
+    // Three players a position, from the fixture's rows (the layout's rule doesn't read who they are).
+    const rows = view.freeAgents.flatMap((g) => g.players);
+    const many = { ...view, freeAgents: view.freeAgents.map((g) => ({ ...g, players: [0, 1, 2].map((i) => ({ ...(rows[i % rows.length] as (typeof rows)[number]), id: `${g.pos}-${i}` })) })) };
+    const page = between(renderToStaticMarkup(createElement(LeagueView, { view: many, refresh })), "Best available", "How these numbers work");
+    expect((page.match(/<tbody/g) ?? []).length).toBe(many.freeAgents.length);
+    expect((page.match(/<th scope="row"/g) ?? []).length).toBe(many.freeAgents.length * shown);
+    expect(page).toMatch(new RegExp(`<button type="button" aria-expanded="false" class="[^"]*min-h-11[^"]*">Show all ${many.freeAgents.length * 3}<span class="sr-only"> free agents</span></button>`));
+    // No button when every position fits.
+    const few = { ...view, freeAgents: view.freeAgents.map((g) => ({ ...g, players: g.players.slice(0, shown) })) };
+    expect(between(renderToStaticMarkup(createElement(LeagueView, { view: few, refresh })), "Best available", "How these numbers work")).not.toContain("Show all");
+  });
+
   it("explains the numbers and where they came from", () => {
     expect(html).toMatch(/<summary[^>]*>How these numbers work<span/);
     // The League model's seasons since Checkpoint 7e (the shown block, config.simulation.shownSims; the fixture's).
