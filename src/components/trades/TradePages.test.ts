@@ -554,7 +554,8 @@ describe("TradeCard (§13: each trade card shows)", () => {
       const html = render(e);
       expect(html).not.toContain(">Helps both<");
       expect(textOf(html)).toContain(`Helps them ${helps} · ,`);
-      expect(html).toMatch(/<h3 id="[^"]+" class="[^"]*">Trade with Gravel Gophers<\/h3><div class="mt-2 grid/);
+      // Nothing after the heading on its row ("Trade idea 1" before it: Checkpoint 7h, the first review's item 3).
+      expect(html).toMatch(/<h3 id="[^"]+" class="[^"]*">Trade with Gravel Gophers<\/h3><\/div><div class="mt-2 grid/);
     }
     // The veto note stays right under the three numbers (`npm run check:browser` reads it as the <dl>'s next element).
     const vetoed = withThem(evaluation({ pAccept: 0.4, pComplete: 0.2, detail: { vetoRisk: true } }), 24);
