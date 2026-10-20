@@ -229,6 +229,7 @@ import {
   PLAYOFF_WEIGHT_RANGE,
   playoffWeightRead,
   prizeGroupProblems,
+  RELEASE_EITHER_WAY_MARK,
   RELEASE_REASON_MARK,
   releaseLineProblems,
   requestNamesAddress,
@@ -1205,9 +1206,10 @@ export async function closeLeagueSections(ctx: StepContext, step: string, opened
  * (since Checkpoint 7g "From week 7 on, he and … add about the same to your starting lineup, …", from the line's own return
  * week), never after "instead of dropping someone else", its lock where it is (`page`), and a release made with or without
  * the trade named in the line of moves made either way. A skip when the page shows none (no IR player of mine, or room for
- * every return).
+ * every return). Its line counts the releases made either way in both forms, a card's "this trade" and, since Checkpoint 7h,
+ * the Trade Finder's line above its list, "a trade" (contracts.ts RELEASE_EITHER_WAY_MARK; the second review, browser#1).
  */
-async function releaseLineChecks(ctx: StepContext, step: string, where: string, on: "league" | "trade"): Promise<void> {
+export async function releaseLineChecks(ctx: StepContext, step: string, where: string, on: "league" | "trade"): Promise<void> {
   const { page, report } = ctx;
   const lines = await page.run<string[]>(cleaning(ctx) + READ_RELEASE_LINES);
   if (!lines.length) {
@@ -1215,7 +1217,7 @@ async function releaseLineChecks(ctx: StepContext, step: string, where: string, 
     return;
   }
   const reasons = lines.filter((l) => l.includes(RELEASE_REASON_MARK)).length;
-  const either = lines.filter((l) => l.startsWith("Assumed with or without this trade")).length;
+  const either = lines.filter((l) => RELEASE_EITHER_WAY_MARK.test(l)).length;
   const problems = releaseLineProblems(lines, on);
   report.check(
     step,

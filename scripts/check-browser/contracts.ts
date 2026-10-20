@@ -727,6 +727,14 @@ export const RELEASE_LOCK = / Lock .+ to keep (?:him|it) instead\.$/;
 export const RELEASE_EITHER_WAY = /^Assumed with or without (?:this|a) trade: (?:.+(?:, |; ))?release .+ (?:in week \d+, )?when .+ returns from IR\.$/;
 
 /**
+ * What marks a line about a release at an IR return as naming one made with or without a trade, in either form ("this trade"
+ * on a card, "a trade" in the Trade Finder's line above its list): the lines releaseLineProblems holds to RELEASE_EITHER_WAY,
+ * and the ones the card step counts (the second review, browser#1: its count read "this trade" alone, and said 0 next to the
+ * list's line).
+ */
+export const RELEASE_EITHER_WAY_MARK = /with or without (?:this|a) trade/;
+
+/**
  * What's wrong with a page's lines about a release at an IR return (Checkpoint 7f; inPage.ts READ_RELEASE_LINES: a card's
  * roster moves, a Plan B box's and an offer's, on a trade page; the "Returns from IR" of my roster card on the League page,
  * `page` "league"): a line with the near-tie rule's reason reads as RELEASE_REASON (Checkpoint 7f's words don't), counts from
@@ -745,7 +753,7 @@ export function releaseLineProblems(lines: readonly string[], page: "league" | "
     const lock = RELEASE_LOCK.exec(line)?.[0] ?? null;
     if (lock && page === "trade" && !lock.includes(" on the League page to keep ")) out.push(`a release's lock doesn't say it's on the League page: “${line}”`);
     if (lock && page === "league" && lock.includes(" on the League page ")) out.push(`the League page's lock sends you to the League page: “${line}”`);
-    if (/with or without (?:this|a) trade/.test(line) && !RELEASE_EITHER_WAY.test(line)) out.push(`a release made either way reads “${line}”`);
+    if (RELEASE_EITHER_WAY_MARK.test(line) && !RELEASE_EITHER_WAY.test(line)) out.push(`a release made either way reads “${line}”`);
   }
   return out;
 }
