@@ -466,9 +466,11 @@
  *   whole-roster search's own trades help both) every trade the normal search plays out is played out too, ranked on the lists
  *   the normal search ranks it on (its finalists on both, its extras and displaced finalists on "Helps both" alone), with the
  *   same numbers: a card of a normal list that the whole-roster list doesn't show is left out by that list's own rules
- *   (search.whole.normal.test.ts). Parker's Oct 15 dumps (Node, cold, a fresh process each; other work on the machine): 46 and
- *   28 more exact trades, 44 and 81 more final runs, the Thorough search 44.9 / 43.9 → 47.0 / 45.6 s (league 1, his prizes)
- *   and 37.3 / 38.7 → 40.7 / 39.8 s (league 2), the final runs most of it; its "Helps both" lists 3 → 6 and 4 → 6 cards.
+ *   (search.whole.normal.test.ts). Parker's Oct 15 dumps (Node, a Thorough search cold, a fresh process and context each, the
+ *   two engines alternating, the medians of 3; other work on the machine): 46 and 28 more exact trades, 44 and 81 more final
+ *   runs, context and search 41.7 → 42.7 s (league 1, his prizes) and 35.9 → 37.5 s (league 2, 12 teams), the final runs most
+ *   of it (+0.5 and +1.3 s); nothing screened twice (the trades screened the same, 222,768 and 145,561); its "Helps both"
+ *   lists 3 → 6 and 4 → 6 cards, its Overall lists 16 and 13 cards either way.
  * - SearchState.mode records it; a re-filter ranks the same finalists (it equals a fresh search in that mode). The Trade
  *   Finder sends the Thorough search's flag through the worker (engine.worker.ts TradesRequest.thorough).
  * - Memory (Checkpoint 7h's integration, the lead's item: "a Thorough search's result keeps about 640–720 MB of heap after
@@ -523,17 +525,21 @@
  * - Undone (Checkpoint 7h's second review, offers#3; the lead's ruling: "an undone promotion leaves no trace"): a later round
  *   can take the promoted card off its list (a card above it takes it among its offers, a better version drops it, or the
  *   list's rules push it off), and then the release rule gives the idea it came from back (or a card above it holds it), which
- *   undoes the promotion (settle's undo; not in a chain, above): its record goes (`promoted`, the forced Open in `opens`, its
- *   place among the list's candidates in `added`), it leaves the merge or drop record it entered as a card (so it's no filler
+ *   undoes the promotion (undonePromotions, settle's undo): its record goes (`promoted`, the forced Open in `opens`, its place
+ *   among the list's candidates in `added`), it leaves the merge or drop record it entered as a card (so it's no filler
  *   reference: a trade the list ranks on its own is one of its candidates again, the rest leave the list), its ladder (worked
  *   out with the forced Open) goes, and it's never promoted to again ("taken"). On smallLeague 49 at Any the undone trade,
  *   merged into a card above it as its Open (which it is without promotions too, as an offer), had taken the idea it came
  *   from and another off the "Helps both" list as their filler; on 12 (Team 4), 16 (Team 5) and 18 (Team 3) the record stayed
- *   while the idea was counted as not promoted ("released") too.
+ *   while the idea was counted as not promoted ("released") too. ⚠️ Ours: a chain's earlier promotion stands while the newer
+ *   one does; when the newest is undone the whole chain is (each earlier card's idea no longer merged into it), and the idea it
+ *   left out for good comes back, given back as a merged trade is (undonePromotions: none of 620 synthetic searches scanned for
+ *   it undid a chain, 3 undid a single promotion, so search.promote.undo.test.ts drives it on made-up records).
  * - The rounds end: a promotion merges an idea never merged or given back before, each Last offer is promoted to at most
  *   once (its forced Open fixed then; one undone never again), and each raises the list's printed Overall at that place (the
  *   promoted Last offer prints a higher EG than the idea it replaces), so no chain comes back to a trade; the trades are finite
- *   (the finalists and one version a promotion).
+ *   (the finalists and one version a promotion); an idea a chain left out comes back at most once (given back: never merged,
+ *   so never promoted from, again).
  * - Counts: MergedCards.promoted (since the second review's offers#3 only the promotions the final lists show: each promoted
  *   card a card of its list, the idea it came from merged into it as its "open"; ⚠️ ours, so not a chain's earlier ones),
  *   notPromoted (as each list's last pass found them), higherEarlier and superseded; the
@@ -2270,6 +2276,46 @@ export function dominatedOf(cards: readonly TradeEvaluation[], merged: readonly 
 }
 
 /**
+ * ⚠️ The promotions a later round undid (Checkpoint 7h's second review, offers#3; the lead's ruling: "When a later round gives
+ * the promoted card's origin back (release, or the promoted card merged into / dropped for / pushed off by another), the
+ * promotion's record goes"; the file header, "Promoted Last offers"), on one list's records once the release rule has placed
+ * every merged trade: its promotions (`promoted`, each card with the idea it came from), its merged trades (`merged`) and the
+ * ideas a chain of promotions left out (`superseded`). A promotion stands while the idea it came from is merged into its card
+ * as its "open", or, the earlier one of a chain, while its card was promoted in turn by a promotion that stands; every other is
+ * undone (`undo`, in `promoted`'s order). So a chain whose newest promotion is undone is undone whole, down to its first idea
+ * (ours: a first reading undid only the newest, and the earlier one's record and forced Open stayed on its card, given back).
+ * ⚠️ Ours, too: an idea a chain left out for good comes back once no promotion from it stands (`back`), as the release rule
+ * gives a merged trade back: nothing of the chain is left, so its first idea is a card again (settle's release rule; a middle
+ * card of a longer chain left out too is among `undo` as well, and leaves with its promotion unless the list ranks it on its own).
+ */
+export function undonePromotions(
+  promoted: ReadonlyMap<string, Pick<PromotedTrade, "key" | "from">>,
+  merged: ReadonlyMap<string, Pick<MergedTrade, "into" | "kind">>,
+  superseded: ReadonlySet<string> = new Set(),
+): { undo: string[]; back: string[] } {
+  // Each idea's promotion (the card promoted from it): an idea is promoted from once, merged into its card then.
+  const promotedFrom = new Map<string, string>();
+  for (const p of promoted.values()) promotedFrom.set(p.from, p.key);
+  const memo = new Map<string, boolean>();
+  const stands = (key: string): boolean => {
+    const known = memo.get(key);
+    if (known !== undefined) return known;
+    // No chain comes back to a card (each promotion raises the printed Overall at its place), so this guard never decides.
+    memo.set(key, false);
+    const p = promoted.get(key);
+    const m = p ? merged.get(p.from) : undefined;
+    const later = promotedFrom.get(key);
+    const ok = !!p && ((m?.into === key && m.kind === "open") || (later !== undefined && stands(later)));
+    memo.set(key, ok);
+    return ok;
+  };
+  const undo = [...promoted.keys()].filter((key) => !stands(key));
+  const gone = new Set(undo);
+  const from = new Set([...promoted.values()].filter((p) => !gone.has(p.key)).map((p) => p.from));
+  return { undo, back: [...superseded].filter((key) => !from.has(key)) };
+}
+
+/**
  * Rank the state's finalists with `minChance` and build the shown lists (the file header, "Final stages" from the final
  * ranking on, "Helps both", "The shown pass" and "Merged cards"): each list ranked on the ranking block (the Overall list in
  * Overall order, the "Helps both" list in Helps-you order), each card's numbers on the shown block, then the list ranked again
@@ -2609,16 +2655,17 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
     // Checkpoint 7h (the lead's ruling for a chain of promotions: "the earlier version goes where the newest card's ladder rules
     // place it, or leaves (counted)"): an idea merged into its promoted card, whose card was promoted in turn (merged into the
     // newer card as its forced Open) and that no card above it offers, leaves the list for good (`superseded`) rather than
-    // coming back. ⚠️ Since Checkpoint 7h's second review (offers#3): an idea that leaves its promoted card (given back, or held
-    // by a card above it), the promoted card being merged into, dropped for or pushed off by another, undoes that promotion
-    // (undo), unless the promoted card was promoted in turn (a chain, as above). Their keys, given back, left out or undone.
+    // coming back. ⚠️ Since Checkpoint 7h's second review (offers#3): then the promotions it undid (undonePromotions): an idea
+    // that left its promoted card (given back, or held by a card above it), the promoted card merged into, dropped for or pushed
+    // off by another, undoes that promotion (undo), unless the promoted card was promoted in turn by a promotion that stands (a
+    // chain, as above); a chain whose newest promotion is undone is undone whole, and the idea it left out for good comes back
+    // (given back, as a merged trade is; one of the chain's own versions the list doesn't rank on its own just leaves, its
+    // promotion undone). Their keys, given back, left out or undone.
     function* release(cards: readonly TradeEvaluation[]): Generator<TradeSearchProgress, string[], void> {
       const back: string[] = [];
       const gone: string[] = [];
-      const undoing: string[] = [];
       for (const m of [...merged.values()]) {
         const holder = yield* holderAbove(m, cards);
-        if (holder?.into !== m.into && origins.has(m.key) && promoted.get(m.into)?.from === m.key && !origins.has(m.into)) undoing.push(m.into);
         if (holder) merged.set(m.key, holder);
         else if (origins.has(m.key) && origins.has(m.into)) gone.push(m.key);
         else back.push(m.key);
@@ -2631,8 +2678,13 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
         merged.delete(key);
         released.add(key);
       }
-      for (const key of undoing) undo(key);
-      return [...back, ...gone, ...undoing];
+      const stale = undonePromotions(promoted, merged, superseded);
+      for (const key of stale.undo) undo(key);
+      for (const key of stale.back) {
+        superseded.delete(key);
+        if (base.has(key) || !stale.undo.includes(key)) released.add(key);
+      }
+      return [...back, ...gone, ...stale.undo, ...stale.back];
     }
     // ⚠️ An undone promotion leaves no trace (Checkpoint 7h's second review, offers#3; the lead's ruling: "When a later round
     // gives the promoted card's origin back (release, or the promoted card merged into / dropped for / pushed off by another),
@@ -2642,9 +2694,10 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
     // Open in `opens`, its place among the list's candidates in `added`), and the promoted trade leaves the records it entered as
     // a card (merged into another card's offers, or dropped for a better version), so it's no filler reference: one the list
     // ranks on its own (`base`) is one of its candidates again, which a later round may merge or drop on its own (it's then
-    // merged into a card shown in its own right), the rest leave the list. Its ladder, worked out with the forced Open, goes too
-    // (a card on both lists has one ladder: the other list works it out again, without one), and it's never promoted to again
-    // (`undone`: "taken"). The idea it came from is given back (or held by a card above it) by the release rule.
+    // merged into a card shown in its own right), the rest leave the list (and a chain's card the release rule gave back isn't
+    // counted as given back: it's no card). Its ladder, worked out with the forced Open, goes too (a card on both lists has one
+    // ladder: the other list works it out again, without one), and it's never promoted to again (`undone`: "taken"). The idea it
+    // came from is given back (or held by a card above it) by the release rule.
     const undo = (p: string): void => {
       const record = promoted.get(p);
       if (!record) return;
@@ -2654,6 +2707,7 @@ function* finish(state: SearchState, settings: TradeSettings, mark: (stage: Timi
       undone.add(p);
       merged.delete(p);
       dominated.delete(p);
+      if (!base.has(p)) released.delete(p);
       opens.delete(p);
       if (choices.delete(p)) discardedLadders++;
       prefers.delete(p);

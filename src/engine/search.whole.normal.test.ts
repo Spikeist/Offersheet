@@ -5,15 +5,41 @@
  * and plays out every trade the normal search plays out, with the same numbers, ranked on the lists the normal search ranks it
  * on, so a card of a normal list that the whole-roster list doesn't show is left out by that list's own rules, never for want
  * of an exact evaluation or a final run; and the "Helps both" extras' room widens for the normal search's helps-both lane as
- * for its own. The normal search records none of it. Synthetic leagues (smallLeague: made-up players, placeholder teams).
+ * for its own. The normal search's candidates read the whole-roster pass's screens (the very Screened objects where it screened
+ * a trade in full), so no trade is screened or counted twice. The normal search records none of it. Synthetic leagues
+ * (smallLeague: made-up players, placeholder teams); on e90c076's code (Checkpoint 7h's first build) each of these leagues'
+ * whole-roster searches left some of the normal search's exact trades or final runs out (smallLeague 11 Thorough: 33 of 179
+ * exact trades, 47 of 79 final runs; with 1 a side, 95 of 107 and 60 of 62).
  */
 import { describe, expect, it } from "vitest";
-import { buildTradeContext, type TradeContext } from "./evaluate";
-import { helpsBothPoolOf, runTradeSearch, searchStateOf, type SearchState } from "./search";
-import { defaultTradeSettings, type TradeSettings } from "./settings";
+import { config } from "./config";
+import { buildTradeContext, tradeInternals, type Screened, type TradeContext } from "./evaluate";
+import {
+  atMostWaiverCredit,
+  buildPools,
+  funnelOf,
+  helpsBothPoolOf,
+  partnerCandidates,
+  runTradeSearch,
+  searchStateOf,
+  wholePoolsOf,
+  wholeRosterCandidates,
+  wholeRulesOf,
+  type ScreenReuse,
+  type SearchState,
+  type WholePool,
+} from "./search";
+import { defaultTradeSettings, normalizeTradeSettings, type TradeSettings } from "./settings";
 import { TEST_NOW } from "./testLeague";
+import { thoroughSettings } from "./thorough";
 import { smallLeague } from "./trade.testing";
 import type { TradeEvaluation } from "./tradeModel";
+
+function drain<T>(g: Generator<void, T, void>): T {
+  let r = g.next();
+  while (!r.done) r = g.next();
+  return r.value;
+}
 
 const close = (a: number | null, b: number | null): boolean => (a === null || b === null ? a === b : Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a)));
 const keysOf = (list: readonly { key: string }[] | undefined): string[] => (list ?? []).map((t) => t.key);
@@ -107,5 +133,47 @@ describe("the whole-roster searches hold the normal search's trades (search#1)",
       const p = st.exactByKey.get(k)?.evaluation.proposal;
       if (p) expect(p.give.length === 1 && p.get.length === 1, k).toBe(true);
     }
+  });
+});
+
+// The lead's ruling for search#1: "keep it small (reuse the screens the whole-roster pass already made where the same trade was
+// screened in full: the same Screened object)". The normal search's candidates of each partner, worked out after its
+// whole-roster pass (partnerCandidates with ScreenReuse, as tradeSearch runs it), against the same candidates screened afresh.
+describe("the normal search's candidates read the whole-roster pass's screens (search#1)", { timeout: 300_000 }, () => {
+  it("smallLeague 11, every partner, the Thorough search's pass: the same candidates and numbers, its own Screened objects, nothing screened or counted twice", () => {
+    const lg = smallLeague(11);
+    const I = tradeInternals(buildTradeContext(lg.snapshot, lg.inputs, { now: TEST_NOW, scenarios: 0 }));
+    const user = normalizeTradeSettings({ ...defaultTradeSettings(), minChance: 0.1 });
+    const s3 = thoroughSettings(user);
+    const pools = buildPools(I, user, null);
+    const whole = wholePoolsOf(I, s3, buildPools(I, s3, null), config.search.thorough.threePool);
+    const three = { shapes: config.search.thorough.shapes, beam: config.search.thorough.beam };
+    let reused = 0;
+    for (const partner of pools.partners) {
+      const found = drain(wholeRosterCandidates(I, partner, whole.get(partner.id) as WholePool, s3.maxPerSide, { screened: 0 }, three));
+      const ruled = drain(wholeRulesOf(I, partner, found, atMostWaiverCredit(I), funnelOf("thorough")));
+      const known = new Map<string, Screened | null>(ruled.list.map((s) => [s.key, s]));
+      for (const key of found.illegal) known.set(key, null);
+      const reuse: ScreenReuse = { known, reached: new Set(found.deferred.map((d) => d.key)) };
+      const H = pools.get.get(partner.id) as { pool: string[]; forced: string[] };
+      const pool = { give: pools.give, forcedGive: pools.forcedGive, get: H.pool, forcedGet: H.forced };
+      const counted = { screened: 0 };
+      const read = drain(partnerCandidates(I, partner, pool, user.maxPerSide, counted, { reuse }));
+      const fresh = drain(partnerCandidates(I, partner, pool, user.maxPerSide, { screened: 0 }));
+      expect(read.map((s) => s.key).sort()).toEqual(fresh.map((s) => s.key).sort());
+      const freshOf = new Map(fresh.map((s) => [s.key, s]));
+      for (const s of read) {
+        const f = freshOf.get(s.key) as Screened;
+        expect([s.objective, s.myDelta, s.partnerDelta, s.pQuick, s.gPartner], s.key).toEqual([f.objective, f.myDelta, f.partnerDelta, f.pQuick, f.gPartner]);
+        expect([[...s.give].sort(), [...s.get].sort()]).toEqual([[...f.give].sort(), [...f.get].sort()]);
+        if (known.has(s.key)) {
+          expect(s, s.key).toBe(known.get(s.key));
+          reused++;
+        }
+      }
+      // Every candidate of up to 2 a side from G and H is one the pass reached (counted there), so none is counted here.
+      expect(counted.screened).toBe(0);
+    }
+    expect(reused).toBeGreaterThan(0);
   });
 });

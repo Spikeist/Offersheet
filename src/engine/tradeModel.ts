@@ -766,7 +766,9 @@ export interface MergedCards {
   /**
    * ⚠️ Checkpoint 7h (the lead's ruling): the ideas a chain of promotions left out (an idea promoted to its Last offer, whose
    * card was promoted in turn, so the newest card's ladder, opening with the idea it was promoted from, doesn't hold it): out of
-   * their list for good. Present with `promoted`.
+   * their list for good, ⚠️ unless a later round undoes the chain (since Checkpoint 7h's second review, offers#3; search.ts
+   * undonePromotions: the idea then comes back, given back as a merged trade is, and isn't counted here). Present with
+   * `promoted`.
    */
   superseded?: number;
 }
