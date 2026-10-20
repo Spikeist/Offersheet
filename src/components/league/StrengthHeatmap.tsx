@@ -11,10 +11,14 @@
  * scrolls sideways inside its card, with the team column pinned. The scroller is a named region that
  * takes keyboard focus (with the focus ring from globals.css), so the arrow keys can scroll the later
  * columns into view in every browser, Safari included, which doesn't make scrollers focusable itself.
+ *
+ * Checkpoint 7h (planner reply to Checkpoint 7g, §1: "The League page fits in about 8 screens"; the lead's step 2): the card is
+ * closed by default, its heading the 44 px control that opens it (DisclosureCard.tsx); the table is in the page either way.
  */
 import { useState } from "react";
 import { HEAT_STEPS, HEAT_STEP_LABEL, type HeatStep, type Heatmap, type StrengthWindow } from "@/lib/leagueView";
-import { Card, CardTitle, cx } from "../ui";
+import { cx } from "../ui";
+import { DisclosureCard } from "./DisclosureCard";
 
 /**
  * Fill and ink per step (theme tokens that switch for dark mode). Text contrast: 6.6, 8.2, 15.0, 7.9, 7.0 : 1 light;
@@ -34,8 +38,7 @@ const WINDOWS: StrengthWindow[] = ["ros", "next"];
 export function StrengthHeatmap({ heatmap, initialWindow = "ros" }: { heatmap: Heatmap; initialWindow?: StrengthWindow }) {
   const [win, setWin] = useState<StrengthWindow>(initialWindow);
   return (
-    <Card>
-      <CardTitle eyebrow="Lineup slots">Positional strength</CardTitle>
+    <DisclosureCard eyebrow="Lineup slots" title="Positional strength" dataKey="heatmap">
       <div role="group" aria-label="Time window" className="mb-3 inline-flex rounded-xl border border-line bg-surface-muted p-1">
         {WINDOWS.map((w) => (
           <button
@@ -95,6 +98,6 @@ export function StrengthHeatmap({ heatmap, initialWindow = "ros" }: { heatmap: H
           </li>
         ))}
       </ul>
-    </Card>
+    </DisclosureCard>
   );
 }

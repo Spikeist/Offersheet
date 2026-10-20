@@ -12,6 +12,10 @@
  *    that link to the Trade Finder for their team). Then, on a NARROW_PHONE_WIDTH (320 px) phone for a moment, the
  *    header's first row keeps the logo, the Beta pill and the league switcher (review PG-4: the pill once pushed the
  *    switcher to a row of its own there, moving the page when it appeared); back at 375 px, its six links in two rows.
+ *    Checkpoint 7h (the integration's track "league"): the page opens with the positional-strength heatmap and Best available
+ *    closed under their headings and my roster card closed (its height noted in phone screens); the step opens them, and
+ *    Best available's "Show all", with taps (focus kept on each button), measures the layout again, reads them, and closes
+ *    them again at its end (openLeagueSections, closeLeagueSections; contracts.ts leagueSectionsProblems).
  *    Step "Notices" (Phase 7b) then reads the Import Report again (below).
  * 4. Trade Finder (the nav's link): a full search in the production worker, timed from the first progress update to
  *    the results (at most --max-search seconds, §12's 10 by default), with the engine's own per-stage timings; every
@@ -240,6 +244,10 @@ import {
 } from "./contracts";
 import type { AppRequest, PageEvent, PageSession } from "./page";
 import { finderShot, leagueShots, openedCardShot } from "./shots";
+// Checkpoint 7h, the integration's track "league": what the League step opens to read, and the contract on it.
+import { FREE_AGENTS_ALL, MY_ROSTER_SUMMARY, READ_LEAGUE_SECTIONS, leagueDisclosure } from "./inPage";
+import { LEAGUE_DISCLOSURES, leagueSectionsProblems, type LeagueSectionsRead } from "./contracts";
+import { PHONE } from "./page";
 
 export interface CardInfo {
   heading: string;
@@ -1029,6 +1037,9 @@ export async function leagueStep(ctx: StepContext): Promise<void> {
   layoutChecks(ctx, step, await measurePage(ctx));
   await narrowHeaderCheck(ctx, step);
   await navRowsCheck(ctx, step);
+  // Checkpoint 7h: the page opens with its heatmap, Best available and my roster closed; the step opens them (and every free
+  // agent) with taps before it reads them, and closes them again at its end (closeLeagueSections).
+  const opened = await openLeagueSections(ctx, step);
 
   if (!ctx.myTeam) {
     report.skip(step, `"Harder to get" on your own players: no team picked`);
@@ -1088,6 +1099,93 @@ export async function leagueStep(ctx: StepContext): Promise<void> {
   await myOddsChecks(ctx, step);
   // Checkpoint 7f: my roster card's "Returns from IR" reads as the cards word a release.
   await releaseLineChecks(ctx, step, "your roster's returns from IR", "league");
+  await closeLeagueSections(ctx, step, opened);
+}
+
+/** What the League step opened with its taps (openLeagueSections), each a tap expression and its words, in the order tapped. */
+type LeagueOpened = Array<{ expr: string; what: string }>;
+
+/**
+ * The League page's parts closed by default (Checkpoint 7h, the integration's track "league": toward "about 8 screens"): as the
+ * page opens, the positional-strength heatmap and Best available are closed under their headings (DisclosureCard.tsx: each
+ * heading's 44 px button) and my roster card is closed like the others (contracts.ts leagueSectionsProblems "closed"), and the
+ * page's height is noted in phone screens (`screens`). Then the step opens what it reads with trusted taps, as a user would:
+ * each card's heading, my roster's summary and Best available's "Show all" (so its scans read every free agent, not only the
+ * best few a position), each tap keeping focus on its control; holds the result to the "open" contract and measures the layout
+ * again with them open (their tap targets and widths). Returns what it opened, for closeLeagueSections.
+ */
+export async function openLeagueSections(ctx: StepContext, step: string): Promise<LeagueOpened> {
+  const { page, report } = ctx;
+  const mine = !!ctx.myTeam;
+  const before = await page.run<LeagueSectionsRead>(READ_LEAGUE_SECTIONS);
+  const screens = Math.round((before.height / PHONE.height) * 10) / 10;
+  report.note(step, "screens", screens);
+  const closedProblems = leagueSectionsProblems(before, "closed", mine);
+  report.check(
+    step,
+    closedProblems.length === 0,
+    `the page opens with “${LEAGUE_DISCLOSURES.heatmap}” and “${LEAGUE_DISCLOSURES["free-agents"]}” closed under their headings (44 px controls)${before.myRoster ? " and your roster card closed" : ""}: ${screens} phone screens of content`,
+    "the League page doesn't open with its parts closed as it should",
+    closedProblems,
+  );
+  const opened: LeagueOpened = [];
+  const issues: string[] = [];
+  // `button`: the control is ours (a disclosure button), so focus must stay on it; a <summary>'s focus is the browser's.
+  const tap = async (expr: string, what: string, isOpen: string, button = true): Promise<boolean> => {
+    try {
+      await page.click(expr, what);
+      await page.waitFor<boolean>(isOpen, 5_000, `${what} to open`);
+      opened.push({ expr, what });
+      if (button && !(await page.run<boolean>(`return document.activeElement === ${expr};`))) issues.push(`focus left ${what} when it opened`);
+      return true;
+    } catch (err) {
+      issues.push(`${what}: ${err instanceof Error ? err.message : "it didn't open"}`);
+      return false;
+    }
+  };
+  for (const [key, heading] of Object.entries(LEAGUE_DISCLOSURES)) {
+    const d = before.disclosures.find((x) => x.key === key);
+    if (!d || d.expanded) continue;
+    const expr = leagueDisclosure(key);
+    await tap(expr, `“${heading}”'s heading`, `${expr}.getAttribute("aria-expanded") === "true"`);
+  }
+  if (before.myRoster && !before.myRoster.open) await tap(MY_ROSTER_SUMMARY, "your roster card's summary", `${MY_ROSTER_SUMMARY}.parentElement.open`, false);
+  const all = await page.run<boolean | null>(`const b = ${FREE_AGENTS_ALL}; return b ? b.getAttribute("aria-expanded") === "true" : null;`);
+  if (all === false) await tap(FREE_AGENTS_ALL, "Best available's “Show all”", `${FREE_AGENTS_ALL}.getAttribute("aria-expanded") === "true"`);
+  await sleep(300);
+  const after = await page.run<LeagueSectionsRead>(READ_LEAGUE_SECTIONS);
+  const problems = [...leagueSectionsProblems(after, "open", mine), ...issues];
+  report.check(
+    step,
+    problems.length === 0,
+    `opened with taps what the step reads (${opened.map((o) => o.what).join(", ") || "nothing closed"}), focus kept on each button: ${Math.round((after.height / PHONE.height) * 10) / 10} phone screens with them open`,
+    "couldn't open what the League step reads",
+    problems,
+  );
+  layoutChecks(ctx, step, await measurePage(ctx), "the page", "with those open: ");
+  return opened;
+}
+
+/**
+ * Closes again what openLeagueSections opened (trusted taps, the last first), so the page is as it opens for the steps after
+ * this one and the clutter-3 shot (taken at the Waivers step's end: "nothing unfolded"); holds it to the "closed" contract.
+ */
+export async function closeLeagueSections(ctx: StepContext, step: string, opened: LeagueOpened): Promise<void> {
+  const { page, report } = ctx;
+  if (!opened.length) return;
+  const issues: string[] = [];
+  for (const o of [...opened].reverse()) {
+    try {
+      await page.click(o.expr, o.what);
+    } catch (err) {
+      issues.push(`${o.what}: ${err instanceof Error ? err.message : "it couldn't be tapped"}`);
+    }
+  }
+  await sleep(300);
+  const read = await page.run<LeagueSectionsRead>(READ_LEAGUE_SECTIONS);
+  // Best available's "Show all" is closed again with its card (its body hidden), so it reads collapsed too.
+  const problems = [...leagueSectionsProblems(read, "closed", !!ctx.myTeam), ...issues];
+  report.check(step, problems.length === 0, `closed again what it opened (${opened.length}), so the page is as it opens`, "couldn't close again what the League step opened", problems);
 }
 
 /**

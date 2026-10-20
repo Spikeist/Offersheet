@@ -404,6 +404,15 @@ describe("LeagueView team table", () => {
 });
 
 describe("LeagueView heatmap", () => {
+  it("is closed by default, its heading the 44 px control that opens it, the table in the page while closed (Checkpoint 7h)", () => {
+    const card = between(html, ">Lineup slots<", "Trade partners");
+    const control = /<h2 class="[^"]*"><button type="button" aria-expanded="false" aria-controls="([^"]+)" data-league-disclosure="heatmap" class="([^"]*)"><span class="[^"]*">Positional strength<\/span><span aria-hidden="true" class="[^"]*">▾<\/span><\/button><\/h2><div id="\1" hidden="" class="mt-3">/.exec(card);
+    expect(control).not.toBeNull();
+    expect(control?.[2]).toMatch(/(^|\s)min-h-11(\s|$)/);
+    expect(control?.[2]).toMatch(/(^|\s)w-full(\s|$)/);
+    expect(card).toContain('aria-label="Positional strength table');
+  });
+
   it("is a captioned table with a pinned team column and a two-button window toggle", () => {
     expect(html).toContain("Points per week from each team&#x27;s starter in each lineup slot, rest of season (weeks 13–17).");
     expect(html).toMatch(/<div role="group" aria-label="Time window"/);
@@ -609,9 +618,13 @@ describe("LeagueView rosters", () => {
     }
   });
 
-  it("opens my roster, and collapses the others", () => {
-    expect(html.match(/<details open=""/g)).toHaveLength(1);
-    expect(html).toMatch(/<details open=""[^>]*><summary[^>]*><span[^>]*><span[^>]*>Moonbeam Mudcats <span[^>]*>You<\/span><\/span><span[^>]*>87 pts\/wk · 438 ROS pts<\/span>/);
+  it("collapses every roster, mine too (Checkpoint 7h: toward about 8 screens), my summary showing my points a week, ROS points and pickups", () => {
+    expect(html).not.toContain("<details open");
+    expect(html).toMatch(/<details class="[^"]*"><summary[^>]*><span[^>]*><span[^>]*>Moonbeam Mudcats <span[^>]*>You<\/span><\/span><span[^>]*>87 pts\/wk · 438 ROS pts<\/span>/);
+    const mine = between(html, "Moonbeam Mudcats <span", "</summary>");
+    expect(mine).toContain("Free-agent pickups that would help:");
+    // The returns, locks and Expected back selects are in its body (the page's settings edits give them: PlayerTable.test.ts).
+    expect(between(html, "Moonbeam Mudcats <span", "</details>")).toContain("Moonbeam Mudcats: players with rest-of-season points");
     expect(html.match(/<details/g)).toHaveLength(5); // 4 rosters + how these numbers work
   });
 
@@ -773,8 +786,16 @@ describe("LeagueView rosters", () => {
 });
 
 describe("LeagueView free agents and the explainer", () => {
+  it("is closed by default, its heading the 44 px control that opens it, the tables in the page while closed (Checkpoint 7h)", () => {
+    const card = between(html, ">Free agents<", "How these numbers work");
+    const control = /<h2 class="[^"]*"><button type="button" aria-expanded="false" aria-controls="([^"]+)" data-league-disclosure="free-agents" class="([^"]*)"><span class="[^"]*">Best available<\/span><span aria-hidden="true" class="[^"]*">▾<\/span><\/button><\/h2><div id="\1" hidden="" class="mt-3">/.exec(card);
+    expect(control).not.toBeNull();
+    expect(control?.[2]).toMatch(/(^|\s)min-h-11(\s|$)/);
+    expect(card).toContain("Best free agents at RB by rest-of-season points");
+  });
+
   it("lists the best free agents by position, without a lineup cost", () => {
-    expect(text).toContain("Free agents Best available The best at each position by rest-of-season points. Values: FantasyCalc");
+    expect(text).toContain("Free agents Best available ▾ The best at each position by rest-of-season points. Values: FantasyCalc");
     expect(html).toContain('<caption class="sr-only">Best free agents at RB by rest-of-season points</caption>');
     expect(between(html, "Best available", "How these numbers work")).not.toContain("Lineup cost");
   });
@@ -789,7 +810,7 @@ describe("LeagueView free agents and the explainer", () => {
     const page = between(renderToStaticMarkup(createElement(LeagueView, { view: many, refresh })), "Best available", "How these numbers work");
     expect((page.match(/<tbody/g) ?? []).length).toBe(many.freeAgents.length);
     expect((page.match(/<th scope="row"/g) ?? []).length).toBe(many.freeAgents.length * shown);
-    expect(page).toMatch(new RegExp(`<button type="button" aria-expanded="false" class="[^"]*min-h-11[^"]*">Show all ${many.freeAgents.length * 3}<span class="sr-only"> free agents</span></button>`));
+    expect(page).toMatch(new RegExp(`<button type="button" aria-expanded="false" data-free-agents-all="" class="[^"]*min-h-11[^"]*">Show all ${many.freeAgents.length * 3}<span class="sr-only"> free agents</span></button>`));
     // No button when every position fits.
     const few = { ...view, freeAgents: view.freeAgents.map((g) => ({ ...g, players: g.players.slice(0, shown) })) };
     expect(between(renderToStaticMarkup(createElement(LeagueView, { view: few, refresh })), "Best available", "How these numbers work")).not.toContain("Show all");

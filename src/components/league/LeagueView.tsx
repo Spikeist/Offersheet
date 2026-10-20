@@ -22,6 +22,10 @@
  * one line (ROSTERS_LINE, with the FantasyCalc credit), the rest behind "Why?" (WhyNote.tsx): tapping a player, the lock, and how
  * free agents are shared out with the waiver order used. "Best available" shows the best config.leaguePage.freeAgentsShown a
  * position, the rest behind one 44 px "Show all" (the lead's step 3: aria-expanded; "Show fewer" folds them again).
+ * Then, toward "about 8 screens" (the integration's track "league"): the positional-strength heatmap and "Best available" are
+ * closed by default, each heading the 44 px control that opens it (DisclosureCard.tsx), and my roster card is closed like the
+ * others (its summary line shows my points a week, ROS points and pickups; the "Returns from IR" block, the locks and the
+ * Expected back selects are inside it). Waiver upgrades' untouchables line still offers the locks without opening it.
  *
  * Refresh stays focusable while it works (aria-disabled, clicks ignored), so keyboard focus never
  * drops to the page; `headingRef` lets the page move focus to the league's name after a Try again.
@@ -32,7 +36,8 @@ import { config } from "@/engine/config";
 import { FREE_AGENT_PICKUPS_LABEL, RETURNS_FROM_IR_LABEL, ROSTERS_LINE, WAIVER_ORDER_LABEL, type FreeAgentPickups, type LeagueView as LeagueViewModel } from "@/lib/leagueView";
 import { NOTICES_TITLE } from "@/lib/notices";
 import type { RefreshControl } from "../import/ReportView";
-import { Badge, Callout, Card, CardTitle, FOCUS_TARGET, Facts, buttonClass, cx } from "../ui";
+import { Badge, Callout, FOCUS_TARGET, Facts, buttonClass, cx } from "../ui";
+import { DisclosureCard } from "./DisclosureCard";
 import { PlayerTable } from "./PlayerTable";
 import { RemainingSchedule } from "./RemainingSchedule";
 import { StandingsOdds } from "./StandingsOdds";
@@ -187,7 +192,7 @@ function Rosters({ view }: ViewProps) {
         </WhyNote>
       </div>
       {view.rosters.map((r) => (
-        <details key={r.teamId} open={r.isMine} className="group rounded-2xl border border-line bg-surface shadow-sm">
+        <details key={r.teamId} className="group rounded-2xl border border-line bg-surface shadow-sm">
           <summary className="flex min-h-11 items-center justify-between gap-3 px-4 py-3 sm:px-5">
             <span className="min-w-0">
               <span className="block font-extrabold break-words">
@@ -276,17 +281,16 @@ function ReturnsList({ lines, teamName }: { lines: readonly string[]; teamName: 
 }
 
 function FreeAgents({ view }: ViewProps) {
-  // The best few a position, the rest behind "Show all" (Checkpoint 7h: the file header).
+  // Closed by default; inside, the best few a position, the rest behind "Show all" (Checkpoint 7h: the file header).
   const [all, setAll] = useState(false);
   const shown = Math.max(1, config.leaguePage.freeAgentsShown);
   const total = view.freeAgents.reduce((n, g) => n + g.players.length, 0);
   const more = view.freeAgents.some((g) => g.players.length > shown);
   return (
-    <Card>
-      <CardTitle eyebrow="Free agents">Best available</CardTitle>
+    <DisclosureCard eyebrow="Free agents" title="Best available" dataKey="free-agents">
       {view.freeAgents.length ? (
         <>
-          <p className="-mt-1 mb-3 text-sm text-muted">
+          <p className="mb-3 text-sm text-muted">
             The best at each position by rest-of-season points. <ValuesCredit />
           </p>
           <div className="space-y-5">
@@ -298,7 +302,7 @@ function FreeAgents({ view }: ViewProps) {
             ))}
           </div>
           {more ? (
-            <button type="button" aria-expanded={all} onClick={() => setAll((a) => !a)} className={cx(buttonClass("secondary", "sm"), "mt-3 min-h-11")}>
+            <button type="button" aria-expanded={all} data-free-agents-all="" onClick={() => setAll((a) => !a)} className={cx(buttonClass("secondary", "sm"), "mt-3 min-h-11")}>
               {all ? "Show fewer" : `Show all ${total}`}
               <span className="sr-only"> free agents</span>
             </button>
@@ -307,7 +311,7 @@ function FreeAgents({ view }: ViewProps) {
       ) : (
         <p className="text-sm text-muted">No free agents with projections were loaded.</p>
       )}
-    </Card>
+    </DisclosureCard>
   );
 }
 

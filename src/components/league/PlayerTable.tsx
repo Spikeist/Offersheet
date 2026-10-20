@@ -35,11 +35,8 @@
  * (UI-C-5), with how such a week counts. Both edit the league's settings through the League page (leagueSettingsEdit.ts);
  * without it (another page, a static render) there's no lock, and the return line is text alone. The line replaces the
  * conflict note's short line in his button (it says the same, or a week of the user's in its place); the sentence stays in
- * his breakdown.
- * Checkpoint 7h (planner reply to Checkpoint 7g, §1: "The League page fits in about 8 screens"; the lead's step 4 for it): the
- * week shows inline, "Expected back: week 8 (ESPN)" in his button (in place of the conflict note's short line, as before), and
- * the select that sets it moved into his breakdown, at its top with how such a week counts (one per player, as UI-C-5 wants);
- * the row of its own under his (UI-C-10) went with it.
+ * his breakdown. Checkpoint 7h keeps it so (the lead's ruling: moving the select into his breakdown saved almost nothing and
+ * put the setting a tap deeper); my roster card itself is closed by default since then (LeagueView.tsx).
  */
 import { useId, useState } from "react";
 import { returnWeekOptions, type PlayerRow, type ReturnWeekRow, type WeekRow } from "@/lib/leagueView";
@@ -172,9 +169,9 @@ export function ReturnWeekControl({ playerId, name, row, className }: { playerId
 
 /**
  * The breakdown under a player: the conflict note and the market blend's line (which way it moved his projection, in
- * words, CLAUDE.md §6 step 8, with how the lean works) when he has them, my injured player's expected return week, its select
- * (since Checkpoint 7h here: ReturnWeekControl, the week itself inline in his button) with how a week of mine counts
- * (Checkpoint 7e, item 3.5), the columns phones don't show, then his week-by-week points.
+ * words, CLAUDE.md §6 step 8, with how the lean works) when he has them, my injured player's expected return week with how
+ * a week of mine counts (Checkpoint 7e, item 3.5: the line, its select being on the row above: review of wave C, UI-C-5),
+ * the columns phones don't show, then his week-by-week points.
  */
 export function PlayerDetail({ player, showLineupCost }: { player: PlayerRow; showLineupCost: boolean }) {
   const p = player;
@@ -183,7 +180,7 @@ export function PlayerDetail({ player, showLineupCost }: { player: PlayerRow; sh
       {p.availabilityNote ? <p className="mb-2 text-xs leading-relaxed">{p.availabilityNote.long}.</p> : null}
       {p.returnWeek ? (
         <div className="mb-2">
-          <ReturnWeekControl playerId={p.id} name={p.name} row={p.returnWeek} className="font-semibold" />
+          <p className="text-xs font-semibold">{p.returnWeek.text}</p>
           <p className="mt-1 text-xs leading-relaxed text-muted">{p.returnWeek.help}</p>
         </div>
       ) : null}
@@ -241,10 +238,8 @@ function PlayerRows({ player, columns, showLineupCost, scaleMax }: { player: Pla
         {p.injury ? <InjuryBadge injury={p.injury} /> : null}
         {p.tag ? <HarderToGetBadge tag={p.tag} className="ml-1" /> : null}
       </span>
-      {/* When he's expected back (Checkpoint 7e; inline since Checkpoint 7h, its select in his breakdown), in place of the conflict note's short line. */}
-      {p.returnWeek ? (
-        <span className="block pl-4 text-xs break-words text-muted">{p.returnWeek.text}</span>
-      ) : p.availabilityNote ? (
+      {/* The return-week line below says when he's expected back (Checkpoint 7e), so the conflict note's short line goes. */}
+      {p.availabilityNote && !p.returnWeek ? (
         <span title={p.availabilityNote.long} className="block pl-4 text-xs break-words text-muted italic">
           {p.availabilityNote.short}
         </span>
@@ -252,9 +247,12 @@ function PlayerRows({ player, columns, showLineupCost, scaleMax }: { player: Pla
       <span className="sr-only">, week by week</span>
     </button>
   );
+  // My injured player's return line and its select (item 3.5) take a row of their own under his, so his row header stays
+  // his button and lock (review of wave C, UI-C-10: inside it, the select's label and week were read with every cell).
+  const returnRow = p.returnWeek !== null;
   return (
     <>
-      <tr className={open ? undefined : "border-b border-line"}>
+      <tr className={open || returnRow ? undefined : "border-b border-line"}>
         <th scope="row" className="p-0 text-left align-top font-normal">
           {lock ? (
             <div className="flex items-start gap-1">
@@ -273,6 +271,13 @@ function PlayerRows({ player, columns, showLineupCost, scaleMax }: { player: Pla
         <td className="hidden py-2 pr-3 align-top md:table-cell">{p.weeks.length ? <WeekStrip weeks={p.weeks} text={p.weeksText} max={scaleMax} /> : null}</td>
         {showLineupCost ? <td className="hidden py-2 text-right align-top tabular-nums sm:table-cell">{p.lineupCost ?? <span className="text-muted">—</span>}</td> : null}
       </tr>
+      {p.returnWeek ? (
+        <tr className={open ? undefined : "border-b border-line"}>
+          <td colSpan={columns} className="p-0">
+            <ReturnWeekControl playerId={p.id} name={p.name} row={p.returnWeek} className="pr-4 pb-2 pl-8 sm:pr-0 sm:pl-4" />
+          </td>
+        </tr>
+      ) : null}
       {/* The row is always there for aria-controls; its content is built only when opened (a league has hundreds of players). */}
       <tr id={detailId} hidden={!open} className="border-b border-line">
         <td colSpan={columns} className="px-4 pb-3 sm:px-0">

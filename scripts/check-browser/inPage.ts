@@ -805,6 +805,42 @@ return {
 `;
 
 /**
+ * What the League page has open (Checkpoint 7h, the integration's track "league": toward "about 8 screens"): its cards closed
+ * by default (DisclosureCard.tsx: `button[data-league-disclosure]`, the heading's own button, aria-controls naming the body),
+ * with each one's heading words (as shown: no screen-reader-only words, no chevron), whether it's expanded, whether its body shows and whether the button has focus; my roster
+ * card (the <details> whose summary carries the You badge, around a table: closed by default since then, like the others);
+ * Best available's "Show all" (`button[data-free-agents-all]`); and the page's height (main), for the screens it takes.
+ */
+export const READ_LEAGUE_SECTIONS = String.raw`
+const disclosures = [...document.querySelectorAll("main button[data-league-disclosure]")].map((b) => {
+  const body = document.getElementById(b.getAttribute("aria-controls") || "");
+  const heading = b.closest("h2");
+  // Its words as shown: without screen-reader-only words or the chevron (aria-hidden).
+  const words = heading ? heading.cloneNode(true) : null;
+  if (words) for (const x of words.querySelectorAll(".sr-only, [aria-hidden=true]")) x.remove();
+  return { key: b.getAttribute("data-league-disclosure"), heading: words ? txt(words) : "", expanded: b.getAttribute("aria-expanded") === "true", shown: !!body && !body.hidden && visible(body), focused: document.activeElement === b, height: Math.round(b.getBoundingClientRect().height) };
+});
+const mine = [...document.querySelectorAll("main details")].find((d) => { const s = d.querySelector("summary"); return !!s && !!d.querySelector("table") && hasYouBadge(s); });
+const all = document.querySelector("main button[data-free-agents-all]");
+const main = document.querySelector("main");
+return {
+  disclosures: disclosures,
+  myRoster: mine ? { open: mine.open } : null,
+  showAll: all ? { expanded: all.getAttribute("aria-expanded") === "true", text: visibleText(all) } : null,
+  height: main ? Math.round(main.getBoundingClientRect().height) : 0,
+};
+`;
+
+/** My roster card's summary, for a trusted tap (Checkpoint 7h: the card is closed by default). */
+export const MY_ROSTER_SUMMARY = `(() => { const d = [...document.querySelectorAll("main details")].find((x) => { const s = x.querySelector("summary"); return !!s && !!x.querySelector("table") && hasYouBadge(s); }); return d ? d.querySelector("summary") : null; })()`;
+
+/** A League page card's own disclosure button (DisclosureCard.tsx), by its data-league-disclosure key, for a trusted tap. */
+export const leagueDisclosure = (key: string): string => `document.querySelector(${JSON.stringify(`main button[data-league-disclosure="${key}"]`)})`;
+
+/** Best available's "Show all" / "Show fewer" button, for a trusted tap. */
+export const FREE_AGENTS_ALL = `document.querySelector("main button[data-free-agents-all]")`;
+
+/**
  * The League page's "Things to know" banner (the notices: planner reply to Checkpoint 7a, §5.1) and every word on the
  * page a tap could show, with its title and aria-label texts (needs cleanCall).
  */
