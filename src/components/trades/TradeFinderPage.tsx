@@ -235,11 +235,11 @@ export type RunProgress = { tag: string; view: ProgressView; searching?: boolean
  * A re-filter's progress, step by step (the header): the ranking's alone, the whole bar, until the worker answers with a
  * new search (any stage but "rank"); from then on, for good, a search's (its own ranking comes last, near the bar's end).
  */
-export function refilterProgress(): (p: TradeSearchProgress | null) => { view: ProgressView; searching: boolean } {
+export function refilterProgress(thorough = false): (p: TradeSearchProgress | null) => { view: ProgressView; searching: boolean } {
   let searching = false;
   return (p) => {
     if (p && p.stage !== "rank") searching = true;
-    return { view: progressView(p, searching ? "search" : "refilter"), searching };
+    return { view: progressView(p, searching ? "search" : "refilter", thorough ? "thorough" : "normal"), searching };
   };
 }
 
@@ -432,7 +432,7 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
       const nowIso = new Date(nowMs).toISOString();
       setProgress({ tag, view: progressView(null) });
       const handle = tradeEngine(leagueId).searchTrades({ ...job, nowIso }, (p) => {
-        if (live) showProgress(tag, progressView(p));
+        if (live) showProgress(tag, progressView(p, "search", thorough ? "thorough" : "normal"));
       });
       handleRef.current = handle;
       handle.promise.then(
@@ -476,7 +476,7 @@ function LoadedFinder({ read, query }: { read: Extract<CurrentLeagueRead, { kind
     let live = true;
     let handle: TradeSearchHandle | null = null;
     // Its progress is the ranking's alone, unless the worker has to search afresh (any other stage).
-    const step = refilterProgress();
+    const step = refilterProgress(done.thorough === true);
     // A tick later, as a search starts (StrictMode's first run is cancelled before it starts).
     const timer = setTimeout(() => {
       const nowIso = new Date().toISOString();

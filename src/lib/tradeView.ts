@@ -3152,6 +3152,21 @@ const STAGE_ORDER: readonly TradeSearchStage[] = ["setup", "screening", "exact",
  */
 const STAGE_WEIGHT: Record<TradeSearchStage, number> = { setup: 0.08, screening: 0.3, exact: 0.2, simScreen: 0.11, simFinal: 0.14, rank: 0.17 };
 
+/**
+ * A Thorough search's stage weights (Checkpoint 7h; search.ts, "Whole rosters"), so its bar moves evenly too: it screens
+ * whole rosters (tens of thousands of trades a partner) and evaluates five to seven times as many trades exactly, so screening
+ * takes about half its time where it takes under a third of a normal search's. MEASURED_LATER
+ */
+const THOROUGH_STAGE_WEIGHT: Record<TradeSearchStage, number> = { setup: 0.02, screening: 0.48, exact: 0.2, simScreen: 0.1, simFinal: 0.05, rank: 0.15 };
+
+/** Which search a progress bar is for: a normal one (STAGE_WEIGHT) or a Thorough one (THOROUGH_STAGE_WEIGHT). */
+export type ProgressSearch = "normal" | "thorough";
+
+/** Each stage's share of the bar for a search (a copy; tests and reports). */
+export function stageWeights(search: ProgressSearch = "normal"): Record<TradeSearchStage, number> {
+  return { ...(search === "thorough" ? THOROUGH_STAGE_WEIGHT : STAGE_WEIGHT) };
+}
+
 /** Each stage in plain words. */
 export const STAGE_LABEL: Record<TradeSearchStage, string> = {
   setup: "Getting your league ready",
@@ -3188,20 +3203,22 @@ export interface ProgressView {
 /**
  * The progress bar in words. `mode` "refilter" (Phase 4c: the minimum chance changed, and the worker ranks the same ideas
  * again: search.ts refilterSearch) shows the ranking and words alone, the whole bar for the "rank" stage; a search, and a
- * re-filter that had to search afresh (any other stage), the stages by STAGE_WEIGHT. The "rank" stage reads
+ * re-filter that had to search afresh (any other stage), the stages by STAGE_WEIGHT (`search` "thorough", Checkpoint 7h: a
+ * Thorough search's, by THOROUGH_STAGE_WEIGHT). The "rank" stage reads
  * SHOWN_PASS_LABEL while it plays out the ideas shown (TradeSearchProgress.part "shown", Checkpoint 7e), OFFERS_PASS_LABEL
  * while the merge works out their offers (part "offers", Checkpoint 7f), else its own label.
  */
-export function progressView(p: TradeSearchProgress | null, mode: "search" | "refilter" = "search"): ProgressView {
+export function progressView(p: TradeSearchProgress | null, mode: "search" | "refilter" = "search", search: ProgressSearch = "normal"): ProgressView {
   const stage = p?.stage ?? (mode === "refilter" ? "rank" : "setup");
+  const weight = search === "thorough" ? THOROUGH_STAGE_WEIGHT : STAGE_WEIGHT;
   const share = p && p.total > 0 ? Math.min(1, Math.max(0, p.done / p.total)) : 0;
   let fraction: number;
   if (mode === "refilter" && stage === "rank") {
     fraction = share;
   } else {
     const index = Math.max(0, STAGE_ORDER.indexOf(stage));
-    const before = STAGE_ORDER.slice(0, index).reduce((s, st) => s + STAGE_WEIGHT[st], 0);
-    fraction = before + STAGE_WEIGHT[stage] * share;
+    const before = STAGE_ORDER.slice(0, index).reduce((s, st) => s + weight[st], 0);
+    fraction = before + weight[stage] * share;
   }
   const percent = Math.min(99, Math.max(0, Math.floor(fraction * 100)));
   const detail = p && p.total > 1 ? `${fmtWhole(Math.min(p.done, p.total))} of ${fmtWhole(p.total)}` : null;

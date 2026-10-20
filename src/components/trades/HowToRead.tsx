@@ -87,6 +87,9 @@
  * ideas start closed, the Analyzer's card with Details open), the odds "in Details", Plan B at the end of "How to offer it"
  * and shown once when several ideas share it (planBWords), the line of moves made with or without a trade said once above the
  * list (rosterMovesWords), and the "Now or after this week" line in Details (nowOrLaterWords).
+ * Checkpoint 7h (planner reply to Checkpoint 7g, section 3; the integration's track "thorough"): the Trade Finder's paragraph on
+ * the Thorough search (thoroughWords: what it adds, about how long, that its ideas stay for the visit, that the switch isn't
+ * saved), its numbers from config.
  * A native <details>, closed at first; its summary is a 44 px target.
  */
 import type { HelpsScale } from "@/engine/benefit";
@@ -209,6 +212,31 @@ export function offersWords(page: HowToReadPage): string {
     ? `When no other version makes a better first offer, it says to offer the trade as it is. A trade opened from a trade idea's “${PLAN_B_HEADING}” is shown as one offer instead: they've just turned down a trade with the same team.`
     : `When an idea's offers include another idea below it on Overall, the list shows only the higher one, and the other is among its offers. ${PROMOTED_WORDS} ${PREFER_LISTED_WORDS} When two ideas are versions of the same trade and one is at least as good on both Helps you and the chance, only that one shows. An offer can still be an idea above it on Overall whose own offers don't include this one; it then says so, with that idea's place (“${planBAlsoText(2)}”). The idea's own “${PLAN_B_HEADING}” trade is never one of its offers. When no other version makes a better first offer, it says to offer the trade as it is.`;
   return `${lead} ${steps} ${each} ${tail}`;
+}
+
+/** The Thorough search's switch, as the Trade Finder names it (TradeFinderPage.tsx THOROUGH_LABEL). */
+export const THOROUGH_HEADING = "Thorough search";
+
+/**
+ * The Thorough search in words, after its bold heading (Checkpoint 7h; planner reply to Checkpoint 7g, section 3; search.ts,
+ * "Whole rosters"; the Trade Finder's switch, TradeFinderPage.tsx): what it adds over the normal search (every trade of up to 2
+ * players a side across whole rosters, trades with config.search.thorough.maxPerSide players on a side from the top
+ * config.search.thorough.threePool of each roster, config.search.thorough.finalists ideas played out where the normal search
+ * plays out config.search.finalists), about how long (config.search.thorough.estimate.workRatio times a normal search, the
+ * switch's own estimate), that its ideas stay for the visit (the page's search memory: TradeFinderPage.tsx searchKeyFor's
+ * "|thorough") and that the switch isn't saved (page state). The Trade Finder's only: the Analyzer has no search.
+ */
+export function thoroughWords(): string {
+  const t = config.search.thorough;
+  const three: number = t.maxPerSide;
+  const pool: number = t.threePool;
+  const ratio: number = t.estimate.workRatio;
+  return (
+    `checks more trades than the usual search: every trade of up to 2 players a side with every team, from whole rosters, plus trades with ${three} players on a side ` +
+    `from your ${pool} and their ${pool} best players, and it plays out the best ${fmtNum(t.finalists, 0)} ideas where the usual search plays out ${fmtNum(config.search.finalists, 0)}. ` +
+    `It takes about ${ratio} times as long (the switch says about how many seconds before it starts), with the same progress bar and Stop. ` +
+    `Its ideas stay for this visit, like the usual search's, and turning it off shows the usual search's ideas again at once. The switch isn't saved: the Trade Finder always starts with the usual search.`
+  );
 }
 
 /**
@@ -472,6 +500,11 @@ export function HowToRead({
           <span className="font-bold">Overall</span> combines the two: how much it helps, discounted by the chance it happens.{" "}
           {analyzer ? "The Trade Finder ranks its trade ideas by it." : "Ideas are sorted by it unless you choose otherwise."}
         </p>
+        {analyzer ? null : (
+          <p>
+            <span className="font-bold">{THOROUGH_HEADING}</span> {thoroughWords()}
+          </p>
+        )}
         <p>
           <span className="font-bold">{DETAILS_HEADING}</span> {detailsWords(page)}
         </p>

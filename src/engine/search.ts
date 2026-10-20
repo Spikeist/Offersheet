@@ -453,6 +453,21 @@
  *   every candidate in full gives (search.whole.test.ts); about 60% of the candidates never get their partner's half priced.
  * - SearchState.mode records it; a re-filter ranks the same finalists (it equals a fresh search in that mode). The Trade
  *   Finder sends the Thorough search's flag through the worker (engine.worker.ts TradesRequest.thorough).
+ * - Memory (Checkpoint 7h's integration, the lead's item: "a Thorough search's result keeps about 640–720 MB of heap after
+ *   cleanup"; TradeSearchOptions.trimMemos): ⚠️ ours, measured: the heap wasn't the result's. Its state holds the exact trades
+ *   (about 1,300–1,450 here), but their side evaluations are the context's own (TradeInternals.sideMemo), and dropping the result
+ *   freed nothing measurable on Parker's leagues (league 2, Oct 15: 761 → 761 MB; with the context's side evaluations cleared too,
+ *   2 MB more). The heap was the optimizer's scenario memo (optimizer.ts scenarioMemoSize): each exact evaluation's V*(after)
+ *   runs memoize the scenario lineups of every roster they pass through, about 130 KB each, 4,000–4,700 rosters (about 550–600
+ *   MB), kept as long as the context. So a whole-roster search cuts that memo back to its size when the search began
+ *   (trimScenarioMemo) every config.search.thorough.memoTrimEvery exact evaluations and once it's done: the context keeps what
+ *   it kept before, the peak stays low, and the state is kept whole (re-filters, ladders, Plan B and later numbers read it as
+ *   before). Speed only: a roster that's gone is worked out again, bit for bit, when next needed (search.thoroughMemo.test.ts:
+ *   the same result, re-filters, ladders kept and worked out again, and later numbers). Parker's leagues (Node, heap after a
+ *   forced GC with the result kept): league 2 (Oct 15) 723 → 126 MB (peak 851 → about 330 MB), league 1 (Oct 15, his prizes)
+ *   866 → 128 MB (963 → about 400 MB), at the same speed (within the run-to-run noise); the context alone 56 and 46 MB, a normal
+ *   search's kept heap about 205 MB. ⚠️ The cost: a second Thorough search on the same context evaluates its trades afresh
+ *   (they were memoized before); the normal search never trims.
  *
  * Promoted Last offers, Checkpoint 7h (planner reply to Checkpoint 7g, answer 3: "No: promote it. When an offer list finds a
  * version with a higher Overall than the idea it sits under: that version becomes the idea; the original becomes its "Open
@@ -705,6 +720,13 @@ export interface TradeSearchOptions {
    * every trade of up to 2 players a side across whole rosters, a funnel generous enough that its top 25 is solid).
    */
   mode?: SearchMode;
+  /**
+   * Checkpoint 7h (memory; the file header, "Whole rosters", "Memory"): in the whole-roster modes, whether the scenario lineups
+   * the search's own exact evaluations and ladders memoize in the context's optimizer are let go, every
+   * config.search.thorough.memoTrimEvery exact evaluations and once the search is done. Default true; false keeps them (a test
+   * switch: the same result either way, only the memory and the time differ). The normal search never trims.
+   */
+  trimMemos?: boolean;
   /**
    * Report and test switch (the app never sets it): false leaves out Checkpoint 7h's promoted Last offers (planner reply to
    * Checkpoint 7g, answer 3; the file header, "Promoted Last offers"), so a Last offer printing a higher Overall than its card
@@ -3046,6 +3068,13 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
   mark("setup");
   if (pools.stop) return stopped(notes);
   yield { stage: "setup", done: 1, total: 1 };
+  // Checkpoint 7h (the file header, "Whole rosters", "Memory"): a whole-roster search lets go of the scenario lineups its own
+  // exact evaluations and ladders memoize (the optimizer's scenario memo back to its size now), so the context keeps what it
+  // kept before the search.
+  const memos = mode !== "normal" && opts.trimMemos !== false ? I.league.optimizer : null;
+  const memoMark = memos ? memos.scenarioMemoSize() : 0;
+  const trimEvery = Math.max(1, Math.floor(config.search.thorough.memoTrimEvery));
+  const trimMemos = (): void => memos?.trimScenarioMemo(memoMark);
 
   // Screening (§12 step 2): beams and exhaustive candidates per partner; since Checkpoint 7h, in the whole-roster modes, every
   // trade across whole rosters (the file header, "Whole rosters").
@@ -3119,8 +3148,10 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
     const s = chosen[i] as Screened;
     const x = evaluateExact(I, { partnerId: s.partnerId, give: players(s.give), get: players(s.get) }, maxPerSide);
     if (!("illegal" in x)) exact.push(x);
+    if ((i + 1) % trimEvery === 0) trimMemos();
     yield { stage: "exact", done: i + 1, total: chosen.length };
   }
+  trimMemos();
   counts.exact = exact.length;
   mark("exact");
 
@@ -3209,6 +3240,7 @@ export function* tradeSearch(ctx: TradeContext, opts: TradeSearchOptions = {}): 
     exactByKey: new Map<string, ExactTrade>(screened.map((s) => [s.core.key, s.x])),
   };
   const done = yield* finish(state, settings, mark);
+  trimMemos();
   timer.end();
   return resultOf(state, done, timings);
 }
