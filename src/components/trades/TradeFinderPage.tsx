@@ -1312,7 +1312,8 @@ const Results = memo(function Results({
         </Card>
       ) : (
         // Whether every card's "now or after this week" numbers are in (FinderView.nowOrLater; `npm run check:browser` waits on it).
-        <ol className="space-y-4" data-now-or-later={view.nowOrLater}>
+        // 12 px between ideas (Checkpoint 7h, toward at least 2 closed ideas a phone screen: TradeCard.tsx's spacing note).
+        <ol className="space-y-3" data-now-or-later={view.nowOrLater}>
           {view.cards.map((card, i) => {
             // The card a return from the Analyzer names opens the panel holding the link used (the others open closed).
             const panel = reveal && reveal.cardKey === card.key ? returnPanelOf(card, reveal.href) : null;

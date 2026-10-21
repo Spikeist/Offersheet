@@ -715,7 +715,7 @@ export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedbac
   // The first reason shows on the closed card; the others in Details (Checkpoint 7h: "one reason").
   const [reason, ...moreReasons] = card.reasons;
   return (
-    <article aria-labelledby={headingId} className="rounded-2xl border border-line bg-surface p-4 shadow-sm sm:p-5">
+    <article aria-labelledby={headingId} className="rounded-2xl border border-line bg-surface px-4 py-3 shadow-sm sm:p-5">
       {/* "Trade idea N" on one row with the heading and its "Helps both" tag, on one baseline, wrapping when they don't fit
           (Checkpoint 7h, the first review's item 3: the eyebrow's own line saved, toward at least 2 closed ideas a phone
           screen). ⚠️ Ours: the heading and its tag move down together, as one piece, with no gap above them: a card tagged
@@ -726,7 +726,12 @@ export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedbac
           before, so the saving depends on the league's own names (the review of this change: league 1's list, 1.99 ideas a
           phone screen before it, reads 2.06 with the dumps' "Team N" names and still 1.99 with a 13-character name).
           `npm run check:browser` measures the closed ideas with the league's own names (scripts/check-browser/steps7h.ts
-          closedIdeasChecks). */}
+          closedIdeasChecks). So the card's spacing is trimmed too, whatever the names (the lead's call, Checkpoint 7h): 12 px
+          above and below on a phone (16 before; sm:p-5 as before), 8 px above the three numbers and above the two buttons (12
+          before), and the Trade Finder's list 12 px between ideas (TradeFinderPage.tsx; 16 before): measured on the review's
+          renders of league 1 and 2 (Oct 15), 2.07–2.09 and 2.02–2.07 ideas a phone screen with 13- to 21-character team names
+          on every card (1.97–1.99 and 1.92–1.97 without the trim), and 1.92–1.96 with a 31-character name on every card,
+          whose heading wraps to two lines. */}
       {rank ? (
         <div className="flex flex-wrap items-baseline gap-x-2">
           <p className="text-xs font-bold tracking-wider text-brand uppercase">Trade idea {rank}</p>
@@ -741,7 +746,7 @@ export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedbac
         <AssetList title="You get" assets={card.get} />
       </div>
 
-      <dl className="mt-3 grid grid-cols-3 gap-2">
+      <dl className="mt-2 grid grid-cols-3 gap-2">
         <Score label="Helps you" number={n.helps} />
         <Score label="Chance they accept" number={n.accept} sub={n.acceptLabel} />
         <Score label="Overall" number={n.overall} />
@@ -761,7 +766,7 @@ export function TradeCard({ card, rank, headingLevel = "h3", feedback, onFeedbac
       ) : null}
       {reason ? <p className="mt-2 text-sm leading-snug break-words">{reason}</p> : null}
 
-      <div className="mt-3 flex flex-wrap gap-2">
+      <div className="mt-2 flex flex-wrap gap-2">
         <DisclosureButton open={showDetails} controls={detailsId} onToggle={() => setShowDetails((o) => !o)} name={name}>
           {DETAILS_HEADING}
         </DisclosureButton>

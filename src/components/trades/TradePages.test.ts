@@ -258,7 +258,8 @@ describe("FinderFrame: one status line through every state", () => {
     expect([...html.matchAll(/Trade idea (\d+)<\/p>/g)].map((m) => m[1])).toEqual(["1", "2"]);
     // Each idea's item carries its key, so a return from the Analyzer can bring it back into view (review of Phase 4).
     expect([...html.matchAll(/<li data-trade-key="([^"]+)"><article aria-labelledby=/g)].map((m) => m[1])).toEqual(["b", "a"]);
-    expect(html).toMatch(/<ol class="space-y-4"><li data-trade-key="[^"]+"><article aria-labelledby=/);
+    // 12 px between ideas and the card's trimmed spacing (Checkpoint 7h: toward at least 2 closed ideas a phone screen).
+    expect(html).toMatch(/<ol class="space-y-3"><li data-trade-key="[^"]+"><article aria-labelledby="[^"]+" class="rounded-2xl border border-line bg-surface px-4 py-3 shadow-sm sm:p-5">/);
     expect(text).toContain("Left out on purpose: 3 trade ideas that wouldn't help you.");
     expect(text).toContain("Looked at 1,234 trade ideas");
     // The results' heading can take focus (after Search again).
@@ -459,7 +460,8 @@ describe("TradeCard (§13: each trade card shows)", () => {
     const html = render(evaluation({ pComplete: 0.4, ros: { received: 142, given: 118 } }));
     const text = textOf(html);
     expect(text).toContain("Trade idea 1 Trade with Gravel Gophers You give Wiggleton Spoons WR · ATL You get Cornelius Snoot RB · HOU");
-    expect(html).toMatch(/<dl class="mt-3 grid grid-cols-3 gap-2">/);
+    expect(html).toMatch(/<dl class="mt-2 grid grid-cols-3 gap-2">/);
+    expect(html).toContain('<div class="mt-2 flex flex-wrap gap-2"><button');
     // Each number's label (dt) comes first for screen readers; the number shows above it (flex-col-reverse).
     expect(text).toContain("Helps you 39 Chance they accept 40% Est. · Decent Overall 18");
     expect(html).toContain('<div class="flex min-w-0 flex-col-reverse justify-end rounded-xl bg-surface-muted px-1.5 py-1.5 text-center"><dt');
