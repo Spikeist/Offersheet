@@ -25,7 +25,7 @@ This is the complete spec for the project. The planner wrote it on 2026-09-29. T
 
 3. **Don't guess when reality differs from this spec.** An endpoint may have moved, a field may be missing, or a number may look wrong. Don't work around it silently. Record the evidence in your report: the URL (with secrets removed), the HTTP status, the JSON path, and a sample value. Then propose options. If the problem blocks progress, stop and ask.
 
-4. **Git is local only.** Run `git init` and commit at every checkpoint. Never add a remote, push, or create a GitHub repo unless Parker explicitly asks.
+4. **Git:** commit at every checkpoint. Since 2026-10-22 the repository has one remote, `origin`: Parker's personal GitHub repo (its address: `git remote -v`), added at his request. It must stay **private**: it holds FantasyCalc's value lists and other captured data whose terms don't let us republish them (Section 2.9). Push only when Parker asks (main and the `checkpoint-*` tags); never add another remote, create a repo or force-push unless he asks.
 
 5. **Secrets live only in `.env.local`,** which must be git-ignored from the very first commit.
    - Never ask Parker to paste a secret into chat. Tell him which variable to fill in.

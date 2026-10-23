@@ -115,6 +115,7 @@
 - League model, season odds, the automatic playoff weight and his places under his prizes: `reports/league-report.md` (`npm run league:report -- --dump data-local/parker-league-7f --team 3 --prizes 2000,1600,900`)
 - Production deploy (a normal deploy since launch: `reports/beta-infrastructure.md`, "A normal deploy"): the dry run, `npm run prod:deploy -- --checkpoint <the approved tag>` (read-only, before the go), then, only after the go, `npm run prod:deploy -- --live --checkpoint <the approved tag>`, `--verify` to ask its checks again, then the phone check (CLAUDE.md §19)
 - Production browser check: `npm run build`, then `npm run check:browser -- --live --team 3`
+- GitHub: `origin` (Parker's personal GitHub repo; `git remote -v`), **private** (it holds FantasyCalc's value lists and other captured data); pushed 2026-10-22 at Parker's request (main and the checkpoint tags, after a leak scan of every file version in the history: 0 hard hits). Push only when he asks.
 - The shared store's readers, read-only (`READONLY_STORE_URL` and `READONLY_STORE_TOKEN` typed into .env.local by hand; add `--env production` after launch, except for `snapshot:pull`, which reads production by default): `npm run beta:log -- --live`, `npm run usage:report -- --live`, `npm run feedback:report -- --live`, `npm run snapshot:pull -- --live`
 
 ## Waiting on Parker
