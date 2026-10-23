@@ -1,75 +1,124 @@
 # Offer Sheet
 
-Finds and ranks fantasy football trades for your team. The working name was Fantasy Trade Finder, which is why the folder and package are still called `fantasy-trade-finder`. The full spec is in `CLAUDE.md`, and progress is tracked in `reports/STATUS.md`.
+Offer Sheet finds and ranks fantasy football trades for your team. It's free, it works with ESPN and Sleeper leagues,
+and it's read-only: it never sends an offer or changes anything on your league's platform.
 
-It's read-only: it never sends offers or changes anything on any platform.
+**Live beta: [offersheet.vercel.app](https://offersheet.vercel.app)**
 
-## Setup (PowerShell)
+<p>
+  <img src="reports/checkpoint-7h-screenshots/clutter-1-trade-finder-01.png" width="200" alt="The Trade Finder on a phone: ranked trade ideas, each with Helps you, Chance they accept and Overall">
+  <img src="reports/checkpoint-7h-screenshots/clutter-2-trade-card-opened-01.png" width="200" alt="One trade idea opened: the odds before and after, the roster moves and the reasons">
+  <img src="reports/checkpoint-7h-screenshots/clutter-3-league-01.png" width="200" alt="The League page: standings with playoff, bye and title odds">
+  <img src="reports/checkpoint-7h-screenshots/clutter-4-waivers-01.png" width="200" alt="Waiver upgrades: the pickups that would help, rated like trades">
+</p>
+
+<sub>Screenshots at phone width from a real league. Team names are replaced with placeholders.</sub>
+
+## What it does
+
+1. **Imports your league** from ESPN or Sleeper (Yahoo is waiting on Yahoo's approval; Fleaflicker, MyFantasyLeague,
+   Fantrax and manual entry come later).
+2. **Understands it exactly:** the scoring rules, the lineup slots, bench, IR and taxi, the playoff format and trade
+   deadline, the league type and every roster. An Import Report shows what it understood.
+3. **Works out needs and trade chips** for every team: where each lineup is weak, and which players are worth more to
+   another team than to their own.
+4. **Searches and ranks trades** with every other team. Each idea gets three numbers:
+   - **Helps you** (0–100): how much the trade raises your odds of what your league rewards (the title, the
+     playoffs or your league's prizes), from a simulation of the rest of the season;
+   - **Chance they accept**: an estimate from a model of how managers judge offers;
+   - **Overall**: the two combined, which ranks the list.
+5. **Explains each idea** in plain English, suggests how to offer it (a first offer, then fallbacks), and writes a
+   message you can copy to the other manager.
+
+It also has a Trade Analyzer for any trade you build (including offers you received, and "what if" roster changes), a
+League page with odds, schedule risk, trade partners and waiver upgrades, and an optional Thorough search.
+
+## How it works
+
+- **Server routes** (Next.js) read the league and normalize it into one `LeagueSnapshot`. Public leagues are read by
+  your own browser and uploaded, so each visitor's requests count against their own IP address.
+- **The engine** is pure, deterministic TypeScript (`src/engine/`) that runs in a Web Worker in your browser:
+  - projections per player and week, scored with your league's own rules (Sleeper's, blended with ESPN's for ESPN
+    leagues, and leaned toward the trade market);
+  - an exact lineup solver, averaged over simulated injury and bye scenarios, so bench depth counts;
+  - a Monte Carlo season simulation (20,000 seasons for every number a page shows, with common random numbers so a
+    trade's effect isn't noise), playoffs and tiebreakers included;
+  - a trade search that screens thousands of trades quickly, evaluates the best exactly and simulates the finalists;
+  - a logistic acceptance model and template-based explanations (no AI calls).
+- **Tech:** Next.js 16, TypeScript (strict), Tailwind, zod at every API boundary, Vitest (about 6,000 tests). Hosted
+  on Vercel, with Upstash Redis as the shared cache.
+
+## How it was built
+
+The whole spec is in [`CLAUDE.md`](CLAUDE.md). A separate planner chat wrote it and keeps it current. Claude Code
+built the app phase by phase against it, starting September 29, 2026. Each phase ended at a checkpoint: tests,
+typecheck and lint passing, an adversarial review, and a report. The checkpoint reports are in
+[`reports/`](reports/) (`checkpoint-*.md`), with the planner's replies (`planner-reply-*.md`) and the status
+(`STATUS.md`). The `checkpoint-*` tags mark the approved versions.
+
+## Repository tour
+
+| Path | What's there |
+|---|---|
+| `src/engine/` | The math: projections, lineups, simulation, market values, acceptance, trade search, explanations. All config in `config.ts`. |
+| `src/adapters/` | ESPN and Sleeper (and future platforms): fetch and normalize into a `LeagueSnapshot`. |
+| `src/app/`, `src/components/` | The Next.js pages and API routes, and the React components. |
+| `src/server/` | Server-side caching, rate limits, budgets, logging. |
+| `src/workers/` | The Web Worker that runs the engine. |
+| `scripts/` | Probes, reports, the browser check, deploy and publish scripts. |
+| `fixtures/` | Sanitized API captures for the tests (sources and licenses: [`fixtures/THIRD-PARTY.md`](fixtures/THIRD-PARTY.md)). |
+| `reports/` | Checkpoint reports, the planner's replies, generated reports and screenshots. |
+
+## About this public copy
+
+- **FantasyCalc's trade values aren't included.** Offer Sheet uses them under FantasyCalc's conditions for free use,
+  which don't allow republishing them. Their captured lists are left out of every commit, values quoted in the
+  reports, docs and comments read `[value]`, and the tests that need the lists skip here.
+- **Leaguemates stay anonymous:** names, team names and ids are placeholders like "Team 3" throughout.
+- **Commit hashes** quoted in `CLAUDE.md` and the reports refer to the private working repository. This history was
+  filtered for publication, so its hashes differ.
+
+## Running it locally (PowerShell)
 
 ```powershell
 npm install
 Copy-Item .env.example .env.local
 npm run gen:secret
-npm run check-env
-```
-
-Fill in `.env.local` with whatever you have. Blank means "not available". Never paste its values into chats or reports. `npm run check-env` shows only "set" or "blank".
-
-## Run the stable copy (PowerShell)
-
-For everyday use, run the last approved checkpoint, which work in progress can't break:
-
-```powershell
-npm run stable
-```
-
-Then open http://127.0.0.1:3000. It keeps a production build of the newest `checkpoint-*` tag in the sibling folder `fantasy-trade-finder-stable` (created, updated, installed and built as needed; `.env.local` is copied in, never printed). Ctrl+C stops it; run it again after a new checkpoint to update. Your saved leagues, settings and feedback live in the browser under http://127.0.0.1:3000, so they stay put. `npm run stable -- --help` lists its options.
-
-## Run the development version (PowerShell)
-
-```powershell
 npm run dev
 ```
 
-Then open http://127.0.0.1:3001/connect and connect an ESPN or Sleeper league. The Import Report shows what the app understood; the League page (http://127.0.0.1:3001/league) shows the standings with playoff, bye and title odds, your remaining schedule with each week's risk, projected points, needs, trade chips, trade partners and every player's rest-of-season points. Its math runs in the browser. By default your own ESPN league imports the way a leaguemate's would (public link, pick your team). To have development use `ESPN_S2` and `ESPN_SWID` from `.env.local` instead, so the app finds your team itself, set `USE_ENV_COOKIES=1` in `.env.local` and restart `npm run dev`.
-
-`npm run dev` listens on this computer only. To try it from a phone on the same Wi-Fi, run `npx next dev -H 0.0.0.0` instead and open the computer's address on port 3001; while that runs, anyone on the network can reach the development server (and, with `USE_ENV_COOKIES=1`, the `.env.local` cookie fallback for your league).
-
-## Everyday commands
+Then open http://127.0.0.1:3001/connect and connect an ESPN or Sleeper league. Fill in `.env.local` with whatever you
+have; blank means "not available", and `npm run check-env` shows only "set" or "blank". The engine runs in the
+browser.
 
 | Command | What it does |
 |---|---|
 | `npm test` | Unit tests (no network) |
 | `npm run typecheck` | TypeScript checks |
 | `npm run lint` | ESLint |
-| `npm run check:leaks` | Scans everything git would commit for secrets and leaguemates' names or IDs. It also runs as the pre-commit hook in `.githooks/`, which `npm install` switches on |
-| `npm run import:report` | Imports your leagues from `.env.local` through the real app code and writes `reports/import-report.md` (names replaced with placeholders). By default your ESPN league imports the way a leaguemate's would (public link, pick your team); add `-- --cookies` (or set `USE_ENV_COOKIES=1`) to use the `.env.local` cookies |
-| `npm run oracle:report` | Scoring-oracle results per platform and rule type, from committed fixtures: `reports/oracle-results.md` |
-| `npm run league:report` | Runs your ESPN league through the League page's engine and writes `reports/league-report.md`: the standings with playoff, bye and title odds, your remaining schedule, the season simulation's runtimes, no-op check and Trade Score scale check, projected points per week, needs, trade chips and partners, conflicting ESPN return dates, FantasyCalc match rates, depth values and every rostered player's rest-of-season points (names replaced with placeholders). Add `-- --team 3` to say which team is yours when importing without cookies |
-| `npm run measure:stat-sd` | Measures the SDs behind expected-value scoring rules (yardage, D/ST points and yards allowed) on every completed week of public Sleeper projections and stats, and prints a config block for `src/engine/config.ts` |
-| `npm run snapshot:projections` | Saves Sleeper's projections (all nine positions) for the week about to be played and the next one, each while its first kickoff is still ahead, in the git-ignored `data-local/projection-snapshots/`, so Phase 6 can refit the stat SDs on true pre-game numbers. The League page under `npm run dev` and `npm run league:report` also save the weeks they load, when those were fetched before the week's first kickoff; importing a league and the probes don't save anything themselves. Nothing is scheduled, so run it by hand, for example on Wednesday nights |
-| `npm run probe:all` | Live data-access probes for every platform, then rebuilds `reports/data-access.md` |
-| `npm run probe:espn` (and `:sleeper`, `:shared`, `:fleaflicker`, `:mfl`, `:yahoo`, `:fantrax`) | One platform |
-| `npm run check:sleeper-cors` | Whether browsers may read Sleeper's API directly |
+| `npm run check:leaks` | Scans everything git would commit for secrets and leaguemates' names or ids (also the pre-commit hook in `.githooks/`) |
+| `npm run league:report`, `npm run trade:report` | The engine on a saved league dump, written to `reports/` |
+| `npm run probe:all -- --live` | Live data-access probes for every platform |
+| `npm run stable` | The newest `checkpoint-*` tag, built and served from a sibling worktree at http://127.0.0.1:3000 (CLAUDE.md, Section 0.13) |
 
-Probes never read strangers' public leagues beyond the one pinned test league per platform. Checks that would (discovery, the code survey) report "untested: needs --allow-crawl" and only run with `npm run probe:all -- --allow-crawl`, after Parker agrees (CLAUDE.md §0.6).
-
-Minimized test fixtures of strangers' leagues are rebuilt from the git-ignored local copies with `npm run minimize:espn` (and `:sleeper`, `:mfl`, `:fleaflicker`); the ESPN ID tables with `npm run gen:espn-constants`.
+Scripts are offline by default; anything that touches the network needs `--live`.
 
 ## Privacy
 
-- Secrets live only in `.env.local`, which git ignores.
-- Raw API captures go in `fixtures/raw/`, which git ignores.
-- Committed fixtures in `fixtures/sanitized/` use placeholders such as "Team 3". Strangers' test leagues are committed only as minimized copies in `fixtures/sanitized/min/`; their full copies stay in `data-local/`, which git ignores.
-- Local caches live in `.cache/`, which git ignores. The app's own cache (`.cache/app/`) deletes league data after about 10 minutes.
-- `.next/` (Next.js build output, git-ignored) can hold copies of `.env.local` values, because Turbopack saves the environment in its cache. Never share, zip or sync the project folder with `.next/`, `.cache/` or `data-local/` in it, and delete `.next/cache` after you change your ESPN cookies.
+The app keeps your leagues, settings and feedback in your own browser. Its privacy policy is at
+[offersheet.vercel.app/privacy](https://offersheet.vercel.app/privacy).
 
 ## Credits
 
-- ESPN ID tables are ported from [cwendt94/espn-api](https://github.com/cwendt94/espn-api) (MIT).
-- Trade values come from [FantasyCalc](https://fantasycalc.com).
-- Projections and stats come from [Sleeper](https://sleeper.com) (and ESPN for ESPN leagues).
-- The player ID crosswalk comes from [DynastyProcess](https://github.com/dynastyprocess/data).
-- The NFL schedule comes from [nflverse](https://github.com/nflverse/nfldata).
+- Trade values: [FantasyCalc](https://fantasycalc.com)
+- Projections and stats: [Sleeper](https://sleeper.com) and ESPN
+- Player ID map: [DynastyProcess](https://github.com/dynastyprocess/data) (GPL-3.0)
+- ESPN ID tables: ported from [cwendt94/espn-api](https://github.com/cwendt94/espn-api) (MIT)
+- NFL schedule: ESPN and [nflverse](https://github.com/nflverse/nfldata)
 
-Not affiliated with ESPN, Yahoo, Sleeper, Fleaflicker, MFL or Fantrax.
+Not affiliated with or endorsed by ESPN, Sleeper, Yahoo, Fleaflicker, MyFantasyLeague, Fantrax, FantasyCalc,
+DynastyProcess or the NFL.
+
+## License
+
+No license is granted. The code is public to read, but all rights are reserved.

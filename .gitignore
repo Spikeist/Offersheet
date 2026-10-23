@@ -52,3 +52,6 @@ nul
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Python bytecode (scripts/publish)
+__pycache__/

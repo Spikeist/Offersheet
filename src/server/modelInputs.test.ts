@@ -30,7 +30,7 @@ import {
   type SleeperWeeklyProjectionsLoad,
 } from "@/data/sleeperProjections";
 import { MODEL_PROJECTIONS_REDUCER } from "@/data/reduce";
-import { FIXTURE, fakeHttp, fantasyCalcWith, fixtureFantasyCalcResponse, type FakeRoute } from "@/data/testSupport";
+import { FANTASYCALC_FIXTURES_HERE, FIXTURE, fakeHttp, fantasyCalcWith, fixtureFantasyCalcResponse, type FakeRoute } from "@/data/testSupport";
 import { config } from "@/engine/config";
 import type { FantasyCalcFormat } from "@/engine/inputs";
 import { fantasyCalcFallbackText, fantasyCalcFormatLabel, marketValues, noteDay } from "@/engine/market";
@@ -785,7 +785,7 @@ describe("assembleModelInputs on Parker's league (sanitized fixtures)", () => {
     expect(out.espnProjections).toBe(true);
   });
 
-  it("joins FantasyCalc values to Parker's players (a committed values list)", () => {
+  it.skipIf(!FANTASYCALC_FIXTURES_HERE)("joins FantasyCalc values to Parker's players (a committed values list)", () => {
     const format = marketFormats(parker.settings).values;
     const body = shared<Array<{ player: Record<string, unknown>; value: number }>>(FC_VALUES_10);
     const valueRows: FantasyCalcValueRow[] = body.map((r) => ({
@@ -909,8 +909,16 @@ function loadSnapshot(over: Partial<LeagueSnapshot> = {}, settings: Partial<Leag
  * A /values/current body: a committed capture (trimmed to its top rows) plus fictional filler players
  * without ids up to `players` player rows, so it passes the loader's row floor (150 redraft, 300 dynasty).
  */
+/** Without FantasyCalc's lists (the public copy), one made-up row for the player the loading tests read (9221), a dynasty list's number apart from a redraft list's. */
+function madeUpValues(label: string): Array<{ player: { id: number; name: string; position: string; sleeperId: string; espnId: null }; value: number; redraftValue: number }> {
+  const value = label.includes("isDynasty=true") ? 7000 : 5000;
+  return [{ player: { id: 990_221, name: "Made-up 9221", position: "RB", sleeperId: "9221", espnId: null }, value, redraftValue: 5000 }];
+}
+
 function valuesBody(label: string, players: number): unknown[] {
-  const capture = shared<Array<{ player: { position: string } }>>(label);
+  // The public copy leaves FantasyCalc's lists out (CLAUDE.md §0.4): there the body is all filler, which the loading tests
+  // don't mind (they test requests, caching and warnings, not values).
+  const capture = FANTASYCALC_FIXTURES_HERE ? shared<Array<{ player: { position: string } }>>(label) : madeUpValues(label);
   const have = capture.filter((r) => r.player.position !== "PICK").length;
   const filler = Array.from({ length: Math.max(0, players - have) }, (_, i) => ({ player: { id: 900_000 + i, name: `Filler ${i}`, position: "WR", sleeperId: null, espnId: null }, value: 1, redraftValue: 1 }));
   return [...capture, ...filler];

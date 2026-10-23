@@ -41,6 +41,7 @@
     "usage:report": "tsx scripts/usage-report.ts",
     "preview:deploy": "tsx scripts/preview-deploy.ts",
     "prod:deploy": "tsx scripts/prod-deploy.ts",
+    "publish:public": "tsx scripts/publish-public.ts",
     "vercel:secret": "tsx scripts/vercel-secret.ts",
     "snapshot:projections": "tsx scripts/snapshot-projections.ts",
     "snapshot:pull": "tsx scripts/snapshot-pull.ts",

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { cacheFile, credentialScope, sha256, writeCache } from "./cache";
@@ -10,7 +11,8 @@ import { describeShape, formatShape } from "./shape";
 
 describe("probe library smoke test", () => {
   it("finds the project root", () => {
-    expect(path.basename(ROOT)).toBe("fantasy-trade-finder");
+    // By its package name, not its folder's: a clone of the public repository has another folder name.
+    expect(JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8")).name).toBe("fantasy-trade-finder");
   });
 
   it("uses hash filenames that are valid on Windows", () => {

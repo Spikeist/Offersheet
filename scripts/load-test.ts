@@ -490,7 +490,12 @@ export class PlatformData {
       try {
         rows = readSanitizedFixture<Row[]>("shared", exact);
       } catch {
-        rows = readSanitizedFixture<Row[]>("shared", fallback);
+        try {
+          rows = readSanitizedFixture<Row[]>("shared", fallback);
+        } catch {
+          // The public copy leaves FantasyCalc's lists out (CLAUDE.md §0.4): made-up rows instead, padded below like a capture.
+          rows = [{ player: { id: 980_000, name: "Made-up player", position: "RB", sleeperId: null, espnId: null }, value: 9_000, redraftValue: 9_000, overallRank: 1 }];
+        }
       }
       const target = isDynasty ? LIVE_FANTASYCALC_ROWS.dynasty : LIVE_FANTASYCALC_ROWS.redraft;
       const last = rows[rows.length - 1] ?? {};

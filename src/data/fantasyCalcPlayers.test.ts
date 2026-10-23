@@ -4,10 +4,11 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import * as players from "./fantasyCalcPlayers";
 import { fantasyCalcPlayersSchema, reduceFantasyCalcPlayers } from "./fantasyCalcPlayers";
-import { fixtureFantasyCalcPlayers, fixtureFantasyCalcResponse } from "./testSupport";
+import { FANTASYCALC_FIXTURES_HERE, fixtureFantasyCalcPlayers, fixtureFantasyCalcResponse } from "./testSupport";
 
 describe("FantasyCalc /players: parsed from saved bodies only", () => {
-  it("parses the committed first-100 fixture, dropping the UNK placeholder", () => {
+  // FantasyCalc's lists are left out of the public copy (testSupport FANTASYCALC_SKIP_REASON).
+  it.skipIf(!FANTASYCALC_FIXTURES_HERE)("parses the committed first-100 fixture, dropping the UNK placeholder", () => {
     const parsed = fixtureFantasyCalcPlayers();
     expect(parsed).toHaveLength(100);
     expect(parsed.every((p) => p.sleeperId !== null)).toBe(true);

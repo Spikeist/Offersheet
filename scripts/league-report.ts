@@ -2377,7 +2377,7 @@ function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueMode
         : "";
     L.push(`- ID match: not measured. MarketInputs.knownIds names no player beyond FantasyCalc's value lists, so its player list wasn't read in this build (or added nobody), and the match would only repeat the value rate below.${why}`);
   } else L.push(`- ID match (FantasyCalc knows the player): ${skill.length - idMisses.length}/${skill.length} = ${fmt((100 * (skill.length - idMisses.length)) / Math.max(1, skill.length))}% (target ≥ 98%)${idMisses.length ? `; misses: ${idMisses.map((id) => playerLabel(players[id], id)).join("; ")}` : ""}`);
-  L.push(`- Has a value in ${fallback ? `the list from ${fallback.listDate}` : "this format"}: ${skill.length - valueMisses.length}/${skill.length} = ${fmt((100 * (skill.length - valueMisses.length)) / Math.max(1, skill.length))}%${fallback?.kind === "curve" ? " (⚠️ in the curve fallback the list only calibrates our curve: every player's value below is our estimate)" : ""}${valueMisses.length ? `; without one (estimated instead): ${valueMisses.map((id) => `${playerLabel(players[id], id)} → ${model.players[id]?.value ? `${Math.round(model.players[id]!.value!.value)} (${model.players[id]!.value!.source})` : "none"}`).join("; ")}` : ""}`);
+  L.push(`- Has a value in ${fallback ? `the list from ${fallback.listDate}` : "this format"}: ${skill.length - valueMisses.length}/${skill.length} = ${fmt((100 * (skill.length - valueMisses.length)) / Math.max(1, skill.length))}%${fallback?.kind === "curve" ? " (⚠️ in the curve fallback the list only calibrates our curve: every player's value below is our estimate)" : ""}${valueMisses.length ? `; without one (estimated instead): ${valueMisses.map((id) => `${playerLabel(players[id], id)} → ${model.players[id]?.value ? (VALUE_SOURCE_WORDS[model.players[id]!.value!.source] ?? model.players[id]!.value!.source) : "none"}`).join("; ")}` : ""}`);
   L.push(`- Values by source, all relevant players: ${Object.entries(model.market.counts).map(([k, v]) => `${k} ${v}`).join(", ")}; waiver credit W = ${Math.round(model.market.waiverCredit)}; top value ${Math.round(model.market.topValue)}`, "");
 
   // Depth: expected-value lineups vs scenario lineups.
@@ -2401,7 +2401,7 @@ function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueMode
   for (const t of snapshot.teams) {
     const ids = [...t.roster, ...t.ir, ...t.taxi];
     L.push(`### ${teamName(t.id)}`, "");
-    L.push(`| Player | Pos | NFL | St | ROS | Reg | PO | Games | Bye | Value | Base | ${weeks.map((w) => `W${w}`).join(" | ")} |`);
+    L.push(`| Player | Pos | NFL | St | ROS | Reg | PO | Games | Bye | Value from | Base | ${weeks.map((w) => `W${w}`).join(" | ")} |`);
     L.push(`|---|---|---|---|---|---|---|---|---|---|---|${weeks.map(() => "---").join("|")}|`);
     const rows = ids.map((id) => ({ id, m: model.players[id], p: players[id] })).sort((a, b) => (b.m?.ros.total ?? -1) - (a.m?.ros.total ?? -1));
     for (const r of rows) {
@@ -2411,14 +2411,17 @@ function render(snapshot: LeagueSnapshot, inputs: ModelInputs, model: LeagueMode
         L.push(`| ${playerName(r.p, r.id)}${onIr} | ${r.p?.pos ?? ""} | ${r.p?.nflTeam ?? ""} | ${STATUS_SHORT[r.p?.injury ?? "ACTIVE"] ?? ""} | no projection | | | | | | | ${weeks.map(() => "").join(" | ")} |`);
         continue;
       }
-      const v = m.value ? `${Math.round(m.value.value)}${m.value.source === "fantasycalc" ? "" : "*"}` : "–";
+      const v = m.value ? VALUE_SOURCE_WORDS[m.value.source] ?? m.value.source : "–";
       L.push(`| ${playerName(r.p, r.id)}${onIr} | ${r.p?.pos ?? ""} | ${r.p?.nflTeam ?? "FA"} | ${STATUS_SHORT[r.p?.injury ?? "ACTIVE"] ?? ""} | ${fmt(m.ros.total)} | ${fmt(m.ros.regular)} | ${fmt(m.ros.playoffs)} | ${m.ros.gamesLeft} | ${byeText(m)} | ${v} | ${fmt(m.base.b)} (${m.base.source}) | ${m.weekly.map((x) => (x.bye ? "bye" : fmt(x.p))).join(" | ")} |`);
     }
     L.push("");
   }
-  L.push("\\* estimated value (FantasyCalc doesn't value him in this format; §9). Values: FantasyCalc (fantasycalc.com).", "");
+  L.push("Value from: FantasyCalc, our estimate (FantasyCalc doesn't value him in this format; §9) or the floor. The values themselves aren't printed: no FantasyCalc value goes into a committed file (CLAUDE.md §0.4). Values: FantasyCalc (fantasycalc.com).", "");
   return L.join("\n");
 }
+
+/** Where a player's value comes from, in the report's words (the number itself is never printed: CLAUDE.md §0.4). */
+const VALUE_SOURCE_WORDS: Record<string, string> = { fantasycalc: "FantasyCalc", estimate: "our estimate", floor: "the floor" };
 
 export interface ReportOptions extends Omit<SeasonReportOptions, "now" | "clock"> {
   now: Date;

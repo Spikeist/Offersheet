@@ -9,7 +9,7 @@
  */
 import { readFileSync } from "node:fs";
 import type { HttpClient, HttpRequestOptions, HttpResponse } from "@/adapters/types";
-import { fixtureLabels, readSanitizedFixture, sanitizedFixturePath } from "@/test-utils/fixtures";
+import { fixtureLabels, hasSanitizedFixture, readSanitizedFixture, sanitizedFixturePath } from "@/test-utils/fixtures";
 import { DYNASTYPROCESS_MIN_ROWS, parseDynastyProcessCsv, type DynastyRow } from "./dynastyProcess";
 import { FANTASYCALC_MIN_ROWS, fantasyCalcPlayersSchema, reduceFantasyCalcPlayers, type FantasyCalcPlayerIds } from "./fantasyCalcPlayers";
 import { reduceSleeperPlayers, SLEEPER_LIST_MIN_ROWS, SLEEPER_PLAYER_POSITIONS, sleeperPlayersSchema, type SleeperPlayerRecord } from "./sleeperPlayers";
@@ -31,8 +31,16 @@ export function fixtureDynastyRows(): DynastyRow[] {
   return parseDynastyProcessCsv(fixtureDynastyCsv());
 }
 
+/**
+ * Whether FantasyCalc's committed lists are here: the private repository has them, the public copy doesn't (CLAUDE.md
+ * §0.4). Tests that need them skip without them (FANTASYCALC_SKIP_REASON); tests that only need some list use filler.
+ */
+export const FANTASYCALC_FIXTURES_HERE = hasSanitizedFixture("shared", FIXTURE.fantasyCalcPlayers);
+export const FANTASYCALC_SKIP_REASON = "FantasyCalc's lists aren't in the public copy of the repository";
+
+/** FantasyCalc's first-100 /players body; [] in the public copy, which leaves FantasyCalc's lists out. */
 export function fixtureFantasyCalcResponse(): unknown {
-  return readSanitizedFixture("shared", FIXTURE.fantasyCalcPlayers);
+  return FANTASYCALC_FIXTURES_HERE ? readSanitizedFixture("shared", FIXTURE.fantasyCalcPlayers) : [];
 }
 
 export function fixtureFantasyCalcPlayers(): FantasyCalcPlayerIds[] {

@@ -5,3 +5,7 @@
 # (safe for binary files too, unlike eol=lf), so a checkout holds exactly what's committed (LF).
 fixtures/** -text
 src/app/icon.svg -text
+# Git hooks run under sh, which a CRLF checkout breaks; the vendored git-filter-repo keeps the bytes its pinned SHA-256
+# names (scripts/vendor/git-filter-repo/README.md).
+.githooks/** -text
+scripts/vendor/** -text

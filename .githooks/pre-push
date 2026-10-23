@@ -1,0 +1,11 @@
+#!/bin/sh
+# Pre-push (CLAUDE.md §0.4): the private working copy's history holds data that can't be published (FantasyCalc's value
+# lists), so nothing is pushed from it. The public repository gets a filtered copy of it instead, built and checked in a
+# temp folder: npm run publish:public -- --live. Installed by `npm install` ("prepare" sets core.hooksPath .githooks).
+# The public copy has no scripts/publish/rules.json, so a clone of it pushes as usual.
+if [ -f scripts/publish/rules.json ]; then
+  echo "pre-push: this repository's history holds FantasyCalc's value lists, which can't be published."
+  echo "pre-push: publish the filtered copy instead: npm run publish:public -- --live"
+  exit 1
+fi
+exit 0

@@ -15,6 +15,14 @@ export function sanitizedFixturePath(platform: string, label: string, ext = ".js
   return path.join(ROOT, "fixtures", "sanitized", platform, `${sha256(label)}${ext}`);
 }
 
+/**
+ * Whether a committed fixture is here. The public copy of the repository leaves out FantasyCalc's lists (CLAUDE.md
+ * §0.4: their terms keep them unpublished), so the tests that read those skip there, with a reason, instead of failing.
+ */
+export function hasSanitizedFixture(platform: string, label: string, ext = ".json"): boolean {
+  return existsSync(sanitizedFixturePath(platform, label, ext));
+}
+
 export function readSanitizedFixture<T = unknown>(platform: string, label: string): T {
   return JSON.parse(readFileSync(sanitizedFixturePath(platform, label), "utf8")) as T;
 }

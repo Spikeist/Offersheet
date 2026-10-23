@@ -28,7 +28,10 @@ import {
   type FantasyCalcValuesLoad,
 } from "./fantasyCalcValues";
 import { SLEEPER_OUTAGE_HOLD_MS, SLEEPER_OUTAGE_MAX_HOLD_MS } from "./sleeperProjections";
-import { fakeHttp } from "./testSupport";
+import { FANTASYCALC_FIXTURES_HERE, fakeHttp } from "./testSupport";
+
+/** The tests that read FantasyCalc's committed lists: the public copy leaves those out (CLAUDE.md §0.4), so they skip there. */
+const itFc = FANTASYCALC_FIXTURES_HERE ? it : it.skip;
 
 const fmt = (over: Partial<FantasyCalcFormat> = {}): FantasyCalcFormat => ({ isDynasty: false, numQbs: 1, numTeams: 12, ppr: 1, substitutions: [], ...over });
 /** Parker's format: redraft, 1 QB, 10 teams, half PPR (no committed capture; the 10-team PPR one stands in below). */
@@ -49,7 +52,7 @@ function valuesWith(rows: ValueRow[], players: number): ValueRow[] {
 }
 
 describe("fantasyCalcValuesUrl (CLAUDE.md §2.9)", () => {
-  it("encodes every committed capture's format exactly as it was requested, TE premium as tep=te%2B / te%2B%2B", () => {
+  itFc("encodes every committed capture's format exactly as it was requested, TE premium as tep=te%2B / te%2B%2B", () => {
     const labels = fixtureLabels("fixtures/sanitized/shared").filter((l) => l.startsWith("fantasycalc/values?"));
     expect(labels.length).toBeGreaterThanOrEqual(11);
     for (const label of labels) {
@@ -66,12 +69,15 @@ describe("fantasyCalcValuesUrl (CLAUDE.md §2.9)", () => {
 });
 
 describe("reduceFantasyCalcValues", () => {
-  it("keeps draft picks apart from player values (dynasty only), by name", () => {
+  itFc("keeps draft picks apart from player values (dynasty only), by name", () => {
     const dynasty = reduceFantasyCalcValues(fantasyCalcValuesSchema.parse(capture(fantasyCalcValuesUrl(DYNASTY_12))));
     expect(dynasty.players).toHaveLength(49);
     expect(dynasty.picks).toHaveLength(24);
     for (const p of dynasty.picks) expect(p.name).toMatch(/^\d{4} \d+(st|nd|rd|th)( \((Early|Mid|Late)\))?$/);
-    expect(dynasty.picks).toContainEqual({ name: "2027 1st (Early)", value: 0 /* [value] */ });
+    // The pick's value as the capture gives it (no FantasyCalc value is written into a committed file: CLAUDE.md §0.4).
+    const early = capture(fantasyCalcValuesUrl(DYNASTY_12)).find((r) => r.player.name === "2027 1st (Early)");
+    expect(early?.value).toBeGreaterThan(0);
+    expect(dynasty.picks).toContainEqual({ name: "2027 1st (Early)", value: early?.value });
     expect(dynasty.players.every((p) => p.position !== "PICK" && p.sleeperId !== null && !/^FP_/.test(p.sleeperId))).toBe(true);
     const redraft = reduceFantasyCalcValues(fantasyCalcValuesSchema.parse(capture(fantasyCalcValuesUrl(REDRAFT_10))));
     expect(redraft.picks).toEqual([]);
@@ -95,7 +101,7 @@ describe("reduceFantasyCalcValues", () => {
 describe("loadFantasyCalcValues (FantasyCalc's conditions of 2026-10-05: at most every 3 hours per format)", () => {
   const url = fantasyCalcValuesUrl(REDRAFT_10);
 
-  it("fetches with a 3-hour cache (FantasyCalc's conditions; 24 hours before), a saved copy kept 90 days (Phase 4c; other public sources 7) and one retry, and reports the top value", async () => {
+  itFc("fetches with a 3-hour cache (FantasyCalc's conditions; 24 hours before), a saved copy kept 90 days (Phase 4c; other public sources 7) and one retry, and reports the top value", async () => {
     const { http, calls } = fakeHttp({ [url]: { json: valuesWith(capture(url), FANTASYCALC_REDRAFT_MIN_PLAYERS), fetchedAt: 42 } });
     const load = await loadFantasyCalcValues(http, REDRAFT_10);
     expect(calls).toHaveLength(1);
@@ -111,7 +117,7 @@ describe("loadFantasyCalcValues (FantasyCalc's conditions of 2026-10-05: at most
     expect(load.players.filter((p) => p.sleeperId)).toHaveLength(50); // the capture's rows; the filler has no ids
   });
 
-  it("can skip the retry (a keeper league's second list right after FantasyCalc didn't answer), and a saved copy still stands in then", async () => {
+  itFc("can skip the retry (a keeper league's second list right after FantasyCalc didn't answer), and a saved copy still stands in then", async () => {
     const { http, calls } = fakeHttp({ [url]: { json: valuesWith(capture(url), FANTASYCALC_REDRAFT_MIN_PLAYERS), stale: true, fetchedAt: 7 } });
     await expect(loadFantasyCalcValues(http, REDRAFT_10, { maxRetries: 0 })).resolves.toMatchObject({ stale: true, fetchedAt: 7 });
     expect(calls.map((c) => c.opts?.maxRetries)).toEqual([0]);
@@ -126,7 +132,7 @@ describe("loadFantasyCalcValues (FantasyCalc's conditions of 2026-10-05: at most
     expect(requests).toBe(1);
   });
 
-  it("rejects (and never caches) a list below its row floor: 150 redraft, 300 dynasty players (picks don't count)", async () => {
+  itFc("rejects (and never caches) a list below its row floor: 150 redraft, 300 dynasty players (picks don't count)", async () => {
     const short = capture(url);
     const { http, calls } = fakeHttp({ [url]: { json: short } });
     await expect(loadFantasyCalcValues(http, REDRAFT_10)).rejects.toMatchObject({ code: "BAD_RESPONSE", message: "FantasyCalc redraft values: 50 rows, expected at least 150 player rows", detail: { path: "(root)" } });
@@ -142,7 +148,7 @@ describe("loadFantasyCalcValues (FantasyCalc's conditions of 2026-10-05: at most
     expect([FANTASYCALC_REDRAFT_MIN_PLAYERS, FANTASYCALC_DYNASTY_MIN_PLAYERS]).toEqual([150, 300]);
   });
 
-  it("throws on a missing field (naming its JSON path), an error status or a non-JSON body", async () => {
+  itFc("throws on a missing field (naming its JSON path), an error status or a non-JSON body", async () => {
     const rows = valuesWith(capture(url), 150);
     const broken = structuredClone(rows) as Array<Partial<ValueRow>>;
     delete broken[1]?.value;
@@ -155,7 +161,7 @@ describe("loadFantasyCalcValues (FantasyCalc's conditions of 2026-10-05: at most
     expect(err).toMatchObject({ code: "SOURCE_DOWN", message: "FantasyCalc redraft values: couldn't be reached" });
   });
 
-  it("serves a saved copy (up to 7 days old) when FantasyCalc fails, and says so", async () => {
+  itFc("serves a saved copy (up to 7 days old) when FantasyCalc fails, and says so", async () => {
     const { http } = fakeHttp({ [url]: { json: valuesWith(capture(url), 150), stale: true, fetchedAt: 5 } });
     await expect(loadFantasyCalcValues(http, REDRAFT_10)).resolves.toMatchObject({ fromCache: true, stale: true, fetchedAt: 5 });
     // Through the real client: a copy stored 2 days ago (past the 3-hour TTL) stands in for a broken answer.
@@ -190,7 +196,7 @@ describe("loadFantasyCalcValues (FantasyCalc's conditions of 2026-10-05: at most
       return { fetchImpl, requests: () => n };
     }
 
-    it("a fresh answer is kept 90 days, but served fresh only for 3 hours: at most one request every 3 hours per format, and only when a build asks", async () => {
+    itFc("a fresh answer is kept 90 days, but served fresh only for 3 hours: at most one request every 3 hours per format, and only when a build asks", async () => {
       const cache = new MemoryCache();
       let requests = 0;
       const fetchImpl = (async () => {
@@ -212,7 +218,7 @@ describe("loadFantasyCalcValues (FantasyCalc's conditions of 2026-10-05: at most
       expect(await cache.get(key, Number.POSITIVE_INFINITY, Date.now() + 90 * DAY + 60_000)).toBeUndefined();
     });
 
-    it("FantasyCalc down with a 3-day-old copy: it stands in, stale, as a saved list", async () => {
+    itFc("FantasyCalc down with a 3-day-old copy: it stands in, stale, as a saved list", async () => {
       const cache = new MemoryCache();
       const savedAt = await savedCopy(cache, 3);
       const broken = brokenFantasyCalc();
@@ -222,7 +228,7 @@ describe("loadFantasyCalcValues (FantasyCalc's conditions of 2026-10-05: at most
       expect(fantasyCalcListUse(load, new Date())).toBe("saved");
     });
 
-    it("a 20-day-old copy is still served (the 7-day retention dropped it), and only for the curve", async () => {
+    itFc("a 20-day-old copy is still served (the 7-day retention dropped it), and only for the curve", async () => {
       const cache = new MemoryCache();
       const savedAt = await savedCopy(cache, 20);
       const broken = brokenFantasyCalc();
@@ -232,7 +238,7 @@ describe("loadFantasyCalcValues (FantasyCalc's conditions of 2026-10-05: at most
       expect(fantasyCalcListUse(load, new Date())).toBe("curve");
     });
 
-    it("no copy (or one past 90 days, deleted): FantasyCalc's failure, as before", async () => {
+    itFc("no copy (or one past 90 days, deleted): FantasyCalc's failure, as before", async () => {
       const cache = new MemoryCache();
       const old = Date.now() - 100 * DAY;
       await cache.set(`fantasycalc:${url}`, { status: 200, contentType: "application/json", text: JSON.stringify(valuesWith(capture(url), 150)), fetchedAt: old }, FANTASYCALC_RETAIN_MS, old);
@@ -258,7 +264,7 @@ describe("loadFantasyCalcValues (FantasyCalc's conditions of 2026-10-05: at most
     expect(fantasyCalcListUse(at(5), now, { fantasyCalcStaleDays: 3, fantasyCalcCurveDays: 4 })).toBe("expired");
   });
 
-  it("asks again, once, when a fresh cached copy fails the check, and replaces it", async () => {
+  itFc("asks again, once, when a fresh cached copy fails the check, and replaces it", async () => {
     const cache = new MemoryCache();
     await cache.set(`fantasycalc:${url}`, { status: 200, contentType: "application/json", text: "[]" }, TTL.fantasyCalc);
     let requests = 0;
@@ -352,7 +358,7 @@ describe("the outage memory (Phase 4c's polish; CLAUDE.md §0.9: the Sleeper gat
     expect(fantasyCalcGate({ get: http.get }, new Date(T0 + 50 * MIN + 1)).down()).toBeUndefined();
   });
 
-  it("through the real client and cache: the build that finds FantasyCalc down asks twice (its retry), the builds in the hold ask nothing and read the saved copy, a later one probes again (a longer hold), and an answer ends it", async () => {
+  itFc("through the real client and cache: the build that finds FantasyCalc down asks twice (its retry), the builds in the hold ask nothing and read the saved copy, a later one probes again (a longer hold), and an answer ends it", async () => {
     vi.useFakeTimers({ now: T0 });
     const cache = new MemoryCache();
     const savedAt = T0 - 3 * DAY;
@@ -394,7 +400,7 @@ describe("the outage memory (Phase 4c's polish; CLAUDE.md §0.9: the Sleeper gat
     expect(fantasyCalcGate(http, new Date(T0 + 18 * MIN)).down()).toBeUndefined();
   });
 
-  it("while held, a format with no copy in the cache isn't asked: the load fails as not asked (status 0, so later lists count it as no answer); a 200 body that fails the checks starts no hold", async () => {
+  itFc("while held, a format with no copy in the cache isn't asked: the load fails as not asked (status 0, so later lists count it as no answer); a 200 body that fails the checks starts no hold", async () => {
     vi.useFakeTimers({ now: T0 });
     let requests = 0;
     let answer: "down" | "short" = "down";
@@ -455,7 +461,7 @@ describe("answers the checks turn down, and requests Offer Sheet held back (revi
     vi.useRealTimers();
   });
 
-  it("a short list with no saved copy: asked once in 3 hours, not once a build; the later builds fail as not asked again yet, and FantasyCalc isn't taken for down", async () => {
+  itFc("a short list with no saved copy: asked once in 3 hours, not once a build; the later builds fail as not asked again yet, and FantasyCalc isn't taken for down", async () => {
     vi.useFakeTimers({ now: T0 });
     const fc = fantasyCalc(short);
     const http = createHttpClient({ fetchImpl: fc.fetchImpl, cache: new MemoryCache(), budget: null });
@@ -485,7 +491,7 @@ describe("answers the checks turn down, and requests Offer Sheet held back (revi
     expect(TTL.fantasyCalc).toBe(3 * HOUR);
   });
 
-  it("with yesterday's copy saved: that copy stands in for every build, from the cache only after the first; the snapshot cron asks nothing more on the same client", async () => {
+  itFc("with yesterday's copy saved: that copy stands in for every build, from the cache only after the first; the snapshot cron asks nothing more on the same client", async () => {
     vi.useFakeTimers({ now: T0 });
     const cache = new MemoryCache();
     const savedAt = T0 - DAY;
@@ -505,7 +511,7 @@ describe("answers the checks turn down, and requests Offer Sheet held back (revi
     expect(fc.requests).toHaveLength(1);
   });
 
-  it("an error status (a 404) is remembered by its status; a good answer ends the hold, and so does a good copy another request cached meanwhile", async () => {
+  itFc("an error status (a 404) is remembered by its status; a good answer ends the hold, and so does a good copy another request cached meanwhile", async () => {
     vi.useFakeTimers({ now: T0 });
     let answer: () => Response = () => new Response("", { status: 404 });
     const fc = fantasyCalc(() => answer());
@@ -532,7 +538,7 @@ describe("answers the checks turn down, and requests Offer Sheet held back (revi
     expect(fc.requests).toHaveLength(2);
   });
 
-  it("a request the day's FantasyCalc budget held back starts no outage: a saved copy stands in, and with none the load says Offer Sheet held off", async () => {
+  itFc("a request the day's FantasyCalc budget held back starts no outage: a saved copy stands in, and with none the load says Offer Sheet held off", async () => {
     vi.useFakeTimers({ now: T0 });
     const { createBudget } = await import("@/server/budget");
     const spent = () => createBudget({ perDay: { espn: 1, sleeper: 1, fantasycalc: 0, github: 1 } });
@@ -604,7 +610,7 @@ describe("joining FantasyCalc to canonical ids (§4 canonical ids; §9 v_i)", ()
     expect(known).toEqual(["90007", "90001", "espn:4400007"]);
   });
 
-  it("works on the committed captures: every value row's Sleeper id finds its row", () => {
+  itFc("works on the committed captures: every value row's Sleeper id finds its row", () => {
     const load = reduceFantasyCalcValues(fantasyCalcValuesSchema.parse(capture(fantasyCalcValuesUrl(REDRAFT_10))));
     const ids = load.players.map((p) => p.sleeperId as string);
     const values = fantasyCalcValuesFor(load.players, {}, ids);
